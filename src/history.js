@@ -98,7 +98,12 @@ HistoryManager.init();
 // ========== 历史面板 UI ==========
 function showHistoryPanel() {
     const old = document.getElementById('ai-history-panel');
-    if (old) { old.remove(); return; }
+    if (old) { old.previousElementSibling?.id === 'ai-history-overlay' && old.previousElementSibling.remove(); old.remove(); return; }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ai-history-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);backdrop-filter:blur(8px);z-index:1000000;';
+    document.body.appendChild(overlay);
 
     const panel = document.createElement('div');
     panel.id = 'ai-history-panel';
@@ -114,7 +119,6 @@ function showHistoryPanel() {
                 display: flex; flex-direction: column; overflow: hidden;
                 animation: ai-modal-scalein 0.3s cubic-bezier(0.16,1,0.3,1);
             }
-            #ai-history-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);backdrop-filter:blur(8px);z-index:1000000; }
             .hist-header { padding:20px 28px 16px; border-bottom:1px solid rgba(0,0,0,0.06); display:flex; justify-content:space-between; align-items:center; }
             .hist-header h3 { margin:0; font-size:16px; font-weight:600; color:#1d1d1f; }
             .hist-header .close-btn { background:transparent;border:none;font-size:20px;cursor:pointer;color:#666;padding:4px 8px;border-radius:6px; }
@@ -144,7 +148,6 @@ function showHistoryPanel() {
             .hist-item-actions button.primary:hover { background:rgba(0,82,255,0.04); }
             .hist-empty { text-align:center; padding:60px 20px; color:#aaa; font-size:14px; }
         </style>
-        <div id="ai-history-overlay"></div>
         <div id="ai-history-panel-inner">
             <div class="hist-header">
                 <h3>评阅历史</h3>
@@ -161,8 +164,8 @@ function showHistoryPanel() {
     `;
     document.body.appendChild(panel);
 
-    const close = () => panel.remove();
-    document.getElementById('ai-history-overlay').onclick = close;
+    const close = () => { overlay.remove(); panel.remove(); };
+    overlay.onclick = close;
     document.getElementById('hist-close').onclick = close;
     document.getElementById('hist-export-csv').onclick = () => HistoryManager.exportCSV();
     document.getElementById('hist-export-json').onclick = () => HistoryManager.exportJSON();

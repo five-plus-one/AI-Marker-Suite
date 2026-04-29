@@ -2,6 +2,7 @@
 
 function showCorrectionPanel(context) {
     // context: { score, comment, studentAnswer, imageUrls, base64DataArray, config, onAccept(finalScore, correctionInfo), onCancel }
+    ensureModalStyles();
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
     overlay.id = 'correction-panel';

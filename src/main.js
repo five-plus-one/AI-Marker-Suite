@@ -77,7 +77,7 @@ async function startAutoGrading() {
         window.aiGradingState.currentImageUrls = imageUrls;
 
         const gradeBtn = document.querySelector('.ai-grade-btn');
-        if (gradeBtn && !window.aiGradingState.gradingMode === 'unattended') {
+        if (gradeBtn && window.aiGradingState.gradingMode !== 'unattended') {
             gradeBtn.textContent = imageUrls.length > 1 ? `📥 下载多图(${imageUrls.length})...` : '📥 下载图片...';
         }
 
@@ -88,14 +88,14 @@ async function startAutoGrading() {
 
         if (window.aiGradingState.isPaused) throw new Error('用户暂停');
 
-        if (gradeBtn && !window.aiGradingState.gradingMode === 'unattended') {
+        if (gradeBtn && window.aiGradingState.gradingMode !== 'unattended') {
             gradeBtn.textContent = '⏳ AI分析中...';
             showStreamPanel();
         }
 
         console.log('🤖 [诊断] 开始调用AI接口...');
         const result = await callAIGrading(base64DataArray, config, (streamedText) => {
-            if (!window.aiGradingState.gradingMode === 'unattended') updateStreamPanel(streamedText);
+            if (window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
         });
 
         hideStreamPanel();
