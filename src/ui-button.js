@@ -19,22 +19,53 @@ function createMainButton() {
     if (document.querySelector('.ai-grade-btn')) return;
     const btn = document.createElement('button');
     btn.className = 'ai-grade-btn';
-    btn.innerHTML = '✨ 开始AI打分';
+    btn.innerHTML = 'AI 批改';
     btn.onclick = toggleAutoGrading;
 
     const style = document.createElement('style');
     style.textContent = `
-        .ai-grade-btn { position: fixed; bottom: 150px; right: 30px; z-index: 99999 !important; padding: 18px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 30px; font-size: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 10px 30px rgba(102, 126, 234, 0.6); transition: all 0.3s ease; min-width: 180px; }
-        .ai-grade-btn:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 15px 35px rgba(102, 126, 234, 0.8); }
-        .ai-grade-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .ai-grade-btn.paused { background: linear-gradient(135deg, #F56C6C 0%, #E6A23C 100%); animation: pulse-pause 1.5s infinite; }
-        .ai-grade-btn.running { background: linear-gradient(135deg, #67C23A 0%, #409EFF 100%); animation: pulse-running 2s infinite; }
-        .ai-grade-btn.unattended { background: linear-gradient(135deg, #E6A23C 0%, #F56C6C 100%); animation: pulse-unattended 2s infinite; }
-        .ai-grade-btn.needs-save { background: linear-gradient(135deg, #909399 0%, #606266 100%) !important; box-shadow: 0 5px 15px rgba(0,0,0,0.2) !important; animation: none !important; border: 2px solid #F56C6C;}
-        @keyframes pulse-pause { 0%, 100% { box-shadow: 0 10px 30px rgba(245, 108, 108, 0.6); } 50% { box-shadow: 0 10px 40px rgba(245, 108, 108, 0.9); transform: scale(1.02); } }
-        @keyframes pulse-running { 0%, 100% { box-shadow: 0 10px 30px rgba(103, 194, 58, 0.6); } 50% { box-shadow: 0 10px 40px rgba(103, 194, 58, 0.9); } }
-        @keyframes pulse-unattended { 0%, 100% { box-shadow: 0 10px 30px rgba(230, 162, 60, 0.6); } 50% { box-shadow: 0 10px 40px rgba(245, 108, 108, 0.9); } }
-        .toast-notification { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 12px 24px; border-radius: 30px; z-index: 100000; font-size: 14px; transition: opacity 0.5s; pointer-events: none;}
+        .ai-grade-btn { 
+            position: fixed; bottom: 40px; right: 40px; z-index: 99999 !important; 
+            padding: 14px 32px; 
+            background: rgba(20, 20, 20, 0.85); 
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            color: #fff; 
+            border: 1px solid rgba(255,255,255,0.1); 
+            border-radius: 40px; 
+            font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif; 
+            font-size: 15px; font-weight: 500; letter-spacing: 0.5px;
+            cursor: pointer; 
+            box-shadow: 0 12px 32px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.05); 
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); 
+            min-width: 140px;
+        }
+        .ai-grade-btn:hover { 
+            transform: translateY(-2px) scale(1.02); 
+            box-shadow: 0 16px 40px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.1); 
+            background: rgba(0, 0, 0, 0.95);
+        }
+        .ai-grade-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .ai-grade-btn.paused { border-color: rgba(230, 162, 60, 0.5); background: rgba(30,30,30,0.9); }
+        .ai-grade-btn.running { border-color: rgba(64, 158, 255, 0.5); }
+        .ai-grade-btn.unattended { border-color: rgba(245, 108, 108, 0.5); }
+        .ai-grade-btn.needs-save { background: rgba(245, 108, 108, 0.05) !important; color: #D93025; border-color: rgba(217, 48, 37, 0.2); box-shadow: none !important; }
+        
+        .toast-notification { 
+            position: fixed; top: 32px; left: 50%; transform: translate(-50%, -10px); 
+            background: rgba(255,255,255,0.95); 
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            color: #1a1a1a; 
+            padding: 12px 24px; 
+            border-radius: 12px; 
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+            z-index: 100000; 
+            font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif;
+            font-size: 13px; font-weight: 500;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+            pointer-events: none; opacity: 0;
+        }
+        .toast-notification.show { opacity: 1; transform: translate(-50%, 0); }
     `;
     document.head.appendChild(style);
     document.body.appendChild(btn);
@@ -43,9 +74,10 @@ function createMainButton() {
 function showToast(msg) {
     const toast = document.createElement('div');
     toast.className = 'toast-notification';
-    toast.textContent = msg;
+    toast.textContent = msg.replace(/[^\u4e00-\u9fa5A-Za-z0-9，。！：？（）()\[\]\.\-\_\s]/g, '').trim(); 
     document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 3000);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 3000);
 }
 
 // ========== 未保存状态管理 ==========
@@ -55,14 +87,14 @@ function markUnsavedChanges() {
 
         const btn = document.querySelector('.ai-grade-btn');
         if (btn && !window.aiGradingState.isRunning) {
-            btn.textContent = '⚠️ 请先保存配置';
+            btn.textContent = '先保存配置';
             btn.classList.add('needs-save');
         }
 
         const saveBtn = document.getElementById('save-config-btn');
         if (saveBtn) {
             saveBtn.classList.add('highlight-save');
-            saveBtn.innerHTML = '💾 保存修改 <span style="font-size:12px;opacity:0.8;">(未保存)</span>';
+            saveBtn.innerHTML = '保存修改 <span style="font-size:11px;opacity:0.6;font-weight:normal;margin-left:6px;">未保存</span>';
         }
     }
 }
@@ -72,14 +104,14 @@ function clearUnsavedChanges() {
 
     const btn = document.querySelector('.ai-grade-btn');
     if (btn && !window.aiGradingState.isRunning) {
-        btn.textContent = '✨ 开始AI打分';
+        btn.textContent = 'AI 批改';
         btn.classList.remove('needs-save');
     }
 
     const saveBtn = document.getElementById('save-config-btn');
     if (saveBtn) {
         saveBtn.classList.remove('highlight-save');
-        saveBtn.innerHTML = '💾 保存当前方案并启用';
+        saveBtn.innerHTML = '保存并启用';
     }
 }
 
@@ -90,7 +122,7 @@ function toggleAutoGrading() {
     setTimeout(() => btn.disabled = false, 800);
 
     if (window.aiGradingState.hasUnsavedChanges) {
-        safeAlert('⚠️ 检测到配置已被修改，请先点击配置面板上的【保存】按钮！');
+        safeAlert('配置已修改，请先点击配置面板上的【保存】按钮。');
         const panel = document.getElementById('ai-grading-settings');
         if (panel) {
             panel.style.display = 'block';
@@ -99,7 +131,7 @@ function toggleAutoGrading() {
             if (minimizeBtn) minimizeBtn.textContent = '−';
             const saveBtn = document.getElementById('save-config-btn');
             if (saveBtn) {
-                saveBtn.style.transform = 'scale(1.05)';
+                saveBtn.style.transform = 'scale(1.02)';
                 setTimeout(() => saveBtn.style.transform = 'scale(1)', 200);
             }
         }
@@ -111,7 +143,7 @@ function toggleAutoGrading() {
         window.aiGradingState.isRunning = false;
         if (window.aiGradingState.abortController) window.aiGradingState.abortController.abort();
 
-        btn.textContent = '▶️ 继续AI打分';
+        btn.textContent = '继续批改';
         btn.classList.remove('running', 'unattended');
         btn.classList.add('paused');
 
@@ -127,11 +159,11 @@ function toggleAutoGrading() {
         window.aiGradingState.unattendedMode = config.unattendedMode || false;
 
         if (window.aiGradingState.unattendedMode) {
-            btn.textContent = '🤖 无人值守中...';
+            btn.textContent = '自动批改中…';
             btn.classList.remove('paused');
             btn.classList.add('running', 'unattended');
         } else {
-            btn.textContent = '⏸️ 暂停AI打分';
+            btn.textContent = '暂停';
             btn.classList.remove('paused', 'unattended');
             btn.classList.add('running');
         }
@@ -154,19 +186,43 @@ function showStreamPanel() {
         panel.id = 'ai-stream-panel';
         panel.innerHTML = `
             <style>
-                #ai-stream-panel { position:fixed; bottom:220px; right:30px; width:360px; background:white; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.2); padding:20px; z-index:99998; font-family:-apple-system, sans-serif; border: 2px solid #409EFF; transition: opacity 0.3s;}
-                #ai-stream-panel h4 { margin:0 0 12px 0; color:#409EFF; font-size:16px; display:flex; align-items:center;}
-                #ai-stream-panel .loading-dots::after { content: ''; animation: dots 1.5s steps(4, end) infinite;}
-                @keyframes dots { 0%, 20% { content: ''; } 40% { content: '.'; } 60% { content: '..'; } 80%, 100% { content: '...'; } }
-                #ai-stream-content { font-size:14px; color:#606266; line-height:1.6; max-height:250px; overflow-y:auto; white-space:pre-wrap; background: #f5f7fa; padding: 12px; border-radius: 6px; border: 1px solid #EBEEF5;}
+                #ai-stream-panel { 
+                    position: fixed; bottom: 100px; right: 40px; width: 340px; 
+                    background: rgba(255, 255, 255, 0.85); 
+                    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+                    border-radius: 12px; 
+                    box-shadow: 0 16px 40px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.03); 
+                    padding: 18px; z-index: 99998; 
+                    font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; 
+                    border: 1px solid rgba(0,0,0,0.06);
+                    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                    transform: translateY(10px); opacity: 0;
+                }
+                #ai-stream-panel.show { transform: translateY(0); opacity: 1; }
+                #ai-stream-panel h4 { 
+                    margin: 0 0 12px 0; color: #1a1a1a; font-size: 11px; font-weight: 600; 
+                    display: flex; align-items: center; letter-spacing: 0.5px; text-transform: uppercase;
+                }
+                #ai-stream-panel .pulse-dot {
+                    width: 6px; height: 6px; border-radius: 50%; background: #000; margin-right: 8px;
+                    box-shadow: 0 0 0 rgba(0,0,0,0.2); animation: pulse-dot-minimal 2s infinite;
+                }
+                @keyframes pulse-dot-minimal { 0% { box-shadow: 0 0 0 0 rgba(0,0,0,0.2); } 70% { box-shadow: 0 0 0 5px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+                #ai-stream-content { 
+                    font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
+                    font-size: 12px; color: #4a4a4a; line-height: 1.6; 
+                    max-height: 220px; overflow-y: auto; white-space: pre-wrap; 
+                    scrollbar-width: thin;
+                }
             </style>
-            <h4>🤖 AI 正在实时阅卷<span class="loading-dots"></span></h4>
-            <div id="ai-stream-content">连接已建立，等待数据...</div>
+            <h4><span class="pulse-dot"></span> AI 分析流输出</h4>
+            <div id="ai-stream-content">正在感知和组装上下文...</div>
         `;
         document.body.appendChild(panel);
     }
     panel.style.display = 'block';
-    panel.querySelector('#ai-stream-content').textContent = '连接已建立，等待数据...';
+    requestAnimationFrame(() => panel.classList.add('show'));
+    panel.querySelector('#ai-stream-content').textContent = '正在感知和组装上下文...';
 }
 
 function updateStreamPanel(text) {
@@ -179,7 +235,10 @@ function updateStreamPanel(text) {
 
 function hideStreamPanel() {
     const panel = document.getElementById('ai-stream-panel');
-    if (panel) panel.style.display = 'none';
+    if (panel) {
+        panel.classList.remove('show');
+        setTimeout(() => panel.style.display = 'none', 300);
+    }
 }
 
 // ========== 停止打分 ==========
@@ -191,7 +250,7 @@ function stopAutoGrading() {
     if (window.aiGradingState.abortController) window.aiGradingState.abortController.abort();
 
     const btn = document.querySelector('.ai-grade-btn');
-    if (btn) { btn.textContent = '✨ 开始AI打分'; btn.classList.remove('running', 'paused', 'unattended'); }
+    if (btn) { btn.textContent = 'AI 批改'; btn.classList.remove('running', 'paused', 'unattended'); }
     const dialog = document.getElementById('auto-submit-dialog');
     if (dialog) dialog.remove();
     hideStreamPanel();
@@ -241,35 +300,56 @@ function showAutoSubmitDialog(score, comment) {
     dialog.id = 'auto-submit-dialog';
     dialog.innerHTML = `
         <style>
-            #auto-submit-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); padding: 30px; width: 800px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
-            #auto-submit-dialog h2 { margin: 0 0 20px 0; text-align: center; }
-            #auto-submit-dialog .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-            #auto-submit-dialog .student-image { border: 2px solid #DCDFE6; border-radius: 8px; overflow-y: auto; max-height: 500px; background: #f5f7fa; }
-            #auto-submit-dialog .info-box { background: #f5f7fa; padding: 15px; border-radius: 8px; border-left: 4px solid #409EFF; margin-bottom: 15px; }
-            #auto-submit-dialog .info-box h4 { margin: 0 0 10px 0; }
-            #auto-submit-dialog .content { color: #606266; line-height: 1.6; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
-            #auto-submit-dialog .score-display { font-size: 48px; font-weight: bold; color: #409EFF; text-align: center; }
-            #auto-submit-dialog .countdown { font-size: 18px; color: #E6A23C; margin: 20px 0; font-weight: bold; text-align: center; }
-            #auto-submit-dialog .buttons { display: flex; gap: 15px; margin-top: 25px; }
-            #auto-submit-dialog button { flex: 1; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
-            #auto-submit-dialog .confirm-btn { background: #67C23A; color: white; }
-            #auto-submit-dialog .cancel-btn { background: #E6A23C; color: white; }
-            #auto-submit-dialog .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: -1; }
+            #auto-submit-dialog { 
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999; 
+                background: rgba(255, 255, 255, 0.85); 
+                backdrop-filter: blur(32px) saturate(180%);
+                -webkit-backdrop-filter: blur(32px) saturate(180%);
+                border: 1px solid rgba(255, 255, 255, 0.6);
+                border-radius: 24px; 
+                box-shadow: 0 40px 80px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4); 
+                width: 900px; max-width: 94vw; max-height: 90vh; overflow: hidden; 
+                display: flex; flex-direction: column;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+            }
+            .dialog-header { margin: 0; padding: 24px 36px; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 16px; font-weight: 600; color: #1d1d1f; display: flex; justify-content: space-between; align-items: center; background: transparent; }
+            .content-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; overflow: hidden; flex: 1; background: transparent; }
+            .student-image { border-right: 1px solid rgba(0,0,0,0.06); overflow-y: auto; background: rgba(255,255,255,0.4); padding: 36px; max-height: 550px; }
+            .student-image img { border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.04); }
+            .result-section { padding: 36px; overflow-y: auto; display: flex; flex-direction: column; gap: 28px; max-height: 550px; background: transparent; }
+            .info-block { display: flex; flex-direction: column; gap: 10px; }
+            .info-block-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: #86868b; font-weight: 600; }
+            .info-block-content { font-size: 14px; color: #1d1d1f; line-height: 1.6; white-space: pre-wrap; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; background: rgba(255,255,255,0.6); padding: 18px; border-radius: 14px; border: 1px solid rgba(0,0,0,0.04); box-shadow: inset 0 1px 3px rgba(0,0,0,0.01); }
+            .score-display { font-size: 76px; font-weight: 700; color: #1d1d1f; font-family: "SF Pro Display", -apple-system, sans-serif; line-height: 1; text-shadow: 0 4px 16px rgba(0,0,0,0.06); letter-spacing: -2px; }
+            .dialog-footer { padding: 24px 36px; border-top: 1px solid rgba(0,0,0,0.06); background: rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; }
+            .countdown-text { font-size: 13px; color: #86868b; font-weight: 500; font-family: "SF Mono", monospace; background: rgba(0,0,0,0.05); padding: 8px 16px; border-radius: 20px; }
+            .buttons { display: flex; gap: 16px; }
+            .buttons button { padding: 12px 32px; border: none; border-radius: 12px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+            .cancel-btn { background: rgba(0,0,0,0.05); color: #1d1d1f; backdrop-filter: blur(10px); }
+            .cancel-btn:hover { background: rgba(0,0,0,0.09); }
+            .confirm-btn { background: #1d1d1f; color: white; box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
+            .confirm-btn:hover { background: #000; transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,0.22); }
+            .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.3); backdrop-filter: blur(8px); z-index: -1; animation: fadein 0.4s ease-out; }
+            @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
         </style>
         <div class="overlay"></div>
-        <h2>✅ AI评分完成 ${window.aiGradingState.unattendedMode ? '(无人值守模式)' : ''}</h2>
+        <div class="dialog-header">
+            <span>批改完成 ${window.aiGradingState.unattendedMode ? '<span style="color:#888;font-weight:normal;font-size:13px;margin-left:8px;">[自动模式]</span>' : ''}</span>
+        </div>
         <div class="content-grid">
             <div class="student-image">${imagesHtml}</div>
             <div class="result-section">
-                <div class="info-box"><h4>📝 识别答案</h4><div class="content">${studentAnswer}</div></div>
-                <div class="info-box"><h4>💬 AI评语</h4><div class="content">${comment}</div></div>
-                <div class="info-box" style="border-left-color: #67C23A;"><h4>🎯 得分</h4><div class="score-display">${score} 分</div></div>
+                <div class="info-block"><div class="info-block-label">最终得分</div><div class="score-display">${score}</div></div>
+                <div class="info-block"><div class="info-block-label">识别答案</div><div class="info-block-content">${studentAnswer}</div></div>
+                <div class="info-block"><div class="info-block-label">重塑批语</div><div class="info-block-content">${comment}</div></div>
             </div>
         </div>
-        <div class="countdown" id="countdown-display">将在 <span id="countdown-number">${countdownSeconds}</span> 秒后自动提交</div>
-        <div class="buttons">
-            <button class="cancel-btn" id="pause-cancel-btn">⏸️ 暂停</button>
-            <button class="confirm-btn" id="confirm-submit-btn">✓ 立即提交</button>
+        <div class="dialog-footer">
+            <div class="countdown-text" id="countdown-display">自动跳转提交 <span id="countdown-number">${countdownSeconds}</span>秒</div>
+            <div class="buttons">
+                <button class="cancel-btn" id="pause-cancel-btn">暂停</button>
+                <button class="confirm-btn" id="confirm-submit-btn">立即提交</button>
+            </div>
         </div>
     `;
     document.body.appendChild(dialog);
@@ -278,8 +358,8 @@ function showAutoSubmitDialog(score, comment) {
     dialog.querySelector('#pause-cancel-btn').addEventListener('click', () => {
         if (!window.aiGradingState.countdownPaused) {
             window.aiGradingState.countdownPaused = true;
-            dialog.querySelector('#pause-cancel-btn').textContent = '✖ 取消并退出';
-            dialog.querySelector('#countdown-display').innerHTML = '⏸️ 已暂停';
+            dialog.querySelector('#pause-cancel-btn').textContent = '撤销并退出';
+            dialog.querySelector('#countdown-display').innerHTML = '已暂停';
         } else {
             if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
             dialog.remove();

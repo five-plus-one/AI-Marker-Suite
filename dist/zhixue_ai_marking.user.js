@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         智学网AI自动打分助手
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
+// @version      1.7.2
 // @description  智学网AI自动批改助手，支持多套试卷方案管理、自动绑定切换、自动检查更新、精准题号识别、未保存拦截、流式评分！
 // @author       5plus1
 // @match        https://www.zhixue.com/webmarking/*
@@ -11,7 +11,6 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @connect      api.ai.five-plus-one.com
-// @connect      api.openai.com
 // @connect      zhixue-sc.oss-cn-hangzhou.aliyuncs.com
 // @connect      raw.githubusercontent.com
 // @connect      *
@@ -27,7 +26,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.7.0',
+    VERSION: '1.7.2',
 
     /** 远端原始脚本地址（用于检查更新） */
     UPDATE_CHECK_URL: 'https://raw.githubusercontent.com/five-plus-one/Zhixue.com_AI-assisted_marking/main/dist/zhixue_ai_marking.user.js',
@@ -112,22 +111,53 @@ function createMainButton() {
     if (document.querySelector('.ai-grade-btn')) return;
     const btn = document.createElement('button');
     btn.className = 'ai-grade-btn';
-    btn.innerHTML = '✨ 开始AI打分';
+    btn.innerHTML = 'AI 批改';
     btn.onclick = toggleAutoGrading;
 
     const style = document.createElement('style');
     style.textContent = `
-        .ai-grade-btn { position: fixed; bottom: 150px; right: 30px; z-index: 99999 !important; padding: 18px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 30px; font-size: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 10px 30px rgba(102, 126, 234, 0.6); transition: all 0.3s ease; min-width: 180px; }
-        .ai-grade-btn:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 15px 35px rgba(102, 126, 234, 0.8); }
-        .ai-grade-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .ai-grade-btn.paused { background: linear-gradient(135deg, #F56C6C 0%, #E6A23C 100%); animation: pulse-pause 1.5s infinite; }
-        .ai-grade-btn.running { background: linear-gradient(135deg, #67C23A 0%, #409EFF 100%); animation: pulse-running 2s infinite; }
-        .ai-grade-btn.unattended { background: linear-gradient(135deg, #E6A23C 0%, #F56C6C 100%); animation: pulse-unattended 2s infinite; }
-        .ai-grade-btn.needs-save { background: linear-gradient(135deg, #909399 0%, #606266 100%) !important; box-shadow: 0 5px 15px rgba(0,0,0,0.2) !important; animation: none !important; border: 2px solid #F56C6C;}
-        @keyframes pulse-pause { 0%, 100% { box-shadow: 0 10px 30px rgba(245, 108, 108, 0.6); } 50% { box-shadow: 0 10px 40px rgba(245, 108, 108, 0.9); transform: scale(1.02); } }
-        @keyframes pulse-running { 0%, 100% { box-shadow: 0 10px 30px rgba(103, 194, 58, 0.6); } 50% { box-shadow: 0 10px 40px rgba(103, 194, 58, 0.9); } }
-        @keyframes pulse-unattended { 0%, 100% { box-shadow: 0 10px 30px rgba(230, 162, 60, 0.6); } 50% { box-shadow: 0 10px 40px rgba(245, 108, 108, 0.9); } }
-        .toast-notification { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 12px 24px; border-radius: 30px; z-index: 100000; font-size: 14px; transition: opacity 0.5s; pointer-events: none;}
+        .ai-grade-btn { 
+            position: fixed; bottom: 40px; right: 40px; z-index: 99999 !important; 
+            padding: 14px 32px; 
+            background: rgba(20, 20, 20, 0.85); 
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            color: #fff; 
+            border: 1px solid rgba(255,255,255,0.1); 
+            border-radius: 40px; 
+            font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif; 
+            font-size: 15px; font-weight: 500; letter-spacing: 0.5px;
+            cursor: pointer; 
+            box-shadow: 0 12px 32px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.05); 
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); 
+            min-width: 140px;
+        }
+        .ai-grade-btn:hover { 
+            transform: translateY(-2px) scale(1.02); 
+            box-shadow: 0 16px 40px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.1); 
+            background: rgba(0, 0, 0, 0.95);
+        }
+        .ai-grade-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .ai-grade-btn.paused { border-color: rgba(230, 162, 60, 0.5); background: rgba(30,30,30,0.9); }
+        .ai-grade-btn.running { border-color: rgba(64, 158, 255, 0.5); }
+        .ai-grade-btn.unattended { border-color: rgba(245, 108, 108, 0.5); }
+        .ai-grade-btn.needs-save { background: rgba(245, 108, 108, 0.05) !important; color: #D93025; border-color: rgba(217, 48, 37, 0.2); box-shadow: none !important; }
+        
+        .toast-notification { 
+            position: fixed; top: 32px; left: 50%; transform: translate(-50%, -10px); 
+            background: rgba(255,255,255,0.95); 
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            color: #1a1a1a; 
+            padding: 12px 24px; 
+            border-radius: 12px; 
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+            z-index: 100000; 
+            font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif;
+            font-size: 13px; font-weight: 500;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+            pointer-events: none; opacity: 0;
+        }
+        .toast-notification.show { opacity: 1; transform: translate(-50%, 0); }
     `;
     document.head.appendChild(style);
     document.body.appendChild(btn);
@@ -136,9 +166,10 @@ function createMainButton() {
 function showToast(msg) {
     const toast = document.createElement('div');
     toast.className = 'toast-notification';
-    toast.textContent = msg;
+    toast.textContent = msg.replace(/[^\u4e00-\u9fa5A-Za-z0-9，。！：？（）()\[\]\.\-\_\s]/g, '').trim(); 
     document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 3000);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 3000);
 }
 
 // ========== 未保存状态管理 ==========
@@ -148,14 +179,14 @@ function markUnsavedChanges() {
 
         const btn = document.querySelector('.ai-grade-btn');
         if (btn && !window.aiGradingState.isRunning) {
-            btn.textContent = '⚠️ 请先保存配置';
+            btn.textContent = '先保存配置';
             btn.classList.add('needs-save');
         }
 
         const saveBtn = document.getElementById('save-config-btn');
         if (saveBtn) {
             saveBtn.classList.add('highlight-save');
-            saveBtn.innerHTML = '💾 保存修改 <span style="font-size:12px;opacity:0.8;">(未保存)</span>';
+            saveBtn.innerHTML = '保存修改 <span style="font-size:11px;opacity:0.6;font-weight:normal;margin-left:6px;">未保存</span>';
         }
     }
 }
@@ -165,14 +196,14 @@ function clearUnsavedChanges() {
 
     const btn = document.querySelector('.ai-grade-btn');
     if (btn && !window.aiGradingState.isRunning) {
-        btn.textContent = '✨ 开始AI打分';
+        btn.textContent = 'AI 批改';
         btn.classList.remove('needs-save');
     }
 
     const saveBtn = document.getElementById('save-config-btn');
     if (saveBtn) {
         saveBtn.classList.remove('highlight-save');
-        saveBtn.innerHTML = '💾 保存当前方案并启用';
+        saveBtn.innerHTML = '保存并启用';
     }
 }
 
@@ -183,7 +214,7 @@ function toggleAutoGrading() {
     setTimeout(() => btn.disabled = false, 800);
 
     if (window.aiGradingState.hasUnsavedChanges) {
-        safeAlert('⚠️ 检测到配置已被修改，请先点击配置面板上的【保存】按钮！');
+        safeAlert('配置已修改，请先点击配置面板上的【保存】按钮。');
         const panel = document.getElementById('ai-grading-settings');
         if (panel) {
             panel.style.display = 'block';
@@ -192,7 +223,7 @@ function toggleAutoGrading() {
             if (minimizeBtn) minimizeBtn.textContent = '−';
             const saveBtn = document.getElementById('save-config-btn');
             if (saveBtn) {
-                saveBtn.style.transform = 'scale(1.05)';
+                saveBtn.style.transform = 'scale(1.02)';
                 setTimeout(() => saveBtn.style.transform = 'scale(1)', 200);
             }
         }
@@ -204,7 +235,7 @@ function toggleAutoGrading() {
         window.aiGradingState.isRunning = false;
         if (window.aiGradingState.abortController) window.aiGradingState.abortController.abort();
 
-        btn.textContent = '▶️ 继续AI打分';
+        btn.textContent = '继续批改';
         btn.classList.remove('running', 'unattended');
         btn.classList.add('paused');
 
@@ -220,11 +251,11 @@ function toggleAutoGrading() {
         window.aiGradingState.unattendedMode = config.unattendedMode || false;
 
         if (window.aiGradingState.unattendedMode) {
-            btn.textContent = '🤖 无人值守中...';
+            btn.textContent = '自动批改中…';
             btn.classList.remove('paused');
             btn.classList.add('running', 'unattended');
         } else {
-            btn.textContent = '⏸️ 暂停AI打分';
+            btn.textContent = '暂停';
             btn.classList.remove('paused', 'unattended');
             btn.classList.add('running');
         }
@@ -247,19 +278,43 @@ function showStreamPanel() {
         panel.id = 'ai-stream-panel';
         panel.innerHTML = `
             <style>
-                #ai-stream-panel { position:fixed; bottom:220px; right:30px; width:360px; background:white; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.2); padding:20px; z-index:99998; font-family:-apple-system, sans-serif; border: 2px solid #409EFF; transition: opacity 0.3s;}
-                #ai-stream-panel h4 { margin:0 0 12px 0; color:#409EFF; font-size:16px; display:flex; align-items:center;}
-                #ai-stream-panel .loading-dots::after { content: ''; animation: dots 1.5s steps(4, end) infinite;}
-                @keyframes dots { 0%, 20% { content: ''; } 40% { content: '.'; } 60% { content: '..'; } 80%, 100% { content: '...'; } }
-                #ai-stream-content { font-size:14px; color:#606266; line-height:1.6; max-height:250px; overflow-y:auto; white-space:pre-wrap; background: #f5f7fa; padding: 12px; border-radius: 6px; border: 1px solid #EBEEF5;}
+                #ai-stream-panel { 
+                    position: fixed; bottom: 100px; right: 40px; width: 340px; 
+                    background: rgba(255, 255, 255, 0.85); 
+                    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+                    border-radius: 12px; 
+                    box-shadow: 0 16px 40px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.03); 
+                    padding: 18px; z-index: 99998; 
+                    font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; 
+                    border: 1px solid rgba(0,0,0,0.06);
+                    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                    transform: translateY(10px); opacity: 0;
+                }
+                #ai-stream-panel.show { transform: translateY(0); opacity: 1; }
+                #ai-stream-panel h4 { 
+                    margin: 0 0 12px 0; color: #1a1a1a; font-size: 11px; font-weight: 600; 
+                    display: flex; align-items: center; letter-spacing: 0.5px; text-transform: uppercase;
+                }
+                #ai-stream-panel .pulse-dot {
+                    width: 6px; height: 6px; border-radius: 50%; background: #000; margin-right: 8px;
+                    box-shadow: 0 0 0 rgba(0,0,0,0.2); animation: pulse-dot-minimal 2s infinite;
+                }
+                @keyframes pulse-dot-minimal { 0% { box-shadow: 0 0 0 0 rgba(0,0,0,0.2); } 70% { box-shadow: 0 0 0 5px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+                #ai-stream-content { 
+                    font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
+                    font-size: 12px; color: #4a4a4a; line-height: 1.6; 
+                    max-height: 220px; overflow-y: auto; white-space: pre-wrap; 
+                    scrollbar-width: thin;
+                }
             </style>
-            <h4>🤖 AI 正在实时阅卷<span class="loading-dots"></span></h4>
-            <div id="ai-stream-content">连接已建立，等待数据...</div>
+            <h4><span class="pulse-dot"></span> AI 分析流输出</h4>
+            <div id="ai-stream-content">正在感知和组装上下文...</div>
         `;
         document.body.appendChild(panel);
     }
     panel.style.display = 'block';
-    panel.querySelector('#ai-stream-content').textContent = '连接已建立，等待数据...';
+    requestAnimationFrame(() => panel.classList.add('show'));
+    panel.querySelector('#ai-stream-content').textContent = '正在感知和组装上下文...';
 }
 
 function updateStreamPanel(text) {
@@ -272,7 +327,10 @@ function updateStreamPanel(text) {
 
 function hideStreamPanel() {
     const panel = document.getElementById('ai-stream-panel');
-    if (panel) panel.style.display = 'none';
+    if (panel) {
+        panel.classList.remove('show');
+        setTimeout(() => panel.style.display = 'none', 300);
+    }
 }
 
 // ========== 停止打分 ==========
@@ -284,7 +342,7 @@ function stopAutoGrading() {
     if (window.aiGradingState.abortController) window.aiGradingState.abortController.abort();
 
     const btn = document.querySelector('.ai-grade-btn');
-    if (btn) { btn.textContent = '✨ 开始AI打分'; btn.classList.remove('running', 'paused', 'unattended'); }
+    if (btn) { btn.textContent = 'AI 批改'; btn.classList.remove('running', 'paused', 'unattended'); }
     const dialog = document.getElementById('auto-submit-dialog');
     if (dialog) dialog.remove();
     hideStreamPanel();
@@ -334,35 +392,56 @@ function showAutoSubmitDialog(score, comment) {
     dialog.id = 'auto-submit-dialog';
     dialog.innerHTML = `
         <style>
-            #auto-submit-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); padding: 30px; width: 800px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
-            #auto-submit-dialog h2 { margin: 0 0 20px 0; text-align: center; }
-            #auto-submit-dialog .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-            #auto-submit-dialog .student-image { border: 2px solid #DCDFE6; border-radius: 8px; overflow-y: auto; max-height: 500px; background: #f5f7fa; }
-            #auto-submit-dialog .info-box { background: #f5f7fa; padding: 15px; border-radius: 8px; border-left: 4px solid #409EFF; margin-bottom: 15px; }
-            #auto-submit-dialog .info-box h4 { margin: 0 0 10px 0; }
-            #auto-submit-dialog .content { color: #606266; line-height: 1.6; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
-            #auto-submit-dialog .score-display { font-size: 48px; font-weight: bold; color: #409EFF; text-align: center; }
-            #auto-submit-dialog .countdown { font-size: 18px; color: #E6A23C; margin: 20px 0; font-weight: bold; text-align: center; }
-            #auto-submit-dialog .buttons { display: flex; gap: 15px; margin-top: 25px; }
-            #auto-submit-dialog button { flex: 1; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
-            #auto-submit-dialog .confirm-btn { background: #67C23A; color: white; }
-            #auto-submit-dialog .cancel-btn { background: #E6A23C; color: white; }
-            #auto-submit-dialog .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: -1; }
+            #auto-submit-dialog { 
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999; 
+                background: rgba(255, 255, 255, 0.85); 
+                backdrop-filter: blur(32px) saturate(180%);
+                -webkit-backdrop-filter: blur(32px) saturate(180%);
+                border: 1px solid rgba(255, 255, 255, 0.6);
+                border-radius: 24px; 
+                box-shadow: 0 40px 80px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4); 
+                width: 900px; max-width: 94vw; max-height: 90vh; overflow: hidden; 
+                display: flex; flex-direction: column;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+            }
+            .dialog-header { margin: 0; padding: 24px 36px; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 16px; font-weight: 600; color: #1d1d1f; display: flex; justify-content: space-between; align-items: center; background: transparent; }
+            .content-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; overflow: hidden; flex: 1; background: transparent; }
+            .student-image { border-right: 1px solid rgba(0,0,0,0.06); overflow-y: auto; background: rgba(255,255,255,0.4); padding: 36px; max-height: 550px; }
+            .student-image img { border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.04); }
+            .result-section { padding: 36px; overflow-y: auto; display: flex; flex-direction: column; gap: 28px; max-height: 550px; background: transparent; }
+            .info-block { display: flex; flex-direction: column; gap: 10px; }
+            .info-block-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: #86868b; font-weight: 600; }
+            .info-block-content { font-size: 14px; color: #1d1d1f; line-height: 1.6; white-space: pre-wrap; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; background: rgba(255,255,255,0.6); padding: 18px; border-radius: 14px; border: 1px solid rgba(0,0,0,0.04); box-shadow: inset 0 1px 3px rgba(0,0,0,0.01); }
+            .score-display { font-size: 76px; font-weight: 700; color: #1d1d1f; font-family: "SF Pro Display", -apple-system, sans-serif; line-height: 1; text-shadow: 0 4px 16px rgba(0,0,0,0.06); letter-spacing: -2px; }
+            .dialog-footer { padding: 24px 36px; border-top: 1px solid rgba(0,0,0,0.06); background: rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; }
+            .countdown-text { font-size: 13px; color: #86868b; font-weight: 500; font-family: "SF Mono", monospace; background: rgba(0,0,0,0.05); padding: 8px 16px; border-radius: 20px; }
+            .buttons { display: flex; gap: 16px; }
+            .buttons button { padding: 12px 32px; border: none; border-radius: 12px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+            .cancel-btn { background: rgba(0,0,0,0.05); color: #1d1d1f; backdrop-filter: blur(10px); }
+            .cancel-btn:hover { background: rgba(0,0,0,0.09); }
+            .confirm-btn { background: #1d1d1f; color: white; box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
+            .confirm-btn:hover { background: #000; transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,0.22); }
+            .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.3); backdrop-filter: blur(8px); z-index: -1; animation: fadein 0.4s ease-out; }
+            @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
         </style>
         <div class="overlay"></div>
-        <h2>✅ AI评分完成 ${window.aiGradingState.unattendedMode ? '(无人值守模式)' : ''}</h2>
+        <div class="dialog-header">
+            <span>批改完成 ${window.aiGradingState.unattendedMode ? '<span style="color:#888;font-weight:normal;font-size:13px;margin-left:8px;">[自动模式]</span>' : ''}</span>
+        </div>
         <div class="content-grid">
             <div class="student-image">${imagesHtml}</div>
             <div class="result-section">
-                <div class="info-box"><h4>📝 识别答案</h4><div class="content">${studentAnswer}</div></div>
-                <div class="info-box"><h4>💬 AI评语</h4><div class="content">${comment}</div></div>
-                <div class="info-box" style="border-left-color: #67C23A;"><h4>🎯 得分</h4><div class="score-display">${score} 分</div></div>
+                <div class="info-block"><div class="info-block-label">最终得分</div><div class="score-display">${score}</div></div>
+                <div class="info-block"><div class="info-block-label">识别答案</div><div class="info-block-content">${studentAnswer}</div></div>
+                <div class="info-block"><div class="info-block-label">重塑批语</div><div class="info-block-content">${comment}</div></div>
             </div>
         </div>
-        <div class="countdown" id="countdown-display">将在 <span id="countdown-number">${countdownSeconds}</span> 秒后自动提交</div>
-        <div class="buttons">
-            <button class="cancel-btn" id="pause-cancel-btn">⏸️ 暂停</button>
-            <button class="confirm-btn" id="confirm-submit-btn">✓ 立即提交</button>
+        <div class="dialog-footer">
+            <div class="countdown-text" id="countdown-display">自动跳转提交 <span id="countdown-number">${countdownSeconds}</span>秒</div>
+            <div class="buttons">
+                <button class="cancel-btn" id="pause-cancel-btn">暂停</button>
+                <button class="confirm-btn" id="confirm-submit-btn">立即提交</button>
+            </div>
         </div>
     `;
     document.body.appendChild(dialog);
@@ -371,8 +450,8 @@ function showAutoSubmitDialog(score, comment) {
     dialog.querySelector('#pause-cancel-btn').addEventListener('click', () => {
         if (!window.aiGradingState.countdownPaused) {
             window.aiGradingState.countdownPaused = true;
-            dialog.querySelector('#pause-cancel-btn').textContent = '✖ 取消并退出';
-            dialog.querySelector('#countdown-display').innerHTML = '⏸️ 已暂停';
+            dialog.querySelector('#pause-cancel-btn').textContent = '撤销并退出';
+            dialog.querySelector('#countdown-display').innerHTML = '已暂停';
         } else {
             if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
             dialog.remove();
@@ -442,85 +521,138 @@ function createSettingsPanel() {
     panel.id = 'ai-grading-settings';
     panel.innerHTML = `
         <style>
-            #ai-grading-settings { position: fixed; top: 20px; right: 20px; width: 450px; max-height: 90vh; overflow-y: auto; background: white; border: 2px solid #409EFF; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); z-index: 10000; font-family: sans-serif; }
+            #ai-grading-settings { 
+                position: fixed; top: 20px; right: 20px; width: 420px; max-height: 90vh; overflow-y: auto; 
+                background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+                border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 16px; 
+                box-shadow: 0 16px 40px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.04); 
+                z-index: 10000; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+                transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s;
+            }
             #ai-grading-settings.minimized .settings-body { display: none; }
-            #ai-grading-settings.minimized { width: 200px; }
-            .settings-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 20px; border-radius: 10px 10px 0 0; display: flex; justify-content: space-between; align-items: center; cursor: move; }
-            .settings-header h3 { margin: 0; font-size: 18px; }
+            #ai-grading-settings.minimized { width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+            .settings-header { 
+                background: transparent; color: #1a1a1a; padding: 20px 24px 16px; 
+                display: flex; justify-content: space-between; align-items: center; cursor: move;
+                border-bottom: 1px solid rgba(0,0,0,0.06);
+            }
+            .settings-header h3 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
             .header-buttons { display: flex; gap: 8px; }
-            .header-btn { background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; }
-            .settings-body { padding: 20px; max-height: calc(90vh - 60px); overflow-y: auto; position: relative;}
-            .form-section { margin-bottom: 25px; }
-            .form-section h4 { color: #303133; font-size: 15px; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #409EFF; }
-            .form-group { margin-bottom: 15px; }
-            .form-group label { display: block; margin-bottom: 6px; color: #606266; font-size: 14px; font-weight: 500; }
-            .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #DCDFE6; border-radius: 6px; box-sizing: border-box; }
-            .checkbox-group { display: flex; align-items: center; gap: 10px; padding: 12px; background: #f5f7fa; border-radius: 6px; }
-            .preset-controls { display: flex; gap: 8px; margin-bottom: 10px; }
-            .preset-btn { background: #f0f2f5; border: 1px solid #DCDFE6; border-radius: 4px; padding: 0 12px; cursor: pointer; font-size: 13px; color: #606266; transition: all 0.2s;}
-            .preset-btn:hover { border-color: #409EFF; color: #409EFF; }
-            .preset-btn.danger:hover { border-color: #F56C6C; color: #F56C6C; }
-            .unattended-warning { background: #FEF0F0; border: 1px solid #F56C6C; border-radius: 6px; padding: 12px; margin-top: 10px; font-size: 13px; color: #F56C6C; line-height: 1.6; }
-            .api-key-link { display: inline-block; margin-top: 8px; padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; text-decoration: none; border-radius: 6px; font-size: 13px; }
-            .save-btn-container { position: sticky; top: -20px; background: rgba(255,255,255,0.95); backdrop-filter: blur(5px); margin: -20px -20px 15px -20px; padding: 20px 20px 15px 20px; z-index: 10; border-bottom: 1px solid #EBEEF5; box-shadow: 0 4px 6px -6px #333; }
-            .save-btn { width: 100%; padding: 12px; background: #409EFF; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: all 0.3s;}
-            .save-btn.highlight-save { background: #F56C6C !important; animation: pulse-save 1.5s infinite; }
-            @keyframes pulse-save { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4); } 50% { box-shadow: 0 0 0 10px rgba(245, 108, 108, 0); } }
+            .header-btn { 
+                background: transparent; border: 1px solid rgba(0,0,0,0.1); color: #666; 
+                width: 26px; height: 26px; border-radius: 6px; cursor: pointer; transition: all 0.2s;
+                display: flex; justify-content: center; align-items: center; font-size: 14px;
+            }
+            .header-btn:hover { background: rgba(0,0,0,0.04); color: #1a1a1a; }
+            .settings-body { padding: 0; position: relative; }
+            .form-section { padding: 20px 24px; border-bottom: 1px solid rgba(0,0,0,0.04); }
+            .form-section:last-child { border-bottom: none; }
+            .form-section.highlight { background: rgba(0, 82, 255, 0.02); }
+            .form-section h4 { 
+                color: #1a1a1a; font-size: 13px; font-weight: 600; margin: 0 0 16px 0; 
+                text-transform: uppercase; letter-spacing: 0.5px; 
+            }
+            .form-group { margin-bottom: 16px; }
+            .form-group:last-child { margin-bottom: 0; }
+            .form-group label { display: block; margin-bottom: 8px; color: #666; font-size: 12px; font-weight: 500; }
+            .form-group input, .form-group select, .form-group textarea { 
+                width: 100%; padding: 10px 12px; 
+                background: rgba(0,0,0,0.02);
+                border: 1px solid rgba(0,0,0,0.08); border-radius: 8px; box-sizing: border-box; 
+                font-family: inherit; font-size: 13px; color: #1a1a1a; transition: all 0.2s;
+            }
+            .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+                outline: none; border-color: #0052FF; background: #fff; box-shadow: 0 0 0 3px rgba(0, 82, 255, 0.1);
+            }
+            .form-group textarea { min-height: 80px; resize: vertical; }
+            .checkbox-group { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+            .checkbox-group input[type="checkbox"] { accent-color: #0052FF; width: 16px; height: 16px; }
+            .checkbox-group label { margin: 0; font-size: 13px; color: #1a1a1a; font-weight: 500; }
+            .preset-controls { display: flex; gap: 8px; margin-bottom: 16px; }
+            .preset-controls select { 
+                flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.1); 
+                background: #fdfdfd; font-size: 13px;
+            }
+            .preset-btn { 
+                background: transparent; border: 1px solid rgba(0,0,0,0.1); border-radius: 6px; 
+                padding: 0 12px; cursor: pointer; font-size: 12px; font-weight: 500; color: #444; transition: all 0.2s;
+            }
+            .preset-btn:hover { background: rgba(0,0,0,0.03); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
+            .preset-btn.danger:hover { color: #D93025; border-color: rgba(217,48,37,0.3); background: rgba(217,48,37,0.04); }
+            .unattended-warning { 
+                background: rgba(245, 108, 108, 0.05); border-left: 3px solid #F56C6C; border-radius: 0 6px 6px 0; 
+                padding: 10px 14px; font-size: 12px; color: #D93025; line-height: 1.5; margin-top: 8px; 
+            }
+            .api-key-link { display: inline-block; margin-top: 8px; font-size: 12px; color: #0052FF; text-decoration: none; font-weight: 500; }
+            .api-key-link:hover { text-decoration: underline; }
+            .save-btn-container { 
+                position: sticky; top: 0; z-index: 10;
+                background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); 
+                padding: 16px 24px; border-bottom: 1px solid rgba(0,0,0,0.06); 
+                box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+            }
+            .save-btn { 
+                width: 100%; padding: 12px; background: #1a1a1a; color: white; border: none; 
+                border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+            }
+            .save-btn:hover { background: #333; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+            .save-btn.highlight-save { background: #D93025; color: white; }
+            .save-btn.highlight-save:hover { background: #B3261E; }
         </style>
         <div class="settings-header">
-            <h3>⚙️ AI打分配置</h3>
+            <h3>批改配置</h3>
             <div class="header-buttons">
-                <button class="header-btn minimize-btn" title="最小化">−</button>
-                <button class="header-btn close-btn" title="关闭">×</button>
+                <button class="header-btn minimize-btn" title="Toggle">−</button>
+                <button class="header-btn close-btn" title="Close">×</button>
             </div>
         </div>
         <div class="settings-body">
             <div class="save-btn-container">
-                <button class="save-btn" id="save-config-btn">💾 保存当前方案并启用</button>
+                <button class="save-btn" id="save-config-btn">保存并启用</button>
             </div>
 
-            <div class="form-section" style="background:#ecf5ff; padding:15px; border-radius:8px; border:1px solid #b3d8ff;">
-                <h4 style="border-bottom:none; margin-bottom:10px; color:#409EFF;">📁 试卷配置管理</h4>
+            <div class="form-section highlight">
+                <h4>场景方案</h4>
                 <div class="preset-controls">
-                    <select id="preset-select" style="flex:1; padding:8px; border-radius:4px; border:1px solid #DCDFE6;"></select>
-                    <button class="preset-btn" id="btn-new-preset">➕ 新建</button>
-                    <button class="preset-btn danger" id="btn-del-preset">🗑️ 删除</button>
+                    <select id="preset-select"></select>
+                    <button class="preset-btn" id="btn-new-preset">新建</button>
+                    <button class="preset-btn danger" id="btn-del-preset">删除</button>
                 </div>
-                <div class="checkbox-group" style="background: white; padding: 8px;">
+                <div class="checkbox-group">
                     <input type="checkbox" id="bind-url-checkbox">
-                    <label for="bind-url-checkbox" style="font-size:13px; margin:0;">🔗 绑定当前试题 (下次打开自动切换)</label>
+                    <label for="bind-url-checkbox">绑定至当前试题</label>
                 </div>
             </div>
 
             <div class="form-section">
-                <h4>🚀 运行模式</h4>
-                <div class="checkbox-group">
+                <h4>运行模式</h4>
+                <div class="checkbox-group" style="margin-bottom:0;">
                     <input type="checkbox" id="unattended-mode">
-                    <label for="unattended-mode"><strong>🤖 无人值守模式</strong></label>
+                    <label for="unattended-mode">开启无人值守</label>
                 </div>
                 <div class="unattended-warning" id="unattended-warning" style="display: none;">
-                    ⚠️ <strong>无人值守模式说明：</strong><br>• 遇到错误自动刷新重试<br>• 所有提示仅在控制台输出<br>• 1秒后自动提交并继续
+                    无人值守：错误时自动重试，静默运行，分析完成后1秒自动跳转提交。
                 </div>
             </div>
             <div class="form-section">
-                <h4>📝 题目信息（可选）</h4>
+                <h4>批改上下文</h4>
                 <div class="form-group"><label>题目内容</label><textarea id="question-content"></textarea></div>
-                <div class="form-group"><label>标准答案</label><textarea id="standard-answer"></textarea></div>
-                <div class="form-group"><label>评分标准</label><textarea id="grading-rubric"></textarea></div>
+                <div class="form-group"><label>参考答案</label><textarea id="standard-answer"></textarea></div>
+                <div class="form-group"><label>采分标准</label><textarea id="grading-rubric"></textarea></div>
             </div>
             <div class="form-section">
-                <h4>🤖 AI配置（必填）</h4>
+                <h4>AI 模型与算力</h4>
                 <div class="form-group">
-                    <label>API服务商</label>
+                    <label>服务提供商</label>
                     <select id="ai-provider">
-                        <option value="5plus1">5+1 AI（推荐）</option>
-                        <option value="openai">其他（OpenAI兼容格式）</option>
+                        <option value="5plus1">5+1 官方节点 (推荐)</option>
+                        <option value="openai">自定义代理</option>
                     </select>
-                    <div id="api-key-link-container" style="display: none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">🔑 获取 API KEY</a></div>
+                    <div id="api-key-link-container" style="display:none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">获取访问凭证</a></div>
                 </div>
-                <div class="form-group"><label>API端点</label><input type="text" id="api-endpoint"></div>
-                <div class="form-group"><label>API密钥 <span style="color: #F56C6C;">*</span></label><input type="password" id="api-key"></div>
-                <div class="form-group"><label>模型名称</label><input type="text" id="model-name"></div>
+                <div class="form-group"><label>服务网关 URL</label><input type="text" id="api-endpoint"></div>
+                <div class="form-group"><label>通信密钥 (Token) *</label><input type="password" id="api-key"></div>
+                <div class="form-group"><label>调用模型 ID</label><input type="text" id="model-name"></div>
             </div>
         </div>
     `;
@@ -645,7 +777,7 @@ function handleNewPreset() {
     PresetManager.save();
     renderPresetDropdown();
     fillFormFromActivePreset();
-    showToast(`✅ 新建方案【${name}】成功！`);
+    showToast(`新方案「${name}」创建成功`);
 }
 
 function handleDeletePreset() {
@@ -663,7 +795,7 @@ function handleDeletePreset() {
         PresetManager.save();
         renderPresetDropdown();
         fillFormFromActivePreset();
-        showToast("🗑️ 方案已删除");
+        showToast(`方案「${name}」已删除`);
     }
 }
 
@@ -694,7 +826,7 @@ function saveAISettings() {
 
     PresetManager.save();
     clearUnsavedChanges();
-    safeAlert(config.unattendedMode ? `✅ 【${activeName}】方案已保存，并开启无人值守！` : `✅ 【${activeName}】配置已保存！`);
+    safeAlert(config.unattendedMode ? `「${activeName}」已保存并开启无人值守。` : `「${activeName}」配置已保存。`);
 
     const panel = document.getElementById('ai-grading-settings');
     if (panel) {
@@ -955,31 +1087,40 @@ function showUpdateDialog(remoteVersion) {
         <style>
             #ai-update-dialog {
                 position: fixed; bottom: 30px; left: 30px; z-index: 1000000;
-                background: white; border-radius: 12px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.25);
-                padding: 20px 24px; width: 320px;
-                font-family: sans-serif; border-left: 4px solid #67C23A;
-                animation: slide-in-update 0.4s ease;
+                background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(0,0,0,0.06); border-radius: 12px;
+                box-shadow: 0 16px 40px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.04);
+                padding: 24px; width: 320px;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+                animation: slide-in-update 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
             @keyframes slide-in-update {
                 from { opacity: 0; transform: translateY(20px); }
                 to   { opacity: 1; transform: translateY(0); }
             }
-            #ai-update-dialog .upd-title { font-size: 15px; font-weight: bold; color: #303133; margin-bottom: 8px; }
-            #ai-update-dialog .upd-body  { font-size: 13px; color: #606266; margin-bottom: 16px; line-height: 1.6; }
-            #ai-update-dialog .upd-btns  { display: flex; gap: 8px; }
-            #ai-update-dialog .upd-btn   { flex: 1; padding: 8px 0; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; }
-            #ai-update-dialog .upd-btn-primary { background: #67C23A; color: white; }
-            #ai-update-dialog .upd-btn-secondary { background: #f0f2f5; color: #606266; }
-            #ai-update-dialog .upd-btn-skip { background: none; color: #C0C4CC; font-size: 12px; border: none; cursor: pointer; margin-top: 8px; width: 100%; text-align: center; }
+            #ai-update-dialog .upd-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin-bottom: 12px; letter-spacing: 0.3px; }
+            #ai-update-dialog .upd-body  { font-size: 13px; color: #666; margin-bottom: 24px; line-height: 1.6; }
+            .version-tag { display: inline-block; background: rgba(0,0,0,0.04); padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", monospace; font-size: 12px; }
+            #ai-update-dialog .upd-btns  { display: flex; gap: 8px; margin-bottom: 12px; }
+            #ai-update-dialog .upd-btn   { flex: 1; padding: 10px 0; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+            #ai-update-dialog .upd-btn-primary { background: #1a1a1a; color: white; }
+            #ai-update-dialog .upd-btn-primary:hover { background: #333; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+            #ai-update-dialog .upd-btn-secondary { background: transparent; color: #1a1a1a; border: 1px solid rgba(0,0,0,0.1); }
+            #ai-update-dialog .upd-btn-secondary:hover { background: rgba(0,0,0,0.03); }
+            #ai-update-dialog .upd-btn-skip { background: none; color: #999; font-size: 12px; border: none; cursor: pointer; width: 100%; text-align: center; padding: 4px; transition: color 0.2s; }
+            #ai-update-dialog .upd-btn-skip:hover { color: #1a1a1a; }
         </style>
-        <div class="upd-title">🎉 发现新版本 v${remoteVersion}</div>
-        <div class="upd-body">当前版本：v${SCRIPT_CONFIG.VERSION}<br>新版本：v${remoteVersion}<br><br>点击「立即更新」一键安装最新版本。</div>
-        <div class="upd-btns">
-            <button class="upd-btn upd-btn-primary" id="upd-btn-now">🚀 立即更新</button>
-            <button class="upd-btn upd-btn-secondary" id="upd-btn-later">稍后提醒</button>
+        <div class="upd-title">发现新版本</div>
+        <div class="upd-body">
+            核心组件有性能更新可用。<br><br>
+            当前版本: <span class="version-tag">v${SCRIPT_CONFIG.VERSION}</span><br>
+            最新可用: <span class="version-tag">v${remoteVersion}</span>
         </div>
-        <button class="upd-btn-skip" id="upd-btn-skip">不再提醒此版本 (${remoteVersion})</button>
+        <div class="upd-btns">
+            <button class="upd-btn upd-btn-primary" id="upd-btn-now">立即更新</button>
+            <button class="upd-btn upd-btn-secondary" id="upd-btn-later">稍后</button>
+        </div>
+        <button class="upd-btn-skip" id="upd-btn-skip">跳过此版本</button>
     `;
     document.body.appendChild(dialog);
 
