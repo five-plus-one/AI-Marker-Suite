@@ -1,10 +1,13 @@
 {
   "name": "zhixue-ai-marking",
-  "version": "1.7.0",
+  "version": "1.9.0",
   "description": "智学网AI自动打分助手 - Tampermonkey 用户脚本",
   "scripts": {
     "build": "node build.js"
   },
   "author": "5plus1",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "terser": "^5.46.2"
+  }
 }
