@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.8.5',
+    VERSION: '1.8.6',
 
     /** 远端原始脚本地址（用于检查更新） */
     UPDATE_CHECK_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js',
@@ -19,6 +19,9 @@ const SCRIPT_CONFIG = {
 
     /** 版本更新日志（用于更新提示弹窗），键为版本号，值为更新内容数组 */
     CHANGELOG: {
+        '1.8.6': [
+            '优化导出逻辑，支持筛选',
+        ],
         '1.8.5': [
             '新增七天网络阅卷平台适配，一个脚本同时支持智学网和七天网络',
             '统一构建输出，自动检测当前平台并加载对应适配器',

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI-Marker-Suite
 // @namespace    http://tampermonkey.net/
-// @version      1.8.5
+// @version      1.8.6
 // @description  AI自动批改助手，支持智学网、七天网络等阅卷平台。自动识别答案、智能评分、自动提交！
 // @author       5plus1
 // @match        https://www.zhixue.com/webmarking/*
@@ -361,7 +361,7 @@ if (QitianAdapter.shouldInitialize()) {
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.8.5',
+    VERSION: '1.8.6',
 
     /** 远端原始脚本地址（用于检查更新） */
     UPDATE_CHECK_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js',
@@ -377,6 +377,9 @@ const SCRIPT_CONFIG = {
 
     /** 版本更新日志（用于更新提示弹窗），键为版本号，值为更新内容数组 */
     CHANGELOG: {
+        '1.8.6': [
+            '优化导出逻辑，支持筛选',
+        ],
         '1.8.5': [
             '新增七天网络阅卷平台适配，一个脚本同时支持智学网和七天网络',
             '统一构建输出，自动检测当前平台并加载对应适配器',
@@ -2335,9 +2338,10 @@ const HistoryManager = {
         this.update(id, { status: 'marked' });
     },
 
-    exportCSV() {
+    exportCSV(records) {
+        records = records || this.records;
         const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语\n';
-        const rows = this.records.map(r => {
+        const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const esc = s => '"' + String(s || '').replace(/"/g, '""') + '"';
             return [time, r.presetName, r.gradingMode, r.aiScore, r.finalScore,
@@ -2346,17 +2350,19 @@ const HistoryManager = {
         this._download(header + rows, '评阅历史_' + this._fileTimestamp() + '.csv', 'text/csv;charset=utf-8');
     },
 
-    exportJSON() {
-        this._download(JSON.stringify(this.records, null, 2), '评阅历史_' + this._fileTimestamp() + '.json', 'application/json');
+    exportJSON(records) {
+        records = records || this.records;
+        this._download(JSON.stringify(records, null, 2), '评阅历史_' + this._fileTimestamp() + '.json', 'application/json');
     },
 
-    async exportHTML() {
+    async exportHTML(records) {
+        records = records || this.records;
         const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' };
 
         // 预加载缺少 imageBase64s 的记录的图片
         const imageCache = {};
         const urlsToFetch = [...new Set(
-            this.records.filter(r => !r.imageBase64s || r.imageBase64s.length === 0)
+            records.filter(r => !r.imageBase64s || r.imageBase64s.length === 0)
                 .flatMap(r => r.imageUrls || [])
         )];
         if (urlsToFetch.length > 0) {
@@ -2366,7 +2372,7 @@ const HistoryManager = {
             }));
         }
 
-        const rows = this.records.map(r => {
+        const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const mode = modeLabel[r.gradingMode] || r.gradingMode;
             const scoreText = r.isCorrected ? `${r.aiScore} → ${r.finalScore} ✓` : `${r.finalScore}`;
@@ -2402,7 +2408,7 @@ const HistoryManager = {
 </style></head>
 <body>
     <h1>评阅历史</h1>
-    <div class="meta">导出时间：${new Date().toLocaleString('zh-CN')} · 共 ${this.records.length} 条记录</div>
+    <div class="meta">导出时间：${new Date().toLocaleString('zh-CN')} · 共 ${records.length} 条记录</div>
     ${rows || '<div style="color:#aaa;text-align:center;padding:40px;">暂无记录</div>'}
 </body></html>`;
         this._download(html, '评阅历史_' + this._fileTimestamp() + '.html', 'text/html;charset=utf-8');
@@ -2483,6 +2489,13 @@ function showHistoryPanel() {
             .hist-toolbar button { padding:6px 14px; border:1px solid rgba(0,0,0,0.1); background:transparent; border-radius:6px; font-size:12px; cursor:pointer; transition:all 0.2s; }
             .hist-toolbar button:hover { background:rgba(0,0,0,0.03); }
             .hist-toolbar .count { margin-left:auto; font-size:12px; color:#86868b; }
+            .hist-filter { padding:10px 28px; border-bottom:1px solid rgba(0,0,0,0.06); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+            .hist-filter input[type="date"] { padding:5px 8px; border:1px solid rgba(0,0,0,0.12); border-radius:6px; font-size:12px; font-family:inherit; }
+            .hist-filter select { padding:5px 8px; border:1px solid rgba(0,0,0,0.12); border-radius:6px; font-size:12px; font-family:inherit; background:#fff; }
+            .hist-filter button { padding:5px 14px; border:1px solid rgba(0,0,0,0.1); background:transparent; border-radius:6px; font-size:12px; cursor:pointer; transition:all 0.2s; }
+            .hist-filter button:hover { background:rgba(0,0,0,0.03); }
+            .hist-filter button.primary { color:#0052FF; border-color:rgba(0,82,255,0.3); }
+            .hist-filter .filter-hint { font-size:11px; color:#86868b; }
             #ai-history-panel-inner { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
             .hist-list { flex:1; min-height:0; overflow-y:auto; padding:12px 28px; }
             .hist-item { padding:16px; border:1px solid rgba(0,0,0,0.06); border-radius:12px; margin-bottom:10px; transition:all 0.2s; }
@@ -2515,35 +2528,95 @@ function showHistoryPanel() {
                 <button id="hist-export-json">导出JSON</button>
                 <button id="hist-export-html">导出HTML</button>
                 <button id="hist-clear" style="color:#D93025;border-color:rgba(217,48,37,0.2);">清空</button>
-                <span class="count">共 ${HistoryManager.records.length} 条</span>
+                <span class="count" id="hist-count">共 ${HistoryManager.records.length} 条</span>
+            </div>
+            <div class="hist-filter" id="hist-filter">
+                <input type="date" id="hist-filter-start" title="开始日期">
+                <span style="color:#aaa;font-size:12px;">~</span>
+                <input type="date" id="hist-filter-end" title="结束日期">
+                <select id="hist-filter-preset"><option value="">全部方案</option></select>
+                <button class="primary" id="hist-filter-apply">筛选</button>
+                <button id="hist-filter-reset">重置</button>
             </div>
             <div class="hist-list" id="hist-list"></div>
         </div>
     `;
     document.body.appendChild(panel);
 
+    // 筛选状态
+    let filterState = { startDate: '', endDate: '', presetName: '' };
+
+    // 填充方案下拉
+    const presetSelect = document.getElementById('hist-filter-preset');
+    const presetNames = [...new Set(HistoryManager.records.map(r => r.presetName).filter(Boolean))];
+    presetNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        presetSelect.appendChild(opt);
+    });
+
+    function getFilteredRecords() {
+        return HistoryManager.records.filter(r => {
+            if (filterState.presetName && r.presetName !== filterState.presetName) return false;
+            if (filterState.startDate) {
+                if (r.timestamp < new Date(filterState.startDate).getTime()) return false;
+            }
+            if (filterState.endDate) {
+                if (r.timestamp > new Date(filterState.endDate).getTime() + 86400000) return false;
+            }
+            return true;
+        });
+    }
+
+    function updateCount(filtered) {
+        const el = document.getElementById('hist-count');
+        if (!el) return;
+        const total = HistoryManager.records.length;
+        el.textContent = filtered.length === total ? `共 ${total} 条` : `筛选结果 ${filtered.length} / 共 ${total} 条`;
+    }
+
     const close = () => { overlay.remove(); panel.remove(); };
     overlay.onclick = close;
     document.getElementById('hist-close').onclick = close;
-    document.getElementById('hist-export-csv').onclick = () => HistoryManager.exportCSV();
-    document.getElementById('hist-export-json').onclick = () => HistoryManager.exportJSON();
-    document.getElementById('hist-export-html').onclick = () => HistoryManager.exportHTML();
+
+    // 筛选按钮
+    document.getElementById('hist-filter-apply').onclick = () => {
+        filterState.startDate = document.getElementById('hist-filter-start').value;
+        filterState.endDate = document.getElementById('hist-filter-end').value;
+        filterState.presetName = presetSelect.value;
+        const filtered = getFilteredRecords();
+        updateCount(filtered);
+        renderList(filtered);
+    };
+    document.getElementById('hist-filter-reset').onclick = () => {
+        filterState = { startDate: '', endDate: '', presetName: '' };
+        document.getElementById('hist-filter-start').value = '';
+        document.getElementById('hist-filter-end').value = '';
+        presetSelect.value = '';
+        updateCount(HistoryManager.records);
+        renderList(HistoryManager.records);
+    };
+
+    // 导出按钮
+    document.getElementById('hist-export-csv').onclick = () => HistoryManager.exportCSV(getFilteredRecords());
+    document.getElementById('hist-export-json').onclick = () => HistoryManager.exportJSON(getFilteredRecords());
+    document.getElementById('hist-export-html').onclick = () => HistoryManager.exportHTML(getFilteredRecords());
     document.getElementById('hist-clear').onclick = async () => {
         if (await showConfirmModal('确定要清空所有评阅历史吗？此操作不可撤销。')) {
             HistoryManager.records = [];
             HistoryManager.save();
-            renderList();
+            renderList([]);
         }
     };
 
-    function renderList() {
+    function renderList(records) {
         const listEl = document.getElementById('hist-list');
         if (!listEl) return;
-        if (HistoryManager.records.length === 0) {
+        if (!records || records.length === 0) {
             listEl.innerHTML = '<div class="hist-empty">暂无评阅记录</div>';
             return;
         }
-        listEl.innerHTML = HistoryManager.records.map(r => {
+        listEl.innerHTML = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[r.gradingMode] || r.gradingMode;
             const scoreHtml = r.isCorrected
@@ -2576,11 +2649,11 @@ function showHistoryPanel() {
             btn.onclick = () => showHistoryDetail(HistoryManager.getById(btn.dataset.id));
         });
         listEl.querySelectorAll('.hist-mark-btn').forEach(btn => {
-            btn.onclick = () => { HistoryManager.markIncorrect(btn.dataset.id); renderList(); showToast('已标记为不正确'); };
+            btn.onclick = () => { HistoryManager.markIncorrect(btn.dataset.id); renderList(getFilteredRecords()); showToast('已标记为不正确'); };
         });
     }
 
-    renderList();
+    renderList(HistoryManager.records);
 }
 
 // ========== 历史详情模态框 ==========
