@@ -141,7 +141,7 @@ async function startAutoGrading() {
         }
         window.aiGradingState.isRunning = false;
         const btn = document.querySelector('.ai-grade-btn');
-        if (btn) btn.textContent = window.aiGradingState.isPaused ? '▶️ 继续AI打分' : '✨ 开始AI打分';
+        if (btn) { btn.textContent = window.aiGradingState.isPaused ? '继续批改' : 'AI 批改'; btn.classList.remove('running', 'unattended', 'trial'); }
     }
 }
 
@@ -197,12 +197,15 @@ async function init() {
                         score: record.aiScore, comment: record.aiComment,
                         studentAnswer: record.studentAnswer, imageUrls,
                         base64DataArray, config: PresetManager.getCurrentConfig(),
+                        subScores: record.subScores,
                         onAccept(finalScore, correctionInfo) {
+                            const correctedSubScores = correctionInfo.correctedSubScores || record.subScores;
                             HistoryManager.update(id, {
                                 finalScore, isCorrected: correctionInfo.isCorrected,
-                                correctionReason: correctionInfo.correctionReason, status: 'submitted'
+                                correctionReason: correctionInfo.correctionReason,
+                                subScores: correctedSubScores, status: 'submitted'
                             });
-                            fillScore(finalScore, record.aiComment);
+                            fillScore(finalScore, record.aiComment, correctedSubScores);
                             sessionStorage.removeItem('ai-grading-regrade');
                             window.aiGradingState.isRegrading = false;
                             showToast('回评完成！分数已填入。');

@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.10.4',
+    VERSION: '1.11.2',
 
     /** 远端原始脚本地址（用于检查更新） */
     UPDATE_CHECK_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js',
@@ -19,6 +19,18 @@ const SCRIPT_CONFIG = {
 
     /** 版本更新日志（用于更新提示弹窗），键为版本号，值为更新内容数组 */
     CHANGELOG: {
+        '1.11.0': [
+            '全面 UI 重构：设置面板改为右侧滑入式侧边栏',
+            '浮动按钮增加脉冲动画状态指示',
+            '历史按钮改为 SVG 图标',
+            'Toast 通知支持成功/错误/信息状态，可手动关闭',
+            '模态弹窗动画优化（scale + translate）',
+            '流输出面板新增复制按钮',
+            '提交对话框分数改为环形展示，倒计时改为环形进度',
+            '纠错面板新增步骤进度指示器',
+            '历史详情改为右侧抽屉式滑入',
+            '历史筛选改为可折叠面板',
+        ],
         '1.10.4': [
             '修复配置导入功能中错误的函数名引用（showConfirmDialog、refreshPresetSelect）',
         ],

@@ -78,7 +78,7 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
     dialog.innerHTML = `
         <style>
             #ai-update-dialog {
-                position: fixed; bottom: 30px; left: 30px; z-index: 1000000;
+                position: fixed; bottom: 30px; left: 30px; z-index: 1000020;
                 background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
                 border: 1px solid rgba(0,0,0,0.06); border-radius: 12px;
                 box-shadow: 0 16px 40px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.04);
