@@ -28,11 +28,31 @@ function extractRemoteVersion(scriptText) {
 }
 
 /**
+ * 从远端脚本文本中提取 CHANGELOG 对象。
+ * 通过正则匹配 CHANGELOG: { ... } 块，然后用 Function 构造器安全解析。
+ */
+function extractRemoteChangelog(scriptText) {
+    try {
+        // 匹配 CHANGELOG: { ... } 内容（支持多行，到下一个 }; 或 } 结尾）
+        const match = scriptText.match(/CHANGELOG\s*:\s*(\{[\s\S]*?\})\s*[,}]/);
+        if (!match) return null;
+        // 用 Function 安全求值，避免 eval
+        const fn = new Function('return ' + match[1]);
+        const obj = fn();
+        return (obj && typeof obj === 'object') ? obj : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * 收集从当前版本到远端版本之间的更新日志条目。
  * 返回 HTML 字符串，若无日志则返回空字符串。
+ * @param {string} remoteVersion - 远端版本号
+ * @param {Object|null} remoteChangelog - 远端脚本中的 CHANGELOG 对象（优先使用），为空时回退到本地
  */
-function collectChangelogHTML(remoteVersion) {
-    const changelog = SCRIPT_CONFIG.CHANGELOG;
+function collectChangelogHTML(remoteVersion, remoteChangelog) {
+    const changelog = remoteChangelog || SCRIPT_CONFIG.CHANGELOG;
     if (!changelog) return '';
     const versions = Object.keys(changelog)
         .filter(v => compareVersions(v, SCRIPT_CONFIG.VERSION) > 0 && compareVersions(v, remoteVersion) <= 0)
@@ -47,11 +67,11 @@ function collectChangelogHTML(remoteVersion) {
 /**
  * 显示更新提示对话框（非 alert，样式与项目风格一致）。
  */
-function showUpdateDialog(remoteVersion) {
+function showUpdateDialog(remoteVersion, remoteChangelog) {
     const oldDialog = document.getElementById('ai-update-dialog');
     if (oldDialog) return; // 已经在显示了，不重复
 
-    const changelogHTML = collectChangelogHTML(remoteVersion);
+    const changelogHTML = collectChangelogHTML(remoteVersion, remoteChangelog);
 
     const dialog = document.createElement('div');
     dialog.id = 'ai-update-dialog';
@@ -162,8 +182,9 @@ function checkForUpdate(force = false) {
             }
 
             if (compareVersions(remoteVersion, SCRIPT_CONFIG.VERSION) > 0) {
+                const remoteChangelog = extractRemoteChangelog(res.responseText);
                 console.log(`[更新检查] 发现新版本 ${remoteVersion}，弹出提示`);
-                showUpdateDialog(remoteVersion);
+                showUpdateDialog(remoteVersion, remoteChangelog);
             } else {
                 console.log('[更新检查] 当前已是最新版本');
                 if (force) showToast('当前已是最新版本');
