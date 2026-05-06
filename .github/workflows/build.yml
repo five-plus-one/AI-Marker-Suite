@@ -104,15 +104,6 @@ jobs:
           name: script-dist
           path: dist
 
-      - name: Remove old script
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: sudo rm -f /opt/1panel/apps/openresty/openresty/www/sites/auto-update.aimarking.five-plus-one.com/index/ota/ai_marker.user.js
-
       - name: Deploy script to server via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -124,6 +115,7 @@ jobs:
           target: /opt/1panel/apps/openresty/openresty/www/sites/auto-update.aimarking.five-plus-one.com/index/ota/
           strip_components: 1
           overwrite: true
+          rm: true
 
       - name: Set permissions
         uses: appleboy/ssh-action@v1.0.3
