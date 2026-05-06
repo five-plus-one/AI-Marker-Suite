@@ -115,6 +115,7 @@ jobs:
           target: /opt/1panel/apps/openresty/openresty/www/sites/auto-update.aimarking.five-plus-one.com/index/ota/
           strip_components: 1
           overwrite: true
+          rm: true
 
       - name: Set permissions
         uses: appleboy/ssh-action@v1.0.3
