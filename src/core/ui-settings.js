@@ -70,6 +70,36 @@ function createSettingsPanel() {
             .save-btn.highlight-save { background: #D93025; }
             .save-btn.highlight-save:hover { background: #B3261E; }
 
+            /* 标签页 */
+            .settings-tabs {
+                display: flex; border-bottom: 1px solid rgba(0,0,0,0.06);
+                background: rgba(0,0,0,0.01);
+            }
+            .settings-tab {
+                flex: 1; padding: 12px 0; text-align: center; font-size: 13px; font-weight: 500;
+                color: #86868b; cursor: pointer; transition: all 0.2s; border-bottom: 2px solid transparent;
+                position: relative;
+            }
+            .settings-tab:hover { color: #1a1a1a; background: rgba(0,0,0,0.02); }
+            .settings-tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+            .tab-content { display: none; }
+            .tab-content.active { display: block; }
+
+            /* 分组标题 */
+            .group-title {
+                padding: 18px 24px 6px; font-size: 11px; font-weight: 700; color: #aaa;
+                text-transform: uppercase; letter-spacing: 1.2px;
+                display: flex; align-items: center; gap: 8px;
+            }
+            .group-title::after {
+                content: ''; flex: 1; height: 1px; background: rgba(0,0,0,0.06);
+            }
+            .group-title .config-warn {
+                display: inline-flex; align-items: center; gap: 3px;
+                font-size: 10px; font-weight: 600; color: #D93025; letter-spacing: 0;
+                text-transform: none; background: rgba(217,48,37,0.08); padding: 2px 7px; border-radius: 4px;
+            }
+
             /* 手风琴分组 */
             .form-section {
                 border-bottom: 1px solid rgba(0,0,0,0.04);
@@ -83,6 +113,11 @@ function createSettingsPanel() {
             .section-header h4 {
                 margin: 0; font-size: 12px; font-weight: 600; color: #86868b;
                 text-transform: uppercase; letter-spacing: 0.8px;
+                display: flex; align-items: center; gap: 6px;
+            }
+            .section-header h4 .section-badge {
+                display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+                background: #D93025; flex-shrink: 0;
             }
             .section-arrow {
                 width: 16px; height: 16px; color: #aaa; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -91,6 +126,18 @@ function createSettingsPanel() {
             .form-section.collapsed .section-arrow { transform: rotate(-90deg); }
             .form-section.collapsed .section-body { display: none; }
             .section-body { padding: 0 24px 16px; }
+
+            /* API 密钥警告横幅 */
+            .api-key-warning {
+                margin: 0 24px 12px; padding: 10px 14px;
+                background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+                border: 1px solid rgba(217,48,37,0.2); border-radius: 8px;
+                font-size: 12px; color: #D93025; font-weight: 500;
+                display: flex; align-items: center; gap: 8px;
+                line-height: 1.4;
+            }
+            .api-key-warning.hidden { display: none; }
+            .api-key-warning .warn-icon { font-size: 14px; flex-shrink: 0; }
 
             .form-group { margin-bottom: 14px; }
             .form-group:last-child { margin-bottom: 0; }
@@ -103,6 +150,10 @@ function createSettingsPanel() {
             }
             .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
                 outline: none; border-color: #0052FF; background: #fff; box-shadow: 0 0 0 3px rgba(0, 82, 255, 0.08);
+            }
+            .form-group input.readonly-field {
+                background: rgba(0,0,0,0.04); color: #86868b; cursor: not-allowed;
+                border-color: rgba(0,0,0,0.05);
             }
             .form-group textarea { min-height: 72px; resize: vertical; line-height: 1.5; }
 
@@ -140,11 +191,6 @@ function createSettingsPanel() {
             .mode-desc.trial-desc { color: #7c3aed; }
             .mode-desc.unattended-desc { color: #D93025; }
 
-            .unattended-warning {
-                background: rgba(245, 108, 108, 0.05); border-left: 3px solid #F56C6C; border-radius: 0 8px 8px 0;
-                padding: 10px 14px; font-size: 12px; color: #D93025; line-height: 1.5; margin-top: 8px;
-            }
-
             .sidebar-footer {
                 padding: 12px 24px 16px; border-top: 1px solid rgba(0,0,0,0.06);
                 display: flex; gap: 8px; flex-shrink: 0;
@@ -160,109 +206,258 @@ function createSettingsPanel() {
 
             .api-key-link { display: inline-block; margin-top: 6px; font-size: 12px; color: #0052FF; text-decoration: none; font-weight: 500; }
             .api-key-link:hover { text-decoration: underline; }
+
+            /* 关于页面样式 */
+            .about-page { padding: 24px; }
+            .about-header {
+                text-align: center; margin-bottom: 24px; padding-bottom: 20px;
+                border-bottom: 1px solid rgba(0,0,0,0.06);
+            }
+            .about-logo {
+                width: 64px; height: 64px; margin: 0 auto 12px;
+                background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
+                border-radius: 16px; display: flex; align-items: center; justify-content: center;
+                font-size: 28px; color: white;
+            }
+            .about-title { font-size: 18px; font-weight: 600; color: #1a1a1a; margin: 0 0 4px; }
+            .about-version { font-size: 13px; color: #86868b; margin: 0; }
+            .about-section { margin-bottom: 20px; }
+            .about-section-title {
+                font-size: 12px; font-weight: 600; color: #86868b; text-transform: uppercase;
+                letter-spacing: 0.8px; margin-bottom: 10px;
+            }
+            .about-links { display: flex; flex-direction: column; gap: 8px; }
+            .about-link {
+                display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+                background: rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.06);
+                border-radius: 8px; color: #1a1a1a; text-decoration: none; font-size: 13px;
+                transition: all 0.2s;
+            }
+            .about-link:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); }
+            .about-link-icon { font-size: 16px; width: 20px; text-align: center; }
+            .about-link-text { flex: 1; }
+            .about-link-desc { font-size: 11px; color: #86868b; margin-top: 2px; }
+            .about-support {
+                background: linear-gradient(135deg, #fff9e6 0%, #fff3cc 100%);
+                border: 1px solid rgba(255,193,7,0.3); border-radius: 12px; padding: 20px;
+                margin-top: 16px;
+            }
+            .about-support-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin: 0 0 10px; }
+            .about-support-desc { font-size: 13px; color: #666; margin: 0 0 16px; line-height: 1.5; }
+            .about-qrcodes { display: flex; gap: 20px; justify-content: center; }
+            .about-qrcode { text-align: center; }
+            .about-qrcode img {
+                width: 140px; height: 140px; border-radius: 10px;
+                border: 1px solid rgba(0,0,0,0.1); object-fit: cover;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            }
+            .about-qrcode-label { font-size: 12px; color: #666; margin-top: 8px; font-weight: 500; }
+            .about-copyright { text-align: center; font-size: 11px; color: #aaa; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(0,0,0,0.04); }
         </style>
 
         <div class="sidebar-header">
-            <h3>批改配置</h3>
+            <h3>AI 批改助手</h3>
             <div class="header-buttons">
                 <button class="header-btn close-btn" title="关闭">×</button>
             </div>
         </div>
+
+        <div class="settings-tabs">
+            <div class="settings-tab active" data-tab="config">配置</div>
+            <div class="settings-tab" data-tab="about">关于</div>
+        </div>
+
         <div class="settings-body">
-            <div class="save-btn-container">
-                <button class="save-btn" id="save-config-btn">保存并启用</button>
-            </div>
-
-            <div class="form-section highlight">
-                <div class="section-header"><h4>场景方案</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="section-body">
-                    <div class="preset-controls">
-                        <select id="preset-select"></select>
-                        <button class="preset-btn" id="btn-new-preset">新建</button>
-                        <button class="preset-btn danger" id="btn-del-preset">删除</button>
-                    </div>
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="bind-url-checkbox">
-                        <label for="bind-url-checkbox">绑定至当前试题</label>
-                    </div>
+            <!-- 配置标签页 -->
+            <div class="tab-content active" id="tab-config">
+                <div class="save-btn-container">
+                    <button class="save-btn" id="save-config-btn">保存并启用</button>
                 </div>
-            </div>
 
-            <div class="form-section">
-                <div class="section-header"><h4>运行模式</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="section-body">
-                    <div class="mode-segmented">
-                        <input type="radio" name="grading-mode" value="normal" id="mode-normal">
-                        <label for="mode-normal">普通模式</label>
-                        <input type="radio" name="grading-mode" value="trial" id="mode-trial">
-                        <label for="mode-trial">试改模式</label>
-                        <input type="radio" name="grading-mode" value="unattended" id="mode-unattended">
-                        <label for="mode-unattended">无人模式</label>
-                    </div>
-                    <div class="mode-desc" id="mode-desc">每批改一份，等待教师确认后提交。</div>
-                </div>
-            </div>
-
-            <div class="form-section">
-                <div class="section-header"><h4>批改上下文</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="section-body">
-                    <div class="form-group"><label>题目内容</label><textarea id="question-content"></textarea></div>
-                    <div class="form-group"><label>参考答案</label><textarea id="standard-answer"></textarea></div>
-                    <div class="form-group"><label>采分标准</label><textarea id="grading-rubric"></textarea></div>
-                </div>
-            </div>
-
-            <div class="form-section">
-                <div class="section-header"><h4>分小题评分</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="section-body">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="enable-sub-questions">
-                        <label for="enable-sub-questions">启用分小题评分</label>
-                    </div>
-                    <div id="sub-questions-container" style="display:none;">
-                        <div id="sub-questions-list"></div>
-                        <button class="preset-btn" id="btn-add-sub-question" style="width:100%;margin-top:8px;padding:8px;">+ 添加小题</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="form-section">
-                <div class="section-header"><h4>AI 模型与算力</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="section-body">
-                    <div class="form-group">
-                        <label>服务提供商</label>
+                <div class="form-section highlight">
+                    <div class="section-header"><h4>场景方案</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
                         <div class="preset-controls">
-                            <select id="ai-provider"></select>
-                            <button class="preset-btn" id="btn-new-provider">新建</button>
-                            <button class="preset-btn danger" id="btn-del-provider">删除</button>
+                            <select id="preset-select"></select>
+                            <button class="preset-btn" id="btn-new-preset">新建</button>
+                            <button class="preset-btn danger" id="btn-del-preset">删除</button>
                         </div>
-                        <div id="api-key-link-container" style="display:none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">获取访问凭证</a></div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="bind-url-checkbox">
+                            <label for="bind-url-checkbox">绑定至当前试题</label>
+                        </div>
                     </div>
-                    <div class="form-group"><label>服务网关 URL</label><input type="text" id="api-endpoint"></div>
-                    <div class="form-group"><label>通信密钥 (Token) *</label><input type="password" id="api-key"></div>
-                    <div class="form-group"><label>调用模型 ID</label><input type="text" id="model-name"></div>
+                </div>
+
+                <div class="form-section">
+                    <div class="section-header"><h4>运行模式</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="mode-segmented">
+                            <input type="radio" name="grading-mode" value="normal" id="mode-normal">
+                            <label for="mode-normal">普通模式</label>
+                            <input type="radio" name="grading-mode" value="trial" id="mode-trial">
+                            <label for="mode-trial">试改模式</label>
+                            <input type="radio" name="grading-mode" value="unattended" id="mode-unattended">
+                            <label for="mode-unattended">无人模式</label>
+                        </div>
+                        <div class="mode-desc" id="mode-desc">每批改一份，等待教师确认后提交。</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="section-header"><h4>批改上下文</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="form-group"><label>题目内容</label><textarea id="question-content"></textarea></div>
+                        <div class="form-group"><label>参考答案</label><textarea id="standard-answer"></textarea></div>
+                        <div class="form-group"><label>采分标准</label><textarea id="grading-rubric"></textarea></div>
+                    </div>
+                </div>
+
+                <div class="form-section collapsed">
+                    <div class="section-header"><h4>分小题评分</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="enable-sub-questions">
+                            <label for="enable-sub-questions">启用分小题评分</label>
+                        </div>
+                        <div id="sub-questions-container" style="display:none;">
+                            <div id="sub-questions-list"></div>
+                            <button class="preset-btn" id="btn-add-sub-question" style="width:100%;margin-top:8px;padding:8px;">+ 添加小题</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section collapsed">
+                    <div class="section-header"><h4>AI 模型与算力</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label>服务提供商</label>
+                            <div class="preset-controls">
+                                <select id="ai-provider"></select>
+                                <button class="preset-btn" id="btn-new-provider">新建</button>
+                                <button class="preset-btn danger" id="btn-del-provider">删除</button>
+                            </div>
+                            <div id="api-key-link-container" style="display:none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">获取访问凭证</a></div>
+                        </div>
+                        <div class="form-group"><label>服务网关 URL</label><input type="text" id="api-endpoint"></div>
+                        <div class="form-group"><label>通信密钥 (Token) *</label><input type="password" id="api-key"></div>
+                        <div class="form-group"><label>调用模型 ID</label><input type="text" id="model-name"></div>
+                    </div>
+                </div>
+
+                <div class="form-section collapsed">
+                    <div class="section-header"><h4>历史记录</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="save-images-checkbox">
+                            <label for="save-images-checkbox">保存答题卡图片</label>
+                        </div>
+                        <div style="font-size:12px;color:#86868b;margin-top:4px;">关闭后不再保存图片到本地，可节省存储空间</div>
+                    </div>
+                </div>
+
+                <div class="form-section collapsed">
+                    <div class="section-header"><h4>配置管理</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div style="display:flex;gap:8px;">
+                            <button class="footer-btn" id="btn-export-config" style="flex:1;">导出配置</button>
+                            <button class="footer-btn" id="btn-import-config" style="flex:1;">导入配置</button>
+                        </div>
+                        <input type="file" id="import-config-file" accept=".json" style="display:none;">
+                    </div>
                 </div>
             </div>
 
-            <div class="form-section">
-                <div class="section-header"><h4>历史记录</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="section-body">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="save-images-checkbox">
-                        <label for="save-images-checkbox">保存答题卡图片</label>
+            <!-- 关于标签页 -->
+            <div class="tab-content" id="tab-about">
+                <div class="about-page">
+                    <div class="about-header">
+                        <div class="about-logo">AI</div>
+                        <h2 class="about-title">AI 批改助手</h2>
+                        <p class="about-version">版本 ${SCRIPT_CONFIG.VERSION}</p>
                     </div>
-                    <div style="font-size:12px;color:#86868b;margin-top:4px;">关闭后不再保存图片到本地，可节省存储空间</div>
-                </div>
-            </div>
 
-            <div class="form-section">
-                <div class="section-header"><h4>配置管理</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="section-body">
-                    <div style="display:flex;gap:8px;">
-                        <button class="footer-btn" id="btn-export-config" style="flex:1;">导出配置</button>
-                        <button class="footer-btn" id="btn-import-config" style="flex:1;">导入配置</button>
+                    <div class="about-section">
+                        <div class="about-section-title">帮助与支持</div>
+                        <div class="about-links">
+                            <a href="https://aimarking.five-plus-one.com/" target="_blank" class="about-link">
+                                <span class="about-link-icon">📖</span>
+                                <div class="about-link-text">
+                                    <div>帮助文档</div>
+                                    <div class="about-link-desc">查看使用教程和常见问题</div>
+                                </div>
+                            </a>
+                            <a href="https://github.com/five-plus-one/AI-Marker-Suite" target="_blank" class="about-link">
+                                <span class="about-link-icon">💻</span>
+                                <div class="about-link-text">
+                                    <div>GitHub 仓库</div>
+                                    <div class="about-link-desc">查看源代码、提交反馈</div>
+                                </div>
+                            </a>
+                            <a href="https://r-l.ink/contact" target="_blank" class="about-link">
+                                <span class="about-link-icon">📧</span>
+                                <div class="about-link-text">
+                                    <div>联系作者</div>
+                                    <div class="about-link-desc">反馈问题、请求适配更多平台</div>
+                                </div>
+                            </a>
+                        </div>
                     </div>
-                    <input type="file" id="import-config-file" accept=".json" style="display:none;">
+
+                    <div class="about-section">
+                        <div class="about-section-title">社区与交流</div>
+                        <div class="about-links">
+                            <a href="https://five-plus-one.com" target="_blank" class="about-link">
+                                <span class="about-link-icon">🌐</span>
+                                <div class="about-link-text">
+                                    <div>作者主页</div>
+                                    <div class="about-link-desc">五加一的星空</div>
+                                </div>
+                            </a>
+                            <a href="https://r-l.ink/s/L9Akf" target="_blank" class="about-link">
+                                <span class="about-link-icon">💬</span>
+                                <div class="about-link-text">
+                                    <div>微信交流群</div>
+                                    <div class="about-link-desc">加入微信群交流讨论</div>
+                                </div>
+                            </a>
+                            <a href="https://r-l.ink/s/WbMrR" target="_blank" class="about-link">
+                                <span class="about-link-icon">👥</span>
+                                <div class="about-link-text">
+                                    <div>QQ 交流群</div>
+                                    <div class="about-link-desc">加入QQ群交流讨论</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="about-support">
+                        <div class="about-support-title">☕ 支持作者</div>
+                        <div class="about-support-desc">如果这个工具对您有帮助，欢迎请作者喝杯咖啡！您的支持是持续更新的动力。</div>
+                        <div class="about-qrcodes">
+                            <div class="about-qrcode">
+                                <img src="https://r-l.ink/paywx1" alt="微信赞赏" onerror="this.style.display='none'">
+                                <div class="about-qrcode-label">微信赞赏</div>
+                            </div>
+                            <div class="about-qrcode">
+                                <img src="https://r-l.ink/payzfb1" alt="支付宝赞赏" onerror="this.style.display='none'">
+                                <div class="about-qrcode-label">支付宝赞赏</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:16px;">
+                        <div class="about-section-title">关注公众号</div>
+                        <div style="text-align:center;">
+                            <img src="https://r-l.ink/wxmp1" alt="微信公众号" style="width:120px;height:120px;border-radius:8px;border:1px solid rgba(0,0,0,0.1);" onerror="this.style.display='none'">
+                            <div style="font-size:11px;color:#86868b;margin-top:4px;">扫码关注公众号获取最新动态</div>
+                        </div>
+                    </div>
+
+                    <div class="about-copyright">
+                        <div>AI 批改助手 © ${new Date().getFullYear()} Five Plus One</div>
+                        <div style="margin-top:4px;">Made with ❤️ for teachers</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -277,6 +472,16 @@ function createSettingsPanel() {
     // 遮罩层点击关闭
     overlay.onclick = () => closeSettingsPanel();
     panel.querySelector('.close-btn').onclick = () => closeSettingsPanel();
+
+    // 标签页切换
+    panel.querySelectorAll('.settings-tab').forEach(tab => {
+        tab.onclick = () => {
+            panel.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+            panel.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            panel.querySelector(`#tab-${tab.dataset.tab}`).classList.add('active');
+        };
+    });
 
     // 手风琴折叠
     panel.querySelectorAll('.section-header').forEach(header => {
