@@ -245,6 +245,17 @@ function createSettingsPanel() {
             </div>
 
             <div class="form-section">
+                <div class="section-header"><h4>历史记录</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <div class="section-body">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="save-images-checkbox">
+                        <label for="save-images-checkbox">保存答题卡图片</label>
+                    </div>
+                    <div style="font-size:12px;color:#86868b;margin-top:4px;">关闭后不再保存图片到本地，可节省存储空间</div>
+                </div>
+            </div>
+
+            <div class="form-section">
                 <div class="section-header"><h4>配置管理</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                 <div class="section-body">
                     <div style="display:flex;gap:8px;">
@@ -492,6 +503,17 @@ function fillFormFromActivePreset() {
             subToggle.checked = false;
             subContainer.style.display = 'none';
         }
+    }
+
+    // 初始化保存图片选项
+    const saveImagesCheckbox = document.getElementById('save-images-checkbox');
+    if (saveImagesCheckbox) {
+        saveImagesCheckbox.checked = window.aiGradingState.saveImages;
+        saveImagesCheckbox.addEventListener('change', () => {
+            window.aiGradingState.saveImages = saveImagesCheckbox.checked;
+            GM_setValue('ai-grading-save-images', saveImagesCheckbox.checked);
+            showToast(saveImagesCheckbox.checked ? '已开启答题卡图片保存' : '已关闭答题卡图片保存');
+        });
     }
 
     updateUIVisibility();
