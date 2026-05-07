@@ -253,6 +253,31 @@ function createSettingsPanel() {
             }
             .about-qrcode-label { font-size: 12px; color: #666; margin-top: 8px; font-weight: 500; }
             .about-copyright { text-align: center; font-size: 11px; color: #aaa; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(0,0,0,0.04); }
+
+            /* CHANGELOG 样式 */
+            .changelog-section { margin-top: 20px; }
+            .changelog-list { display: flex; flex-direction: column; gap: 0; }
+            .changelog-version { padding: 12px 0; border-bottom: 1px solid rgba(0,0,0,0.04); }
+            .changelog-version:last-child { border-bottom: none; }
+            .changelog-version-header {
+                display: flex; align-items: center; gap: 8px; cursor: pointer;
+                user-select: none; padding: 2px 0;
+            }
+            .changelog-version-header:hover .changelog-ver { color: #0052FF; }
+            .changelog-ver { font-size: 14px; font-weight: 600; color: #1a1a1a; transition: color 0.15s; }
+            .changelog-date { font-size: 11px; color: #aaa; }
+            .changelog-items {
+                margin: 8px 0 0 0; padding: 0 0 0 14px; list-style: disc;
+                font-size: 12px; color: #555; line-height: 1.7;
+            }
+            .changelog-items li { margin-bottom: 2px; }
+            .changelog-items li::marker { color: #ccc; }
+            .changelog-toggle {
+                width: 14px; height: 14px; color: #bbb; transition: transform 0.2s;
+                flex-shrink: 0;
+            }
+            .changelog-version.collapsed .changelog-toggle { transform: rotate(-90deg); }
+            .changelog-version.collapsed .changelog-items { display: none; }
         </style>
 
         <div class="sidebar-header">
@@ -450,6 +475,11 @@ function createSettingsPanel() {
                         </div>
                     </div>
 
+                    <div class="about-section changelog-section">
+                        <div class="about-section-title">更新日志</div>
+                        <div class="changelog-list" id="changelog-list"></div>
+                    </div>
+
                     <div class="about-support">
                         <div class="about-support-title">☕ 支持作者</div>
                         <div class="about-support-desc">如果这个工具对您有帮助，欢迎请作者喝杯咖啡！您的支持是持续更新的动力。</div>
@@ -631,9 +661,70 @@ function createSettingsPanel() {
     panel.querySelector('#btn-add-sub-question').onclick = () => addSubQuestionItem();
 
     loadSettings();
+    renderChangelog();
 
     // 初始化后打开侧边栏
     requestAnimationFrame(() => openSettingsPanel());
+}
+
+// ========== 渲染 CHANGELOG ==========
+function renderChangelog() {
+    const container = document.getElementById('changelog-list');
+    if (!container) return;
+
+    const changelog = SCRIPT_CONFIG.CHANGELOG;
+    const versions = Object.keys(changelog);
+    if (versions.length === 0) {
+        container.innerHTML = '<div style="font-size:12px;color:#aaa;">暂无更新日志</div>';
+        return;
+    }
+
+    // 版本日期映射（与 Docs/changelog.md 保持一致）
+    const dateMap = {
+        '1.12.0': '2026-05-07',
+        '1.11.3': '2026-05-07',
+        '1.11.2': '2026-05-02',
+        '1.11.1': '2026-05-02',
+        '1.11.0': '2026-05-02',
+        '1.10.4': '2026-05-01',
+        '1.10.3': '2026-05-01',
+        '1.10.2': '2026-05-01',
+        '1.10.0': '2026-05-01',
+        '1.9.0': '2026-04-30',
+        '1.8.6': '2026-04-30',
+        '1.8.5': '2026-04-30',
+        '1.8.3': '2026-04-30',
+        '1.8.0': '2026-04-20',
+        '1.7.0': '2026-04-10',
+    };
+
+    const arrowSVG = '<svg class="changelog-toggle" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    let html = '';
+    versions.forEach((ver, idx) => {
+        const items = changelog[ver];
+        const date = dateMap[ver] || '';
+        const collapsedClass = idx === 0 ? '' : ' collapsed'; // 最新版本展开，其余折叠
+
+        html += `<div class="changelog-version${collapsedClass}">`;
+        html += `<div class="changelog-version-header">`;
+        html += arrowSVG;
+        html += `<span class="changelog-ver">v${ver}</span>`;
+        if (date) html += `<span class="changelog-date">${date}</span>`;
+        html += `</div>`;
+        html += `<ul class="changelog-items">`;
+        items.forEach(item => {
+            html += `<li>${item}</li>`;
+        });
+        html += `</ul></div>`;
+    });
+
+    container.innerHTML = html;
+
+    // 点击折叠/展开
+    container.querySelectorAll('.changelog-version-header').forEach(header => {
+        header.onclick = () => header.parentElement.classList.toggle('collapsed');
+    });
 }
 
 // ========== 侧边栏开关 ==========
