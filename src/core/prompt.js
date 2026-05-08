@@ -203,12 +203,15 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
 
     return callAI(prompt, base64DataArray, config, onStreamUpdate)
         .then(fullText => {
+            // 输出原始AI返回内容，方便调试
+            console.log('📝 [诊断] AI原始返回内容：\n' + fullText);
+
             const parsed = hasSub
                 ? parseSubQuestionResponse(fullText, config)
                 : parseAIResponseText(fullText);
             console.log(`🧠 [诊断] AI响应解析结果 — 分数: ${parsed.score}, 识别答案长度: ${(parsed.studentAnswer || '').length}字, 原始文本长度: ${fullText.length}字`);
             if (parsed.score === null) {
-                console.warn('⚠️ [诊断] 分数解析为 null，原始AI返回文本如下：\n' + fullText);
+                console.warn('⚠️ [诊断] 分数解析为 null');
             }
             return parsed;
         });
