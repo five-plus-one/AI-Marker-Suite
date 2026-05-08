@@ -48,24 +48,32 @@ const WuyueAdapter = {
         // 等待图片加载
         await new Promise(r => setTimeout(r, 1000));
 
-        // 获取当前显示的 AnswerSheet 类型图片
+        // 方法1: 获取当前显示的 AnswerSheet 类型图片（不在 hideBox 中）
         const activeImage = document.querySelector(WUYUE_SELECTORS.ANSWER_IMAGE);
         if (activeImage && activeImage.src) {
-            console.log(`🖼️ [诊断] 找到答题卡图片: ${activeImage.src.substring(0, 60)}...`);
+            console.log(`🖼️ [诊断] 找到当前显示的答题卡图片: ${activeImage.src.substring(0, 60)}...`);
             return [activeImage.src];
         }
 
-        // 备选：获取所有 AnswerSheet 图片
-        const allImages = document.querySelectorAll(WUYUE_SELECTORS.ANSWER_IMAGE_ALL);
-        const urls = [];
-        allImages.forEach(img => {
-            if (img.src && img.src.includes('AnswerSheet')) {
-                urls.push(img.src);
+        // 方法2: 获取当前显示的 outBox 中的所有图片（包括 PaperScan）
+        const activeBox = document.querySelector('.outBox:not(.hideBox)');
+        if (activeBox) {
+            const img = activeBox.querySelector('img');
+            if (img && img.src) {
+                console.log(`🖼️ [诊断] 找到当前显示的图片: ${img.src.substring(0, 60)}...`);
+                return [img.src];
             }
-        });
+        }
 
-        console.log(`🖼️ [诊断] 有效图片 URL 数量: ${urls.length}`);
-        return urls;
+        // 方法3: 只获取第一个 AnswerSheet 图片（排除 hideBox 中的）
+        const firstAnswerSheet = document.querySelector('.outBox:not(.hideBox) img[src*="AnswerSheet"], .outBox:not(.hideBox) img[src*="PaperScan"]');
+        if (firstAnswerSheet && firstAnswerSheet.src) {
+            console.log(`🖼️ [诊断] 找到第一个答题卡图片: ${firstAnswerSheet.src.substring(0, 60)}...`);
+            return [firstAnswerSheet.src];
+        }
+
+        console.warn('⚠️ [诊断] 未找到答题卡图片');
+        return [];
     },
 
     async fetchImageAsBase64(url) {
