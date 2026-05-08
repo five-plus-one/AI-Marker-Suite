@@ -52,11 +52,13 @@ const BUILD_CONFIGS = [
             'adapters/qitian-new/adapter.js',
             'adapters/haofenshu/selectors.js',
             'adapters/haofenshu/adapter.js',
+            'adapters/wuyue/selectors.js',
+            'adapters/wuyue/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'http://tampermonkey.net/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数等阅卷平台。自动识别答案、智能评分、自动提交！',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷等平台。自动识别答案、智能评分、自动提交！',
             author: '5plus1',
             match: [
                 'https://www.zhixue.com/webmarking/*',
@@ -65,6 +67,7 @@ const BUILD_CONFIGS = [
                 '*://yj5.7net.cc/*',
                 '*://*.qt7.net/*',
                 '*://*.haofenshu.com/*',
+                '*://*.wylkyj.com/*',
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
             grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue'],
