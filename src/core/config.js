@@ -3,9 +3,12 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.11.2',
+    VERSION: '1.12.1.0',
 
-    /** 远端原始脚本地址（用于检查更新） */
+    /** 轻量级更新检查 URL（优先使用，~1KB） */
+    MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
+
+    /** 远端原始脚本地址（降级使用 + 立即更新） */
     UPDATE_CHECK_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js',
 
     /** 更新检查间隔（毫秒），默认 24 小时 */
@@ -17,8 +20,30 @@ const SCRIPT_CONFIG = {
     /** 默认模型 */
     DEFAULT_MODEL: 'mimo-v2.5',
 
-    /** 版本更新日志（用于更新提示弹窗），键为版本号，值为更新内容数组 */
+    /**
+     * 版本更新日志（用于构建 manifest.json）
+     * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
+     */
     CHANGELOG: {
+        '1.12.1': [
+            '新增五岳阅卷 (wylkyj.com) 平台适配，支持答题卡识别和分小题评分',
+            '轻量级更新检查：优先检查 manifest.json (~1KB)，失败时降级检查完整脚本',
+            'Changelog 统一管理：文档站和脚本从远端 manifest.json 加载',
+            '更新后刷新优化：等待时间从 15 秒缩短到 10 秒，新增「立即刷新」按钮',
+            '开源协议从 MIT 更改为 GPL-3.0',
+        ],
+        '1.12.0': [
+            '新增好分数 (haofenshu.com) 平台适配，支持 SVG 答题卡识别和 Vue 输入框分数填充',
+            '侧边栏配置页重构为分组结构：基本、批改、AI 配置、其他',
+            '关于页新增完整 CHANGELOG 展示',
+            '通信密钥未填写时显示醒目红色警告横幅和分组标题提示',
+            '新增「保存答题卡图片」开关，可关闭图片缓存以节省存储空间',
+        ],
+        '1.11.3': [
+            '新增好分数 (haofenshu.com) 平台适配',
+            '新增「保存答题卡图片」配置选项',
+            'match 规则放宽至 *.haofenshu.com/*，提升兼容性',
+        ],
         '1.11.2': [
             '修复纠错面板"提示词优化"不显示优化结果的问题',
             '修复解析器将"不变"后的括号注释误认为评分标准内容的问题',

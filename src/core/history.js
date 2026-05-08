@@ -186,10 +186,13 @@ const HistoryManager = {
         this.records.unshift(record);
         this.save();
 
-        if (imageBase64s && imageBase64s.length > 0) {
+        // 根据配置决定是否保存图片
+        if (imageBase64s && imageBase64s.length > 0 && window.aiGradingState.saveImages) {
             ImageStore.save(record.id, imageBase64s).catch(e =>
                 console.warn('[历史] 图片存入 IndexedDB 失败:', e)
             );
+        } else if (imageBase64s && imageBase64s.length > 0) {
+            console.log('[历史] 已跳过图片保存（用户设置为不保存图片）');
         }
 
         const totalSize = (JSON.stringify(this.records).length / 1024).toFixed(1);
