@@ -132,6 +132,12 @@ function callAI(prompt, base64DataArray, config, onStreamUpdate) {
                     }
                 }
 
+                // 如果 onprogress 没有触发过（非流式响应），调用 onStreamUpdate 显示最终结果
+                if (progressCallCount === 0 && fullText && onStreamUpdate) {
+                    console.log('📝 [诊断] 非流式响应，调用 onStreamUpdate 显示最终结果');
+                    onStreamUpdate(fullText);
+                }
+
                 resolve(fullText);
             },
             onerror: function() {
