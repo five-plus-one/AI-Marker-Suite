@@ -274,17 +274,28 @@ const HistoryManager = {
             const d = r.dualEval;
             const dualHtml = d ? `
                 <div style="margin:8px 0;padding:10px 14px;background:#f8f8f8;border-radius:8px;border:1px solid #e5e5e5;">
-                    <div style="font-size:12px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">双评详情</div>
+                    <div style="font-size:12px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">双评结果</div>
                     <div style="display:flex;gap:20px;font-size:12px;margin-bottom:6px;">
-                        <span>老师A: <strong>${d.scoreA !== null ? d.scoreA + '分' : '失败'}</strong></span>
-                        <span>老师B: <strong>${d.scoreB !== null ? d.scoreB + '分' : '失败'}</strong></span>
-                        ${d.diff !== null ? `<span>分差: <strong style="color:${d.diff > 2 ? '#D93025' : '#1d1d1f'};">${d.diff}分</strong></span>` : ''}
-                        <span>结果: <strong style="color:${d.result === 'consensus' ? '#34A853' : d.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
+                        <span>分差: <strong style="color:${(d.diff || 0) > 2 ? '#D93025' : '#1d1d1f'};">${d.diff !== null ? d.diff + '分' : '—'}</strong></span>
+                        <span>判定: <strong style="color:${d.result === 'consensus' ? '#34A853' : d.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
                             d.result === 'consensus' ? '✓ 共识' : d.result === 'arbitration' ? '⚠ 仲裁' : d.result === 'fallback-a' ? '使用老师A' : d.result === 'fallback-b' ? '使用老师B' : d.result
                         }</strong></span>
                     </div>
-                    ${d.arbScore !== undefined ? `<div style="font-size:12px;margin-top:4px;">仲裁得分: <strong>${d.arbScore}分</strong></div>` : ''}
-                    ${d.arbAnalysis ? `<div style="font-size:12px;color:#666;margin-top:6px;line-height:1.5;">仲裁分析: ${d.arbAnalysis.replace(/\n/g, '<br>')}</div>` : ''}
+                    <div style="margin-top:8px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
+                        <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师A 评分：<strong>${d.scoreA !== null ? d.scoreA + '分' : '失败'}</strong></div>
+                        ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;">评分依据：${(d.detailA['评分依据'] || '—').replace(/\n/g, '<br>')}</div>` : ''}
+                        ${d.detailA && d.detailA['分数计算'] ? `<div style="font-size:11px;font-weight:600;">分数计算：${d.detailA['分数计算']}</div>` : ''}
+                    </div>
+                    <div style="margin-top:6px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
+                        <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师B 评分：<strong>${d.scoreB !== null ? d.scoreB + '分' : '失败'}</strong></div>
+                        ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;">评分依据：${(d.detailB['评分依据'] || '—').replace(/\n/g, '<br>')}</div>` : ''}
+                        ${d.detailB && d.detailB['分数计算'] ? `<div style="font-size:11px;font-weight:600;">分数计算：${d.detailB['分数计算']}</div>` : ''}
+                    </div>
+                    ${d.result === 'arbitration' ? `
+                    <div style="margin-top:6px;padding:8px 12px;background:rgba(124,58,237,0.04);border-radius:6px;border:1px solid rgba(124,58,237,0.15);">
+                        <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:4px;">仲裁结果：<strong>${d.arbScore !== undefined ? d.arbScore + '分' : '—'}</strong></div>
+                        ${d.arbAnalysis ? `<div style="font-size:11px;color:#666;line-height:1.5;">仲裁分析：${d.arbAnalysis.replace(/\n/g, '<br>')}</div>` : ''}
+                    </div>` : ''}
                 </div>
             ` : '';
             return `
@@ -814,22 +825,14 @@ function showHistoryDetail(record) {
             ${record.isCorrected ? `<div style="background:rgba(0,82,255,0.04);border-left:3px solid #0052FF;padding:10px 14px;border-radius:0 8px 8px 0;font-size:12px;color:#0052FF;margin-bottom:16px;line-height:1.5;">${record.correctionReason || '已纠错'}</div>` : ''}
             ${record.dualEval ? `
             <div style="margin-bottom:16px;">
-                <div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:8px;">双评详情</div>
-                <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);">
+                <div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:8px;">双评结果</div>
+                <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);margin-bottom:10px;">
                     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-                        <span style="font-size:12px;color:#666;">老师A</span>
-                        <span style="font-size:13px;font-weight:600;">${record.dualEval.scoreA !== null ? record.dualEval.scoreA + '分' : '失败'}</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-                        <span style="font-size:12px;color:#666;">老师B</span>
-                        <span style="font-size:13px;font-weight:600;">${record.dualEval.scoreB !== null ? record.dualEval.scoreB + '分' : '失败'}</span>
-                    </div>
-                    ${record.dualEval.diff !== null ? `<div style="display:flex;justify-content:space-between;margin-bottom:6px;">
                         <span style="font-size:12px;color:#666;">分差</span>
-                        <span style="font-size:13px;font-weight:600;color:${record.dualEval.diff > 2 ? '#D93025' : '#1d1d1f'};">${record.dualEval.diff}分</span>
-                    </div>` : ''}
+                        <span style="font-size:13px;font-weight:600;color:${(record.dualEval.diff || 0) > 2 ? '#D93025' : '#1d1d1f'};">${record.dualEval.diff !== null ? record.dualEval.diff + '分' : '—'}</span>
+                    </div>
                     <div style="display:flex;justify-content:space-between;">
-                        <span style="font-size:12px;color:#666;">结果</span>
+                        <span style="font-size:12px;color:#666;">判定结果</span>
                         <span style="font-size:12px;font-weight:500;color:${record.dualEval.result === 'consensus' ? '#34A853' : record.dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
                             record.dualEval.result === 'consensus' ? '✓ 共识' :
                             record.dualEval.result === 'arbitration' ? '⚠ 三评仲裁' :
@@ -838,25 +841,52 @@ function showHistoryDetail(record) {
                         }</span>
                     </div>
                 </div>
-                ${record.dualEval.detailA ? `
-                <div style="margin-top:8px;">
-                    <div style="font-size:11px;color:#86868b;margin-bottom:4px;">老师A 评分依据</div>
-                    <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:10px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:120px;overflow-y:auto;">${record.dualEval.detailA['评分依据'] || '—'}</div>
-                </div>` : ''}
-                ${record.dualEval.detailB ? `
-                <div style="margin-top:8px;">
-                    <div style="font-size:11px;color:#86868b;margin-bottom:4px;">老师B 评分依据</div>
-                    <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:10px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:120px;overflow-y:auto;">${record.dualEval.detailB['评分依据'] || '—'}</div>
-                </div>` : ''}
-                ${record.dualEval.arbAnalysis ? `
-                <div style="margin-top:8px;">
-                    <div style="font-size:11px;color:#86868b;margin-bottom:4px;">仲裁分析</div>
-                    <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:10px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:120px;overflow-y:auto;">${record.dualEval.arbAnalysis}</div>
-                </div>` : ''}
-                ${record.dualEval.arbScore !== undefined ? `
-                <div style="margin-top:8px;">
-                    <div style="font-size:11px;color:#86868b;margin-bottom:4px;">仲裁得分</div>
-                    <div style="font-size:14px;font-weight:600;">${record.dualEval.arbScore}分</div>
+                <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);margin-bottom:10px;">
+                    <div style="font-size:12px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">老师A 评分</div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                        <span style="font-size:12px;color:#666;">得分</span>
+                        <span style="font-size:14px;font-weight:600;">${record.dualEval.scoreA !== null ? record.dualEval.scoreA + '分' : '失败'}</span>
+                    </div>
+                    ${record.dualEval.detailA ? `
+                    <div style="margin-bottom:6px;">
+                        <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
+                        <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailA['评分依据'] || '—'}</div>
+                    </div>` : ''}
+                    ${record.dualEval.detailA && record.dualEval.detailA['分数计算'] ? `
+                    <div>
+                        <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
+                        <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${record.dualEval.detailA['分数计算']}</div>
+                    </div>` : ''}
+                </div>
+                <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);margin-bottom:10px;">
+                    <div style="font-size:12px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">老师B 评分</div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                        <span style="font-size:12px;color:#666;">得分</span>
+                        <span style="font-size:14px;font-weight:600;">${record.dualEval.scoreB !== null ? record.dualEval.scoreB + '分' : '失败'}</span>
+                    </div>
+                    ${record.dualEval.detailB ? `
+                    <div style="margin-bottom:6px;">
+                        <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
+                        <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailB['评分依据'] || '—'}</div>
+                    </div>` : ''}
+                    ${record.dualEval.detailB && record.dualEval.detailB['分数计算'] ? `
+                    <div>
+                        <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
+                        <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${record.dualEval.detailB['分数计算']}</div>
+                    </div>` : ''}
+                </div>
+                ${record.dualEval.result === 'arbitration' ? `
+                <div style="padding:10px 14px;background:rgba(124,58,237,0.04);border-radius:8px;border:1px solid rgba(124,58,237,0.12);">
+                    <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:8px;">仲裁结果</div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                        <span style="font-size:12px;color:#7c3aed;">仲裁得分</span>
+                        <span style="font-size:14px;font-weight:600;color:#7c3aed;">${record.dualEval.arbScore !== undefined ? record.dualEval.arbScore + '分' : '—'}</span>
+                    </div>
+                    ${record.dualEval.arbAnalysis ? `
+                    <div>
+                        <div style="font-size:11px;color:#86868b;margin-bottom:4px;">仲裁分析</div>
+                        <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.arbAnalysis}</div>
+                    </div>` : ''}
                 </div>` : ''}
             </div>` : ''}
             <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.studentAnswer || '未能识别'}</div></div>

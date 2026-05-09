@@ -1332,7 +1332,10 @@ async function handleNewWorkflow() {
     WorkflowManager.data.activeWorkflow = WorkflowManager.data.workflows[name].id;
     WorkflowManager.save();
     renderWorkflowDropdown();
-    showToast(`工作流「${name}」创建成功`);
+    showToast(`工作流「${name}」创建成功，正在打开编辑...`);
+    // 自动弹出编辑窗口
+    const wf = WorkflowManager.getActiveWorkflow();
+    if (wf) showWorkflowEditModal(wf);
 }
 
 async function handleEditWorkflow() {
@@ -1418,19 +1421,31 @@ function showWorkflowEditModal(wf) {
     const arbModel = document.getElementById('wf-edit-arb-model');
     const arbReasoning = document.getElementById('wf-edit-arb-reasoning');
 
-    mainProvider.value = wf.model.provider;
-    mainModel.innerHTML = getModelOptions(wf.model.provider);
-    mainModel.value = wf.model.model;
+    // 确保 provider 有效，若无效则回退到第一个可用 provider
+    const validProviders = Object.keys(ProviderManager.data.providers);
+    const fallbackProvider = validProviders[0] || '';
+
+    function resolveProvider(name) {
+        return (name && ProviderManager.data.providers[name]) ? name : fallbackProvider;
+    }
+
+    const resolvedMainProvider = resolveProvider(wf.model.provider);
+    mainProvider.value = resolvedMainProvider;
+    mainModel.innerHTML = getModelOptions(resolvedMainProvider);
+    mainModel.value = wf.model.model || '';
     mainReasoning.value = wf.model.reasoningEffort || '';
 
     if (isDual) {
-        secProvider.value = wf.dualEval.secondary.provider;
-        secModel.innerHTML = getModelOptions(wf.dualEval.secondary.provider);
-        secModel.value = wf.dualEval.secondary.model;
+        const resolvedSecProvider = resolveProvider(wf.dualEval.secondary.provider);
+        secProvider.value = resolvedSecProvider;
+        secModel.innerHTML = getModelOptions(resolvedSecProvider);
+        secModel.value = wf.dualEval.secondary.model || '';
         secReasoning.value = wf.dualEval.secondary.reasoningEffort || '';
-        arbProvider.value = wf.dualEval.arbitration.provider;
-        arbModel.innerHTML = getModelOptions(wf.dualEval.arbitration.provider);
-        arbModel.value = wf.dualEval.arbitration.model;
+
+        const resolvedArbProvider = resolveProvider(wf.dualEval.arbitration.provider);
+        arbProvider.value = resolvedArbProvider;
+        arbModel.innerHTML = getModelOptions(resolvedArbProvider);
+        arbModel.value = wf.dualEval.arbitration.model || '';
         arbReasoning.value = wf.dualEval.arbitration.reasoningEffort || '';
     }
 
@@ -1447,7 +1462,6 @@ function showWorkflowEditModal(wf) {
     // 关闭
     const close = () => modal.remove();
     modal.querySelector('#wf-edit-cancel').onclick = close;
-    modal.onclick = (e) => { if (e.target === modal) close(); };
 
     // 删除
     const deleteBtn = modal.querySelector('#wf-edit-delete');
@@ -1463,7 +1477,7 @@ function showWorkflowEditModal(wf) {
     }
 
     // 保存
-    modal.querySelector('#wf-edit-save').onclick = () => {
+    modal.querySelector('#wf-edit-save').onclick = async () => {
         const dualEnabled = document.getElementById('wf-edit-dual').checked;
         const config = {
             description: document.getElementById('wf-edit-desc').value,
@@ -1481,6 +1495,8 @@ function showWorkflowEditModal(wf) {
         };
 
         if (wf.isBuiltin) {
+            // 修改默认工作流需要确认
+            if (!await showConfirmModal(`确定要修改默认工作流【${wf.name}】吗？`)) return;
             WorkflowManager.updateWorkflow(wf.name, config);
         } else {
             const newName = document.getElementById('wf-edit-name').value.trim();

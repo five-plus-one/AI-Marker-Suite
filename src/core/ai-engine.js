@@ -236,26 +236,35 @@ const WorkflowManager = {
     _migrateWorkflows() {
         let changed = false;
         const defaults = this._getDefault();
-        // 更新内置工作流的模型配置
+        const currentVersion = SCRIPT_CONFIG.VERSION;
+        const lastMigratedVersion = this.data._migratedVersion || '';
+
+        // 仅在版本升级时重置内置工作流的模型配置，避免覆盖用户手动修改
+        const shouldMigrateDefaults = lastMigratedVersion !== currentVersion;
+
         for (const [name, wf] of Object.entries(this.data.workflows)) {
             if (wf.isBuiltin && defaults.workflows[name]) {
                 const defaultWf = defaults.workflows[name];
-                if (wf.model.provider !== defaultWf.model.provider || wf.model.model !== defaultWf.model.model) {
-                    wf.model = defaultWf.model;
-                    changed = true;
-                }
-                // 迁移 reasoningEffort 字段
+                // 迁移 reasoningEffort 字段（始终执行，因为旧数据可能缺少此字段）
                 if (wf.model && defaultWf.model && wf.model.reasoningEffort === undefined) {
                     wf.model.reasoningEffort = defaultWf.model.reasoningEffort || '';
                     changed = true;
                 }
-                if (defaultWf.dualEval && JSON.stringify(wf.dualEval) !== JSON.stringify(defaultWf.dualEval)) {
-                    wf.dualEval = defaultWf.dualEval;
-                    changed = true;
+                // 仅在版本升级时重置模型和双评配置
+                if (shouldMigrateDefaults) {
+                    if (wf.model.provider !== defaultWf.model.provider || wf.model.model !== defaultWf.model.model) {
+                        wf.model = defaultWf.model;
+                        changed = true;
+                    }
+                    if (defaultWf.dualEval && JSON.stringify(wf.dualEval) !== JSON.stringify(defaultWf.dualEval)) {
+                        wf.dualEval = defaultWf.dualEval;
+                        changed = true;
+                    }
                 }
             }
         }
-        if (changed) {
+        if (changed || shouldMigrateDefaults) {
+            this.data._migratedVersion = currentVersion;
             console.log('[WorkflowManager] 已迁移内置工作流配置');
             this.save();
         }
@@ -283,7 +292,7 @@ const WorkflowManager = {
                     model: { provider: "5plus1官方", model: "aimarker-fast", reasoningEffort: "minimal" },
                     dualEval: {
                         enabled: true,
-                        secondary: { provider: "5plus1官方", model: "aimarker-pro", reasoningEffort: "" },
+                        secondary: { provider: "5plus1官方", model: "aimarker-fast", reasoningEffort: "minimal" },
                         arbitration: { provider: "5plus1官方", model: "aimarker-pro", reasoningEffort: "" },
                         threshold: 2
                     },
