@@ -370,6 +370,7 @@ function createSettingsPanel() {
                             <div class="preset-controls">
                                 <select id="workflow-select"></select>
                                 <button class="preset-btn" id="btn-edit-workflow">编辑</button>
+                                <button class="preset-btn danger" id="btn-del-workflow">删除</button>
                                 <button class="preset-btn" id="btn-new-workflow">新建</button>
                             </div>
                             <div id="workflow-desc" style="font-size:12px;color:#86868b;margin-top:4px;"></div>
@@ -602,6 +603,7 @@ function createSettingsPanel() {
     panel.querySelector('#new-model-id').onkeydown = (e) => { if (e.key === 'Enter') handleAddModel(); };
     panel.querySelector('#workflow-select').onchange = handleWorkflowChange;
     panel.querySelector('#btn-edit-workflow').onclick = handleEditWorkflow;
+    panel.querySelector('#btn-del-workflow').onclick = handleDeleteWorkflow;
     panel.querySelector('#btn-new-workflow').onclick = handleNewWorkflow;
 
     // 配置导出
@@ -1172,8 +1174,9 @@ function renderModelList() {
     container.innerHTML = html;
 }
 
-// 暴露到全局作用域（供内联 onclick 使用）
-window.deleteModel = async function(modelId) {
+// 暴露到页面全局作用域（供内联 onclick 使用，必须用 unsafeWindow）
+const _unsafeWin = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+_unsafeWin.deleteModel = async function(modelId) {
     if (typeof ProviderManager === 'undefined') return;
     const currentProviderName = document.getElementById('ai-provider')?.value;
     const provider = ProviderManager.getProvider(currentProviderName);
@@ -1189,10 +1192,6 @@ window.deleteModel = async function(modelId) {
         if (typeof showToast === 'function') showToast(`模型「${modelId}」已删除`);
     }
 };
-
-async function deleteModel(modelId) {
-    await window.deleteModel(modelId);
-}
 
 function handleProviderChange() {
     const name = document.getElementById('ai-provider').value;
@@ -1305,6 +1304,16 @@ function renderWorkflowInfo() {
         }
         infoEl.innerHTML = html;
     }
+
+    // 删除按钮：仅用户工作流可用
+    const delBtn = document.getElementById('btn-del-workflow');
+    if (delBtn) {
+        if (wf && !wf.isBuiltin) {
+            delBtn.style.display = '';
+        } else {
+            delBtn.style.display = 'none';
+        }
+    }
 }
 
 function handleWorkflowChange() {
@@ -1312,6 +1321,20 @@ function handleWorkflowChange() {
     WorkflowManager.setActive(id);
     renderWorkflowInfo();
     markUnsavedChanges();
+}
+
+async function handleDeleteWorkflow() {
+    const wf = WorkflowManager.getActiveWorkflow();
+    if (!wf) return;
+    if (wf.isBuiltin) {
+        showAlertModal("默认工作流不允许删除！");
+        return;
+    }
+    if (await showConfirmModal(`确定要删除工作流【${wf.name}】吗？`)) {
+        WorkflowManager.deleteWorkflow(wf.name);
+        renderWorkflowDropdown();
+        showToast(`工作流「${wf.name}」已删除`);
+    }
 }
 
 async function handleNewWorkflow() {
