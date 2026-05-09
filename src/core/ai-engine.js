@@ -23,9 +23,8 @@ const ProviderManager = {
                     endpoint: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
                     apiKey: "",
                     models: {
-                        "mimo-v2.5": { label: "Mimo v2.5", tags: ["轻量"] },
-                        "doubao-seed-2-0-lite-260428": { label: "豆包 Seed Lite", tags: ["轻量", "推荐"] },
-                        "doubao-seed-2-0-pro-260215": { label: "豆包 Seed Pro", tags: ["专业", "推荐"] }
+                        "aimarker-fast": { label: "快速批改", tags: ["轻量", "推荐"], isBuiltin: true },
+                        "aimarker-pro": { label: "高精度批改", tags: ["专业", "推荐"], isBuiltin: true }
                     },
                     isBuiltin: true
                 },
@@ -33,8 +32,8 @@ const ProviderManager = {
                     endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
                     apiKey: "",
                     models: {
-                        "doubao-seed-2-0-lite-260428": { label: "豆包 Seed Lite", tags: ["轻量", "推荐"] },
-                        "doubao-seed-2-0-pro-260215": { label: "豆包 Seed Pro", tags: ["专业", "推荐"] }
+                        "doubao-seed-2-0-lite-260428": { label: "豆包 Seed Lite", tags: ["轻量"] },
+                        "doubao-seed-2-0-pro-260215": { label: "豆包 Seed Pro", tags: ["专业"] }
                     }
                 },
                 "OpenAI兼容": {
@@ -47,7 +46,7 @@ const ProviderManager = {
                 }
             },
             activeProvider: "5plus1官方",
-            activeModel: "doubao-seed-2-0-lite-260428"
+            activeModel: "aimarker-fast"
         };
     },
     _migrateFromV1(oldData) {
@@ -149,6 +148,11 @@ const ProviderManager = {
     deleteModel(providerName, modelId) {
         const provider = this.data.providers[providerName];
         if (!provider || !provider.models[modelId]) return false;
+        // 内置模型不允许删除
+        if (provider.models[modelId].isBuiltin) {
+            console.warn('⚠️ 不能删除内置模型');
+            return false;
+        }
         if (Object.keys(provider.models).length <= 1) return false;
         delete provider.models[modelId];
         if (this.data.activeProvider === providerName && this.data.activeModel === modelId) {
@@ -177,8 +181,32 @@ const WorkflowManager = {
         let saved = GM_getValue('ai-grading-workflows');
         if (saved) {
             this.data = JSON.parse(saved);
+            // 迁移：更新内置工作流的模型配置
+            this._migrateWorkflows();
         } else {
             this.data = this._getDefault();
+            this.save();
+        }
+    },
+    _migrateWorkflows() {
+        let changed = false;
+        const defaults = this._getDefault();
+        // 更新内置工作流的模型配置
+        for (const [name, wf] of Object.entries(this.data.workflows)) {
+            if (wf.isBuiltin && defaults.workflows[name]) {
+                const defaultWf = defaults.workflows[name];
+                if (wf.model.provider !== defaultWf.model.provider || wf.model.model !== defaultWf.model.model) {
+                    wf.model = defaultWf.model;
+                    changed = true;
+                }
+                if (defaultWf.dualEval && JSON.stringify(wf.dualEval) !== JSON.stringify(defaultWf.dualEval)) {
+                    wf.dualEval = defaultWf.dualEval;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            console.log('[WorkflowManager] 已迁移内置工作流配置');
             this.save();
         }
     },
@@ -188,25 +216,25 @@ const WorkflowManager = {
                 "快速批改(推荐)": {
                     id: "fast",
                     description: "逻辑题、画图题，性价比最高",
-                    model: { provider: "5plus1官方", model: "doubao-seed-2-0-lite-260428" },
+                    model: { provider: "5plus1官方", model: "aimarker-fast" },
                     dualEval: null,
                     isBuiltin: true
                 },
                 "高精度批改": {
                     id: "precise",
                     description: "作文、主观题，精度优先",
-                    model: { provider: "5plus1官方", model: "doubao-seed-2-0-pro-260215" },
+                    model: { provider: "5plus1官方", model: "aimarker-pro" },
                     dualEval: null,
                     isBuiltin: true
                 },
                 "双评模式": {
                     id: "dual",
                     description: "两次评分，超阈值自动仲裁",
-                    model: { provider: "5plus1官方", model: "doubao-seed-2-0-lite-260428" },
+                    model: { provider: "5plus1官方", model: "aimarker-fast" },
                     dualEval: {
                         enabled: true,
-                        secondary: { provider: "5plus1官方", model: "doubao-seed-2-0-lite-260428" },
-                        arbitration: { provider: "5plus1官方", model: "doubao-seed-2-0-pro-260215" },
+                        secondary: { provider: "5plus1官方", model: "aimarker-fast" },
+                        arbitration: { provider: "5plus1官方", model: "aimarker-pro" },
                         threshold: 2
                     },
                     isBuiltin: true

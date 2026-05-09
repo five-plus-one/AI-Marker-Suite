@@ -1157,6 +1157,8 @@ function selectModel(modelId) {
     renderWorkflowInfo();
     markUnsavedChanges();
 }
+// 暴露到全局作用域（供内联 onclick 使用）
+window.selectModel = selectModel;
 
 async function deleteModel(modelId) {
     const provider = ProviderManager.getCurrentProvider();
@@ -1171,6 +1173,8 @@ async function deleteModel(modelId) {
         showToast(`模型「${modelId}」已删除`);
     }
 }
+// 暴露到全局作用域（供内联 onclick 使用）
+window.deleteModel = deleteModel;
 
 function handleProviderChange() {
     const name = document.getElementById('ai-provider').value;
