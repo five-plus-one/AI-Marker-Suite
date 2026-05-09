@@ -1575,34 +1575,44 @@ function showOnboardingDialog(forceShow, mode) {
     let currentStep = 1;
     let presetName = '';
     let gradingMode = 'trial';
+    let selectedWorkflow = 'fast';
 
-    function render() {
+    function getStepInfo() {
         const isFirst = mode === 'first-launch';
         const hasApiStep = isFirst;
+        // Steps: API → Name+Mode → Workflow → Context → Done
         const apiStep = hasApiStep && currentStep === 1;
         const nameModeStep = (hasApiStep && currentStep === 2) || (!hasApiStep && currentStep === 1);
-        const ctxStep = (hasApiStep && currentStep === 3) || (!hasApiStep && currentStep === 2);
-        const doneStep = (hasApiStep && currentStep === 4) || (!hasApiStep && currentStep === 3);
+        const workflowStep = (hasApiStep && currentStep === 3) || (!hasApiStep && currentStep === 2);
+        const ctxStep = (hasApiStep && currentStep === 4) || (!hasApiStep && currentStep === 3);
+        const doneStep = (hasApiStep && currentStep === 5) || (!hasApiStep && currentStep === 4);
+        return { isFirst, hasApiStep, apiStep, nameModeStep, workflowStep, ctxStep, doneStep };
+    }
 
-        const title = apiStep ? '欢迎使用 AI 批改助手' : nameModeStep ? '配置方案' : ctxStep ? '批改上下文（可选）' : '配置完成！';
+    function render() {
+        const s = getStepInfo();
+        const title = s.apiStep ? '欢迎使用 AI 批改助手' : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '批改上下文（可选）' : '配置完成！';
 
         overlay.innerHTML = `
             <div class="ai-modal-card" style="max-width:520px;max-height:85vh;display:flex;flex-direction:column;">
-                <div class="ai-modal-header" style="display:flex;align-items:center;gap:10px;">
+                <div class="ai-modal-header" style="display:flex;align-items:center;gap:10px;padding:20px 24px 12px;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
                     <span style="font-size:20px;">🎓</span>
                     <span>${title}</span>
                 </div>
-                <div class="ai-modal-body" style="overflow-y:auto;flex:1;min-height:0;">
-                    ${apiStep ? renderApiStep() : nameModeStep ? renderNameModeStep() : ctxStep ? renderCtxStep() : renderDoneStep()}
+                <div class="ai-modal-body" style="overflow-y:auto;flex:1;min-height:0;padding:20px 24px;">
+                    ${s.apiStep ? renderApiStep() : s.nameModeStep ? renderNameModeStep() : s.workflowStep ? renderWorkflowStep() : s.ctxStep ? renderCtxStep() : renderDoneStep()}
                 </div>
-                <div class="ai-modal-footer">
-                    ${apiStep ? `
+                <div class="ai-modal-footer" style="padding:12px 24px 20px;border-top:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
+                    ${s.apiStep ? `
                         <button class="ai-modal-btn-cancel" id="ob-skip">稍后设置</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">验证并继续</button>
-                    ` : nameModeStep ? `
-                        ${hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : ''}
+                    ` : s.nameModeStep ? `
+                        ${s.hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : ''}
                         <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
-                    ` : ctxStep ? `
+                    ` : s.workflowStep ? `
+                        <button class="ai-modal-btn-cancel" id="ob-back">上一步</button>
+                        <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
+                    ` : s.ctxStep ? `
                         <button class="ai-modal-btn-cancel" id="ob-skip-ctx">跳过</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">保存并继续</button>
                     ` : `
@@ -1636,33 +1646,61 @@ function showOnboardingDialog(forceShow, mode) {
                 <label>配置方案名称</label>
                 <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${presetName}" style="width:100%;">
             </div>
-            <div class="form-group" style="margin-top:16px;">
-                <label>批改模式</label>
-                <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-                    <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid ${gradingMode==='normal'?'#0052FF':'rgba(0,0,0,0.08)'};border-radius:10px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='normal'?'rgba(0,82,255,0.03)':'transparent'};">
-                        <input type="radio" name="ob-grading-mode" value="normal" ${gradingMode==='normal'?'checked':''} style="margin-top:2px;">
-                        <div>
-                            <div style="font-size:13px;font-weight:600;color:#1d1d1f;">普通模式</div>
-                            <div style="font-size:12px;color:#666;margin-top:2px;">每批改一份，等待确认后提交</div>
-                        </div>
+            <div style="margin-top:16px;">
+                <label style="display:block;margin-bottom:8px;color:#666;font-size:12px;font-weight:500;">批改模式</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                    <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='normal'?'#0052FF':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='normal'?'rgba(0,82,255,0.04)':'white'};text-align:center;">
+                        <input type="radio" name="ob-grading-mode" value="normal" ${gradingMode==='normal'?'checked':''} style="display:none;">
+                        <div style="font-size:20px;">📝</div>
+                        <div style="font-size:13px;font-weight:600;color:#1d1d1f;">普通</div>
+                        <div style="font-size:11px;color:#86868b;line-height:1.4;">等待确认<br>后提交</div>
                     </label>
-                    <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid ${gradingMode==='trial'?'#7c3aed':'rgba(0,0,0,0.08)'};border-radius:10px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='trial'?'rgba(124,58,237,0.03)':'transparent'};">
-                        <input type="radio" name="ob-grading-mode" value="trial" ${gradingMode==='trial'?'checked':''} style="margin-top:2px;">
-                        <div>
-                            <div style="font-size:13px;font-weight:600;color:#1d1d1f;">试改模式 <span style="font-size:10px;background:rgba(124,58,237,0.1);color:#7c3aed;padding:2px 6px;border-radius:4px;">推荐</span></div>
-                            <div style="font-size:12px;color:#666;margin-top:2px;">每次批改后暂停，支持分数纠错和提示词优化</div>
-                        </div>
+                    <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='trial'?'#7c3aed':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='trial'?'rgba(124,58,237,0.04)':'white'};text-align:center;position:relative;">
+                        <input type="radio" name="ob-grading-mode" value="trial" ${gradingMode==='trial'?'checked':''} style="display:none;">
+                        <span style="position:absolute;top:-8px;right:-8px;font-size:9px;background:#7c3aed;color:white;padding:2px 6px;border-radius:4px;font-weight:600;">推荐</span>
+                        <div style="font-size:20px;">🔍</div>
+                        <div style="font-size:13px;font-weight:600;color:#1d1d1f;">试改</div>
+                        <div style="font-size:11px;color:#86868b;line-height:1.4;">支持纠错<br>和优化</div>
                     </label>
-                    <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid ${gradingMode==='unattended'?'#D93025':'rgba(0,0,0,0.08)'};border-radius:10px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='unattended'?'rgba(217,48,37,0.03)':'transparent'};">
-                        <input type="radio" name="ob-grading-mode" value="unattended" ${gradingMode==='unattended'?'checked':''} style="margin-top:2px;">
-                        <div>
-                            <div style="font-size:13px;font-weight:600;color:#1d1d1f;">无人模式</div>
-                            <div style="font-size:12px;color:#666;margin-top:2px;">全自动批改，错误时自动重试</div>
-                        </div>
+                    <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='unattended'?'#D93025':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='unattended'?'rgba(217,48,37,0.04)':'white'};text-align:center;">
+                        <input type="radio" name="ob-grading-mode" value="unattended" ${gradingMode==='unattended'?'checked':''} style="display:none;">
+                        <div style="font-size:20px;">⚡</div>
+                        <div style="font-size:13px;font-weight:600;color:#1d1d1f;">无人</div>
+                        <div style="font-size:11px;color:#86868b;line-height:1.4;">全自动<br>自动重试</div>
                     </label>
                 </div>
             </div>
             <div id="ob-status" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
+        `;
+    }
+
+    function renderWorkflowStep() {
+        const workflows = [
+            { id: 'fast', icon: '⚡', name: '快速批改', desc: '速度快、性价比高，适合大多数题型', color: '#0052FF' },
+            { id: 'normal', icon: '🎯', name: '普通批改', desc: '精度更高，适合复杂题型', color: '#1d1d1f' },
+            { id: 'dual', icon: '🔄', name: '双评模式', desc: '两个模型独立评分，分差超阈值自动仲裁', color: '#7c3aed' }
+        ];
+        return `
+            <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
+                选择批改工作流，决定使用哪个 AI 模型进行评分。
+            </p>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                ${workflows.map(w => `
+                    <label style="display:flex;align-items:center;gap:14px;padding:16px;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${selectedWorkflow===w.id?w.color+'08':'white'};">
+                        <input type="radio" name="ob-workflow" value="${w.id}" ${selectedWorkflow===w.id?'checked':''} style="display:none;">
+                        <div style="width:40px;height:40px;border-radius:10px;background:${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;transition:all 0.2s;">
+                            ${w.icon}
+                        </div>
+                        <div style="flex:1;">
+                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;">${w.name}</div>
+                            <div style="font-size:12px;color:#86868b;margin-top:2px;">${w.desc}</div>
+                        </div>
+                        <div style="width:20px;height:20px;border-radius:50%;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.15)'};display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s;">
+                            ${selectedWorkflow===w.id?`<div style="width:10px;height:10px;border-radius:50%;background:${w.id==='fast'?'#0052FF':w.id==='normal'?'#1d1d1f':'#7c3aed'};"></div>`:''}
+                        </div>
+                    </label>
+                `).join('')}
+            </div>
         `;
     }
 
@@ -1687,27 +1725,27 @@ function showOnboardingDialog(forceShow, mode) {
     }
 
     function renderDoneStep() {
+        const wfName = { fast: '快速批改', normal: '普通批改', dual: '双评模式' }[selectedWorkflow] || '快速批改';
+        const modeName = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode] || '试改模式';
         return `
             <div style="text-align:center;padding:20px 0;">
                 <div style="font-size:48px;margin-bottom:16px;">✅</div>
                 <div style="font-size:16px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">配置完成！</div>
-                <div style="font-size:13px;color:#666;line-height:1.6;">
+                <div style="font-size:13px;color:#666;line-height:1.8;">
                     方案「${presetName}」已创建并绑定到当前试题。<br>
-                    点击下方按钮开始自动批改。
+                    <span style="color:#1d1d1f;font-weight:500;">${wfName}</span> · <span style="color:#1d1d1f;font-weight:500;">${modeName}</span>
+                </div>
+                <div style="margin-top:16px;padding:12px;background:rgba(0,82,255,0.06);border-radius:10px;font-size:12px;color:#0052FF;">
+                    点击下方按钮即可开始自动批改
                 </div>
             </div>
         `;
     }
 
     function bindEvents() {
-        const isFirst = mode === 'first-launch';
-        const hasApiStep = isFirst;
-        const apiStep = hasApiStep && currentStep === 1;
-        const nameModeStep = (hasApiStep && currentStep === 2) || (!hasApiStep && currentStep === 1);
-        const ctxStep = (hasApiStep && currentStep === 3) || (!hasApiStep && currentStep === 2);
-        const doneStep = (hasApiStep && currentStep === 4) || (!hasApiStep && currentStep === 3);
+        const s = getStepInfo();
 
-        if (apiStep) {
+        if (s.apiStep) {
             overlay.querySelector('#ob-skip').onclick = () => overlay.remove();
             overlay.querySelector('#ob-next').onclick = async () => {
                 const key = overlay.querySelector('#ob-apikey').value.trim();
@@ -1723,8 +1761,8 @@ function showOnboardingDialog(forceShow, mode) {
                     currentStep++; render();
                 } else { showStatus('密钥验证失败，请检查是否正确', 'error'); }
             };
-        } else if (nameModeStep) {
-            if (hasApiStep) overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
+        } else if (s.nameModeStep) {
+            if (s.hasApiStep) overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
             overlay.querySelectorAll('input[name="ob-grading-mode"]').forEach(r => {
                 r.onchange = () => { gradingMode = r.value; render(); };
             });
@@ -1735,10 +1773,16 @@ function showOnboardingDialog(forceShow, mode) {
                 presetName = name;
                 currentStep++; render();
             };
-        } else if (ctxStep) {
+        } else if (s.workflowStep) {
+            overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
+            overlay.querySelectorAll('input[name="ob-workflow"]').forEach(r => {
+                r.onchange = () => { selectedWorkflow = r.value; render(); };
+            });
+            overlay.querySelector('#ob-next').onclick = () => { currentStep++; render(); };
+        } else if (s.ctxStep) {
             overlay.querySelector('#ob-skip-ctx').onclick = () => saveAndFinish(false);
             overlay.querySelector('#ob-next').onclick = () => saveAndFinish(true);
-        } else if (doneStep) {
+        } else if (s.doneStep) {
             overlay.querySelector('#ob-start').onclick = () => {
                 overlay.remove();
                 GM_setValue('ai-grading-show-onboarding', false);
@@ -1773,7 +1817,7 @@ function showOnboardingDialog(forceShow, mode) {
     function saveAndFinish(saveCtx) {
         const newPreset = {
             question: '', answer: '', rubric: '',
-            workflowId: 'fast', gradingMode: gradingMode,
+            workflowId: selectedWorkflow, gradingMode: gradingMode,
             scoring: { roundStep: 1, roundMethod: 'round' }
         };
         if (saveCtx) {
@@ -1785,10 +1829,10 @@ function showOnboardingDialog(forceShow, mode) {
         PresetManager.data.active = presetName;
         PresetManager.data.bindings[PresetManager.getTaskIdentifier()] = presetName;
         PresetManager.save();
-        WorkflowManager.setActive('fast');
+        WorkflowManager.setActive(selectedWorkflow);
         renderPresetDropdown();
         fillFormFromActivePreset();
-        currentStep = mode === 'first-launch' ? 4 : 3;
+        currentStep = mode === 'first-launch' ? 5 : 4;
         render();
     }
 
