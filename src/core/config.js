@@ -3,9 +3,9 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.12.1.101',
+    VERSION: '1.12.1.102',
 
-    /** 轻量级更新检查 URL（优先使用，~1KB） */
+    /** 轻量级更新检查 UL（优先使用，~1KB） */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
 
     /** 远端原始脚本地址（降级使用 + 立即更新） */

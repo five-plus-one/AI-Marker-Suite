@@ -19,19 +19,22 @@ const ProviderManager = {
     _getDefault() {
         return {
             providers: {
-                "火山引擎": {
-                    endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-                    apiKey: "",
-                    models: {
-                        "doubao-seed-2-0-mini-260428": { label: "豆包 Seed Mini", tags: ["轻量", "推荐"] },
-                        "doubao-seed-2-0-pro-260215": { label: "豆包 Seed Pro", tags: ["专业", "推荐"] }
-                    }
-                },
                 "5plus1官方": {
                     endpoint: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
                     apiKey: "",
                     models: {
-                        "mimo-v2.5": { label: "Mimo v2.5", tags: ["轻量"] }
+                        "mimo-v2.5": { label: "Mimo v2.5", tags: ["轻量"] },
+                        "doubao-seed-2-0-lite-260428": { label: "豆包 Seed Lite", tags: ["轻量", "推荐"] },
+                        "doubao-seed-2-0-pro-260215": { label: "豆包 Seed Pro", tags: ["专业", "推荐"] }
+                    },
+                    isBuiltin: true
+                },
+                "火山引擎": {
+                    endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+                    apiKey: "",
+                    models: {
+                        "doubao-seed-2-0-lite-260428": { label: "豆包 Seed Lite", tags: ["轻量", "推荐"] },
+                        "doubao-seed-2-0-pro-260215": { label: "豆包 Seed Pro", tags: ["专业", "推荐"] }
                     }
                 },
                 "OpenAI兼容": {
@@ -43,8 +46,8 @@ const ProviderManager = {
                     }
                 }
             },
-            activeProvider: "火山引擎",
-            activeModel: "doubao-seed-2-0-mini-260428"
+            activeProvider: "5plus1官方",
+            activeModel: "doubao-seed-2-0-lite-260428"
         };
     },
     _migrateFromV1(oldData) {
@@ -117,6 +120,12 @@ const ProviderManager = {
     },
     // 删除供应商
     deleteProvider(name) {
+        const provider = this.data.providers[name];
+        if (!provider) return false;
+        if (provider.isBuiltin) {
+            console.warn('⚠️ 不能删除内置供应商');
+            return false;
+        }
         if (Object.keys(this.data.providers).length <= 1) return false;
         delete this.data.providers[name];
         if (this.data.activeProvider === name) {
@@ -179,25 +188,25 @@ const WorkflowManager = {
                 "快速批改(推荐)": {
                     id: "fast",
                     description: "逻辑题、画图题，性价比最高",
-                    model: { provider: "火山引擎", model: "doubao-seed-2-0-mini-260428" },
+                    model: { provider: "5plus1官方", model: "doubao-seed-2-0-lite-260428" },
                     dualEval: null,
                     isBuiltin: true
                 },
                 "高精度批改": {
                     id: "precise",
                     description: "作文、主观题，精度优先",
-                    model: { provider: "火山引擎", model: "doubao-seed-2-0-pro-260215" },
+                    model: { provider: "5plus1官方", model: "doubao-seed-2-0-pro-260215" },
                     dualEval: null,
                     isBuiltin: true
                 },
                 "双评模式": {
                     id: "dual",
                     description: "两次评分，超阈值自动仲裁",
-                    model: { provider: "火山引擎", model: "doubao-seed-2-0-mini-260428" },
+                    model: { provider: "5plus1官方", model: "doubao-seed-2-0-lite-260428" },
                     dualEval: {
                         enabled: true,
-                        secondary: { provider: "火山引擎", model: "doubao-seed-2-0-mini-260428" },
-                        arbitration: { provider: "火山引擎", model: "doubao-seed-2-0-pro-260215" },
+                        secondary: { provider: "5plus1官方", model: "doubao-seed-2-0-lite-260428" },
+                        arbitration: { provider: "5plus1官方", model: "doubao-seed-2-0-pro-260215" },
                         threshold: 2
                     },
                     isBuiltin: true
