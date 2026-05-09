@@ -263,6 +263,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 score, comment, studentAnswer, imageUrls,
                 base64DataArray: window.aiGradingState.currentBase64DataArray || [],
                 config: PresetManager.getCurrentConfig(),
+                callConfig: PresetManager.getActiveCallConfig(),
                 subScores,
                 onAccept(finalScore, correctionInfo) {
                     const correctedSubScores = correctionInfo.correctedSubScores || subScores;

@@ -234,6 +234,7 @@ async function init() {
                         score: record.aiScore, comment: record.aiComment,
                         studentAnswer: record.studentAnswer, imageUrls,
                         base64DataArray, config: PresetManager.getCurrentConfig(),
+                        callConfig: PresetManager.getActiveCallConfig(),
                         subScores: record.subScores,
                         onAccept(finalScore, correctionInfo) {
                             const correctedSubScores = correctionInfo.correctedSubScores || record.subScores;
