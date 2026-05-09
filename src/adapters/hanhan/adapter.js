@@ -12,6 +12,13 @@ const HanhanAdapter = {
     },
 
     async detectMarkingPage() {
+        // 华翰云是 SPA，先检查 hash 路径是否为阅卷页面
+        const hash = window.location.hash;
+        if (!hash.includes('/marking/grading')) {
+            console.log('🔎 [诊断] 华翰云 — 当前不在阅卷页面 (hash:', hash, ')');
+            return false;
+        }
+
         console.log('🔎 [诊断] 华翰云 — 开始检测批改页面...');
         try {
             const result = await Promise.race([
