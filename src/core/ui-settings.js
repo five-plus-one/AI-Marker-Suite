@@ -1872,6 +1872,11 @@ function showOnboardingDialog(forceShow, mode) {
         PresetManager.data.bindings[PresetManager.getTaskIdentifier()] = presetName;
         PresetManager.save();
         WorkflowManager.setActive(selectedWorkflow);
+        // 确保设置面板已创建（可能从非阅卷页面触发引导，面板尚未创建）
+        if (!document.getElementById('ai-grading-settings')) {
+            createMainButton();
+            createSettingsPanel();
+        }
         renderPresetDropdown();
         fillFormFromActivePreset();
         currentStep = mode === 'first-launch' ? 5 : 4;
