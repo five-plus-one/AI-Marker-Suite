@@ -12,12 +12,16 @@ function fillScore(score, comment, subScores) {
     showAutoSubmitDialog(score, comment, subScores);
 }
 
-function showAutoSubmitDialog(score, comment, subScores) {
+function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const oldDialog = document.getElementById('auto-submit-dialog');
     if (oldDialog) oldDialog.remove();
 
     const mode = window.aiGradingState.gradingMode;
-    console.log(`🪟 [诊断] showAutoSubmitDialog 调用 — 分数: ${score}, 模式: ${mode}`);
+    const scoringDetails = extraInfo?.scoringDetails || null;
+    const dualEval = extraInfo?.dualEval || null;
+    const rawScore = extraInfo?.rawScore || score;
+
+    console.log(`🪟 [诊断] showAutoSubmitDialog 调用 — 分数: ${score}, 模式: ${mode}, 双评: ${!!dualEval}`);
 
     window.aiGradingState.countdownPaused = false;
     const studentAnswer = window.aiGradingState.currentStudentAnswer;
@@ -144,6 +148,49 @@ function showAutoSubmitDialog(score, comment, subScores) {
                         </div>
                         ${sq.comment ? `<div style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
                         `).join('')}
+                    </div>
+                </div>` : ''}
+                ${scoringDetails && scoringDetails['评分依据'] ? `
+                <div class="asd-info-block">
+                    <div class="asd-info-label">评分依据</div>
+                    <div class="asd-info-content" style="max-height:120px;overflow-y:auto;">${scoringDetails['评分依据']}</div>
+                </div>` : ''}
+                ${scoringDetails && scoringDetails['分数计算'] ? `
+                <div class="asd-info-block">
+                    <div class="asd-info-label">分数计算</div>
+                    <div class="asd-info-content" style="font-weight:600;">${scoringDetails['分数计算']}</div>
+                </div>` : ''}
+                ${dualEval ? `
+                <div class="asd-info-block">
+                    <div class="asd-info-label">双评详情</div>
+                    <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                            <span style="font-size:12px;color:#666;">老师A</span>
+                            <span style="font-size:13px;font-weight:600;">${dualEval.scoreA !== null ? dualEval.scoreA + '分' : '失败'}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                            <span style="font-size:12px;color:#666;">老师B</span>
+                            <span style="font-size:13px;font-weight:600;">${dualEval.scoreB !== null ? dualEval.scoreB + '分' : '失败'}</span>
+                        </div>
+                        ${dualEval.diff !== null ? `
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                            <span style="font-size:12px;color:#666;">分差</span>
+                            <span style="font-size:13px;font-weight:600;color:${dualEval.diff > 2 ? '#D93025' : '#1d1d1f'};">${dualEval.diff}分</span>
+                        </div>` : ''}
+                        <div style="display:flex;justify-content:space-between;">
+                            <span style="font-size:12px;color:#666;">结果</span>
+                            <span style="font-size:12px;font-weight:500;color:${dualEval.result === 'consensus' ? '#34A853' : dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
+                                dualEval.result === 'consensus' ? '✓ 共识' :
+                                dualEval.result === 'arbitration' ? '⚠ 三评仲裁' :
+                                dualEval.result === 'fallback-a' ? '使用老师A' :
+                                dualEval.result === 'fallback-b' ? '使用老师B' : dualEval.result
+                            }</span>
+                        </div>
+                        ${dualEval.arbAnalysis ? `
+                        <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.06);">
+                            <div style="font-size:11px;color:#86868b;margin-bottom:4px;">仲裁分析</div>
+                            <div style="font-size:12px;color:#4a4a4a;line-height:1.5;">${dualEval.arbAnalysis}</div>
+                        </div>` : ''}
                     </div>
                 </div>` : ''}
                 <div class="asd-info-block"><div class="asd-info-label">识别答案</div><div class="asd-info-content">${studentAnswer}</div></div>
