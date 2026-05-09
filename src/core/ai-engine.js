@@ -5,6 +5,8 @@ const ProviderManager = {
         let saved = GM_getValue('ai-grading-providers-v2');
         if (saved) {
             this.data = JSON.parse(saved);
+            // 迁移：更新内置供应商的模型配置
+            this._migrateProviders();
         } else {
             // 尝试迁移旧格式
             const oldSaved = GM_getValue('ai-grading-providers');
@@ -13,6 +15,27 @@ const ProviderManager = {
             } else {
                 this.data = this._getDefault();
             }
+            this.save();
+        }
+    },
+    _migrateProviders() {
+        let changed = false;
+        const defaults = this._getDefault();
+        // 更新内置供应商的模型配置
+        for (const [name, provider] of Object.entries(this.data.providers)) {
+            if (provider.isBuiltin && defaults.providers[name]) {
+                const defaultProvider = defaults.providers[name];
+                // 检查模型是否需要更新
+                const currentModels = Object.keys(provider.models || {});
+                const defaultModels = Object.keys(defaultProvider.models || {});
+                if (JSON.stringify(currentModels.sort()) !== JSON.stringify(defaultModels.sort())) {
+                    provider.models = defaultProvider.models;
+                    changed = true;
+                    console.log(`[ProviderManager] 已更新供应商 "${name}" 的模型配置`);
+                }
+            }
+        }
+        if (changed) {
             this.save();
         }
     },

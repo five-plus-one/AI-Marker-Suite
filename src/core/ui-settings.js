@@ -1321,6 +1321,9 @@ async function handleEditWorkflow() {
 }
 
 function showWorkflowEditModal(wf) {
+    // 确保模态框样式已加载
+    if (typeof T === 'function') T();
+
     const providers = Object.keys(ProviderManager.data.providers);
     const providerOptions = providers.map(p => `<option value="${p}">${p}</option>`).join('');
 
