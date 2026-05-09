@@ -227,7 +227,7 @@ const HistoryManager = {
 
     exportCSV(records) {
         records = records || this.records;
-        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,双评模式,老师A,老师B,分差,双评结果,仲裁得分\n';
+        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析\n';
         const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const esc = s => '"' + String(s || '').replace(/"/g, '""') + '"';
@@ -235,9 +235,11 @@ const HistoryManager = {
             return [time, r.presetName, r.gradingMode, r.aiScore, r.finalScore,
                 r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(r.studentAnswer), esc(r.aiComment),
                 d ? '是' : '否',
-                d?.scoreA ?? '', d?.scoreB ?? '', d?.diff ?? '',
+                d?.scoreA ?? '', esc(d?.detailA?.['评分依据'] ?? ''), esc(d?.detailA?.['分数计算'] ?? ''),
+                d?.scoreB ?? '', esc(d?.detailB?.['评分依据'] ?? ''), esc(d?.detailB?.['分数计算'] ?? ''),
+                d?.diff ?? '',
                 d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'fallback-a' ? '使用A' : d?.result === 'fallback-b' ? '使用B' : '',
-                d?.arbScore ?? ''
+                d?.arbScore ?? '', esc(d?.arbAnalysis ?? '')
             ].join(',');
         }).join('\n');
         this._download(header + rows, '评阅历史_' + this._fileTimestamp() + '.csv', 'text/csv;charset=utf-8');
