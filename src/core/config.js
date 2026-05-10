@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.2.103',
+    VERSION: '1.21.2.105',
 
     /** 轻量级更新检查 UL（优先使用，~1KB） */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -25,6 +25,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.2.105': [
+            '【新功能】新增光大阅卷 (pj.yixx.cn) 阅卷平台适配，支持 Canvas 渲染和点击式评分',
+            '【优化】光大阅卷支持从 Canvas 提取答题卡图片，兼容跨域图片场景',
+        ],
         '1.21.2': [
             '【新功能】新增工作流配置系统：内置快速批改/普通批改/双评模式三种工作流，支持用户自建、编辑、删除工作流',
             '【新功能】新增双评仲裁模式：两个 AI 模型独立评分，分差超阈值自动触发第三模型仲裁',
