@@ -171,13 +171,11 @@ const GuangdaAdapter = {
         );
 
         if (uniqueUrls.length > 0) {
-            // 只返回最新的2张图片（当前试卷通常有1-2张，避免包含预加载的图片）
-            const latestUrls = uniqueUrls.slice(-2);
-            console.log(`🖼️ [诊断] 从 performance 找到 ${uniqueUrls.length} 张图片，使用最新的 ${latestUrls.length} 张`);
-            latestUrls.forEach((url, i) => {
-                console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`);
-            });
-            return latestUrls;
+            // 只返回最新的1张图片（当前试卷，避免预加载的图片）
+            const latestUrl = uniqueUrls[uniqueUrls.length - 1];
+            console.log(`🖼️ [诊断] 从 performance 找到 ${uniqueUrls.length} 张图片，使用最新的 1 张`);
+            console.log(`  📷 图片: ${latestUrl.substring(0, 80)}...`);
+            return [latestUrl];
         }
 
         console.log(`🖼️ [诊断] 未找到图片`);
