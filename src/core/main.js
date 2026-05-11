@@ -179,8 +179,20 @@ async function startAutoGrading() {
 // ========== 初始化 ==========
 async function init() {
     await new Promise(resolve => setTimeout(resolve, 2000));
-    if (!await detectMarkingPage()) return;
 
+    // 检测是否在批改页面，支持重试（SPA应用可能需要更长时间加载）
+    let isMarkingPage = await detectMarkingPage();
+    if (!isMarkingPage) {
+        // 第一次检测失败，等待后重试
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        isMarkingPage = await detectMarkingPage();
+        if (!isMarkingPage) {
+            console.log('🔎 [诊断] 未检测到批改页面，跳过初始化');
+            return;
+        }
+    }
+
+    console.log('✅ [诊断] 检测到批改页面，开始初始化UI');
     createMainButton();
     createSettingsPanel();
 

@@ -18,102 +18,124 @@ function createSettingsPanel() {
     panel.id = 'ai-grading-settings';
     panel.innerHTML = `
         <style>
+            /* 样式隔离：重置可能被平台影响的属性 */
+            #ai-grading-settings, #ai-grading-settings * {
+                box-sizing: border-box !important;
+            }
+
             #ai-grading-settings {
-                position: fixed; top: 0; right: 0; height: 100vh; width: 440px;
-                background: rgba(255, 255, 255, 0.96);
-                backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
-                border-left: 1px solid rgba(0,0,0,0.08);
-                box-shadow: -8px 0 40px rgba(0,0,0,0.08);
-                z-index: 10000;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
-                display: flex; flex-direction: column;
-                transform: translateX(100%);
-                transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+                position: fixed !important; top: 0 !important; right: 0 !important;
+                height: 100vh !important; width: 440px !important;
+                background: rgba(255, 255, 255, 0.96) !important;
+                backdrop-filter: blur(24px) saturate(180%) !important; -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+                border-left: 1px solid rgba(0,0,0,0.08) !important;
+                box-shadow: -8px 0 40px rgba(0,0,0,0.08) !important;
+                z-index: 10000 !important;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif !important;
+                display: flex !important; flex-direction: column !important;
+                transform: translateX(100%) !important;
+                transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
+                margin: 0 !important; padding: 0 !important; border: none !important;
+                border-radius: 0 !important;
+                color: #1a1a1a !important;
+                font-size: 14px !important; line-height: 1.5 !important;
             }
-            #ai-grading-settings.open { transform: translateX(0); }
-            #ai-grading-settings.minimized .settings-body { display: none; }
-            #ai-grading-settings.minimized .sidebar-footer { display: none; }
+            #ai-grading-settings.open { transform: translateX(0) !important; }
+            #ai-grading-settings.minimized .settings-body { display: none !important; }
+            #ai-grading-settings.minimized .sidebar-footer { display: none !important; }
 
-            .sidebar-header {
-                padding: 20px 24px 16px;
-                display: flex; justify-content: space-between; align-items: center;
-                border-bottom: 1px solid rgba(0,0,0,0.06);
-                flex-shrink: 0;
+            #ai-grading-settings .sidebar-header {
+                padding: 20px 24px 16px !important;
+                display: flex !important; justify-content: space-between !important; align-items: center !important;
+                border-bottom: 1px solid rgba(0,0,0,0.06) !important;
+                flex-shrink: 0 !important;
             }
-            .sidebar-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: #1a1a1a; letter-spacing: 0.3px; }
-            .header-buttons { display: flex; gap: 6px; }
-            .header-btn {
-                background: transparent; border: 1px solid rgba(0,0,0,0.08); color: #666;
-                width: 28px; height: 28px; border-radius: 8px; cursor: pointer; transition: all 0.2s;
-                display: flex; justify-content: center; align-items: center; font-size: 15px;
+            #ai-grading-settings .sidebar-header h3 {
+                margin: 0 !important; font-size: 16px !important; font-weight: 600 !important;
+                color: #1a1a1a !important; letter-spacing: 0.3px !important;
             }
-            .header-btn:hover { background: rgba(0,0,0,0.04); color: #1a1a1a; border-color: rgba(0,0,0,0.15); }
+            #ai-grading-settings .header-buttons { display: flex !important; gap: 6px !important; }
+            #ai-grading-settings .header-btn {
+                background: transparent !important; border: 1px solid rgba(0,0,0,0.08) !important; color: #666 !important;
+                width: 28px !important; height: 28px !important; border-radius: 8px !important; cursor: pointer !important;
+                transition: all 0.2s !important;
+                display: flex !important; justify-content: center !important; align-items: center !important; font-size: 15px !important;
+                padding: 0 !important; line-height: 1 !important;
+            }
+            #ai-grading-settings .header-btn:hover {
+                background: rgba(0,0,0,0.04) !important; color: #1a1a1a !important; border-color: rgba(0,0,0,0.15) !important;
+            }
 
-            .settings-body {
-                flex: 1; overflow-y: auto; overflow-x: hidden;
-                scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.12) transparent;
+            #ai-grading-settings .settings-body {
+                flex: 1 !important; overflow-y: auto !important; overflow-x: hidden !important;
+                scrollbar-width: thin !important; scrollbar-color: rgba(0,0,0,0.12) transparent !important;
             }
-            .settings-body::-webkit-scrollbar { width: 5px; }
-            .settings-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 4px; }
+            #ai-grading-settings .settings-body::-webkit-scrollbar { width: 5px !important; }
+            #ai-grading-settings .settings-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12) !important; border-radius: 4px !important; }
 
-            .save-btn-container {
-                position: sticky; top: 0; z-index: 10;
-                background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
-                padding: 12px 24px; border-bottom: 1px solid rgba(0,0,0,0.05);
+            #ai-grading-settings .save-btn-container {
+                position: sticky !important; top: 0 !important; z-index: 10 !important;
+                background: rgba(255,255,255,0.92) !important; backdrop-filter: blur(12px) !important;
+                padding: 12px 24px !important; border-bottom: 1px solid rgba(0,0,0,0.05) !important;
             }
-            .save-btn {
-                width: 100%; padding: 11px 16px; background: #1a1a1a; color: white; border: none;
-                border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;
-                letter-spacing: 0.3px;
+            #ai-grading-settings .save-btn {
+                width: 100% !important; padding: 11px 16px !important; background: #1a1a1a !important;
+                color: white !important; border: none !important;
+                border-radius: 10px !important; font-size: 13px !important; font-weight: 600 !important;
+                cursor: pointer !important; transition: all 0.2s !important;
+                letter-spacing: 0.3px !important;
             }
-            .save-btn:hover { background: #333; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
-            .save-btn.highlight-save { background: #D93025; }
-            .save-btn.highlight-save:hover { background: #B3261E; }
+            #ai-grading-settings .save-btn:hover { background: #333 !important; transform: translateY(-1px) !important; box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important; }
+            #ai-grading-settings .save-btn.highlight-save { background: #D93025 !important; }
+            #ai-grading-settings .save-btn.highlight-save:hover { background: #B3261E !important; }
 
             /* 标签页 */
-            .settings-tabs {
-                display: flex; border-bottom: 1px solid rgba(0,0,0,0.06);
-                background: rgba(0,0,0,0.01);
+            #ai-grading-settings .settings-tabs {
+                display: flex !important; border-bottom: 1px solid rgba(0,0,0,0.06) !important;
+                background: rgba(0,0,0,0.01) !important;
             }
-            .settings-tab {
-                flex: 1; padding: 12px 0; text-align: center; font-size: 13px; font-weight: 500;
-                color: #86868b; cursor: pointer; transition: all 0.2s; border-bottom: 2px solid transparent;
-                position: relative;
+            #ai-grading-settings .settings-tab {
+                flex: 1 !important; padding: 12px 0 !important; text-align: center !important;
+                font-size: 13px !important; font-weight: 500 !important;
+                color: #86868b !important; cursor: pointer !important; transition: all 0.2s !important;
+                border-bottom: 2px solid transparent !important;
+                position: relative !important;
             }
-            .settings-tab:hover { color: #1a1a1a; background: rgba(0,0,0,0.02); }
-            .settings-tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
-            .tab-content { display: none; }
-            .tab-content.active { display: block; }
+            #ai-grading-settings .settings-tab:hover { color: #1a1a1a !important; background: rgba(0,0,0,0.02) !important; }
+            #ai-grading-settings .settings-tab.active { color: #1a1a1a !important; border-bottom-color: #1a1a1a !important; }
+            #ai-grading-settings .tab-content { display: none !important; }
+            #ai-grading-settings .tab-content.active { display: block !important; }
 
             /* 分组标题 */
-            .group-title {
-                padding: 18px 24px 6px; font-size: 11px; font-weight: 700; color: #aaa;
-                text-transform: uppercase; letter-spacing: 1.2px;
-                display: flex; align-items: center; gap: 8px;
+            #ai-grading-settings .group-title {
+                padding: 18px 24px 6px !important; font-size: 11px !important; font-weight: 700 !important; color: #aaa !important;
+                text-transform: uppercase !important; letter-spacing: 1.2px !important;
+                display: flex !important; align-items: center !important; gap: 8px !important;
             }
-            .group-title::after {
-                content: ''; flex: 1; height: 1px; background: rgba(0,0,0,0.06);
+            #ai-grading-settings .group-title::after {
+                content: '' !important; flex: 1 !important; height: 1px !important; background: rgba(0,0,0,0.06) !important;
             }
-            .group-title .config-warn {
-                display: inline-flex; align-items: center; gap: 3px;
-                font-size: 10px; font-weight: 600; color: #D93025; letter-spacing: 0;
-                text-transform: none; background: rgba(217,48,37,0.08); padding: 2px 7px; border-radius: 4px;
+            #ai-grading-settings .group-title .config-warn {
+                display: inline-flex !important; align-items: center !important; gap: 3px !important;
+                font-size: 10px !important; font-weight: 600 !important; color: #D93025 !important; letter-spacing: 0 !important;
+                text-transform: none !important; background: rgba(217,48,37,0.08) !important; padding: 2px 7px !important; border-radius: 4px !important;
             }
 
             /* 手风琴分组 */
-            .form-section {
-                border-bottom: 1px solid rgba(0,0,0,0.04);
+            #ai-grading-settings .form-section {
+                border-bottom: 1px solid rgba(0,0,0,0.04) !important;
             }
-            .form-section.highlight .section-header { background: rgba(0, 82, 255, 0.02); }
-            .section-header {
-                padding: 14px 24px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
-                transition: background 0.15s; user-select: none;
+            #ai-grading-settings .form-section.highlight .section-header { background: rgba(0, 82, 255, 0.02) !important; }
+            #ai-grading-settings .section-header {
+                padding: 14px 24px !important; cursor: pointer !important; display: flex !important;
+                justify-content: space-between !important; align-items: center !important;
+                transition: background 0.15s !important; user-select: none !important;
             }
-            .section-header:hover { background: rgba(0,0,0,0.02); }
-            .section-header h4 {
-                margin: 0; font-size: 12px; font-weight: 600; color: #86868b;
-                text-transform: uppercase; letter-spacing: 0.8px;
-                display: flex; align-items: center; gap: 6px;
+            #ai-grading-settings .section-header:hover { background: rgba(0,0,0,0.02) !important; }
+            #ai-grading-settings .section-header h4 {
+                margin: 0 !important; font-size: 12px !important; font-weight: 600 !important; color: #86868b !important;
+                text-transform: uppercase !important; letter-spacing: 0.8px !important;
+                display: flex !important; align-items: center !important; gap: 6px !important;
             }
             .section-header h4 .section-badge {
                 display: inline-block; width: 6px; height: 6px; border-radius: 50%;

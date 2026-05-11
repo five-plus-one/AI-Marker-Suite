@@ -8,32 +8,46 @@ function createMainButton() {
 
     const style = document.createElement('style');
     style.textContent = `
+        /* 样式隔离：重置可能被平台影响的属性 */
+        .ai-grade-btn, .ai-history-btn, .ai-settings-btn, .toast-notification {
+            all: initial;
+            position: fixed !important;
+            z-index: 99999 !important;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif !important;
+            box-sizing: border-box !important;
+            pointer-events: auto !important;
+            visibility: visible !important;
+            display: flex !important;
+            opacity: 1 !important;
+        }
+
         .ai-grade-btn {
-            position: fixed; bottom: 40px; right: 40px; z-index: 99999 !important;
-            padding: 14px 32px;
-            background: rgba(20, 20, 20, 0.88);
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            color: #fff;
-            border: 1.5px solid rgba(255,255,255,0.08);
-            border-radius: 40px;
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
-            font-size: 14px; font-weight: 600; letter-spacing: 0.3px;
-            cursor: pointer;
-            box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.06);
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            min-width: 140px; text-align: center;
+            bottom: 40px !important; right: 40px !important;
+            padding: 14px 32px !important;
+            background: rgba(20, 20, 20, 0.88) !important;
+            backdrop-filter: blur(16px) !important; -webkit-backdrop-filter: blur(16px) !important;
+            color: #fff !important;
+            border: 1.5px solid rgba(255,255,255,0.08) !important;
+            border-radius: 40px !important;
+            font-size: 14px !important; font-weight: 600 !important; letter-spacing: 0.3px !important;
+            cursor: pointer !important;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.06) !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            min-width: 140px !important; text-align: center !important;
+            align-items: center !important; justify-content: center !important;
+            line-height: 1 !important;
         }
         .ai-grade-btn:hover {
-            transform: translateY(-2px) scale(1.02);
-            box-shadow: 0 16px 40px rgba(0,0,0,0.22), 0 4px 12px rgba(0,0,0,0.1);
-            background: rgba(0, 0, 0, 0.95);
+            transform: translateY(-2px) scale(1.02) !important;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.22), 0 4px 12px rgba(0,0,0,0.1) !important;
+            background: rgba(0, 0, 0, 0.95) !important;
         }
-        .ai-grade-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-        .ai-grade-btn.paused { border-color: rgba(230, 162, 60, 0.5); background: rgba(30,30,30,0.92); animation: btn-pulse-amber 2s infinite; }
-        .ai-grade-btn.running { border-color: rgba(64, 158, 255, 0.5); animation: btn-pulse-blue 2s infinite; }
-        .ai-grade-btn.unattended { border-color: rgba(245, 108, 108, 0.5); animation: btn-pulse-red 2s infinite; }
-        .ai-grade-btn.trial { border-color: rgba(124, 58, 237, 0.5); animation: btn-pulse-purple 2s infinite; }
-        .ai-grade-btn.needs-save { background: rgba(245, 108, 108, 0.06) !important; color: #D93025; border-color: rgba(217, 48, 37, 0.25); box-shadow: none !important; animation: none; }
+        .ai-grade-btn:disabled { opacity: 0.5 !important; cursor: not-allowed !important; transform: none !important; box-shadow: none !important; }
+        .ai-grade-btn.paused { border-color: rgba(230, 162, 60, 0.5) !important; background: rgba(30,30,30,0.92) !important; animation: btn-pulse-amber 2s infinite !important; }
+        .ai-grade-btn.running { border-color: rgba(64, 158, 255, 0.5) !important; animation: btn-pulse-blue 2s infinite !important; }
+        .ai-grade-btn.unattended { border-color: rgba(245, 108, 108, 0.5) !important; animation: btn-pulse-red 2s infinite !important; }
+        .ai-grade-btn.trial { border-color: rgba(124, 58, 237, 0.5) !important; animation: btn-pulse-purple 2s infinite !important; }
+        .ai-grade-btn.needs-save { background: rgba(245, 108, 108, 0.06) !important; color: #D93025 !important; border-color: rgba(217, 48, 37, 0.25) !important; box-shadow: none !important; animation: none !important; }
 
         @keyframes btn-pulse-blue { 0%,100% { box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 0 0 0 rgba(64,158,255,0.3); } 50% { box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 0 0 6px rgba(64,158,255,0); } }
         @keyframes btn-pulse-amber { 0%,100% { box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 0 0 0 rgba(230,162,60,0.3); } 50% { box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 0 0 6px rgba(230,162,60,0); } }
@@ -41,49 +55,49 @@ function createMainButton() {
         @keyframes btn-pulse-purple { 0%,100% { box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 0 0 0 rgba(124,58,237,0.3); } 50% { box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 0 0 6px rgba(124,58,237,0); } }
 
         .toast-notification {
-            position: fixed; top: 24px; left: 50%; transform: translate(-50%, -20px);
-            background: rgba(255,255,255,0.96);
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            color: #1a1a1a;
-            padding: 12px 20px;
-            border-radius: 12px;
-            border: 1px solid rgba(0,0,0,0.06);
-            box-shadow: 0 8px 28px rgba(0,0,0,0.1);
-            z-index: 1000020;
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
-            font-size: 13px; font-weight: 500;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            pointer-events: none; opacity: 0;
-            display: flex; align-items: center; gap: 8px; max-width: 400px;
+            top: 24px !important; left: 50% !important; transform: translate(-50%, -20px) !important;
+            background: rgba(255,255,255,0.96) !important;
+            backdrop-filter: blur(16px) !important; -webkit-backdrop-filter: blur(16px) !important;
+            color: #1a1a1a !important;
+            padding: 12px 20px !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(0,0,0,0.06) !important;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.1) !important;
+            z-index: 1000020 !important;
+            font-size: 13px !important; font-weight: 500 !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            pointer-events: none !important; opacity: 0 !important;
+            align-items: center !important; gap: 8px !important; max-width: 400px !important;
+            line-height: 1.4 !important;
         }
-        .toast-notification.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+        .toast-notification.show { opacity: 1 !important; transform: translate(-50%, 0) !important; pointer-events: auto !important; }
         .toast-notification .toast-close {
-            background: none; border: none; color: #999; cursor: pointer; font-size: 16px;
-            padding: 0 0 0 8px; line-height: 1; pointer-events: auto;
+            background: none !important; border: none !important; color: #999 !important; cursor: pointer !important; font-size: 16px !important;
+            padding: 0 0 0 8px !important; line-height: 1 !important; pointer-events: auto !important;
         }
-        .toast-notification .toast-close:hover { color: #1a1a1a; }
-        .toast-notification.success { border-left: 3px solid #34A853; }
-        .toast-notification.error { border-left: 3px solid #D93025; }
-        .toast-notification.info { border-left: 3px solid #0052FF; }
+        .toast-notification .toast-close:hover { color: #1a1a1a !important; }
+        .toast-notification.success { border-left: 3px solid #34A853 !important; }
+        .toast-notification.error { border-left: 3px solid #D93025 !important; }
+        .toast-notification.info { border-left: 3px solid #0052FF !important; }
 
         .ai-history-btn, .ai-settings-btn {
-            position: fixed; right: 40px; z-index: 99999;
-            width: 44px; height: 44px; border-radius: 50%;
-            background: rgba(255,255,255,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,0,0,0.08);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-            cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            right: 40px !important;
+            width: 44px !important; height: 44px !important; border-radius: 50% !important;
+            background: rgba(255,255,255,0.92) !important; backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(0,0,0,0.08) !important;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
+            cursor: pointer !important;
+            align-items: center !important; justify-content: center !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
         }
-        .ai-history-btn { bottom: 95px; }
-        .ai-settings-btn { bottom: 150px; }
+        .ai-history-btn { bottom: 95px !important; }
+        .ai-settings-btn { bottom: 150px !important; }
         .ai-history-btn:hover, .ai-settings-btn:hover {
-            transform: translateY(-2px) scale(1.05);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-            background: rgba(255,255,255,1);
+            transform: translateY(-2px) scale(1.05) !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
+            background: rgba(255,255,255,1) !important;
         }
-        .ai-history-btn svg, .ai-settings-btn svg { width: 20px; height: 20px; color: #444; }
+        .ai-history-btn svg, .ai-settings-btn svg { width: 20px !important; height: 20px !important; color: #444 !important; }
     `;
     document.head.appendChild(style);
     document.body.appendChild(btn);
