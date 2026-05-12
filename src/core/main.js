@@ -176,27 +176,39 @@ async function startAutoGrading() {
     }
 }
 
-// ========== 文档站模式检测 ==========
-function isHistoryPageMode() {
+// ========== 工具页面模式检测 ==========
+function isToolsPageMode() {
     const hostname = window.location.hostname;
     const pathname = window.location.pathname;
-    return hostname === 'aimarking.five-plus-one.com' && pathname.includes('/history');
+    return (hostname === 'aimarking.five-plus-one.com' ||
+            hostname === 'five-plus-one.github.io') &&
+           pathname.includes('/tools');
 }
 
-async function initHistoryPageMode() {
-    console.log('📚 [文档站] 初始化历史查看页面');
+async function initToolsPageMode() {
+    console.log('📚 [工具页面] 初始化');
 
-    // 初始化历史管理器
+    // 显示加载提示
+    const container = document.getElementById('ai-tools-root');
+    if (container) {
+        container.innerHTML = `
+            <div style="text-align:center;padding:60px 20px;color:#86868b;">
+                <div style="font-size:48px;margin-bottom:16px;">🛠️</div>
+                <h2 style="font-size:18px;font-weight:600;color:#1a1a1a;margin-bottom:8px;">正在加载工具页面...</h2>
+                <p style="font-size:13px;color:#aaa;margin-top:8px;">请稍候</p>
+            </div>
+        `;
+    }
+
+    // 初始化管理器
     await HistoryManager.init();
-
-    // 初始化 ProviderManager 和 WorkflowManager（用于显示关于页面信息）
     ProviderManager.init();
     WorkflowManager.init();
 
-    // 注入独立历史查看UI
-    createStandaloneHistoryUI();
+    // 注入工具页面 UI
+    createToolsPageUI();
 
-    // 检查更新
+    // 检查更新（延迟）
     setTimeout(() => checkForUpdate(), 3000);
 }
 
@@ -204,9 +216,9 @@ async function initHistoryPageMode() {
 async function init() {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // 检测是否在文档站历史页面
-    if (isHistoryPageMode()) {
-        await initHistoryPageMode();
+    // 检测是否在工具页面
+    if (isToolsPageMode()) {
+        await initToolsPageMode();
         return;
     }
 

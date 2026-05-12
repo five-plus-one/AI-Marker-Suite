@@ -33,7 +33,7 @@ const CORE_MODULES = [
     'image.js',
     'correction.js',
     'history.js',
-    'ui-history-standalone.js',  // 独立历史查看页面UI
+    'ui-tools.js',  // 工具页面UI（/tools）
     'updater.js',
     'main.js',
 ];
@@ -76,6 +76,7 @@ const BUILD_CONFIGS = [
                 '*://*.yunyuejuan.net/*',
                 '*://pj.yixx.cn/*',
                 'https://aimarking.five-plus-one.com/*',
+                'https://five-plus-one.github.io/*',
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
             grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_registerMenuCommand'],
