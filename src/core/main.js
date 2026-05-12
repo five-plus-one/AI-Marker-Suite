@@ -388,7 +388,7 @@ function registerMenuCommands() {
     if (typeof GM_registerMenuCommand === 'undefined') return;
 
     GM_registerMenuCommand('📊 查看历史记录', () => {
-        window.open('https://aimarking.five-plus-one.com/history', '_blank');
+        window.open('https://aimarking.five-plus-one.com/tools', '_blank');
     });
 
     GM_registerMenuCommand('⚙️ 打开设置', () => {
@@ -396,7 +396,7 @@ function registerMenuCommands() {
         if (settingsPanel) {
             openSettingsPanel();
         } else {
-            window.open('https://aimarking.five-plus-one.com/history', '_blank');
+            window.open('https://aimarking.five-plus-one.com/tools', '_blank');
         }
     });
 

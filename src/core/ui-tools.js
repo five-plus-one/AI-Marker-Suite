@@ -192,7 +192,12 @@ function createToolsPageUI() {
 
 // ========== 关于面板 ==========
 function showAboutPanel() {
-    // 复用设置面板的关于标签页内容，创建一个独立的弹窗
+    // 确保弹窗样式已注入
+    if (typeof initModalStyles === 'function') {
+        initModalStyles();
+    }
+
+    // 创建弹窗
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
     overlay.style.zIndex = '1000010';
