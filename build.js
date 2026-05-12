@@ -66,8 +66,9 @@ const BUILD_CONFIGS = [
             description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷等平台。自动识别答案、智能评分、自动提交！',
             author: '5plus1',
             match: [
-                'https://www.zhixue.com/webmarking/*',
-                'https://*.zhixue.com/webmarking/*',
+                'https://www.zhixue.com/*',
+                'https://zhixue.com/*',
+                'https://*.zhixue.com/*',
                 '*://*.7net.cc/*',
                 '*://yj5.7net.cc/*',
                 '*://*.qt7.net/*',

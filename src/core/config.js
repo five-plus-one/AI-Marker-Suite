@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.2.204',
+    VERSION: '1.21.2.205',
 
     /** 轻量级更新检查 UL（优先使用，~1KB） */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -25,7 +25,7 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
-        '1.21.3.0': [
+        '1.21.2.203': [
             '【新功能】新增文档站历史查看功能：访问 aimarking.five-plus-one.com/history 查看和导出历史记录',
             '【新功能】新增油猴菜单快捷方式：查看历史记录、打开设置、检查更新',
             '【新功能】新增光大阅卷平台适配，支持分小题给分、给分详情弹窗自动确认',

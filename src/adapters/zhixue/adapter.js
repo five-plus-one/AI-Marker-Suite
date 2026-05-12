@@ -4,15 +4,27 @@
 const ZhixueAdapter = {
     name: '智学网',
     id: 'zhixue',
-    urlPatterns: ['https://www.zhixue.com/webmarking/*', 'https://*.zhixue.com/webmarking/*'],
+    urlPatterns: ['https://www.zhixue.com/*', 'https://zhixue.com/*', 'https://*.zhixue.com/*'],
     iconUrl: 'https://www.zhixue.com/favicon.ico',
 
     shouldInitialize() {
+        // 在整个智学网域名上都初始化，以便在首页也能使用油猴菜单
+        return window.location.hostname.includes('zhixue.com');
+    },
+
+    // 快速页面检查（不等待 DOM），用于 URL 变化监听器
+    isMarkingPage() {
         return window.location.pathname.includes('/webmarking/');
     },
 
     async detectMarkingPage() {
-        console.log('🔎 [诊断] 开始检测批改页面元素...');
+        // 只在阅卷路径下才进行详细检测
+        if (!window.location.pathname.includes('/webmarking/')) {
+            console.log('🔎 [诊断] 智学网 — 当前不在阅卷页面 (pathname:', window.location.pathname, ')');
+            return false;
+        }
+
+        console.log('🔎 [诊断] 智学网 — 开始检测批改页面元素...');
         try {
             const result = await Promise.race([
                 waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_IMAGE).then(() => 'topicImg'),
