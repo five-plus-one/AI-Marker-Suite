@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.2.112',
+    VERSION: '1.21.2.202',
 
     /** 轻量级更新检查 UL（优先使用，~1KB） */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -25,6 +25,15 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.3.0': [
+            '【新功能】新增文档站历史查看功能：访问 aimarking.five-plus-one.com/history 查看和导出历史记录',
+            '【新功能】新增油猴菜单快捷方式：查看历史记录、打开设置、检查更新',
+            '【新功能】新增光大阅卷平台适配，支持分小题给分、给分详情弹窗自动确认',
+            '【优化】光大阅卷图片获取优化：通过 API 拦截精确获取当前试卷图片',
+            '【优化】UI 样式隔离：添加 all: initial 防止平台 CSS 干扰',
+            '【修复】修复光大阅卷刷新后按钮消失问题',
+            '【修复】修复光大阅卷非批改页面显示按钮问题',
+        ],
         '1.21.2.105': [
             '【新功能】新增光大阅卷 (pj.yixx.cn) 阅卷平台适配，支持 Canvas 渲染和点击式评分',
             '【优化】光大阅卷支持从 Canvas 提取答题卡图片，兼容跨域图片场景',

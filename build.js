@@ -33,6 +33,7 @@ const CORE_MODULES = [
     'image.js',
     'correction.js',
     'history.js',
+    'ui-history-standalone.js',  // 独立历史查看页面UI
     'updater.js',
     'main.js',
 ];
@@ -74,9 +75,10 @@ const BUILD_CONFIGS = [
                 '*://*.wylkyj.com/*',
                 '*://*.yunyuejuan.net/*',
                 '*://pj.yixx.cn/*',
+                'https://aimarking.five-plus-one.com/*',
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
-            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue'],
+            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_registerMenuCommand'],
             connect: [
                 'api.ai.five-plus-one.com',
                 'zhixue-sc.oss-cn-hangzhou.aliyuncs.com',

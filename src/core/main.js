@@ -176,9 +176,39 @@ async function startAutoGrading() {
     }
 }
 
+// ========== 文档站模式检测 ==========
+function isHistoryPageMode() {
+    const hostname = window.location.hostname;
+    const pathname = window.location.pathname;
+    return hostname === 'aimarking.five-plus-one.com' && pathname.includes('/history');
+}
+
+async function initHistoryPageMode() {
+    console.log('📚 [文档站] 初始化历史查看页面');
+
+    // 初始化历史管理器
+    await HistoryManager.init();
+
+    // 初始化 ProviderManager 和 WorkflowManager（用于显示关于页面信息）
+    ProviderManager.init();
+    WorkflowManager.init();
+
+    // 注入独立历史查看UI
+    createStandaloneHistoryUI();
+
+    // 检查更新
+    setTimeout(() => checkForUpdate(), 3000);
+}
+
 // ========== 初始化 ==========
 async function init() {
     await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // 检测是否在文档站历史页面
+    if (isHistoryPageMode()) {
+        await initHistoryPageMode();
+        return;
+    }
 
     // 检测是否在批改页面，支持重试（SPA应用可能需要更长时间加载）
     let isMarkingPage = await detectMarkingPage();
@@ -340,3 +370,27 @@ setInterval(async () => {
         setTimeout(init, 1000);
     }
 }, 1000);
+
+// ========== 油猴菜单注册 ==========
+function registerMenuCommands() {
+    if (typeof GM_registerMenuCommand === 'undefined') return;
+
+    GM_registerMenuCommand('📊 查看历史记录', () => {
+        window.open('https://aimarking.five-plus-one.com/history', '_blank');
+    });
+
+    GM_registerMenuCommand('⚙️ 打开设置', () => {
+        const settingsPanel = document.getElementById('ai-grading-settings');
+        if (settingsPanel) {
+            openSettingsPanel();
+        } else {
+            window.open('https://aimarking.five-plus-one.com/history', '_blank');
+        }
+    });
+
+    GM_registerMenuCommand('🔄 检查更新', () => {
+        checkForUpdate(true);
+    });
+}
+
+registerMenuCommands();
