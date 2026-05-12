@@ -420,22 +420,40 @@ function showHistoryPanel() {
     panel.id = 'ai-history-panel';
     panel.innerHTML = `
         <style>
+            /* 强制浅色主题，防止深色模式字体颜色问题 */
             #ai-history-panel {
                 position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
                 z-index: 1000001; width: 680px; max-width: 94vw; max-height: 85vh;
-                background: rgba(255,255,255,0.96); backdrop-filter: blur(32px) saturate(180%);
+                background: rgba(255,255,255,0.96) !important; backdrop-filter: blur(32px) saturate(180%);
                 border: 1px solid rgba(255,255,255,0.6); border-radius: 20px;
                 box-shadow: 0 40px 80px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
                 font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
                 display: flex; flex-direction: column; overflow: hidden;
                 animation: hist-panel-in 0.3s cubic-bezier(0.16,1,0.3,1);
+                color-scheme: light only;
+                color: #1d1d1f !important;
             }
             @keyframes hist-panel-in { from { transform: translate(-50%, -50%) scale(0.96); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
 
+            /* 强制所有文字使用深色 */
+            #ai-history-panel, #ai-history-panel * {
+                color: #1d1d1f !important;
+            }
+            #ai-history-panel .corrected { color: #0052FF !important; }
+            #ai-history-panel .marked-tag { color: #D93025 !important; }
+            #ai-history-panel button.primary { color: #0052FF !important; }
+            #ai-history-panel button.danger { color: #D93025 !important; }
+            #ai-history-panel .hist-toolbar .count { color: #86868b !important; }
+            #ai-history-panel .hist-item-time { color: #86868b !important; }
+            #ai-history-panel .hist-item-meta { color: #aaa !important; }
+            #ai-history-panel .hist-item-text { color: #666 !important; }
+            #ai-history-panel .hist-empty { color: #aaa !important; }
+            #ai-history-panel .hist-storage-item .label { color: #86868b !important; }
+
             .hist-header { padding:18px 24px 14px; border-bottom:1px solid rgba(0,0,0,0.06); display:flex; justify-content:space-between; align-items:center; }
-            .hist-header h3 { margin:0; font-size:15px; font-weight:600; color:#1d1d1f; }
-            .hist-header .close-btn { background:transparent;border:none;font-size:18px;cursor:pointer;color:#666;padding:4px 8px;border-radius:6px;transition:all 0.2s; }
-            .hist-header .close-btn:hover { background:rgba(0,0,0,0.04);color:#1a1a1a; }
+            .hist-header h3 { margin:0; font-size:15px; font-weight:600; color:#1d1d1f !important; }
+            .hist-header .close-btn { background:transparent;border:none;font-size:18px;cursor:pointer;color:#666 !important;padding:4px 8px;border-radius:6px;transition:all 0.2s; }
+            .hist-header .close-btn:hover { background:rgba(0,0,0,0.04);color:#1a1a1a !important; }
 
             .hist-toolbar { padding:10px 24px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:6px; align-items:center; }
             .hist-toolbar button { padding:6px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s;font-weight:500; }
