@@ -507,180 +507,239 @@ function showHistoryPanel() {
     panel.id = 'ai-history-panel';
     panel.innerHTML = `
         <style>
-            /* 强制浅色主题，防止深色模式字体颜色问题 */
             #ai-history-panel {
                 position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                z-index: 1000001; width: 680px; max-width: 94vw; max-height: 85vh;
-                background: rgba(255,255,255,0.96) !important; backdrop-filter: blur(32px) saturate(180%);
-                border: 1px solid rgba(255,255,255,0.6); border-radius: 20px;
-                box-shadow: 0 40px 80px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+                z-index: 1000001; width: 920px; max-width: calc(100vw - 32px); height: min(760px, calc(100vh - 48px));
+                background: #f7f8fa !important;
+                border: 1px solid rgba(18,28,45,0.12); border-radius: 16px;
+                box-shadow: 0 28px 80px rgba(18,28,45,0.24), 0 2px 8px rgba(18,28,45,0.08);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
                 display: flex; flex-direction: column; overflow: hidden;
                 animation: hist-panel-in 0.3s cubic-bezier(0.16,1,0.3,1);
-                color-scheme: light only;
-                color: #1d1d1f !important;
+                color-scheme: light only; color: #172033 !important;
             }
             @keyframes hist-panel-in { from { transform: translate(-50%, -50%) scale(0.96); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
 
-            /* 强制所有文字使用深色 */
             #ai-history-panel, #ai-history-panel * {
-                color: #1d1d1f !important;
+                box-sizing: border-box; color: #172033 !important;
             }
-            #ai-history-panel .corrected { color: #0052FF !important; }
-            #ai-history-panel .marked-tag { color: #D93025 !important; }
-            #ai-history-panel button.primary { color: #0052FF !important; }
-            #ai-history-panel button.danger { color: #D93025 !important; }
-            #ai-history-panel .hist-toolbar .count { color: #86868b !important; }
-            #ai-history-panel .hist-item-time { color: #86868b !important; }
-            #ai-history-panel .hist-item-meta { color: #aaa !important; }
-            #ai-history-panel .hist-item-text { color: #666 !important; }
-            #ai-history-panel .hist-empty { color: #aaa !important; }
-            #ai-history-panel .hist-storage-item .label { color: #86868b !important; }
-            #ai-history-panel .hist-export-fmt.active { color: #fff !important; }
-            #ai-history-panel .hist-export-btn { color: #fff !important; }
-            #ai-history-panel .hist-html-img.active { color: #0052FF !important; }
-            #ai-history-panel .hist-img-help-btn { color: #0052FF !important; }
-            #ai-history-panel .hist-pagination button.active { color: #fff !important; }
-
-            .hist-header { padding:18px 24px 14px; border-bottom:1px solid rgba(0,0,0,0.06); display:flex; justify-content:space-between; align-items:center; }
-            .hist-header h3 { margin:0; font-size:15px; font-weight:600; color:#1d1d1f !important; }
-            .hist-header .close-btn { background:transparent;border:none;font-size:18px;cursor:pointer;color:#666 !important;padding:4px 8px;border-radius:6px;transition:all 0.2s; }
-            .hist-header .close-btn:hover { background:rgba(0,0,0,0.04);color:#1a1a1a !important; }
-
-            .hist-toolbar { padding:10px 24px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:6px; align-items:center; }
-            .hist-toolbar button { padding:6px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s;font-weight:500; }
-            .hist-toolbar button:hover { background:rgba(0,0,0,0.03); }
-            .hist-toolbar .count { margin-left:auto; font-size:12px; color:#86868b; }
-
-            .hist-filter-toggle { padding:0 24px; border-bottom:1px solid rgba(0,0,0,0.04); }
-            .hist-filter-toggle button { background:none;border:none;padding:8px 0;font-size:12px;color:#86868b;cursor:pointer;display:flex;align-items:center;gap:4px;transition:color 0.2s; }
-            .hist-filter-toggle button:hover { color:#1a1a1a; }
-            .hist-filter { padding:10px 24px 12px; border-bottom:1px solid rgba(0,0,0,0.05); display:none; gap:8px; align-items:center; flex-wrap:wrap; }
-            .hist-filter.open { display:flex; }
-            .hist-filter input[type="date"] { padding:5px 8px; border:1px solid rgba(0,0,0,0.1); border-radius:6px; font-size:12px; font-family:inherit; }
-            .hist-filter select { padding:5px 8px; border:1px solid rgba(0,0,0,0.1); border-radius:6px; font-size:12px; font-family:inherit; background:rgba(0,0,0,0.02); }
-            .hist-filter button { padding:5px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:6px; font-size:12px; cursor:pointer; transition:all 0.2s; }
-            .hist-filter button:hover { background:rgba(0,0,0,0.03); }
-            .hist-filter button.primary { color:#0052FF; border-color:rgba(0,82,255,0.2); }
+            #ai-history-panel button,
+            #ai-history-panel input,
+            #ai-history-panel select { font-family: inherit; }
+            #ai-history-panel button { height: 32px; border-radius: 6px; cursor: pointer; transition: background 0.18s, border-color 0.18s, color 0.18s, box-shadow 0.18s; }
+            #ai-history-panel button:focus-visible,
+            #ai-history-panel input:focus-visible,
+            #ai-history-panel select:focus-visible { outline: 2px solid rgba(25,118,210,0.28); outline-offset: 1px; }
 
             #ai-history-panel-inner { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
-            .hist-list { flex:1; min-height:0; overflow-y:auto; padding:10px 24px; scrollbar-width:thin; }
-            .hist-list::-webkit-scrollbar { width:5px; }
-            .hist-list::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.1);border-radius:4px; }
+            .hist-header {
+                padding: 18px 22px 16px; background: #ffffff;
+                border-bottom: 1px solid #e5e8ef; display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+            }
+            .hist-title-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+            .hist-header h3 { margin:0; font-size:20px; line-height:1.2; font-weight:700; color:#172033 !important; letter-spacing:0; }
+            .hist-summary { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+            .hist-storage-item {
+                display:flex; align-items:baseline; gap:6px; min-height:28px; padding:5px 9px;
+                background:#f3f6fa; border:1px solid #e3e8f0; border-radius:6px; font-size:12px;
+            }
+            .hist-storage-item .label { color:#667085 !important; }
+            .hist-storage-item .value { color:#172033 !important; font-weight:700; }
+            .hist-storage-item.warn { border-color:#f0b8b3; background:#fff4f3; }
+            .hist-storage-item.warn .value { color:#c2352b !important; }
+            .hist-header-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+            .hist-close-btn {
+                width:32px; padding:0; border:1px solid #d8dee8; background:#fff; color:#667085 !important;
+                font-size:18px; line-height:1;
+            }
+            .hist-close-btn:hover { background:#f3f6fa; color:#172033 !important; }
 
-            .hist-item { padding:14px 16px; border:1px solid rgba(0,0,0,0.05); border-radius:10px; margin-bottom:8px; transition:all 0.2s; }
-            .hist-item:hover { border-color:rgba(0,0,0,0.1); box-shadow:0 2px 8px rgba(0,0,0,0.04); }
-            .hist-item.marked { border-left:3px solid #D93025; }
-            .hist-item-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-            .hist-item-time { font-size:12px; color:#86868b; }
-            .hist-item-meta { font-size:11px; color:#aaa; }
-            .hist-item-score { font-size:14px; font-weight:600; color:#1d1d1f; }
-            .hist-item-score .arrow { color:#86868b; margin:0 4px; }
-            .hist-item-score .corrected { color:#0052FF; }
-            .hist-item-score .marked-tag { color:#D93025; font-size:11px; margin-left:8px; font-weight:500; }
-            .hist-item-text { font-size:12px; color:#666; line-height:1.5; margin-bottom:8px; }
-            .hist-item-actions { display:flex; gap:6px; }
-            .hist-item-actions button { padding:4px 10px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:6px; font-size:11px; cursor:pointer; transition:all 0.2s;font-weight:500; }
-            .hist-item-actions button:hover { background:rgba(0,0,0,0.03); }
-            .hist-item-actions button.danger { color:#D93025; border-color:rgba(217,48,37,0.15); }
-            .hist-item-actions button.danger:hover { background:rgba(217,48,37,0.04); }
-            .hist-item-actions button.primary { color:#0052FF; border-color:rgba(0,82,255,0.15); }
-            .hist-item-actions button.primary:hover { background:rgba(0,82,255,0.04); }
-            .hist-empty { text-align:center; padding:60px 20px; color:#aaa; font-size:14px; }
-            .hist-storage { padding:10px 24px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-            .hist-storage-item { display:flex; align-items:center; gap:5px; font-size:12px; color:#666; background:rgba(0,0,0,0.02); padding:4px 10px; border-radius:6px; border:1px solid rgba(0,0,0,0.04); }
-            .hist-storage-item .label { color:#86868b; }
-            .hist-storage-item .value { font-weight:600; color:#1d1d1f; }
-            .hist-storage-item.warn .value { color:#D93025; }
-            .hist-storage-actions { margin-left:auto; display:flex; gap:6px; }
-            .hist-storage-actions button { padding:4px 10px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:6px; font-size:11px; cursor:pointer; transition:all 0.2s; font-weight:500; }
-            .hist-storage-actions button:hover { background:rgba(0,0,0,0.03); }
-            .hist-storage-actions button.danger { color:#D93025; border-color:rgba(217,48,37,0.15); }
-            .hist-storage-actions button.danger:hover { background:rgba(217,48,37,0.04); }
-            .hist-batch-bar { padding:8px 24px; border-bottom:1px solid rgba(0,0,0,0.05); display:none; align-items:center; gap:8px; background:rgba(0,82,255,0.03); }
+            .hist-toolbar {
+                padding:12px 22px; background:#fbfcfe; border-bottom:1px solid #e5e8ef;
+                display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+            }
+            .hist-tools-left, .hist-tools-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+            .hist-tools-right { margin-left:auto; justify-content:flex-end; }
+            .hist-ghost-btn {
+                padding:0 12px; border:1px solid #d8dee8; background:#fff; color:#344054 !important;
+                font-size:12px; font-weight:600;
+            }
+            .hist-ghost-btn:hover { background:#f3f6fa; border-color:#c9d2df; }
+            .hist-ghost-btn.danger { color:#c2352b !important; border-color:#efc5c1; }
+            .hist-ghost-btn.danger:hover { background:#fff4f3; border-color:#eaa9a2; }
+            .hist-export-btn {
+                padding:0 14px; background:#172033; color:#fff !important; border:1px solid #172033;
+                font-size:12px; font-weight:700;
+            }
+            .hist-export-btn:hover { background:#0f1726; border-color:#0f1726; }
+            .hist-export-group, .hist-html-opts { display:flex; gap:0; align-items:center; }
+            .hist-export-fmt, .hist-html-img {
+                padding:0 12px; border:1px solid #d8dee8; background:#fff; font-size:12px; font-weight:600; border-radius:0;
+                color:#475467 !important;
+            }
+            .hist-export-fmt:first-child, .hist-html-img:first-child { border-radius:6px 0 0 6px; }
+            .hist-export-fmt:last-child, .hist-html-img:last-child { border-radius:0 6px 6px 0; }
+            .hist-export-fmt:not(:first-child), .hist-html-img:not(:first-child) { border-left:none; }
+            .hist-export-fmt.active, .hist-html-img.active { background:#26354d; color:#fff !important; border-color:#26354d; }
+            .hist-img-help-btn {
+                display:inline-flex; align-items:center; height:32px; padding:0 10px; border:1px solid #bed4f2; border-radius:6px;
+                background:#f1f7ff; color:#2166ad !important; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+            }
+            .hist-img-help-btn:hover { background:#e7f1ff; }
+            .hist-help-content { padding:0 22px 12px; background:#fbfcfe; border-bottom:1px solid #e5e8ef; }
+            .hist-help-box { padding:12px 14px; background:#fff; border:1px solid #dce4ef; border-radius:8px; font-size:13px; line-height:1.7; color:#475467 !important; }
+            .hist-help-note { background:#eef7f1; border:1px solid #cfe8d7; border-radius:6px; padding:8px 10px; font-size:12px; color:#287047 !important; }
+
+            .hist-filter-toggle { padding:0 22px; background:#fbfcfe; border-bottom:1px solid #e5e8ef; }
+            .hist-filter-toggle button {
+                background:transparent; border:none; padding:0; height:38px; color:#667085 !important; font-size:12px;
+                font-weight:700; display:flex; align-items:center; gap:6px;
+            }
+            .hist-filter-toggle button:hover { color:#172033 !important; }
+            .hist-filter {
+                padding:12px 22px; background:#fff; border-bottom:1px solid #e5e8ef; display:none;
+                grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(160px, 1.2fr) auto auto auto;
+                gap:10px; align-items:center;
+            }
+            .hist-filter.open { display:grid; }
+            .hist-filter input[type="date"], .hist-filter select, .hist-pagination select, .hist-pagination input {
+                height:32px; padding:0 10px; border:1px solid #d8dee8; border-radius:6px; font-size:12px;
+                background:#fff; color:#172033 !important; min-width:0;
+            }
+            .hist-filter button { padding:0 12px; border:1px solid #d8dee8; background:#fff; color:#344054 !important; font-size:12px; font-weight:700; }
+            .hist-filter button.primary { background:#eef7f1; color:#287047 !important; border-color:#cfe8d7; }
+
+            .hist-batch-bar {
+                padding:10px 22px; border-bottom:1px solid #d6e4f5; display:none; align-items:center; gap:8px;
+                background:#f1f7ff;
+            }
             .hist-batch-bar.open { display:flex; }
-            .hist-batch-bar .batch-info { font-size:12px; color:#0052FF; font-weight:500; }
-            .hist-batch-bar button { padding:5px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:6px; font-size:11px; cursor:pointer; transition:all 0.2s; font-weight:500; }
-            .hist-batch-bar button:hover { background:rgba(0,0,0,0.03); }
-            .hist-batch-bar button.danger { color:#D93025; border-color:rgba(217,48,37,0.15); }
-            .hist-batch-bar button.danger:hover { background:rgba(217,48,37,0.04); }
-            .hist-item-check { display:none; margin-right:8px; flex-shrink:0; }
+            .hist-batch-bar .batch-info { font-size:12px; color:#2166ad !important; font-weight:700; margin-right:auto; }
+            .hist-item-check { display:none; margin-right:10px; flex-shrink:0; }
             .hist-batch-mode .hist-item-check { display:block; }
-            .hist-item-check input { width:15px; height:15px; cursor:pointer; accent-color:#0052FF; }
+            .hist-item-check input { width:16px; height:16px; cursor:pointer; accent-color:#2166ad; }
 
-            .hist-pagination { padding:10px 24px 14px; border-top:1px solid rgba(0,0,0,0.05); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-            .hist-pagination button { padding:5px 10px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:6px; font-size:12px; cursor:pointer; transition:all 0.2s; min-width:32px; text-align:center; }
-            .hist-pagination button:hover:not(:disabled) { background:rgba(0,0,0,0.03); }
-            .hist-pagination button:disabled { opacity:0.35; cursor:not-allowed; }
-            .hist-pagination button.active { background:#1d1d1f; color:#fff !important; border-color:#1d1d1f; }
-            .hist-pagination .page-info { font-size:12px; color:#86868b; }
-            .hist-pagination select { padding:4px 6px; border:1px solid rgba(0,0,0,0.1); border-radius:6px; font-size:12px; font-family:inherit; background:rgba(0,0,0,0.02); }
+            .hist-list { flex:1; min-height:0; overflow-y:auto; padding:16px 22px 18px; scrollbar-width:thin; background:#f7f8fa; }
+            .hist-list::-webkit-scrollbar { width:8px; }
+            .hist-list::-webkit-scrollbar-thumb { background:#c8d0dc; border-radius:8px; border:2px solid #f7f8fa; }
+            .hist-item {
+                display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:16px; align-items:center;
+                padding:14px 16px; background:#fff; border:1px solid #e1e6ef; border-radius:8px; margin-bottom:10px;
+                transition:border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+            }
+            .hist-item:hover { border-color:#cbd5e1; box-shadow:0 8px 22px rgba(18,28,45,0.08); transform:translateY(-1px); }
+            .hist-item.marked { border-color:#f0b8b3; background:#fffafa; }
+            .hist-item-main { min-width:0; }
+            .hist-item-top { display:flex; align-items:center; gap:8px; min-width:0; margin-bottom:8px; }
+            .hist-item-time { color:#667085 !important; font-size:12px; font-weight:700; white-space:nowrap; }
+            .hist-item-meta { color:#667085 !important; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .hist-item-tags { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:8px; }
+            .hist-tag { display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:5px; font-size:11px; font-weight:700; }
+            .hist-tag.dual { background:#eef7f1; color:#287047 !important; }
+            .hist-tag.arbitration { background:#f2edff; color:#6b4bc2 !important; }
+            .hist-tag.image-local { background:#eef7f1; color:#287047 !important; }
+            .hist-tag.image-remote { background:#fff7e6; color:#9a6700 !important; }
+            .hist-tag.marked-tag { background:#fff0ef; color:#c2352b !important; }
+            .hist-tag.corrected { background:#eaf2ff; color:#2166ad !important; }
+            .hist-item-text {
+                color:#344054 !important; font-size:13px; line-height:1.55; margin:0;
+                display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+            }
+            .hist-item-side { display:flex; align-items:center; gap:14px; }
+            .hist-item-score { min-width:92px; text-align:right; color:#172033 !important; }
+            .hist-score-label { display:block; color:#667085 !important; font-size:11px; font-weight:700; margin-bottom:2px; }
+            .hist-score-value { display:flex; align-items:baseline; justify-content:flex-end; gap:4px; font-size:23px; line-height:1; font-weight:800; color:#172033 !important; }
+            .hist-score-unit { font-size:12px; font-weight:700; color:#667085 !important; }
+            .hist-score-value .arrow { color:#98a2b3 !important; font-size:14px; align-self:center; }
+            .hist-score-value .corrected { color:#2166ad !important; }
+            .hist-item-actions { display:flex; flex-direction:column; gap:6px; width:92px; }
+            .hist-item-actions button { width:100%; padding:0 10px; border:1px solid #d8dee8; background:#fff; font-size:12px; font-weight:700; color:#344054 !important; }
+            .hist-item-actions button.primary { background:#eef7f1; color:#287047 !important; border-color:#cfe8d7; }
+            .hist-item-actions button.danger { color:#c2352b !important; border-color:#efc5c1; }
+            .hist-item-actions button:hover { background:#f3f6fa; }
+            .hist-empty {
+                min-height:300px; display:flex; flex-direction:column; justify-content:center; align-items:center;
+                text-align:center; color:#667085 !important; font-size:14px;
+            }
+            .hist-empty strong { color:#172033 !important; font-size:17px; margin-bottom:6px; }
+
+            .hist-pagination {
+                margin-top:12px; padding:12px; background:#fff; border:1px solid #e1e6ef; border-radius:8px;
+                display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+            }
+            .hist-pagination button { padding:0 10px; border:1px solid #d8dee8; background:#fff; font-size:12px; min-width:32px; color:#344054 !important; }
+            .hist-pagination button:hover:not(:disabled) { background:#f3f6fa; }
+            .hist-pagination button:disabled { opacity:0.4; cursor:not-allowed; }
+            .hist-pagination button.active { background:#26354d; color:#fff !important; border-color:#26354d; }
+            .hist-pagination .page-info { font-size:12px; color:#667085 !important; }
             .hist-pagination .page-jump { display:flex; align-items:center; gap:4px; margin-left:auto; }
-            .hist-pagination .page-jump input { width:40px; padding:4px 6px; border:1px solid rgba(0,0,0,0.1); border-radius:6px; font-size:12px; text-align:center; font-family:inherit; }
+            .hist-pagination .page-jump input { width:52px; text-align:center; }
 
-            .hist-export-group { display:flex; gap:0; }
-            .hist-export-fmt { padding:6px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; border-radius:0; }
-            .hist-export-fmt:first-child { border-radius:6px 0 0 6px; }
-            .hist-export-fmt:last-child { border-radius:0 6px 6px 0; }
-            .hist-export-fmt:not(:first-child) { border-left:none; }
-            .hist-export-fmt.active { background:#1d1d1f; color:#fff !important; border-color:#1d1d1f; }
-            .hist-export-fmt:hover:not(.active) { background:rgba(0,0,0,0.03); }
-            .hist-html-opts { display:flex; gap:4px; align-items:center; }
-            .hist-html-img { padding:6px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:0; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; }
-            .hist-html-img:first-child { border-radius:6px 0 0 6px; }
-            .hist-html-img:last-child { border-radius:0 6px 6px 0; }
-            .hist-html-img:not(:first-child) { border-left:none; }
-            .hist-html-img.active { background:#1d1d1f; color:#fff !important; border-color:#1d1d1f; }
-            .hist-html-img:hover:not(.active) { background:rgba(0,0,0,0.03); }
-            .hist-img-help-btn { font-size:12px; color:#0052FF; cursor:pointer; padding:6px 10px; border:1px solid rgba(0,82,255,0.2); border-radius:6px; background:rgba(0,82,255,0.04); transition:all 0.2s; white-space:nowrap; margin-left:4px; }
-            .hist-img-help-btn:hover { background:rgba(0,82,255,0.08); }
-            .hist-export-btn { padding:6px 12px; background:#1d1d1f; color:#fff !important; border:1px solid #1d1d1f; border-radius:6px; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.2s; }
-            .hist-export-btn:hover { background:#000; border-color:#000; }
+            @media (max-width: 760px) {
+                #ai-history-panel { width:calc(100vw - 16px); max-width:calc(100vw - 16px); height:calc(100vh - 16px); }
+                .hist-header { flex-direction:column; align-items:stretch; padding:16px; }
+                .hist-header-actions, .hist-tools-right { justify-content:flex-start; margin-left:0; }
+                .hist-toolbar, .hist-filter-toggle, .hist-batch-bar, .hist-list { padding-left:16px; padding-right:16px; }
+                .hist-filter { grid-template-columns:1fr; padding-left:16px; padding-right:16px; }
+                .hist-item { grid-template-columns:1fr; gap:12px; }
+                .hist-item-side { justify-content:space-between; align-items:flex-end; }
+                .hist-item-actions { flex-direction:row; width:auto; }
+                .hist-item-actions button { width:auto; }
+                .hist-pagination .page-jump { margin-left:0; }
+            }
         </style>
         <div id="ai-history-panel-inner">
             <div class="hist-header">
-                <h3>评阅历史</h3>
-                <button class="close-btn" id="hist-close">&times;</button>
-            </div>
-            <div class="hist-storage" id="hist-storage">
-                <div class="hist-storage-item"><span class="label">记录</span><span class="value" id="hist-storage-count">--</span></div>
-                <div class="hist-storage-item"><span class="label">数据库</span><span class="value" id="hist-storage-db">--</span></div>
-                <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span></div>
-                <div class="hist-storage-actions">
-                    <button id="hist-clear-images">清理图片缓存</button>
-                    <button id="hist-clear-old" class="danger">清理30天前</button>
-                    <button id="hist-clear-all" class="danger">清空全部</button>
+                <div>
+                    <div class="hist-title-row">
+                        <h3>评阅历史</h3>
+                    </div>
+                    <div class="hist-summary" id="hist-storage">
+                        <div class="hist-storage-item"><span class="label">记录</span><span class="value" id="hist-storage-count">--</span></div>
+                        <div class="hist-storage-item"><span class="label">数据库</span><span class="value" id="hist-storage-db">--</span></div>
+                        <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span></div>
+                        <div class="hist-storage-item"><span class="label">当前视图</span><span class="value" id="hist-count">共 ${HistoryManager.records.length} 条</span></div>
+                    </div>
+                </div>
+                <div class="hist-header-actions">
+                    <button class="hist-ghost-btn" id="hist-clear-images">清理图片</button>
+                    <button class="hist-ghost-btn danger" id="hist-clear-old">清理30天前</button>
+                    <button class="hist-ghost-btn danger" id="hist-clear-all">清空全部</button>
+                    <button class="hist-close-btn" id="hist-close" title="关闭">&times;</button>
                 </div>
             </div>
             <div class="hist-toolbar">
-                <button id="hist-batch-toggle">批量管理</button>
-                <div class="hist-export-group">
-                    <button class="hist-export-fmt active" data-fmt="json">JSON</button>
-                    <button class="hist-export-fmt" data-fmt="csv">CSV</button>
-                    <button class="hist-export-fmt" data-fmt="html">HTML</button>
+                <div class="hist-tools-left">
+                    <button class="hist-ghost-btn" id="hist-batch-toggle">批量管理</button>
+                    <div class="hist-export-group">
+                        <button class="hist-export-fmt active" data-fmt="json">JSON</button>
+                        <button class="hist-export-fmt" data-fmt="csv">CSV</button>
+                        <button class="hist-export-fmt" data-fmt="html">HTML</button>
+                    </div>
                 </div>
-                <div class="hist-html-opts" id="hist-html-opts" style="display:none;">
-                    <button class="hist-html-img active" data-img="with">有图</button>
-                    <button class="hist-html-img" data-img="without">无图</button>
-                    <span id="hist-img-help" class="hist-img-help-btn">? 为什么有的图片无法导出？</span>
+                <div class="hist-tools-right">
+                    <div class="hist-html-opts" id="hist-html-opts" style="display:none;">
+                        <button class="hist-html-img active" data-img="with">有图</button>
+                        <button class="hist-html-img" data-img="without">无图</button>
+                        <span id="hist-img-help" class="hist-img-help-btn">图片说明</span>
+                    </div>
+                    <button class="hist-export-btn" id="hist-export-btn">导出当前视图</button>
                 </div>
-                <button class="hist-export-btn" id="hist-export-btn">导出</button>
-                <span class="count" id="hist-count">共 ${HistoryManager.records.length} 条</span>
             </div>
-            <div id="hist-img-help-content" style="display:none;padding:4px 24px 8px;">
-                <div style="padding:12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;font-size:13px;line-height:1.8;color:#4a4a4a;">
+            <div id="hist-img-help-content" class="hist-help-content" style="display:none;">
+                <div class="hist-help-box">
                     <div style="margin-bottom:8px;">图片存储在浏览器中，按网站域名隔离。在智学网保存的图片，只能在智学网页面导出。</div>
                     <div style="margin-bottom:6px;"><span style="color:#34A853;font-weight:500;">● 有图可导出</span> — 图片在当前网站，可直接导出</div>
                     <div style="margin-bottom:6px;"><span style="color:#856404;font-weight:500;">● 有图·无法导出</span> — 图片在其他网站，需切换到对应网站导出</div>
                     <div style="margin-bottom:8px;"><span style="color:#86868b;font-weight:500;">● 无图</span> — 未保存图片</div>
-                    <div style="background:rgba(0,82,255,0.06);border:1px solid rgba(0,82,255,0.15);border-radius:6px;padding:8px 10px;font-size:12px;color:#0052FF;">此选项只影响 HTML 导出中的图片展示，不影响文本内容。CSV 和 JSON 导出不受影响。</div>
+                    <div class="hist-help-note">此选项只影响 HTML 导出中的图片展示，不影响文本内容。CSV 和 JSON 导出不受影响。</div>
                 </div>
             </div>
             <div class="hist-batch-bar" id="hist-batch-bar">
-                <button id="hist-batch-select-all">全选</button>
-                <button id="hist-batch-deselect">取消选择</button>
                 <span class="batch-info" id="hist-batch-info">已选 0 条</span>
-                <button id="hist-batch-delete" class="danger">删除选中</button>
+                <button class="hist-ghost-btn" id="hist-batch-select-all">全选本页</button>
+                <button class="hist-ghost-btn" id="hist-batch-deselect">取消选择</button>
+                <button class="hist-ghost-btn danger" id="hist-batch-delete">删除选中</button>
             </div>
             <div class="hist-filter-toggle">
                 <button id="hist-filter-toggle-btn"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> 筛选条件</button>
@@ -778,7 +837,7 @@ function showHistoryPanel() {
     function updateImageFilterVisibility() {
         const show = (exportFormat === 'html' && htmlImageOption === 'with');
         const wrap = document.getElementById('hist-filter-images-wrap');
-        if (wrap) wrap.style.display = show ? 'inline-block' : 'none';
+        if (wrap) wrap.style.display = show ? 'block' : 'none';
         if (!show) {
             filterState.imageStatus = '';
             document.getElementById('hist-filter-images').value = '';
@@ -959,7 +1018,7 @@ function showHistoryPanel() {
         const listEl = document.getElementById('hist-list');
         if (!listEl) return;
         if (!records || records.length === 0) {
-            listEl.innerHTML = '<div class="hist-empty">暂无评阅记录</div>';
+            listEl.innerHTML = '<div class="hist-empty"><strong>暂无评阅记录</strong><span>完成一次批改后，这里会显示可筛选、可导出的历史记录。</span></div>';
             return;
         }
 
@@ -971,41 +1030,55 @@ function showHistoryPanel() {
         const startIdx = (safePage - 1) * pageSize;
         const pageRecords = records.slice(startIdx, startIdx + pageSize);
 
+        const escapeHtml = (text) => String(text ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
         // 渲染当前页记录
         listEl.innerHTML = pageRecords.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[r.gradingMode] || r.gradingMode;
             const scoreHtml = r.isCorrected
-                ? `<span>${r.aiScore}</span><span class="arrow">&rarr;</span><span class="corrected">${r.finalScore}</span>`
-                : `<span>${r.finalScore}</span>`;
-            const markedTag = r.status === 'marked' ? '<span class="marked-tag">&middot; 待回评</span>' : '';
-            const correctedTag = r.isCorrected ? '<span style="color:#0052FF;font-size:11px;margin-left:8px;">&#10003;已纠错</span>' : '';
-            const dualTag = r.dualEval ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${r.dualEval.result === 'consensus' ? 'rgba(52,168,83,0.1)' : r.dualEval.result === 'arbitration' ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.05)'};color:${r.dualEval.result === 'consensus' ? '#34A853' : r.dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">双评</span>` : '';
+                ? `<span>${escapeHtml(r.aiScore)}</span><span class="arrow">&rarr;</span><span class="corrected">${escapeHtml(r.finalScore)}</span>`
+                : `<span>${escapeHtml(r.finalScore)}</span>`;
+            const markedTag = r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
+            const correctedTag = r.isCorrected ? '<span class="hist-tag corrected">已纠错</span>' : '';
+            const dualTag = r.dualEval ? `<span class="hist-tag ${r.dualEval.result === 'arbitration' ? 'arbitration' : 'dual'}">双评</span>` : '';
             const showImageTag = (exportFormat === 'html' && htmlImageOption === 'with');
             const imgStatus = showImageTag ? ImageStore.getImageStatus(r.id) : null;
             const imageTag = showImageTag
                 ? (imgStatus.status === 'local'
-                    ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(52,168,83,0.1);color:#34A853;">有图可导出</span>'
+                    ? '<span class="hist-tag image-local">有图可导出</span>'
                     : imgStatus.status === 'remote'
-                    ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(255,193,7,0.15);color:#856404;">有图·无法导出</span>'
+                    ? '<span class="hist-tag image-remote">有图·无法导出</span>'
                     : '')
                 : '';
+            const answerText = r.studentAnswer || '未能识别答案';
+            const answerPreview = answerText.length > 110 ? `${answerText.slice(0, 110)}...` : answerText;
+            const presetName = r.presetName || '未命名方案';
             return `
                 <div class="hist-item ${r.status === 'marked' ? 'marked' : ''}" data-id="${r.id}">
-                    <div class="hist-item-header">
-                        <div style="display:flex;align-items:center;">
+                    <div class="hist-item-main">
+                        <div class="hist-item-top">
                             <label class="hist-item-check"><input type="checkbox" data-id="${r.id}" ${selectedIds.has(r.id) ? 'checked' : ''}></label>
                             <span class="hist-item-time">${time}</span>
-                            <span class="hist-item-meta" style="margin-left:8px;">${r.presetName} &middot; ${modeLabel}模式</span>
+                            <span class="hist-item-meta">${escapeHtml(presetName)} · ${escapeHtml(modeLabel)}模式</span>
                         </div>
-                        <div class="hist-item-score">${scoreHtml}分${dualTag}${imageTag}${markedTag}${correctedTag}</div>
+                        <p class="hist-item-text">答案：${escapeHtml(answerPreview)}</p>
+                        <div class="hist-item-tags">${dualTag}${imageTag}${markedTag}${correctedTag}</div>
                     </div>
-                    <div class="hist-item-text">
-                        答案：${(r.studentAnswer || '').slice(0, 50)}${(r.studentAnswer || '').length > 50 ? '...' : ''}
-                    </div>
-                    <div class="hist-item-actions">
-                        <button class="hist-detail-btn primary" data-id="${r.id}">查看详情</button>
-                        ${r.status !== 'marked' ? `<button class="hist-mark-btn danger" data-id="${r.id}">标记不正确</button>` : ''}
+                    <div class="hist-item-side">
+                        <div class="hist-item-score">
+                            <span class="hist-score-label">${r.isCorrected ? '分数修正' : '最终分数'}</span>
+                            <span class="hist-score-value">${scoreHtml}<span class="hist-score-unit">分</span></span>
+                        </div>
+                        <div class="hist-item-actions">
+                            <button class="hist-detail-btn primary" data-id="${r.id}">详情</button>
+                            ${r.status !== 'marked' ? `<button class="hist-mark-btn danger" data-id="${r.id}">标记</button>` : ''}
+                        </div>
                     </div>
                 </div>
             `;
