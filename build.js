@@ -62,7 +62,7 @@ const BUILD_CONFIGS = [
         ],
         header: {
             name: 'AI-Marker-Suite',
-            namespace: 'http://tampermonkey.net/',
+            namespace: 'https://aimarking.five-plus-one.com/',
             description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷等平台。自动识别答案、智能评分、自动提交！',
             author: '5plus1',
             match: [
@@ -154,7 +154,7 @@ function generateHeader(config, version) {
     const h = config.header;
     const lines = ['// ==UserScript=='];
     lines.push(`// @name         ${h.name}`);
-    lines.push(`// @namespace    ${h.namespace || 'http://tampermonkey.net/'}`);
+    lines.push(`// @namespace    ${h.namespace || 'https://aimarking.five-plus-one.com/'}`);
     lines.push(`// @version      ${version}`);
     lines.push(`// @description  ${h.description}`);
     lines.push(`// @author       ${h.author || '5plus1'}`);
