@@ -690,7 +690,7 @@ function showHistoryPanel() {
                 <span style="color:#aaa;font-size:12px;">~</span>
                 <input type="date" id="hist-filter-end" title="结束日期">
                 <select id="hist-filter-preset"><option value="">全部方案</option></select>
-                <select id="hist-filter-images"><option value="">全部图片</option><option value="local">有图·可导出</option><option value="remote">有图·无法导出</option><option value="none">无图</option></select>
+                <div id="hist-filter-images-wrap" style="display:none;"><select id="hist-filter-images"><option value="">全部图片</option><option value="local">有图可导出</option><option value="remote">有图·无法导出</option><option value="none">无图</option></select></div>
                 <button class="primary" id="hist-filter-apply">筛选</button>
                 <button id="hist-filter-reset">重置</button>
             </div>
@@ -775,6 +775,16 @@ function showHistoryPanel() {
     let exportFormat = 'json';
     let htmlImageOption = 'with';
 
+    function updateImageFilterVisibility() {
+        const show = (exportFormat === 'html' && htmlImageOption === 'with');
+        const wrap = document.getElementById('hist-filter-images-wrap');
+        if (wrap) wrap.style.display = show ? 'inline-block' : 'none';
+        if (!show) {
+            filterState.imageStatus = '';
+            document.getElementById('hist-filter-images').value = '';
+        }
+    }
+
     document.querySelectorAll('.hist-export-fmt').forEach(btn => {
         btn.onclick = () => {
             document.querySelectorAll('.hist-export-fmt').forEach(b => b.classList.remove('active'));
@@ -782,6 +792,10 @@ function showHistoryPanel() {
             exportFormat = btn.dataset.fmt;
             document.getElementById('hist-html-opts').style.display = exportFormat === 'html' ? 'flex' : 'none';
             if (exportFormat !== 'html') document.getElementById('hist-img-help-content').style.display = 'none';
+            updateImageFilterVisibility();
+            currentFilteredRecords = getFilteredRecords();
+            updateCount(currentFilteredRecords);
+            renderList(currentFilteredRecords);
         };
     });
 
@@ -791,6 +805,10 @@ function showHistoryPanel() {
             btn.classList.add('active');
             htmlImageOption = btn.dataset.img;
             if (htmlImageOption === 'without') document.getElementById('hist-img-help-content').style.display = 'none';
+            updateImageFilterVisibility();
+            currentFilteredRecords = getFilteredRecords();
+            updateCount(currentFilteredRecords);
+            renderList(currentFilteredRecords);
         };
     });
 
