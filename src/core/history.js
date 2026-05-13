@@ -523,6 +523,16 @@ function showHistoryPanel() {
             #ai-history-panel, #ai-history-panel * {
                 box-sizing: border-box; color: #172033 !important;
             }
+            #ai-history-panel .hist-export-btn,
+            #ai-history-panel .hist-export-btn *,
+            #ai-history-panel .hist-export-fmt.active,
+            #ai-history-panel .hist-export-fmt.active *,
+            #ai-history-panel .hist-html-img.active,
+            #ai-history-panel .hist-html-img.active *,
+            #ai-history-panel .hist-pagination button.active,
+            #ai-history-panel .hist-pagination button.active * {
+                color: #fff !important;
+            }
             #ai-history-panel button,
             #ai-history-panel input,
             #ai-history-panel select { font-family: inherit; }

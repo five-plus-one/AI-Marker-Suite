@@ -73,6 +73,60 @@ function ensureModalStyles() {
             transition: color 0.2s;
         }
         .ai-modal-btn-secondary:hover { color: #1a1a1a; }
+
+        .ai-modal-overlay { color-scheme: light only; }
+        .ai-modal-overlay, .ai-modal-overlay * { box-sizing: border-box; }
+        .ai-modal-card {
+            background: #ffffff;
+            border: 1px solid #e1e6ef;
+            border-radius: 14px;
+            box-shadow: 0 28px 80px rgba(18,28,45,0.22), 0 2px 8px rgba(18,28,45,0.08);
+            color: #172033;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+        }
+        .ai-modal-header {
+            padding: 20px 24px 0;
+            color: #172033;
+            font-size: 17px;
+            font-weight: 700;
+        }
+        .ai-modal-body {
+            padding: 16px 24px 22px;
+            color: #344054;
+        }
+        .ai-modal-body .ai-modal-input {
+            background: #fff;
+            border: 1px solid #d8dee8;
+            border-radius: 8px;
+            color: #172033;
+        }
+        .ai-modal-body .ai-modal-input:focus {
+            border-color: #2166ad;
+            box-shadow: 0 0 0 3px rgba(33,102,173,0.12);
+        }
+        .ai-modal-footer { padding: 0 24px 22px; }
+        .ai-modal-footer button {
+            min-height: 36px;
+            border-radius: 7px;
+            font-weight: 700;
+        }
+        .ai-modal-btn-cancel {
+            background: #fff;
+            border: 1px solid #d8dee8 !important;
+            color: #344054;
+        }
+        .ai-modal-btn-cancel:hover { background: #f3f6fa; }
+        .ai-modal-btn-confirm {
+            background: #172033;
+            color: #fff;
+            box-shadow: none;
+        }
+        .ai-modal-btn-confirm:hover {
+            background: #0f1726;
+            box-shadow: 0 8px 18px rgba(18,28,45,0.18);
+        }
+        .ai-modal-btn-secondary { color: #667085; }
+        .ai-modal-btn-secondary:hover { color: #172033; }
     `;
     document.head.appendChild(style);
 }

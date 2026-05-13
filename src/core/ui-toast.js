@@ -43,6 +43,22 @@ function ensureToastStyles() {
         .toast-notification.success { border-left: 3px solid #34A853 !important; }
         .toast-notification.error   { border-left: 3px solid #D93025 !important; }
         .toast-notification.info    { border-left: 3px solid #0052FF !important; }
+
+        .toast-notification {
+            background: #fff !important;
+            color: #172033 !important;
+            border: 1px solid #e1e6ef !important;
+            border-radius: 10px !important;
+            box-shadow: 0 16px 42px rgba(18,28,45,0.18), 0 2px 8px rgba(18,28,45,0.08) !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif !important;
+            font-weight: 700 !important;
+        }
+        .toast-notification span { color: #172033 !important; }
+        .toast-notification .toast-close { color: #667085 !important; }
+        .toast-notification .toast-close:hover { color: #172033 !important; }
+        .toast-notification.success { border-left: 4px solid #287047 !important; }
+        .toast-notification.error { border-left: 4px solid #c2352b !important; }
+        .toast-notification.info { border-left: 4px solid #2166ad !important; }
     `;
     document.head.appendChild(s);
 }

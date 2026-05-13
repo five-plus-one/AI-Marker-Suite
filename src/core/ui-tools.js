@@ -116,6 +116,71 @@ function createToolsPageUI() {
         .ai-tools-link:hover {
             color: var(--vp-c-brand, #0052FF);
         }
+
+        #ai-tools-page {
+            max-width: 760px;
+            padding: 48px 24px;
+            text-align: left;
+            color-scheme: light only;
+        }
+        .ai-tools-title {
+            font-size: 30px;
+            letter-spacing: 0;
+            color: #172033;
+        }
+        .ai-tools-subtitle {
+            color: #667085;
+            font-weight: 600;
+        }
+        .ai-tools-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin: 28px 0;
+        }
+        .ai-tools-btn {
+            align-items: flex-start;
+            min-height: 128px;
+            padding: 20px;
+            background: #fff;
+            border: 1px solid #e1e6ef;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(18,28,45,0.04);
+        }
+        .ai-tools-btn:hover {
+            background: #f7f8fa;
+            border-color: #cbd5e1;
+            box-shadow: 0 10px 26px rgba(18,28,45,0.1);
+        }
+        .ai-tools-btn .icon {
+            width: 40px;
+            height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #eef7f1;
+            border: 1px solid #cfe8d7;
+            border-radius: 8px;
+            font-size: 22px;
+        }
+        .ai-tools-btn .label {
+            color: #172033;
+            font-weight: 750;
+        }
+        .ai-tools-status {
+            background: #fff;
+            border: 1px solid #e1e6ef;
+            border-radius: 8px;
+        }
+        .ai-tools-status .label { color: #667085; font-weight: 600; }
+        .ai-tools-status .value { color: #172033; font-weight: 750; }
+        .ai-tools-status .value.success { color: #287047; }
+        .ai-tools-links { justify-content: flex-start; }
+        .ai-tools-link { color: #667085; font-weight: 700; }
+        .ai-tools-link:hover { color: #2166ad; }
+        @media (max-width: 720px) {
+            .ai-tools-grid { grid-template-columns: 1fr; }
+            #ai-tools-page { padding: 32px 16px; }
+        }
     `;
     document.head.appendChild(style);
 

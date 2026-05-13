@@ -300,6 +300,168 @@ function createSettingsPanel() {
             }
             .changelog-version.collapsed .changelog-toggle { transform: rotate(-90deg); }
             .changelog-version.collapsed .changelog-items { display: none; }
+
+            /* UI refresh: explicit light theme and contrast-safe controls */
+            #ai-grading-settings {
+                background: #f7f8fa !important;
+                border-left: 1px solid #e1e6ef !important;
+                box-shadow: -24px 0 70px rgba(18,28,45,0.18) !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif !important;
+                color: #172033 !important;
+                color-scheme: light only !important;
+            }
+            #ai-grading-settings,
+            #ai-grading-settings * { color: #172033 !important; }
+            #ai-grading-settings .sidebar-header,
+            #ai-grading-settings .save-btn-container,
+            #ai-grading-settings .sidebar-footer {
+                background: #fff !important;
+                border-color: #e1e6ef !important;
+            }
+            #ai-grading-settings .sidebar-header h3 {
+                font-size: 20px !important;
+                font-weight: 750 !important;
+                letter-spacing: 0 !important;
+            }
+            #ai-grading-settings .header-btn,
+            #ai-grading-settings .preset-btn,
+            #ai-grading-settings .footer-btn {
+                background: #fff !important;
+                border: 1px solid #d8dee8 !important;
+                border-radius: 7px !important;
+                color: #344054 !important;
+                font-weight: 700 !important;
+                box-shadow: none !important;
+            }
+            #ai-grading-settings .header-btn:hover,
+            #ai-grading-settings .preset-btn:hover,
+            #ai-grading-settings .footer-btn:hover {
+                background: #f3f6fa !important;
+                border-color: #c9d2df !important;
+            }
+            #ai-grading-settings .preset-btn.danger,
+            #ai-grading-settings .footer-btn.danger,
+            #ai-grading-settings .preset-btn.danger:hover,
+            #ai-grading-settings .footer-btn.danger:hover {
+                color: #c2352b !important;
+                border-color: #efc5c1 !important;
+            }
+            #ai-grading-settings .save-btn,
+            #ai-grading-settings .mode-segmented input[type="radio"]:checked + label {
+                background: #172033 !important;
+                color: #fff !important;
+                border-color: #172033 !important;
+                box-shadow: none !important;
+            }
+            #ai-grading-settings .save-btn:hover {
+                background: #0f1726 !important;
+                box-shadow: 0 8px 18px rgba(18,28,45,0.18) !important;
+            }
+            #ai-grading-settings .save-btn.highlight-save {
+                background: #c2352b !important;
+                color: #fff !important;
+            }
+            #ai-grading-settings .settings-tabs {
+                background: #fff !important;
+                border-bottom: 1px solid #e1e6ef !important;
+                padding: 0 16px !important;
+            }
+            #ai-grading-settings .settings-tab {
+                color: #667085 !important;
+                font-weight: 700 !important;
+                border-bottom-width: 3px !important;
+            }
+            #ai-grading-settings .settings-tab.active {
+                color: #172033 !important;
+                border-bottom-color: #287047 !important;
+            }
+            #ai-grading-settings .group-title {
+                color: #667085 !important;
+                letter-spacing: 0.8px !important;
+            }
+            #ai-grading-settings .form-section {
+                background: #fff !important;
+                border-bottom: 1px solid #e1e6ef !important;
+            }
+            #ai-grading-settings .section-header:hover { background: #f3f6fa !important; }
+            #ai-grading-settings .section-header h4 {
+                color: #344054 !important;
+                letter-spacing: 0.4px !important;
+            }
+            #ai-grading-settings .section-arrow { color: #667085 !important; }
+            #ai-grading-settings .form-group label,
+            #ai-grading-settings .checkbox-group label,
+            #ai-grading-settings .about-section-title,
+            #ai-grading-settings .changelog-date,
+            #ai-grading-settings .about-version,
+            #ai-grading-settings .about-link-desc,
+            #ai-grading-settings .mode-desc,
+            #ai-grading-settings .about-copyright {
+                color: #667085 !important;
+            }
+            #ai-grading-settings .form-group input,
+            #ai-grading-settings .form-group select,
+            #ai-grading-settings .form-group textarea,
+            #ai-grading-settings .preset-controls select {
+                background: #fff !important;
+                border: 1px solid #d8dee8 !important;
+                border-radius: 7px !important;
+                color: #172033 !important;
+            }
+            #ai-grading-settings .form-group input:focus,
+            #ai-grading-settings .form-group select:focus,
+            #ai-grading-settings .form-group textarea:focus,
+            #ai-grading-settings .preset-controls select:focus {
+                border-color: #2166ad !important;
+                box-shadow: 0 0 0 3px rgba(33,102,173,0.12) !important;
+                outline: none !important;
+            }
+            #ai-grading-settings .mode-segmented {
+                background: #eef2f7 !important;
+                border: 1px solid #d8dee8 !important;
+                border-radius: 8px !important;
+            }
+            #ai-grading-settings .mode-segmented label {
+                color: #475467 !important;
+                border-radius: 6px !important;
+                font-weight: 700 !important;
+            }
+            #ai-grading-settings .mode-segmented input[value="trial"]:checked + label,
+            #ai-grading-settings .mode-segmented input[value="unattended"]:checked + label {
+                color: #fff !important;
+            }
+            #ai-grading-settings .api-key-link,
+            #ai-grading-settings .changelog-version-header:hover .changelog-ver {
+                color: #2166ad !important;
+            }
+            #ai-grading-settings .api-key-warning {
+                background: #fff4f3 !important;
+                border-color: #efc5c1 !important;
+                color: #c2352b !important;
+            }
+            #ai-grading-settings .about-logo {
+                background: #172033 !important;
+                color: #fff !important;
+                border-radius: 12px !important;
+            }
+            #ai-grading-settings .about-link {
+                background: #fff !important;
+                border-color: #e1e6ef !important;
+                border-radius: 8px !important;
+            }
+            #ai-grading-settings .about-link:hover {
+                background: #f3f6fa !important;
+                border-color: #cbd5e1 !important;
+            }
+            #ai-grading-settings .about-support {
+                background: #fff7e6 !important;
+                border-color: #f4d49a !important;
+            }
+            #ai-grading-settings .about-support-desc,
+            #ai-grading-settings .about-qrcode-label,
+            #ai-grading-settings .changelog-items {
+                color: #475467 !important;
+            }
         </style>
 
         <div class="sidebar-header">
