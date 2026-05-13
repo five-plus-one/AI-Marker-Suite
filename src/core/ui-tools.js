@@ -58,7 +58,8 @@ function createToolsPageUI() {
             line-height: 1;
         }
 
-        .ai-tools-btn .label {
+        .ai-tools-btn .label,
+        .ai-tools-btn-label {
             font-size: 14px;
             font-weight: 500;
             color: var(--vp-c-text-1, #1a1a1a);
@@ -83,18 +84,21 @@ function createToolsPageUI() {
             border-bottom: 1px solid var(--vp-c-divider, rgba(0,0,0,0.04));
         }
 
-        .ai-tools-status .label {
+        .ai-tools-status .label,
+        .ai-tools-status-label {
             font-size: 13px;
             color: var(--vp-c-text-2, #86868b);
         }
 
-        .ai-tools-status .value {
+        .ai-tools-status .value,
+        .ai-tools-status-value {
             font-size: 13px;
             font-weight: 600;
             color: var(--vp-c-text-1, #1a1a1a);
         }
 
-        .ai-tools-status .value.success {
+        .ai-tools-status .value.success,
+        .ai-tools-status-value.success {
             color: #34A853;
         }
 
@@ -151,7 +155,8 @@ function createToolsPageUI() {
             border-color: #cbd5e1;
             box-shadow: 0 10px 26px rgba(18,28,45,0.1);
         }
-        .ai-tools-btn .icon {
+        .ai-tools-btn .icon,
+        .ai-tools-btn-icon {
             width: 40px;
             height: 40px;
             display: inline-flex;
@@ -162,7 +167,8 @@ function createToolsPageUI() {
             border-radius: 8px;
             font-size: 22px;
         }
-        .ai-tools-btn .label {
+        .ai-tools-btn .label,
+        .ai-tools-btn-label {
             color: #172033;
             font-weight: 750;
         }
@@ -171,9 +177,12 @@ function createToolsPageUI() {
             border: 1px solid #e1e6ef;
             border-radius: 8px;
         }
-        .ai-tools-status .label { color: #667085; font-weight: 600; }
-        .ai-tools-status .value { color: #172033; font-weight: 750; }
-        .ai-tools-status .value.success { color: #287047; }
+        .ai-tools-status .label,
+        .ai-tools-status-label { color: #667085; font-weight: 600; }
+        .ai-tools-status .value,
+        .ai-tools-status-value { color: #172033; font-weight: 750; }
+        .ai-tools-status .value.success,
+        .ai-tools-status-value.success { color: #287047; }
         .ai-tools-links { justify-content: flex-start; }
         .ai-tools-link { color: #667085; font-weight: 700; }
         .ai-tools-link:hover { color: #2166ad; }
@@ -209,14 +218,46 @@ function createToolsPageUI() {
             border-color: #e1e6ef !important;
         }
         .ai-tools-btn .label,
-        .ai-tools-status .value {
+        .ai-tools-btn-label,
+        .ai-tools-status .value,
+        .ai-tools-status-value {
             color: #172033 !important;
         }
-        .ai-tools-status .label {
+        .ai-tools-status .label,
+        .ai-tools-status-label {
             color: #667085 !important;
         }
-        .ai-tools-status .value.success {
+        .ai-tools-status .value.success,
+        .ai-tools-status-value.success {
             color: #287047 !important;
+        }
+
+        #ai-tools-page .ai-tools-btn,
+        #ai-tools-page .ai-tools-status {
+            color: #172033 !important;
+            -webkit-text-fill-color: #172033 !important;
+            opacity: 1 !important;
+            filter: none !important;
+            mix-blend-mode: normal !important;
+        }
+        #ai-tools-page .ai-tools-btn-label,
+        #ai-tools-page .ai-tools-status-value {
+            display: block !important;
+            color: #172033 !important;
+            -webkit-text-fill-color: #172033 !important;
+            opacity: 1 !important;
+            text-shadow: none !important;
+        }
+        #ai-tools-page .ai-tools-status-label {
+            display: block !important;
+            color: #667085 !important;
+            -webkit-text-fill-color: #667085 !important;
+            opacity: 1 !important;
+            text-shadow: none !important;
+        }
+        #ai-tools-page .ai-tools-status-value.success {
+            color: #287047 !important;
+            -webkit-text-fill-color: #287047 !important;
         }
     `;
     document.head.appendChild(style);
@@ -230,31 +271,31 @@ function createToolsPageUI() {
 
         <div class="ai-tools-grid">
             <div class="ai-tools-btn" id="btn-open-history">
-                <span class="icon">📊</span>
-                <span class="label">评阅历史</span>
+                <span class="ai-tools-btn-icon" aria-hidden="true">📊</span>
+                <span class="ai-tools-btn-label">评阅历史</span>
             </div>
             <div class="ai-tools-btn" id="btn-open-about">
-                <span class="icon">ℹ️</span>
-                <span class="label">关于</span>
+                <span class="ai-tools-btn-icon" aria-hidden="true">ℹ️</span>
+                <span class="ai-tools-btn-label">关于</span>
             </div>
             <div class="ai-tools-btn" id="btn-check-update">
-                <span class="icon">🔄</span>
-                <span class="label">检查更新</span>
+                <span class="ai-tools-btn-icon" aria-hidden="true">🔄</span>
+                <span class="ai-tools-btn-label">检查更新</span>
             </div>
         </div>
 
         <div class="ai-tools-status">
             <div class="ai-tools-status-row">
-                <span class="label">脚本版本</span>
-                <span class="value">v${SCRIPT_CONFIG.VERSION}</span>
+                <span class="ai-tools-status-label">脚本版本</span>
+                <span class="ai-tools-status-value">v${SCRIPT_CONFIG.VERSION}</span>
             </div>
             <div class="ai-tools-status-row">
-                <span class="label">脚本状态</span>
-                <span class="value success">已安装</span>
+                <span class="ai-tools-status-label">脚本状态</span>
+                <span class="ai-tools-status-value success">已安装</span>
             </div>
             <div class="ai-tools-status-row">
-                <span class="label">支持平台</span>
-                <span class="value">7 个</span>
+                <span class="ai-tools-status-label">支持平台</span>
+                <span class="ai-tools-status-value">7 个</span>
             </div>
         </div>
 
