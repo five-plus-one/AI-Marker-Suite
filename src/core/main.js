@@ -195,6 +195,12 @@ function initBatchProgress() {
         }
 
         console.log(`📊 [批阅份数] 已启用，目标: ${window.aiGradingState.batchProgress.targetCount}，当前: ${savedCount}`);
+    } else {
+        // 批阅份数未启用，重置状态并移除进度条
+        window.aiGradingState.batchProgress.enabled = false;
+        window.aiGradingState.batchProgress.targetCount = 0;
+        window.aiGradingState.batchProgress.currentCount = 0;
+        window.aiGradingState.batchProgress.reached = false;
     }
 }
 

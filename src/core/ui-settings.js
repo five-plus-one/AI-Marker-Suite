@@ -1661,6 +1661,12 @@ function saveAISettings() {
     };
 
     const activeName = PresetManager.data.active;
+
+    // 保存前读取旧的批阅份数配置，用于判断是否变化
+    const oldConfig = PresetManager.data.list[activeName];
+    const oldBatchEnabled = oldConfig?.batchConfig?.enabled || false;
+    const oldBatchTargetCount = oldConfig?.batchConfig?.targetCount || 0;
+
     PresetManager.data.list[activeName] = config;
 
     const currentUrlId = PresetManager.getTaskIdentifier();
@@ -1678,11 +1684,16 @@ function saveAISettings() {
     const modeLabel = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode];
     safeAlert(`「${activeName}」已保存 — ${modeLabel}`);
 
-    // 重置批阅份数计数（配置更新后重新开始计数）
-    if (batchEnabled && batchTargetCount > 0) {
+    // 仅当批阅份数配置发生变化时才重置计数
+    const batchConfigChanged = (batchEnabled !== oldBatchEnabled) || (batchTargetCount !== oldBatchTargetCount);
+    if (batchConfigChanged) {
         if (typeof resetBatchProgress === 'function') {
             resetBatchProgress();
-            safeAlert('批阅份数计数已重置');
+        }
+        if (batchEnabled && batchTargetCount > 0) {
+            showToast(`📊 批阅份数已更新，计数已重置`);
+        } else if (!batchEnabled && oldBatchEnabled) {
+            showToast(`📊 已关闭按份数批改`);
         }
     }
 
