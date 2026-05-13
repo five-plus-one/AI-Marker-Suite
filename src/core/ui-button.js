@@ -276,6 +276,10 @@ function toggleAutoGrading() {
         window.aiGradingState.isRunning = false;
         if (window.aiGradingState.abortController) window.aiGradingState.abortController.abort();
 
+        // 清除无人值守模式的自动刷新标记，防止暂停后页面被自动重载
+        sessionStorage.removeItem('ai-grading-auto-resume');
+        sessionStorage.removeItem('ai-grading-retry-count');
+
         btn.textContent = '继续批改';
         btn.classList.remove('running', 'unattended');
         btn.classList.add('paused');

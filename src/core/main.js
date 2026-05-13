@@ -140,7 +140,7 @@ async function startAutoGrading() {
         } else {
             // 分数解析失败（"未能识别"），自动重试
             window.aiGradingState.errorRetryCount++;
-            if (window.aiGradingState.errorRetryCount <= window.aiGradingState.maxRetries) {
+            if (window.aiGradingState.errorRetryCount <= window.aiGradingState.maxRetries && !window.aiGradingState.isPaused) {
                 console.warn(`⚠️ AI未能识别分数，第 ${window.aiGradingState.errorRetryCount} 次重试...`);
                 safeAlert(`⚠️ AI未能识别分数，正在重试 (${window.aiGradingState.errorRetryCount}/${window.aiGradingState.maxRetries})...`);
                 setTimeout(() => startAutoGrading(), 1500);
@@ -155,7 +155,7 @@ async function startAutoGrading() {
             console.log('⏸️ 请求已被暂停');
         } else {
             console.error('❌ 打分失败:', error);
-            if (window.aiGradingState.gradingMode === 'unattended') {
+            if (window.aiGradingState.gradingMode === 'unattended' && !window.aiGradingState.isPaused) {
                 window.aiGradingState.errorRetryCount++;
                 if (window.aiGradingState.errorRetryCount <= window.aiGradingState.maxRetries) {
                     sessionStorage.setItem('ai-grading-auto-resume', 'true');
