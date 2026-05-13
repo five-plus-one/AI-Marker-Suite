@@ -95,7 +95,7 @@ const ImageStore = {
         GM_deleteValue(this.META_KEY);
     },
 
-    /** 获取图片三态：local(可导出) / remote(需在其他平台导出) / none(无图) */
+    /** 获取图片三态：local(可导出) / remote(图片在其他平台，无法在此导出) / none(无图) */
     getImageStatus(recordId) {
         const meta = GM_getValue(this.META_KEY, {});
         const entry = meta[recordId];
@@ -605,7 +605,7 @@ function showHistoryPanel() {
             <div class="hist-storage" id="hist-storage">
                 <div class="hist-storage-item"><span class="label">记录</span><span class="value" id="hist-storage-count">--</span></div>
                 <div class="hist-storage-item"><span class="label">数据库</span><span class="value" id="hist-storage-db">--</span></div>
-                <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span></div>
+                <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span><span id="hist-img-help" style="cursor:pointer;color:#86868b;font-size:12px;margin-left:2px;border:1px solid rgba(0,0,0,0.1);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;line-height:1;" title="关于图片缓存">?</span></div>
                 <div class="hist-storage-actions">
                     <button id="hist-clear-images">清理图片缓存</button>
                     <button id="hist-clear-old" class="danger">清理30天前</button>
@@ -633,7 +633,7 @@ function showHistoryPanel() {
                 <span style="color:#aaa;font-size:12px;">~</span>
                 <input type="date" id="hist-filter-end" title="结束日期">
                 <select id="hist-filter-preset"><option value="">全部方案</option></select>
-                <select id="hist-filter-images"><option value="">全部图片</option><option value="local">有图·可导出</option><option value="remote">有图·需导出</option><option value="none">无图</option></select>
+                <select id="hist-filter-images"><option value="">全部图片</option><option value="local">有图·可导出</option><option value="remote">有图·无法导出</option><option value="none">无图</option></select>
                 <button class="primary" id="hist-filter-apply">筛选</button>
                 <button id="hist-filter-reset">重置</button>
             </div>
@@ -802,6 +802,18 @@ function showHistoryPanel() {
     }
     loadStorageInfo();
 
+    // 图片缓存帮助按钮
+    document.getElementById('hist-img-help')?.addEventListener('click', () => {
+        showAlertModal(`<div style="font-size:14px;line-height:1.8;">
+            <div style="font-weight:600;margin-bottom:12px;">关于图片缓存</div>
+            <div style="margin-bottom:12px;">图片存储在浏览器的 IndexedDB 中，按网站域名隔离。例如在智学网保存的图片，只能在智学网页面查看和导出。</div>
+            <div style="margin-bottom:8px;"><span style="color:#34A853;font-weight:500;">● 有图·可导出</span> — 图片存储在当前网站，可直接查看和导出</div>
+            <div style="margin-bottom:8px;"><span style="color:#856404;font-weight:500;">● 有图·无法导出</span> — 图片存储在其他阅卷网站，需切换到对应网站才能查看和导出</div>
+            <div style="margin-bottom:12px;"><span style="color:#86868b;font-weight:500;">● 无图</span> — 该记录未保存图片（可能关闭了"保存图片"选项）</div>
+            <div style="background:rgba(0,82,255,0.06);border:1px solid rgba(0,82,255,0.15);border-radius:8px;padding:10px 12px;font-size:13px;color:#0052FF;">如需导出包含图片的 HTML 报告，请在保存图片的阅卷网站页面使用"导出HTML"功能。</div>
+        </div>`);
+    });
+
     // 清理图片缓存
     document.getElementById('hist-clear-images').onclick = async () => {
         if (await showConfirmModal('确定要清理所有图片缓存吗？历史记录保留，但导出HTML时将无法嵌入图片。')) {
@@ -879,7 +891,7 @@ function showHistoryPanel() {
             const imageTag = imgStatus.status === 'local'
                 ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(52,168,83,0.1);color:#34A853;">有图</span>'
                 : imgStatus.status === 'remote'
-                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(255,193,7,0.15);color:#856404;">有图·需导出</span>'
+                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(255,193,7,0.15);color:#856404;">有图·无法导出</span>'
                 : '';
             return `
                 <div class="hist-item ${r.status === 'marked' ? 'marked' : ''}" data-id="${r.id}">
@@ -1150,7 +1162,7 @@ function showHistoryDetail(record) {
             imgContainer.innerHTML = '<div style="color:#aaa;font-size:12px;">图片加载失败</div>';
         });
     } else if (imgStatus.status === 'remote') {
-        // 有图·需在阅卷平台导出
+        // 有图·无法导出（图片在其他阅卷平台的 IndexedDB 中）
         const originNames = { 'https://www.zhixue.com': '智学网', 'https://zhixue.com': '智学网',
             'https://pj.yixx.cn': '光大阅卷', 'https://yunyuejuan.net': '华翰云',
             'https://www.haofenshu.com': '好分数', 'https://wylkyj.com': '五岳阅卷',
