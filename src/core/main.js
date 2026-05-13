@@ -465,21 +465,8 @@ setInterval(async () => {
 function registerMenuCommands() {
     if (typeof GM_registerMenuCommand === 'undefined') return;
 
-    GM_registerMenuCommand('📊 查看历史记录', () => {
+    GM_registerMenuCommand('🛠️ 工具与设置', () => {
         window.open('https://aimarking.five-plus-one.com/tools', '_blank');
-    });
-
-    GM_registerMenuCommand('⚙️ 打开设置', () => {
-        const settingsPanel = document.getElementById('ai-grading-settings');
-        if (settingsPanel) {
-            openSettingsPanel();
-        } else {
-            window.open('https://aimarking.five-plus-one.com/tools', '_blank');
-        }
-    });
-
-    GM_registerMenuCommand('🔄 检查更新', () => {
-        checkForUpdate(true);
     });
 }
 
