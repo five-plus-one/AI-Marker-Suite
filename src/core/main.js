@@ -127,12 +127,17 @@ async function startAutoGrading() {
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScore...`);
+            // 对分小题分数也应用取整规则
+            const roundedSubScores = result.subScores?.map(sq => ({
+                ...sq,
+                score: sq.score !== null ? applyScoringRules(sq.score, scoringConfig) : null
+            }));
             const adapter = window.__AI_MARKER_ADAPTER__;
             if (adapter && adapter.fillScore) {
-                adapter.fillScore({ total: finalScore, subScores: result.subScores });
+                adapter.fillScore({ total: finalScore, subScores: roundedSubScores });
             }
             // 传递结构化评分详情和双评信息到提交对话框
-            showAutoSubmitDialog(finalScore, result.comment, result.subScores, {
+            showAutoSubmitDialog(finalScore, result.comment, roundedSubScores, {
                 scoringDetails: result._sections || null,
                 dualEval: result.dualEval || null,
                 rawScore: result.rawScore || result.score
