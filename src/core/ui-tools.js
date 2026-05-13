@@ -212,52 +212,43 @@ function createToolsPageUI() {
         .ai-tools-link:hover {
             color: var(--vp-c-brand-2, #174f8a) !important;
         }
-        .ai-tools-btn,
-        .ai-tools-status {
-            background: #fff !important;
-            border-color: #e1e6ef !important;
-        }
-        .ai-tools-btn .label,
-        .ai-tools-btn-label,
-        .ai-tools-status .value,
-        .ai-tools-status-value {
-            color: #172033 !important;
-        }
-        .ai-tools-status .label,
-        .ai-tools-status-label {
-            color: #667085 !important;
-        }
-        .ai-tools-status .value.success,
-        .ai-tools-status-value.success {
-            color: #287047 !important;
-        }
-
         #ai-tools-page .ai-tools-btn,
         #ai-tools-page .ai-tools-status {
-            color: #172033 !important;
-            -webkit-text-fill-color: #172033 !important;
+            background: var(--vp-c-bg-soft, #f6f6f7) !important;
+            border-color: var(--vp-c-divider, #e2e2e3) !important;
+            color: var(--vp-c-text-1, #172033) !important;
+            -webkit-text-fill-color: currentColor !important;
             opacity: 1 !important;
             filter: none !important;
             mix-blend-mode: normal !important;
         }
+        #ai-tools-page .ai-tools-btn:hover {
+            background: var(--vp-c-bg-alt, var(--vp-c-bg, #ffffff)) !important;
+            border-color: var(--vp-c-border, #cbd5e1) !important;
+        }
         #ai-tools-page .ai-tools-btn-label,
         #ai-tools-page .ai-tools-status-value {
             display: block !important;
-            color: #172033 !important;
-            -webkit-text-fill-color: #172033 !important;
+            color: var(--vp-c-text-1, #172033) !important;
+            -webkit-text-fill-color: var(--vp-c-text-1, #172033) !important;
             opacity: 1 !important;
             text-shadow: none !important;
         }
         #ai-tools-page .ai-tools-status-label {
             display: block !important;
-            color: #667085 !important;
-            -webkit-text-fill-color: #667085 !important;
+            color: var(--vp-c-text-2, #667085) !important;
+            -webkit-text-fill-color: var(--vp-c-text-2, #667085) !important;
             opacity: 1 !important;
             text-shadow: none !important;
         }
         #ai-tools-page .ai-tools-status-value.success {
-            color: #287047 !important;
-            -webkit-text-fill-color: #287047 !important;
+            color: #2f9e44 !important;
+            -webkit-text-fill-color: #2f9e44 !important;
+        }
+        #ai-tools-page .ai-tools-btn-icon {
+            background: color-mix(in srgb, var(--vp-c-brand-1, #2166ad) 12%, transparent) !important;
+            border-color: color-mix(in srgb, var(--vp-c-brand-1, #2166ad) 24%, transparent) !important;
+            -webkit-text-fill-color: initial !important;
         }
     `;
     document.head.appendChild(style);
