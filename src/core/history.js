@@ -743,10 +743,17 @@ function showHistoryPanel() {
         }
         try {
             const imgInfo = await ImageStore.getSize();
-            const imgKB = (imgInfo.totalBytes / 1024).toFixed(1);
             if (imgEl) {
-                imgEl.textContent = imgKB > 1024 ? `${(imgKB / 1024).toFixed(1)} MB` : `${imgKB} KB`;
-                imgEl.closest('.hist-storage-item')?.classList.toggle('warn', parseFloat(imgKB) > 40 * 1024);
+                if (imgInfo.quota) {
+                    // Storage Manager API 模式：显示已用 / 总配额
+                    const usedMB = (imgInfo.totalBytes / 1024 / 1024).toFixed(1);
+                    const quotaGB = (imgInfo.quota / 1024 / 1024 / 1024).toFixed(1);
+                    imgEl.textContent = `${usedMB} MB / ${quotaGB} GB`;
+                } else {
+                    // Fallback 模式：仅显示已用
+                    const imgKB = (imgInfo.totalBytes / 1024).toFixed(1);
+                    imgEl.textContent = imgKB > 1024 ? `${(imgKB / 1024).toFixed(1)} MB` : `${imgKB} KB`;
+                }
             }
         } catch (e) {
             if (imgEl) imgEl.textContent = '未知';
