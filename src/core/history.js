@@ -328,20 +328,23 @@ const HistoryManager = {
         this._download(JSON.stringify(records, null, 2), '评阅历史_' + this._fileTimestamp() + '.json', 'application/json');
     },
 
-    async exportHTML(records) {
+    async exportHTML(records, options = {}) {
+        const { includeImages = true } = options;
         records = records || this.records;
         const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' };
 
         // 加载可导出的图片（仅当前 origin 的 IndexedDB）
         const imageMap = {};
         let remoteCount = 0;
-        for (const r of records) {
-            const imgStatus = ImageStore.getImageStatus(r.id);
-            if (imgStatus.status === 'local') {
-                const base64s = await ImageStore.get(r.id);
-                if (base64s) imageMap[r.id] = base64s;
-            } else if (imgStatus.status === 'remote') {
-                remoteCount++;
+        if (includeImages) {
+            for (const r of records) {
+                const imgStatus = ImageStore.getImageStatus(r.id);
+                if (imgStatus.status === 'local') {
+                    const base64s = await ImageStore.get(r.id);
+                    if (base64s) imageMap[r.id] = base64s;
+                } else if (imgStatus.status === 'remote') {
+                    remoteCount++;
+                }
             }
         }
 
@@ -609,6 +612,22 @@ function showHistoryPanel() {
             .hist-pagination select { padding:4px 6px; border:1px solid rgba(0,0,0,0.1); border-radius:6px; font-size:12px; font-family:inherit; background:rgba(0,0,0,0.02); }
             .hist-pagination .page-jump { display:flex; align-items:center; gap:4px; margin-left:auto; }
             .hist-pagination .page-jump input { width:40px; padding:4px 6px; border:1px solid rgba(0,0,0,0.1); border-radius:6px; font-size:12px; text-align:center; font-family:inherit; }
+
+            .hist-export-group { display:flex; gap:0; }
+            .hist-export-fmt { padding:6px 14px; border:1px solid rgba(0,0,0,0.08); background:transparent; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; }
+            .hist-export-fmt:first-child { border-radius:6px 0 0 6px; }
+            .hist-export-fmt:last-child { border-radius:0 6px 6px 0; }
+            .hist-export-fmt:not(:first-child) { border-left:none; }
+            .hist-export-fmt.active { background:#1d1d1f; color:#fff !important; border-color:#1d1d1f; }
+            .hist-export-fmt:hover:not(.active) { background:rgba(0,0,0,0.03); }
+            .hist-html-opts { display:flex; gap:4px; align-items:center; }
+            .hist-html-img { padding:5px 10px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:6px; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; }
+            .hist-html-img.active { background:rgba(0,82,255,0.08); color:#0052FF; border-color:rgba(0,82,255,0.2); }
+            .hist-html-img:hover:not(.active) { background:rgba(0,0,0,0.03); }
+            .hist-img-help-btn { font-size:12px; color:#0052FF; cursor:pointer; padding:4px 8px; border:1px solid rgba(0,82,255,0.2); border-radius:6px; background:rgba(0,82,255,0.04); transition:all 0.2s; white-space:nowrap; }
+            .hist-img-help-btn:hover { background:rgba(0,82,255,0.08); }
+            .hist-export-btn { padding:6px 16px; background:#1d1d1f; color:#fff !important; border:none; border-radius:8px; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+            .hist-export-btn:hover { background:#000; transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,0.15); }
         </style>
         <div id="ai-history-panel-inner">
             <div class="hist-header">
@@ -625,22 +644,29 @@ function showHistoryPanel() {
                     <button id="hist-clear-all" class="danger">清空全部</button>
                 </div>
             </div>
-            <div style="padding:0 24px 8px;">
-                <span id="hist-img-help" style="cursor:pointer;color:#86868b;font-size:12px;">? 为什么有的图片无法导出？</span>
-                <div id="hist-img-help-content" style="display:none;margin-top:8px;padding:12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;font-size:13px;line-height:1.8;color:#4a4a4a;">
-                    <div style="margin-bottom:8px;">图片存储在浏览器的 IndexedDB 中，按网站域名隔离。例如在智学网保存的图片，只能在智学网页面查看和导出。</div>
-                    <div style="margin-bottom:6px;"><span style="color:#34A853;font-weight:500;">● 有图可导出</span> — 图片存储在当前网站，可直接查看和导出</div>
-                    <div style="margin-bottom:6px;"><span style="color:#856404;font-weight:500;">● 有图·无法导出</span> — 图片存储在其他阅卷网站，需切换到对应网站才能查看和导出</div>
-                    <div style="margin-bottom:8px;"><span style="color:#86868b;font-weight:500;">● 无图</span> — 该记录未保存图片（可能关闭了"保存图片"选项）</div>
-                    <div style="background:rgba(0,82,255,0.06);border:1px solid rgba(0,82,255,0.15);border-radius:6px;padding:8px 10px;font-size:12px;color:#0052FF;">如需导出包含图片的 HTML 报告，请在保存图片的阅卷网站页面使用"导出HTML"功能。</div>
-                </div>
-            </div>
             <div class="hist-toolbar">
                 <button id="hist-batch-toggle">批量管理</button>
-                <button id="hist-export-csv">导出CSV</button>
-                <button id="hist-export-json">导出JSON</button>
-                <button id="hist-export-html">导出HTML</button>
+                <div class="hist-export-group">
+                    <button class="hist-export-fmt active" data-fmt="json">JSON</button>
+                    <button class="hist-export-fmt" data-fmt="csv">CSV</button>
+                    <button class="hist-export-fmt" data-fmt="html">HTML</button>
+                </div>
+                <div class="hist-html-opts" id="hist-html-opts" style="display:none;">
+                    <button class="hist-html-img active" data-img="with">有图</button>
+                    <button class="hist-html-img" data-img="without">无图</button>
+                    <span id="hist-img-help" class="hist-img-help-btn">? 为什么有的图片无法导出？</span>
+                </div>
+                <button class="hist-export-btn" id="hist-export-btn">导出</button>
                 <span class="count" id="hist-count">共 ${HistoryManager.records.length} 条</span>
+            </div>
+            <div id="hist-img-help-content" style="display:none;padding:4px 24px 8px;">
+                <div style="padding:12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;font-size:13px;line-height:1.8;color:#4a4a4a;">
+                    <div style="margin-bottom:8px;">图片存储在浏览器中，按网站域名隔离。在智学网保存的图片，只能在智学网页面导出。</div>
+                    <div style="margin-bottom:6px;"><span style="color:#34A853;font-weight:500;">● 有图可导出</span> — 图片在当前网站，可直接导出</div>
+                    <div style="margin-bottom:6px;"><span style="color:#856404;font-weight:500;">● 有图·无法导出</span> — 图片在其他网站，需切换到对应网站导出</div>
+                    <div style="margin-bottom:8px;"><span style="color:#86868b;font-weight:500;">● 无图</span> — 未保存图片</div>
+                    <div style="background:rgba(0,82,255,0.06);border:1px solid rgba(0,82,255,0.15);border-radius:6px;padding:8px 10px;font-size:12px;color:#0052FF;">此选项只影响 HTML 导出中的图片展示，不影响文本内容。CSV 和 JSON 导出不受影响。</div>
+                </div>
             </div>
             <div class="hist-batch-bar" id="hist-batch-bar">
                 <button id="hist-batch-select-all">全选</button>
@@ -737,9 +763,40 @@ function showHistoryPanel() {
         renderList(currentFilteredRecords);
     };
 
-    document.getElementById('hist-export-csv').onclick = () => HistoryManager.exportCSV(getFilteredRecords());
-    document.getElementById('hist-export-json').onclick = () => HistoryManager.exportJSON(getFilteredRecords());
-    document.getElementById('hist-export-html').onclick = () => HistoryManager.exportHTML(getFilteredRecords());
+    // 导出功能：格式选择器 + HTML 图片选项
+    let exportFormat = 'json';
+    let htmlImageOption = 'with';
+
+    document.querySelectorAll('.hist-export-fmt').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.hist-export-fmt').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            exportFormat = btn.dataset.fmt;
+            document.getElementById('hist-html-opts').style.display = exportFormat === 'html' ? 'flex' : 'none';
+            if (exportFormat !== 'html') document.getElementById('hist-img-help-content').style.display = 'none';
+        };
+    });
+
+    document.querySelectorAll('.hist-html-img').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.hist-html-img').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            htmlImageOption = btn.dataset.img;
+            if (htmlImageOption === 'without') document.getElementById('hist-img-help-content').style.display = 'none';
+        };
+    });
+
+    document.getElementById('hist-img-help')?.addEventListener('click', () => {
+        const el = document.getElementById('hist-img-help-content');
+        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.getElementById('hist-export-btn').onclick = () => {
+        const records = getFilteredRecords();
+        if (exportFormat === 'json') HistoryManager.exportJSON(records);
+        else if (exportFormat === 'csv') HistoryManager.exportCSV(records);
+        else if (exportFormat === 'html') HistoryManager.exportHTML(records, { includeImages: htmlImageOption === 'with' });
+    };
 
     // 批量管理
     const selectedIds = new Set();
@@ -824,12 +881,6 @@ function showHistoryPanel() {
         }
     }
     loadStorageInfo();
-
-    // 图片缓存帮助按钮（内联展开）
-    document.getElementById('hist-img-help')?.addEventListener('click', () => {
-        const el = document.getElementById('hist-img-help-content');
-        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-    });
 
     // 清理图片缓存
     document.getElementById('hist-clear-images').onclick = async () => {
