@@ -296,6 +296,7 @@ async function initToolsPageMode() {
 
 // ========== 初始化 ==========
 async function init() {
+    if (window !== window.top) return; // 跳过 iframe
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // 检测是否在工具页面
@@ -490,7 +491,7 @@ setInterval(async () => {
 
 // ========== 油猴菜单注册 ==========
 function registerMenuCommands() {
-    if (typeof GM_registerMenuCommand === 'undefined') return;
+    if (typeof GM_registerMenuCommand === 'undefined' || window !== window.top) return;
 
     GM_registerMenuCommand('🛠️ 工具栏', () => {
         window.open('https://aimarking.five-plus-one.com/tools', '_blank');

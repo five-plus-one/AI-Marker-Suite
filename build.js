@@ -163,6 +163,7 @@ function generateHeader(config, version) {
     for (const g of h.grant) lines.push(`// @grant        ${g}`);
     for (const c of h.connect) lines.push(`// @connect      ${c}`);
     if (h.runAt) lines.push(`// @run-at       ${h.runAt}`);
+    lines.push('// @noframes');
     lines.push('// ==/UserScript==');
     return lines.join('\n') + '\n';
 }

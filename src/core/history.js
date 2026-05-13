@@ -5,6 +5,15 @@ const ImageStore = {
     DB_VERSION: 1,
     META_KEY: 'ai-img-meta',
     _db: null,
+    _metaCache: null,
+
+    _getMeta() {
+        if (!this._metaCache) this._metaCache = GM_getValue(this.META_KEY, {});
+        return this._metaCache;
+    },
+    _invalidateMetaCache() {
+        this._metaCache = null;
+    },
 
     async getDB() {
         if (this._db) {
@@ -39,9 +48,10 @@ const ImageStore = {
         });
         // 同步元数据到 GM_setValue（跨域名可读）
         const bytes = base64Array.reduce((sum, s) => sum + (typeof s === 'string' ? s.length : 0), 0);
-        const meta = GM_getValue(this.META_KEY, {});
+        const meta = this._getMeta();
         meta[recordId] = { origin: location.origin, size: bytes };
         GM_setValue(this.META_KEY, meta);
+        this._metaCache = meta; // 直接更新缓存
     },
 
     async get(recordId) {
@@ -62,15 +72,16 @@ const ImageStore = {
             tx.oncomplete = () => resolve();
             tx.onerror = (e) => reject(e.target.error);
         });
-        const meta = GM_getValue(this.META_KEY, {});
+        const meta = this._getMeta();
         delete meta[recordId];
         GM_setValue(this.META_KEY, meta);
+        this._invalidateMetaCache();
     },
 
     async getSize() {
         // 优先从元数据读取（跨域名，O(1)）
-        const meta = GM_getValue(this.META_KEY, null);
-        if (meta && Object.keys(meta).length > 0) {
+        const meta = this._getMeta();
+        if (Object.keys(meta).length > 0) {
             const totalBytes = Object.values(meta).reduce((sum, v) => sum + (v.size || 0), 0);
             return { totalBytes, count: Object.keys(meta).length };
         }
@@ -93,11 +104,12 @@ const ImageStore = {
             tx.onerror = (e) => reject(e.target.error);
         });
         GM_deleteValue(this.META_KEY);
+        this._invalidateMetaCache();
     },
 
     /** 获取图片三态：local(可导出) / remote(图片在其他平台，无法在此导出) / none(无图) */
     getImageStatus(recordId) {
-        const meta = GM_getValue(this.META_KEY, {});
+        const meta = this._getMeta();
         const entry = meta[recordId];
         if (!entry) return { status: 'none' };
         if (entry.origin === location.origin) return { status: 'local', size: entry.size };
@@ -111,7 +123,7 @@ const ImageStore = {
             const tx = db.transaction(this.STORE_NAME, 'readonly');
             const store = tx.objectStore(this.STORE_NAME);
             const req = store.openCursor();
-            const meta = GM_getValue(this.META_KEY, {});
+            const meta = this._getMeta();
             let added = 0;
             await new Promise((resolve) => {
                 req.onsuccess = (e) => {
@@ -131,6 +143,7 @@ const ImageStore = {
             });
             if (added > 0) {
                 GM_setValue(this.META_KEY, meta);
+                this._invalidateMetaCache();
                 console.log(`[ImageStore] 元数据已构建: 新增 ${added} 条，共 ${Object.keys(meta).length} 条`);
             }
         } catch (e) {
@@ -605,11 +618,21 @@ function showHistoryPanel() {
             <div class="hist-storage" id="hist-storage">
                 <div class="hist-storage-item"><span class="label">记录</span><span class="value" id="hist-storage-count">--</span></div>
                 <div class="hist-storage-item"><span class="label">数据库</span><span class="value" id="hist-storage-db">--</span></div>
-                <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span><span id="hist-img-help" style="cursor:pointer;color:#86868b;font-size:12px;margin-left:2px;border:1px solid rgba(0,0,0,0.1);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;line-height:1;" title="关于图片缓存">?</span></div>
+                <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span></div>
                 <div class="hist-storage-actions">
                     <button id="hist-clear-images">清理图片缓存</button>
                     <button id="hist-clear-old" class="danger">清理30天前</button>
                     <button id="hist-clear-all" class="danger">清空全部</button>
+                </div>
+            </div>
+            <div style="padding:0 24px 8px;">
+                <span id="hist-img-help" style="cursor:pointer;color:#86868b;font-size:12px;">? 为什么有的图片无法导出？</span>
+                <div id="hist-img-help-content" style="display:none;margin-top:8px;padding:12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;font-size:13px;line-height:1.8;color:#4a4a4a;">
+                    <div style="margin-bottom:8px;">图片存储在浏览器的 IndexedDB 中，按网站域名隔离。例如在智学网保存的图片，只能在智学网页面查看和导出。</div>
+                    <div style="margin-bottom:6px;"><span style="color:#34A853;font-weight:500;">● 有图可导出</span> — 图片存储在当前网站，可直接查看和导出</div>
+                    <div style="margin-bottom:6px;"><span style="color:#856404;font-weight:500;">● 有图·无法导出</span> — 图片存储在其他阅卷网站，需切换到对应网站才能查看和导出</div>
+                    <div style="margin-bottom:8px;"><span style="color:#86868b;font-weight:500;">● 无图</span> — 该记录未保存图片（可能关闭了"保存图片"选项）</div>
+                    <div style="background:rgba(0,82,255,0.06);border:1px solid rgba(0,82,255,0.15);border-radius:6px;padding:8px 10px;font-size:12px;color:#0052FF;">如需导出包含图片的 HTML 报告，请在保存图片的阅卷网站页面使用"导出HTML"功能。</div>
                 </div>
             </div>
             <div class="hist-toolbar">
@@ -802,16 +825,10 @@ function showHistoryPanel() {
     }
     loadStorageInfo();
 
-    // 图片缓存帮助按钮
+    // 图片缓存帮助按钮（内联展开）
     document.getElementById('hist-img-help')?.addEventListener('click', () => {
-        showAlertModal(`<div style="font-size:14px;line-height:1.8;">
-            <div style="font-weight:600;margin-bottom:12px;">关于图片缓存</div>
-            <div style="margin-bottom:12px;">图片存储在浏览器的 IndexedDB 中，按网站域名隔离。例如在智学网保存的图片，只能在智学网页面查看和导出。</div>
-            <div style="margin-bottom:8px;"><span style="color:#34A853;font-weight:500;">● 有图·可导出</span> — 图片存储在当前网站，可直接查看和导出</div>
-            <div style="margin-bottom:8px;"><span style="color:#856404;font-weight:500;">● 有图·无法导出</span> — 图片存储在其他阅卷网站，需切换到对应网站才能查看和导出</div>
-            <div style="margin-bottom:12px;"><span style="color:#86868b;font-weight:500;">● 无图</span> — 该记录未保存图片（可能关闭了"保存图片"选项）</div>
-            <div style="background:rgba(0,82,255,0.06);border:1px solid rgba(0,82,255,0.15);border-radius:8px;padding:10px 12px;font-size:13px;color:#0052FF;">如需导出包含图片的 HTML 报告，请在保存图片的阅卷网站页面使用"导出HTML"功能。</div>
-        </div>`);
+        const el = document.getElementById('hist-img-help-content');
+        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
     });
 
     // 清理图片缓存
@@ -889,7 +906,7 @@ function showHistoryPanel() {
             const dualTag = r.dualEval ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${r.dualEval.result === 'consensus' ? 'rgba(52,168,83,0.1)' : r.dualEval.result === 'arbitration' ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.05)'};color:${r.dualEval.result === 'consensus' ? '#34A853' : r.dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">双评</span>` : '';
             const imgStatus = ImageStore.getImageStatus(r.id);
             const imageTag = imgStatus.status === 'local'
-                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(52,168,83,0.1);color:#34A853;">有图</span>'
+                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(52,168,83,0.1);color:#34A853;">有图可导出</span>'
                 : imgStatus.status === 'remote'
                 ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(255,193,7,0.15);color:#856404;">有图·无法导出</span>'
                 : '';
