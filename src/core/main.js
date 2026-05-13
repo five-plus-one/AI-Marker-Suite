@@ -416,8 +416,13 @@ setInterval(async () => {
         lastUrlId = currentUrlId;
 
         const adapter = window.__AI_MARKER_ADAPTER__;
-        // 如果没有适配器，直接返回（不在阅卷平台）
-        if (!adapter) return;
+        // 如果没有适配器，检测是否通过 SPA 导航进入了工具页面
+        if (!adapter) {
+            if (isToolsPageMode() && !document.getElementById('ai-tools-page')) {
+                await initToolsPageMode();
+            }
+            return;
+        }
 
         if (adapter.isRegradeMode ? adapter.isRegradeMode() : window.aiGradingState.isRegrading) return;
 
