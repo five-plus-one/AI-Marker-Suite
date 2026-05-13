@@ -181,6 +181,43 @@ function createToolsPageUI() {
             .ai-tools-grid { grid-template-columns: 1fr; }
             #ai-tools-page { padding: 32px 16px; }
         }
+
+        /* The tools page lives inside the docs site, so page text follows the docs theme.
+           Cards stay light because they are script-owned controls. */
+        #ai-tools-page {
+            color-scheme: inherit;
+            color: var(--vp-c-text-1, #172033) !important;
+        }
+        .ai-tools-title {
+            color: var(--vp-c-text-1, #172033) !important;
+        }
+        .ai-tools-subtitle {
+            color: var(--vp-c-text-2, #667085) !important;
+        }
+        .ai-tools-links {
+            color: var(--vp-c-text-2, #667085) !important;
+        }
+        .ai-tools-link {
+            color: var(--vp-c-brand-1, var(--vp-c-brand, #2166ad)) !important;
+        }
+        .ai-tools-link:hover {
+            color: var(--vp-c-brand-2, #174f8a) !important;
+        }
+        .ai-tools-btn,
+        .ai-tools-status {
+            background: #fff !important;
+            border-color: #e1e6ef !important;
+        }
+        .ai-tools-btn .label,
+        .ai-tools-status .value {
+            color: #172033 !important;
+        }
+        .ai-tools-status .label {
+            color: #667085 !important;
+        }
+        .ai-tools-status .value.success {
+            color: #287047 !important;
+        }
     `;
     document.head.appendChild(style);
 
