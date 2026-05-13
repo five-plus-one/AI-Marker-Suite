@@ -536,6 +536,11 @@ function showHistoryPanel() {
             #ai-history-panel .hist-item-text { color: #666 !important; }
             #ai-history-panel .hist-empty { color: #aaa !important; }
             #ai-history-panel .hist-storage-item .label { color: #86868b !important; }
+            #ai-history-panel .hist-export-fmt.active { color: #fff !important; }
+            #ai-history-panel .hist-export-btn { color: #fff !important; }
+            #ai-history-panel .hist-html-img.active { color: #0052FF !important; }
+            #ai-history-panel .hist-img-help-btn { color: #0052FF !important; }
+            #ai-history-panel .hist-pagination button.active { color: #fff !important; }
 
             .hist-header { padding:18px 24px 14px; border-bottom:1px solid rgba(0,0,0,0.06); display:flex; justify-content:space-between; align-items:center; }
             .hist-header h3 { margin:0; font-size:15px; font-weight:600; color:#1d1d1f !important; }
@@ -614,20 +619,23 @@ function showHistoryPanel() {
             .hist-pagination .page-jump input { width:40px; padding:4px 6px; border:1px solid rgba(0,0,0,0.1); border-radius:6px; font-size:12px; text-align:center; font-family:inherit; }
 
             .hist-export-group { display:flex; gap:0; }
-            .hist-export-fmt { padding:6px 14px; border:1px solid rgba(0,0,0,0.08); background:transparent; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; }
+            .hist-export-fmt { padding:6px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; border-radius:0; }
             .hist-export-fmt:first-child { border-radius:6px 0 0 6px; }
             .hist-export-fmt:last-child { border-radius:0 6px 6px 0; }
             .hist-export-fmt:not(:first-child) { border-left:none; }
             .hist-export-fmt.active { background:#1d1d1f; color:#fff !important; border-color:#1d1d1f; }
             .hist-export-fmt:hover:not(.active) { background:rgba(0,0,0,0.03); }
             .hist-html-opts { display:flex; gap:4px; align-items:center; }
-            .hist-html-img { padding:5px 10px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:6px; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; }
-            .hist-html-img.active { background:rgba(0,82,255,0.08); color:#0052FF; border-color:rgba(0,82,255,0.2); }
+            .hist-html-img { padding:6px 12px; border:1px solid rgba(0,0,0,0.08); background:transparent; border-radius:0; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; }
+            .hist-html-img:first-child { border-radius:6px 0 0 6px; }
+            .hist-html-img:last-child { border-radius:0 6px 6px 0; }
+            .hist-html-img:not(:first-child) { border-left:none; }
+            .hist-html-img.active { background:#1d1d1f; color:#fff !important; border-color:#1d1d1f; }
             .hist-html-img:hover:not(.active) { background:rgba(0,0,0,0.03); }
-            .hist-img-help-btn { font-size:12px; color:#0052FF; cursor:pointer; padding:4px 8px; border:1px solid rgba(0,82,255,0.2); border-radius:6px; background:rgba(0,82,255,0.04); transition:all 0.2s; white-space:nowrap; }
+            .hist-img-help-btn { font-size:12px; color:#0052FF; cursor:pointer; padding:6px 10px; border:1px solid rgba(0,82,255,0.2); border-radius:6px; background:rgba(0,82,255,0.04); transition:all 0.2s; white-space:nowrap; margin-left:4px; }
             .hist-img-help-btn:hover { background:rgba(0,82,255,0.08); }
-            .hist-export-btn { padding:6px 16px; background:#1d1d1f; color:#fff !important; border:none; border-radius:8px; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
-            .hist-export-btn:hover { background:#000; transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,0.15); }
+            .hist-export-btn { padding:6px 12px; background:#1d1d1f; color:#fff !important; border:1px solid #1d1d1f; border-radius:6px; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.2s; }
+            .hist-export-btn:hover { background:#000; border-color:#000; }
         </style>
         <div id="ai-history-panel-inner">
             <div class="hist-header">
@@ -955,11 +963,14 @@ function showHistoryPanel() {
             const markedTag = r.status === 'marked' ? '<span class="marked-tag">&middot; 待回评</span>' : '';
             const correctedTag = r.isCorrected ? '<span style="color:#0052FF;font-size:11px;margin-left:8px;">&#10003;已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${r.dualEval.result === 'consensus' ? 'rgba(52,168,83,0.1)' : r.dualEval.result === 'arbitration' ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.05)'};color:${r.dualEval.result === 'consensus' ? '#34A853' : r.dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">双评</span>` : '';
-            const imgStatus = ImageStore.getImageStatus(r.id);
-            const imageTag = imgStatus.status === 'local'
-                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(52,168,83,0.1);color:#34A853;">有图可导出</span>'
-                : imgStatus.status === 'remote'
-                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(255,193,7,0.15);color:#856404;">有图·无法导出</span>'
+            const showImageTag = (exportFormat === 'html' && htmlImageOption === 'with');
+            const imgStatus = showImageTag ? ImageStore.getImageStatus(r.id) : null;
+            const imageTag = showImageTag
+                ? (imgStatus.status === 'local'
+                    ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(52,168,83,0.1);color:#34A853;">有图可导出</span>'
+                    : imgStatus.status === 'remote'
+                    ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(255,193,7,0.15);color:#856404;">有图·无法导出</span>'
+                    : '')
                 : '';
             return `
                 <div class="hist-item ${r.status === 'marked' ? 'marked' : ''}" data-id="${r.id}">
