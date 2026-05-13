@@ -3,17 +3,13 @@ const ImageStore = {
     DB_NAME: 'ai-marker-images',
     STORE_NAME: 'images',
     DB_VERSION: 1,
+    META_KEY: 'ai-img-meta',
     _db: null,
 
     async getDB() {
         if (this._db) {
-            // 检查连接是否仍然有效
-            try {
-                this._db.objectStoreNames; // 访问已关闭的连接会抛异常
-                return this._db;
-            } catch (e) {
-                this._db = null;
-            }
+            try { this._db.objectStoreNames; return this._db; }
+            catch (e) { this._db = null; }
         }
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(this.DB_NAME, this.DB_VERSION);
@@ -35,12 +31,17 @@ const ImageStore = {
 
     async save(recordId, base64Array) {
         const db = await this.getDB();
-        return new Promise((resolve, reject) => {
+        await new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
             tx.objectStore(this.STORE_NAME).put(base64Array, recordId);
             tx.oncomplete = () => resolve();
             tx.onerror = (e) => reject(e.target.error);
         });
+        // 同步元数据到 GM_setValue（跨域名可读）
+        const bytes = base64Array.reduce((sum, s) => sum + (typeof s === 'string' ? s.length : 0), 0);
+        const meta = GM_getValue(this.META_KEY, {});
+        meta[recordId] = { origin: location.origin, size: bytes };
+        GM_setValue(this.META_KEY, meta);
     },
 
     async get(recordId) {
@@ -55,55 +56,86 @@ const ImageStore = {
 
     async delete(recordId) {
         const db = await this.getDB();
-        return new Promise((resolve, reject) => {
+        await new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
             tx.objectStore(this.STORE_NAME).delete(recordId);
             tx.oncomplete = () => resolve();
             tx.onerror = (e) => reject(e.target.error);
         });
+        const meta = GM_getValue(this.META_KEY, {});
+        delete meta[recordId];
+        GM_setValue(this.META_KEY, meta);
     },
 
     async getSize() {
-        // 优先使用 Storage Manager API（O(1) 复杂度，瞬间返回）
+        // 优先从元数据读取（跨域名，O(1)）
+        const meta = GM_getValue(this.META_KEY, null);
+        if (meta && Object.keys(meta).length > 0) {
+            const totalBytes = Object.values(meta).reduce((sum, v) => sum + (v.size || 0), 0);
+            return { totalBytes, count: Object.keys(meta).length };
+        }
+        // Fallback: 当前 origin 的 Storage Manager API
         try {
             if (navigator.storage && navigator.storage.estimate) {
-                const estimate = await navigator.storage.estimate();
-                return { totalBytes: estimate.usage || 0, quota: estimate.quota || 0, count: -1 };
+                const est = await navigator.storage.estimate();
+                return { totalBytes: est.usage || 0, quota: est.quota || 0, count: -1 };
             }
-        } catch (e) { /* fallback below */ }
-
-        // Fallback: 用 cursor 遍历，直接计算字符串长度避免 JSON.stringify 开销
-        const db = await this.getDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(this.STORE_NAME, 'readonly');
-            const store = tx.objectStore(this.STORE_NAME);
-            const req = store.openCursor();
-            let totalBytes = 0, count = 0;
-            req.onsuccess = (e) => {
-                const cursor = e.target.result;
-                if (cursor) {
-                    const value = cursor.value;
-                    if (Array.isArray(value)) {
-                        totalBytes += value.reduce((sum, s) => sum + (typeof s === 'string' ? s.length : 0), 0);
-                    }
-                    count++;
-                    cursor.continue();
-                } else {
-                    resolve({ totalBytes, count });
-                }
-            };
-            req.onerror = (e) => reject(e.target.error);
-        });
+        } catch (e) { /* ignore */ }
+        return { totalBytes: 0, count: 0 };
     },
 
     async clear() {
         const db = await this.getDB();
-        return new Promise((resolve, reject) => {
+        await new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
             tx.objectStore(this.STORE_NAME).clear();
             tx.oncomplete = () => resolve();
             tx.onerror = (e) => reject(e.target.error);
         });
+        GM_deleteValue(this.META_KEY);
+    },
+
+    /** 获取图片三态：local(可导出) / remote(需在其他平台导出) / none(无图) */
+    getImageStatus(recordId) {
+        const meta = GM_getValue(this.META_KEY, {});
+        const entry = meta[recordId];
+        if (!entry) return { status: 'none' };
+        if (entry.origin === location.origin) return { status: 'local', size: entry.size };
+        return { status: 'remote', origin: entry.origin, size: entry.size };
+    },
+
+    /** 扫描当前 origin 的 IndexedDB 构建元数据（首次运行时调用） */
+    async buildMetaFromIndexedDB() {
+        try {
+            const db = await this.getDB();
+            const tx = db.transaction(this.STORE_NAME, 'readonly');
+            const store = tx.objectStore(this.STORE_NAME);
+            const req = store.openCursor();
+            const meta = GM_getValue(this.META_KEY, {});
+            let added = 0;
+            await new Promise((resolve) => {
+                req.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor) {
+                        if (!meta[cursor.key]) {
+                            const bytes = Array.isArray(cursor.value)
+                                ? cursor.value.reduce((sum, s) => sum + (typeof s === 'string' ? s.length : 0), 0)
+                                : 0;
+                            meta[cursor.key] = { origin: location.origin, size: bytes };
+                            added++;
+                        }
+                        cursor.continue();
+                    } else { resolve(); }
+                };
+                req.onerror = () => resolve();
+            });
+            if (added > 0) {
+                GM_setValue(this.META_KEY, meta);
+                console.log(`[ImageStore] 元数据已构建: 新增 ${added} 条，共 ${Object.keys(meta).length} 条`);
+            }
+        } catch (e) {
+            console.warn('[ImageStore] 构建元数据失败:', e);
+        }
     }
 };
 
@@ -156,6 +188,14 @@ const HistoryManager = {
         // 诊断日志
         const json = JSON.stringify(this.records);
         console.log(`[历史] 记录数: ${this.records.length}, 存储大小: ${(json.length / 1024).toFixed(1)}KB`);
+
+        // 在阅卷平台：扫描 IndexedDB 构建图片元数据（首次运行时）
+        if (window.__AI_MARKER_ADAPTER__) {
+            const existingMeta = GM_getValue(ImageStore.META_KEY, null);
+            if (!existingMeta || Object.keys(existingMeta).length === 0) {
+                await ImageStore.buildMetaFromIndexedDB();
+            }
+        }
     },
 
     save() {
@@ -834,6 +874,12 @@ function showHistoryPanel() {
             const markedTag = r.status === 'marked' ? '<span class="marked-tag">&middot; 待回评</span>' : '';
             const correctedTag = r.isCorrected ? '<span style="color:#0052FF;font-size:11px;margin-left:8px;">&#10003;已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${r.dualEval.result === 'consensus' ? 'rgba(52,168,83,0.1)' : r.dualEval.result === 'arbitration' ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.05)'};color:${r.dualEval.result === 'consensus' ? '#34A853' : r.dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">双评</span>` : '';
+            const imgStatus = ImageStore.getImageStatus(r.id);
+            const imageTag = imgStatus.status === 'local'
+                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(52,168,83,0.1);color:#34A853;">有图</span>'
+                : imgStatus.status === 'remote'
+                ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(255,193,7,0.15);color:#856404;">有图·需导出</span>'
+                : '';
             return `
                 <div class="hist-item ${r.status === 'marked' ? 'marked' : ''}" data-id="${r.id}">
                     <div class="hist-item-header">
@@ -842,7 +888,7 @@ function showHistoryPanel() {
                             <span class="hist-item-time">${time}</span>
                             <span class="hist-item-meta" style="margin-left:8px;">${r.presetName} &middot; ${modeLabel}模式</span>
                         </div>
-                        <div class="hist-item-score">${scoreHtml}分${dualTag}${markedTag}${correctedTag}</div>
+                        <div class="hist-item-score">${scoreHtml}分${dualTag}${imageTag}${markedTag}${correctedTag}</div>
                     </div>
                     <div class="hist-item-text">
                         答案：${(r.studentAnswer || '').slice(0, 50)}${(r.studentAnswer || '').length > 50 ? '...' : ''}
@@ -1087,16 +1133,34 @@ function showHistoryDetail(record) {
     drawer.querySelector('#detail-close').onclick = closeDetail;
     drawerOverlay.onclick = closeDetail;
 
-    // 从 IndexedDB 异步加载图片
+    // 从 IndexedDB 加载图片（三态判断）
     const imgContainer = drawer.querySelector('#detail-images-container');
-    ImageStore.get(record.id).then(base64s => {
-        if (base64s && base64s.length > 0) {
-            imgContainer.innerHTML = `<div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">答题卡图片</div>` +
-                base64s.map(b64 => `<img src="data:image/png;base64,${b64}" style="max-width:100%;border-radius:8px;margin-bottom:8px;">`).join('');
-        } else {
-            imgContainer.innerHTML = '<div style="color:#aaa;font-size:12px;">无图片数据</div>';
-        }
-    }).catch(() => {
-        imgContainer.innerHTML = '<div style="color:#aaa;font-size:12px;">图片加载失败</div>';
-    });
+    const imgStatus = ImageStore.getImageStatus(record.id);
+    if (imgStatus.status === 'local') {
+        // 有图·可导出：从当前 origin 的 IndexedDB 加载
+        ImageStore.get(record.id).then(base64s => {
+            if (base64s && base64s.length > 0) {
+                imgContainer.innerHTML = `<div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">答题卡图片</div>` +
+                    base64s.map(b64 => `<img src="data:image/png;base64,${b64}" style="max-width:100%;border-radius:8px;margin-bottom:8px;">`).join('');
+            } else {
+                imgContainer.innerHTML = '<div style="color:#aaa;font-size:12px;">图片数据异常</div>';
+            }
+        }).catch(() => {
+            imgContainer.innerHTML = '<div style="color:#aaa;font-size:12px;">图片加载失败</div>';
+        });
+    } else if (imgStatus.status === 'remote') {
+        // 有图·需在阅卷平台导出
+        const originNames = { 'https://www.zhixue.com': '智学网', 'https://zhixue.com': '智学网',
+            'https://pj.yixx.cn': '光大阅卷', 'https://yunyuejuan.net': '华翰云',
+            'https://www.haofenshu.com': '好分数', 'https://wylkyj.com': '五岳阅卷',
+            'https://yj5.7net.cc': '七天网络' };
+        const originName = originNames[imgStatus.origin] || imgStatus.origin;
+        const sizeMB = (imgStatus.size / 1024 / 1024).toFixed(1);
+        imgContainer.innerHTML = `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px;font-size:13px;color:#856404;">
+            图片存储在 ${originName}（${sizeMB} MB），请在该平台的阅卷页面查看和导出
+        </div>`;
+    } else {
+        // 无图
+        imgContainer.innerHTML = '<div style="color:#aaa;font-size:12px;">无图片数据（保存图片选项可能未开启）</div>';
+    }
 }
