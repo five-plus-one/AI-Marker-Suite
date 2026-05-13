@@ -6,7 +6,15 @@ const ImageStore = {
     _db: null,
 
     async getDB() {
-        if (this._db) return this._db;
+        if (this._db) {
+            // 检查连接是否仍然有效
+            try {
+                this._db.objectStoreNames; // 访问已关闭的连接会抛异常
+                return this._db;
+            } catch (e) {
+                this._db = null;
+            }
+        }
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(this.DB_NAME, this.DB_VERSION);
             req.onupgradeneeded = (e) => {
@@ -15,7 +23,12 @@ const ImageStore = {
                     db.createObjectStore(this.STORE_NAME);
                 }
             };
-            req.onsuccess = (e) => { this._db = e.target.result; resolve(this._db); };
+            req.onsuccess = (e) => {
+                this._db = e.target.result;
+                this._db.onclose = () => { this._db = null; };
+                this._db.onversionchange = () => { this._db.close(); this._db = null; };
+                resolve(this._db);
+            };
             req.onerror = (e) => reject(e.target.error);
         });
     },
@@ -51,6 +64,15 @@ const ImageStore = {
     },
 
     async getSize() {
+        // 优先使用 Storage Manager API（O(1) 复杂度，瞬间返回）
+        try {
+            if (navigator.storage && navigator.storage.estimate) {
+                const estimate = await navigator.storage.estimate();
+                return { totalBytes: estimate.usage || 0, quota: estimate.quota || 0, count: -1 };
+            }
+        } catch (e) { /* fallback below */ }
+
+        // Fallback: 用 cursor 遍历，直接计算字符串长度避免 JSON.stringify 开销
         const db = await this.getDB();
         return new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readonly');
@@ -60,7 +82,10 @@ const ImageStore = {
             req.onsuccess = (e) => {
                 const cursor = e.target.result;
                 if (cursor) {
-                    totalBytes += JSON.stringify(cursor.value).length;
+                    const value = cursor.value;
+                    if (Array.isArray(value)) {
+                        totalBytes += value.reduce((sum, s) => sum + (typeof s === 'string' ? s.length : 0), 0);
+                    }
                     count++;
                     cursor.continue();
                 } else {
