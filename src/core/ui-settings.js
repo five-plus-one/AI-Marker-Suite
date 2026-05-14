@@ -1872,10 +1872,18 @@ function saveAISettings() {
 }
 
 // ========== 新手引导 ==========
+let _onboardingDialogOpen = false; // 防止重复弹出
+
 function showOnboardingDialog(forceShow, mode) {
+    if (_onboardingDialogOpen) return; // 已打开，跳过
+    _onboardingDialogOpen = true;
+
     mode = mode || 'first-launch';
     const existingApiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
-    if (!forceShow && existingApiKey && mode !== 'new-question') return;
+    if (!forceShow && existingApiKey && mode !== 'new-question') {
+        _onboardingDialogOpen = false;
+        return;
+    }
 
     ensureModalStyles();
 
@@ -2057,7 +2065,7 @@ function showOnboardingDialog(forceShow, mode) {
         const s = getStepInfo();
 
         if (s.apiStep) {
-            overlay.querySelector('#ob-skip').onclick = () => overlay.remove();
+            overlay.querySelector('#ob-skip').onclick = () => { _onboardingDialogOpen = false; overlay.remove(); };
             overlay.querySelector('#ob-next').onclick = async () => {
                 const key = overlay.querySelector('#ob-apikey').value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
@@ -2095,6 +2103,7 @@ function showOnboardingDialog(forceShow, mode) {
             overlay.querySelector('#ob-next').onclick = () => saveAndFinish(true);
         } else if (s.doneStep) {
             overlay.querySelector('#ob-start').onclick = () => {
+                _onboardingDialogOpen = false;
                 overlay.remove();
                 GM_setValue('ai-grading-show-onboarding', false);
                 const btn = document.querySelector('.ai-grade-btn');
