@@ -2069,8 +2069,23 @@ function showOnboardingDialog(forceShow, mode) {
             overlay.querySelector('#ob-next').onclick = async () => {
                 const key = overlay.querySelector('#ob-apikey').value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
+
+                // 清除之前的错误提示
+                const statusEl = overlay.querySelector('#ob-status');
+                if (statusEl) statusEl.style.display = 'none';
+
                 const btn = overlay.querySelector('#ob-next');
-                btn.disabled = true; btn.textContent = '验证中...';
+                btn.disabled = true;
+                btn.innerHTML = '<span class="upd-spinner"></span> 验证中...';
+
+                // 确保 spinner 样式存在
+                if (!document.getElementById('upd-spinner-style')) {
+                    const s = document.createElement('style');
+                    s.id = 'upd-spinner-style';
+                    s.textContent = '.upd-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(0,0,0,0.15);border-top-color:#1a1a1a;border-radius:50%;animation:upd-spin .6s linear infinite;vertical-align:middle;margin-right:4px}@keyframes upd-spin{to{transform:rotate(360deg)}}';
+                    document.head.appendChild(s);
+                }
+
                 const result = await testApiKey(key);
                 btn.disabled = false; btn.textContent = '验证并继续';
                 if (result.success) {
