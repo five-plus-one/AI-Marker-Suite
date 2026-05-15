@@ -310,9 +310,10 @@ function setupDraggable(element) {
     let isDragging = false;
     let startX, startY, startLeft, startTop;
 
+    // 使用事件委托，检查点击的元素或其父元素是否是拖动手柄
     element.addEventListener('mousedown', (e) => {
-        // 只响应拖动手柄
-        if (!e.target.classList.contains('progress-drag-handle')) return;
+        const handle = e.target.closest('.progress-drag-handle');
+        if (!handle) return;
 
         isDragging = true;
         element.classList.add('dragging');
@@ -330,6 +331,7 @@ function setupDraggable(element) {
         element.style.top = startTop + 'px';
 
         e.preventDefault();
+        e.stopPropagation();
     });
 
     document.addEventListener('mousemove', (e) => {
@@ -349,18 +351,22 @@ function setupDraggable(element) {
 
         element.style.left = newLeft + 'px';
         element.style.top = newTop + 'px';
+
+        e.preventDefault();
     });
 
-    document.addEventListener('mouseup', () => {
+    document.addEventListener('mouseup', (e) => {
         if (!isDragging) return;
         isDragging = false;
         element.classList.remove('dragging');
 
         // 保存位置
-        sessionStorage.setItem('ai-batch-progress-pos', JSON.stringify({
-            left: parseInt(element.style.left),
-            top: parseInt(element.style.top)
-        }));
+        try {
+            sessionStorage.setItem('ai-batch-progress-pos', JSON.stringify({
+                left: parseInt(element.style.left),
+                top: parseInt(element.style.top)
+            }));
+        } catch (e) {}
     });
 }
 
