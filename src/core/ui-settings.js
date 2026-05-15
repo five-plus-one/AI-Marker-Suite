@@ -2150,7 +2150,7 @@ function showOnboardingDialog(forceShow, mode) {
                 GM_xmlhttpRequest({
                     method: 'POST', url: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                    data: JSON.stringify({ model: 'aimarker-fast', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+                    data: JSON.stringify({ model: 'aimarker-fast', messages: [{ role: 'system', content: '只回复"收到"两个字' }, { role: 'user', content: 'test' }], max_tokens: 5 }),
                     timeout: TIMEOUT,
                     onload: res => {
                         console.log(`🔑 [诊断] API 响应 — HTTP ${res.status}, 长度: ${res.responseText?.length || 0}`);
