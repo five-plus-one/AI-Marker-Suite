@@ -2071,14 +2071,18 @@ function showOnboardingDialog(forceShow, mode) {
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
                 const btn = overlay.querySelector('#ob-next');
                 btn.disabled = true; btn.textContent = '验证中...';
-                const valid = await testApiKey(key);
+                const result = await testApiKey(key);
                 btn.disabled = false; btn.textContent = '验证并继续';
-                if (valid) {
+                if (result.success) {
                     const p = ProviderManager.getProvider('5plus1官方');
                     if (p) p.apiKey = key;
                     ProviderManager.save();
                     currentStep++; render();
-                } else { showStatus('密钥验证失败，请检查是否正确', 'error'); }
+                } else if (result.reason === 'invalid') {
+                    showStatus('密钥无效，请检查是否正确', 'error');
+                } else {
+                    showStatus('网络连接失败，请检查网络后重试', 'error');
+                }
             };
         } else if (s.nameModeStep) {
             if (s.hasApiStep) overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
@@ -2122,16 +2126,53 @@ function showOnboardingDialog(forceShow, mode) {
     }
 
     async function testApiKey(key) {
-        return new Promise(resolve => {
-            GM_xmlhttpRequest({
-                method: 'POST', url: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                data: JSON.stringify({ model: 'aimarker-fast', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
-                timeout: 10000,
-                onload: res => resolve(res.status >= 200 && res.status < 300),
-                onerror: () => resolve(false), ontimeout: () => resolve(false)
+        const MAX_RETRIES = 2;
+        const TIMEOUT = 30000;
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            console.log(`🔑 [诊断] API 密钥验证 — 第 ${attempt}/${MAX_RETRIES} 次尝试`);
+            const result = await new Promise(resolve => {
+                GM_xmlhttpRequest({
+                    method: 'POST', url: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                    data: JSON.stringify({ model: 'aimarker-fast', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+                    timeout: TIMEOUT,
+                    onload: res => {
+                        console.log(`🔑 [诊断] API 响应 — HTTP ${res.status}, 长度: ${res.responseText?.length || 0}`);
+                        resolve({ ok: res.status >= 200 && res.status < 300, type: 'http', status: res.status });
+                    },
+                    onerror: e => {
+                        console.warn(`🔑 [诊断] 网络错误:`, e);
+                        resolve({ ok: false, type: 'network' });
+                    },
+                    ontimeout: () => {
+                        console.warn(`🔑 [诊断] 请求超时 (${TIMEOUT}ms)`);
+                        resolve({ ok: false, type: 'timeout' });
+                    }
+                });
             });
-        });
+
+            if (result.ok) {
+                console.log('✅ [诊断] API 密钥验证成功');
+                return { success: true };
+            }
+
+            if (result.type === 'timeout') {
+                showStatus(`验证超时，正在重试 (${attempt}/${MAX_RETRIES})...`, 'error');
+            } else if (result.type === 'network') {
+                showStatus(`网络错误，正在重试 (${attempt}/${MAX_RETRIES})...`, 'error');
+            } else {
+                // HTTP 错误，不重试
+                console.error(`❌ [诊断] API 返回 HTTP ${result.status}`);
+                return { success: false, reason: 'invalid' };
+            }
+
+            if (attempt < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, 2000));
+            }
+        }
+
+        return { success: false, reason: 'network' };
     }
 
     function saveAndFinish(saveCtx) {
