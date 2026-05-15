@@ -215,7 +215,7 @@ function renderBatchProgress() {
                 align-items: center !important;
                 gap: 12px !important;
                 font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif !important;
-                border-radius: 0 0 12px 12px !important;
+                border-radius: 12px !important;
                 min-width: 300px !important;
                 transition: box-shadow 0.2s ease !important;
             }
