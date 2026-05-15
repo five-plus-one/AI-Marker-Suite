@@ -2069,16 +2069,35 @@ function showOnboardingDialog(forceShow, mode) {
             overlay.querySelector('#ob-next').onclick = async () => {
                 const key = overlay.querySelector('#ob-apikey').value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
+
+                // 清除之前的错误提示
+                const statusEl = overlay.querySelector('#ob-status');
+                if (statusEl) statusEl.style.display = 'none';
+
                 const btn = overlay.querySelector('#ob-next');
-                btn.disabled = true; btn.textContent = '验证中...';
-                const valid = await testApiKey(key);
+                btn.disabled = true;
+                btn.innerHTML = '<span class="upd-spinner-light"></span> 验证中...';
+
+                // 确保 spinner 样式存在（浅色版本用于深色背景）
+                if (!document.getElementById('upd-spinner-light-style')) {
+                    const s = document.createElement('style');
+                    s.id = 'upd-spinner-light-style';
+                    s.textContent = '.upd-spinner-light{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#ffffff;border-radius:50%;animation:upd-spin .6s linear infinite;vertical-align:middle;margin-right:4px}@keyframes upd-spin{to{transform:rotate(360deg)}}';
+                    document.head.appendChild(s);
+                }
+
+                const result = await testApiKey(key);
                 btn.disabled = false; btn.textContent = '验证并继续';
-                if (valid) {
+                if (result.success) {
                     const p = ProviderManager.getProvider('5plus1官方');
                     if (p) p.apiKey = key;
                     ProviderManager.save();
                     currentStep++; render();
-                } else { showStatus('密钥验证失败，请检查是否正确', 'error'); }
+                } else if (result.reason === 'invalid') {
+                    showStatus('密钥无效，请检查是否正确', 'error');
+                } else {
+                    showStatus('网络连接失败，请检查网络后重试', 'error');
+                }
             };
         } else if (s.nameModeStep) {
             if (s.hasApiStep) overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
@@ -2122,16 +2141,53 @@ function showOnboardingDialog(forceShow, mode) {
     }
 
     async function testApiKey(key) {
-        return new Promise(resolve => {
-            GM_xmlhttpRequest({
-                method: 'POST', url: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                data: JSON.stringify({ model: 'aimarker-fast', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
-                timeout: 10000,
-                onload: res => resolve(res.status >= 200 && res.status < 300),
-                onerror: () => resolve(false), ontimeout: () => resolve(false)
+        const MAX_RETRIES = 2;
+        const TIMEOUT = 30000;
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            console.log(`🔑 [诊断] API 密钥验证 — 第 ${attempt}/${MAX_RETRIES} 次尝试`);
+            const result = await new Promise(resolve => {
+                GM_xmlhttpRequest({
+                    method: 'POST', url: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                    data: JSON.stringify({ model: 'aimarker-fast', messages: [{ role: 'system', content: '只回复"收到"两个字' }, { role: 'user', content: 'test' }], max_tokens: 5 }),
+                    timeout: TIMEOUT,
+                    onload: res => {
+                        console.log(`🔑 [诊断] API 响应 — HTTP ${res.status}, 长度: ${res.responseText?.length || 0}`);
+                        resolve({ ok: res.status >= 200 && res.status < 300, type: 'http', status: res.status });
+                    },
+                    onerror: e => {
+                        console.warn(`🔑 [诊断] 网络错误:`, e);
+                        resolve({ ok: false, type: 'network' });
+                    },
+                    ontimeout: () => {
+                        console.warn(`🔑 [诊断] 请求超时 (${TIMEOUT}ms)`);
+                        resolve({ ok: false, type: 'timeout' });
+                    }
+                });
             });
-        });
+
+            if (result.ok) {
+                console.log('✅ [诊断] API 密钥验证成功');
+                return { success: true };
+            }
+
+            if (result.type === 'timeout') {
+                showStatus(`验证超时，正在重试 (${attempt}/${MAX_RETRIES})...`, 'error');
+            } else if (result.type === 'network') {
+                showStatus(`网络错误，正在重试 (${attempt}/${MAX_RETRIES})...`, 'error');
+            } else {
+                // HTTP 错误，不重试
+                console.error(`❌ [诊断] API 返回 HTTP ${result.status}`);
+                return { success: false, reason: 'invalid' };
+            }
+
+            if (attempt < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, 2000));
+            }
+        }
+
+        return { success: false, reason: 'network' };
     }
 
     function saveAndFinish(saveCtx) {

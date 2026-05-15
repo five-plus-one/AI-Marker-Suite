@@ -1,4 +1,5 @@
 // ========== 新教育智能平台 DOM 选择器常量 ==========
+// 支持考试系统和作业系统
 
 const XINJIAOYU_SELECTORS = {
     // 答题卡图片 - 通过 Canvas 渲染
@@ -8,7 +9,7 @@ const XINJIAOYU_SELECTORS = {
     SCORE_INPUT: '.ant-input-number-input',
     SCORE_INPUT_PLACEHOLDER: 'input[placeholder*="满分"]',
 
-    // 分小题容器
+    // 分小题容器（考试系统）
     SUB_QUESTION_CONTAINER: '.score-bord',
     SUB_QUESTION_ITEM: '.score-bord > div',
 
@@ -23,8 +24,17 @@ const XINJIAOYU_SELECTORS = {
     SUBMIT_BUTTON_TEXT: '提交分数',
     SUBMIT_BUTTON: '.ant-btn-primary:has(span:contains("提交分数"))',
 
+    // 作业系统 - 学生列表
+    HOMEWORK_STUDENT_LIST: '.studentSelectClass',
+    HOMEWORK_STUDENT_ACTIVE: '.studentSelectClass.newStudent',
+
     // 页面检测
     PAGE_DETECT_URL: '/teacher/grading_center/',
     PAGE_DETECT_CANVAS: 'canvas#canvas',
     PAGE_DETECT_INPUT: '.ant-input-number-input',
+
+    // URL 特征
+    EXAM_URL: '/examination/',
+    HOMEWORK_URL: '/homework/',
+    HOMEWORK_GRADING_URL: '/grading_by_question/',
 };

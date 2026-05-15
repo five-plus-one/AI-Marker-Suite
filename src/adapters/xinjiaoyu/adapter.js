@@ -1,14 +1,16 @@
 // ========== 新教育智能平台适配器 ==========
 // 实现 PlatformAdapter 接口，处理新教育平台特定的 DOM 交互
+// 支持考试系统（examination）和作业系统（homework）
 // 平台特征：Vue 3 + Ant Design，Canvas 渲染答题卡，API 拦截获取图片
 
-// 拦截 API 响应获取图片 URL
+// ========== XHR 拦截（考试 + 作业） ==========
 const _xinjiaoyuOrigOpen = XMLHttpRequest.prototype.open;
 const _xinjiaoyuOrigSend = XMLHttpRequest.prototype.send;
 let _xinjiaoyuCurrentImageUrl = null;
 let _xinjiaoyuNextImageUrl = null;
 let _xinjiaoyuCurrentQuestionNumber = null;
 let _xinjiaoyuCurrentTotalScore = null;
+let _xinjiaoyuIsHomework = false; // 是否是作业系统
 
 XMLHttpRequest.prototype.open = function(method, url, ...args) {
     this._xinjiaoyuUrl = url;
@@ -18,6 +20,8 @@ XMLHttpRequest.prototype.open = function(method, url, ...args) {
 XMLHttpRequest.prototype.send = function(...args) {
     this.addEventListener('load', function() {
         const url = this._xinjiaoyuUrl || '';
+
+        // 考试系统 API
         if (url.includes('/review/task/teacher/student/unreviewed/next')) {
             try {
                 const response = JSON.parse(this.responseText);
@@ -28,23 +32,58 @@ XMLHttpRequest.prototype.send = function(...args) {
                         _xinjiaoyuCurrentImageUrl = current.imageURL || current.answerQuestions?.[0]?.rawScan;
                         _xinjiaoyuCurrentQuestionNumber = current.answerQuestions?.[0]?.questionNumber;
                         _xinjiaoyuCurrentTotalScore = current.answerQuestions?.[0]?.totalScore || current.score;
-                        console.log('🖼️ [诊断] 新教育 API 拦截 - 当前图片:', _xinjiaoyuCurrentImageUrl?.substring(0, 80));
-                        console.log('📋 [诊断] 题号:', _xinjiaoyuCurrentQuestionNumber, '满分:', _xinjiaoyuCurrentTotalScore);
+                        console.log('🖼️ [诊断] 新教育考试 API 拦截 - 当前图片:', _xinjiaoyuCurrentImageUrl?.substring(0, 80));
                     }
                     if (records.length > 1) {
-                        const next = records[1];
-                        _xinjiaoyuNextImageUrl = next.imageURL || next.answerQuestions?.[0]?.rawScan;
-                        console.log('🖼️ [诊断] 新教育 API 拦截 - 预加载图片:', _xinjiaoyuNextImageUrl?.substring(0, 80));
+                        _xinjiaoyuNextImageUrl = records[1].imageURL || records[1].answerQuestions?.[0]?.rawScan;
                     }
                 }
             } catch (e) {
-                console.error('❌ [诊断] 新教育 API 解析失败:', e);
+                console.error('❌ [诊断] 新教育考试 API 解析失败:', e);
+            }
+        }
+
+        // 作业系统 API
+        if (url.includes('/server_homework/homework/answer/sheet/review/progress')) {
+            try {
+                const response = JSON.parse(this.responseText);
+                if (response.code === 200 && response.data?.answerSheets) {
+                    _xinjiaoyuIsHomework = true;
+                    // 从 URL 提取当前题目 ID
+                    const urlMatch = window.location.href.match(/grading_by_question\/(\d+)/);
+                    const currentQuestionId = urlMatch ? urlMatch[1] : null;
+
+                    if (currentQuestionId) {
+                        // 找到当前学生的答题卡
+                        const activeStudent = document.querySelector('.studentSelectClass.newStudent');
+                        const activeStudentName = activeStudent?.textContent?.trim();
+
+                        for (const sheet of response.data.answerSheets) {
+                            const studentName = sheet.student?.studentName;
+                            if (activeStudentName && studentName === activeStudentName) {
+                                // 找到当前学生的答题卡
+                                const questionAnswer = sheet.questionAnswers?.find(qa => qa.questionId === currentQuestionId);
+                                if (questionAnswer?.rawScan) {
+                                    _xinjiaoyuCurrentImageUrl = questionAnswer.rawScan;
+                                    _xinjiaoyuCurrentQuestionNumber = questionAnswer.questionNumber;
+                                    _xinjiaoyuCurrentTotalScore = questionAnswer.maxScore;
+                                    console.log('🖼️ [诊断] 新教育作业 API 拦截 - 当前图片:', _xinjiaoyuCurrentImageUrl?.substring(0, 80));
+                                    console.log('📋 [诊断] 题号:', _xinjiaoyuCurrentQuestionNumber, '满分:', _xinjiaoyuCurrentTotalScore);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('❌ [诊断] 新教育作业 API 解析失败:', e);
             }
         }
     });
     return _xinjiaoyuOrigSend.call(this, ...args);
 };
 
+// ========== 适配器定义 ==========
 const XinjiaoyuAdapter = {
     name: '新教育',
     id: 'xinjiaoyu',
@@ -56,8 +95,12 @@ const XinjiaoyuAdapter = {
     },
 
     isMarkingPage() {
-        return window.location.pathname.includes('/grading_center/') &&
-               window.location.pathname.includes('/grading_new');
+        const pathname = window.location.pathname;
+        // 考试系统：/teacher/grading_center/examination/grading_new
+        const isExam = pathname.includes('/grading_center/') && pathname.includes('/grading_new');
+        // 作业系统：/teacher/grading_center/homework/.../grading_by_question/...
+        const isHomework = pathname.includes('/grading_center/homework/') && pathname.includes('/grading_by_question/');
+        return isExam || isHomework;
     },
 
     async detectMarkingPage() {
@@ -68,7 +111,6 @@ const XinjiaoyuAdapter = {
 
         console.log('🔎 [诊断] 新教育 — 开始检测批改页面元素...');
         try {
-            // 等待 Canvas 或分数输入框出现
             const hasCanvas = document.querySelector(XINJIAOYU_SELECTORS.PAGE_DETECT_CANVAS);
             const hasInput = document.querySelector(XINJIAOYU_SELECTORS.PAGE_DETECT_INPUT);
 
@@ -85,10 +127,6 @@ const XinjiaoyuAdapter = {
 
             const detected = !!(hasCanvasRetry || (hasInputRetry && hasButton));
             console.log(`🔎 [诊断] 兜底检测结果 — Canvas: ${!!hasCanvasRetry}, 输入框: ${!!hasInputRetry}, 提交按钮: ${hasButton}, 最终判断: ${detected}`);
-
-            if (!detected) {
-                console.warn('⚠️ [诊断] 未检测到批改页面，脚本将不会初始化');
-            }
             return detected;
         } catch (error) {
             console.error('❌ [诊断] detectMarkingPage 抛出异常:', error);
@@ -97,9 +135,19 @@ const XinjiaoyuAdapter = {
     },
 
     getTaskIdentifier() {
-        const baseUrl = window.location.pathname + window.location.search;
+        const pathname = window.location.pathname;
+        const search = window.location.search;
+
+        // 作业系统：使用 questionId 作为标识
+        if (pathname.includes('/homework/')) {
+            const questionMatch = pathname.match(/grading_by_question\/(\d+)/);
+            const questionId = questionMatch ? questionMatch[1] : '';
+            return `xinjiaoyu_homework_${questionId}`;
+        }
+
+        // 考试系统：使用完整 URL
         const questionNumber = _xinjiaoyuCurrentQuestionNumber || '';
-        return baseUrl + (questionNumber ? '___Q' + questionNumber : '');
+        return pathname + search + (questionNumber ? '___Q' + questionNumber : '');
     },
 
     async gatherAnswerImages() {
@@ -128,7 +176,6 @@ const XinjiaoyuAdapter = {
     },
 
     async fetchImageAsBase64(url) {
-        // 如果是 data URL，直接返回
         if (url.startsWith('data:')) {
             return url.split(',')[1];
         }
@@ -154,7 +201,7 @@ const XinjiaoyuAdapter = {
     fillScore(request) {
         const { total, subScores } = request;
 
-        // 分小题填入
+        // 分小题填入（仅考试系统支持）
         if (subScores && subScores.length > 0) {
             const detected = this.detectSubQuestions();
             if (detected.length > 0) {
@@ -184,7 +231,6 @@ const XinjiaoyuAdapter = {
     },
 
     _fillInputValue(input, value) {
-        // 使用 nativeInputValueSetter 兼容 Vue/React
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(input, value);
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -206,6 +252,16 @@ const XinjiaoyuAdapter = {
     },
 
     async waitForNextPaper(oldImageUrl) {
+        // 作业系统：等待平台自动跳转到下一个学生
+        if (window.location.pathname.includes('/homework/')) {
+            return this._waitForNextHomeworkStudent(oldImageUrl);
+        }
+
+        // 考试系统：等待 API 返回新图片
+        return this._waitForNextExamPaper(oldImageUrl);
+    },
+
+    async _waitForNextExamPaper(oldImageUrl) {
         let checkTimes = 0;
         return new Promise((resolve) => {
             const checkNextTimer = setInterval(() => {
@@ -229,27 +285,51 @@ const XinjiaoyuAdapter = {
                     return;
                 }
 
-                // 检测3：Canvas 内容变化
-                const canvas = document.querySelector(XINJIAOYU_SELECTORS.ANSWER_CANVAS);
-                if (canvas) {
-                    try {
-                        const newDataUrl = canvas.toDataURL('image/png');
-                        // 如果 Canvas 内容与旧的不同，说明已更新
-                        if (checkTimes > 5 && newDataUrl.length > 1000) {
-                            clearInterval(checkNextTimer);
-                            console.log('✅ 新试卷已加载完毕（Canvas 更新）');
-                            resolve(true);
-                            return;
-                        }
-                    } catch (e) {}
-                }
-
                 if (checkTimes > 50) {
                     clearInterval(checkNextTimer);
                     console.warn('⚠️ 等待下一份试卷超时');
                     resolve(false);
                 }
             }, 200);
+        });
+    },
+
+    async _waitForNextHomeworkStudent(oldImageUrl) {
+        let checkTimes = 0;
+        const oldStudentName = document.querySelector('.studentSelectClass.newStudent')?.textContent?.trim();
+
+        return new Promise((resolve) => {
+            const checkNextTimer = setInterval(() => {
+                checkTimes++;
+
+                // 检测1：当前学生名称变化（平台自动跳转到下一个学生）
+                const currentStudentName = document.querySelector('.studentSelectClass.newStudent')?.textContent?.trim();
+                if (currentStudentName && currentStudentName !== oldStudentName && checkTimes > 3) {
+                    clearInterval(checkNextTimer);
+                    console.log(`✅ 作业系统 — 已切换到下一个学生: ${currentStudentName}`);
+                    // 重置 API 拦截的图片 URL，等待新学生的图片
+                    _xinjiaoyuCurrentImageUrl = null;
+                    resolve(true);
+                    return;
+                }
+
+                // 检测2：分数输入框被清空
+                const scoreInput = document.querySelector(XINJIAOYU_SELECTORS.SCORE_INPUT);
+                const inputCleared = scoreInput && (scoreInput.value === '' || scoreInput.value === '0');
+                if (inputCleared && checkTimes > 5) {
+                    clearInterval(checkNextTimer);
+                    console.log('✅ 作业系统 — 新试卷已加载完毕（输入框清空）');
+                    _xinjiaoyuCurrentImageUrl = null;
+                    resolve(true);
+                    return;
+                }
+
+                if (checkTimes > 60) {
+                    clearInterval(checkNextTimer);
+                    console.warn('⚠️ 作业系统 — 等待下一份试卷超时');
+                    resolve(false);
+                }
+            }, 300);
         });
     },
 
@@ -260,13 +340,12 @@ const XinjiaoyuAdapter = {
     getScoreInputs() {
         const inputs = [];
 
-        // 优先返回分小题输入框
+        // 优先返回分小题输入框（考试系统）
         const subItems = document.querySelectorAll(XINJIAOYU_SELECTORS.SUB_QUESTION_ITEM);
         if (subItems.length > 0) {
             subItems.forEach((item, i) => {
                 const input = item.querySelector('.ant-input-number-input');
                 if (input) {
-                    // 获取题号标签
                     const labelEl = item.querySelector('span');
                     const label = labelEl?.textContent?.trim() || `第${i + 1}题`;
                     inputs.push({ element: input, label, index: i });
@@ -275,7 +354,7 @@ const XinjiaoyuAdapter = {
             return inputs;
         }
 
-        // 回退到单个输入框
+        // 回退到单个输入框（作业系统）
         const scoreInput = document.querySelector(XINJIAOYU_SELECTORS.SCORE_INPUT);
         if (scoreInput) {
             inputs.push({ element: scoreInput, label: '总分', index: 0 });
@@ -291,11 +370,9 @@ const XinjiaoyuAdapter = {
             const input = item.querySelector('.ant-input-number-input');
             if (!input) return;
 
-            // 获取题号
             const labelEl = item.querySelector('span');
             const label = labelEl?.textContent?.trim() || `第${i + 1}题`;
 
-            // 获取满分值
             const placeholder = input.placeholder || '';
             const maxScoreMatch = placeholder.match(/满分(\d+)分/);
             const maxScore = maxScoreMatch ? parseInt(maxScoreMatch[1]) : 0;
@@ -303,7 +380,6 @@ const XinjiaoyuAdapter = {
             subs.push({ label, element: input, index: i, maxScore });
         });
 
-        // 只有一题时不启用分小题给分
         return subs.length > 1 ? subs : [];
     }
 };
