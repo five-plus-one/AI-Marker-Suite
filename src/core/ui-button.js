@@ -179,7 +179,7 @@ function clearUnsavedChanges() {
     }
 }
 
-// ========== 批阅份数进度显示 ==========
+// ========== 批阅份数进度显示（支持拖动） ==========
 function renderBatchProgress() {
     const batch = window.aiGradingState.batchProgress;
     if (!batch.enabled) {
@@ -217,6 +217,22 @@ function renderBatchProgress() {
                 font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif !important;
                 border-radius: 0 0 12px 12px !important;
                 min-width: 300px !important;
+                transition: box-shadow 0.2s ease !important;
+            }
+            #ai-batch-progress.dragging {
+                box-shadow: 0 8px 24px rgba(0,0,0,0.15) !important;
+                opacity: 0.95 !important;
+            }
+            #ai-batch-progress .progress-drag-handle {
+                cursor: grab !important;
+                font-size: 16px !important;
+                color: #999 !important;
+                user-select: none !important;
+                padding: 0 4px !important;
+                line-height: 1 !important;
+            }
+            #ai-batch-progress .progress-drag-handle:active {
+                cursor: grabbing !important;
             }
             #ai-batch-progress .progress-text {
                 font-size: 13px !important;
@@ -257,6 +273,20 @@ function renderBatchProgress() {
             }
         `;
         document.head.appendChild(style);
+
+        // 恢复保存的位置
+        const savedPos = sessionStorage.getItem('ai-batch-progress-pos');
+        if (savedPos) {
+            try {
+                const pos = JSON.parse(savedPos);
+                container.style.left = pos.left + 'px';
+                container.style.top = pos.top + 'px';
+                container.style.transform = 'none';
+            } catch (e) {}
+        }
+
+        // 实现拖动功能
+        setupDraggable(container);
     }
 
     const current = batch.currentCount;
@@ -265,6 +295,7 @@ function renderBatchProgress() {
     const isComplete = target > 0 && current >= target;
 
     container.innerHTML = `
+        <span class="progress-drag-handle" title="拖动移动位置">⠿</span>
         <span class="progress-text">📊 批阅进度: ${current}/${target} (${Math.round(percent)}%)</span>
         <div class="progress-bar">
             <div class="progress-fill${isComplete ? ' complete' : ''}" style="width: ${percent}%"></div>
@@ -272,6 +303,65 @@ function renderBatchProgress() {
         <button class="progress-btn">重置</button>
     `;
     container.querySelector('.progress-btn').addEventListener('click', resetBatchProgress);
+}
+
+// ========== 拖动逻辑 ==========
+function setupDraggable(element) {
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+
+    element.addEventListener('mousedown', (e) => {
+        // 只响应拖动手柄
+        if (!e.target.classList.contains('progress-drag-handle')) return;
+
+        isDragging = true;
+        element.classList.add('dragging');
+
+        startX = e.clientX;
+        startY = e.clientY;
+
+        const rect = element.getBoundingClientRect();
+        startLeft = rect.left;
+        startTop = rect.top;
+
+        // 移除 transform，使用绝对定位
+        element.style.transform = 'none';
+        element.style.left = startLeft + 'px';
+        element.style.top = startTop + 'px';
+
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+
+        let newLeft = startLeft + deltaX;
+        let newTop = startTop + deltaY;
+
+        // 边界限制
+        const maxLeft = window.innerWidth - element.offsetWidth;
+        const maxTop = window.innerHeight - element.offsetHeight;
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+
+        element.style.left = newLeft + 'px';
+        element.style.top = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        element.classList.remove('dragging');
+
+        // 保存位置
+        sessionStorage.setItem('ai-batch-progress-pos', JSON.stringify({
+            left: parseInt(element.style.left),
+            top: parseInt(element.style.top)
+        }));
+    });
 }
 
 // ========== 恢复批改（从暂停状态） ==========
