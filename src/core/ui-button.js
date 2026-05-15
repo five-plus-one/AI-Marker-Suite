@@ -305,76 +305,69 @@ function renderBatchProgress() {
     container.querySelector('.progress-btn').addEventListener('click', resetBatchProgress);
 }
 
-// ========== 拖动逻辑 ==========
+// ========== 拖动逻辑（直接绑定到拖动手柄） ==========
 function setupDraggable(element) {
-    let isDragging = false;
-    let startX, startY, startLeft, startTop;
-
-    console.log('🔧 [调试] setupDraggable 已调用，绑定容器:', element.id);
-
-    // 使用事件委托，检查点击的元素或其父元素是否是拖动手柄
+    // 使用事件委托，在容器上监听 mousedown
     element.addEventListener('mousedown', (e) => {
-        console.log('🔧 [调试] mousedown 触发, target:', e.target.tagName, e.target.className);
-        const handle = e.target.closest('.progress-drag-handle');
-        console.log('🔧 [调试] 查找拖动手柄:', handle ? '找到' : '未找到');
-        if (!handle) return;
+        // 检查是否点击了拖动手柄
+        if (!e.target.classList.contains('progress-drag-handle')) return;
 
-        isDragging = true;
-        element.classList.add('dragging');
+        e.preventDefault();
+        e.stopPropagation();
 
-        startX = e.clientX;
-        startY = e.clientY;
+        const startX = e.clientX;
+        const startY = e.clientY;
 
+        // 获取当前位置
         const rect = element.getBoundingClientRect();
-        startLeft = rect.left;
-        startTop = rect.top;
-
-        console.log('🔧 [调试] 开始拖动, 初始位置:', startLeft, startTop);
+        const startLeft = rect.left;
+        const startTop = rect.top;
 
         // 移除 transform，使用绝对定位
         element.style.transform = 'none';
         element.style.left = startLeft + 'px';
         element.style.top = startTop + 'px';
 
-        e.preventDefault();
-        e.stopPropagation();
-    });
+        element.classList.add('dragging');
 
-    document.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
+        // mousemove 处理器
+        const onMouseMove = (moveE) => {
+            const deltaX = moveE.clientX - startX;
+            const deltaY = moveE.clientY - startY;
 
-        const deltaX = e.clientX - startX;
-        const deltaY = e.clientY - startY;
+            let newLeft = startLeft + deltaX;
+            let newTop = startTop + deltaY;
 
-        let newLeft = startLeft + deltaX;
-        let newTop = startTop + deltaY;
+            // 边界限制
+            const maxLeft = window.innerWidth - element.offsetWidth;
+            const maxTop = window.innerHeight - element.offsetHeight;
+            newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+            newTop = Math.max(0, Math.min(newTop, maxTop));
 
-        // 边界限制
-        const maxLeft = window.innerWidth - element.offsetWidth;
-        const maxTop = window.innerHeight - element.offsetHeight;
-        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
-        newTop = Math.max(0, Math.min(newTop, maxTop));
+            element.style.left = newLeft + 'px';
+            element.style.top = newTop + 'px';
+        };
 
-        element.style.left = newLeft + 'px';
-        element.style.top = newTop + 'px';
+        // mouseup 处理器
+        const onMouseUp = () => {
+            element.classList.remove('dragging');
 
-        e.preventDefault();
-    });
+            // 移除事件监听器
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
 
-    document.addEventListener('mouseup', (e) => {
-        if (!isDragging) return;
-        isDragging = false;
-        element.classList.remove('dragging');
+            // 保存位置
+            try {
+                sessionStorage.setItem('ai-batch-progress-pos', JSON.stringify({
+                    left: parseInt(element.style.left),
+                    top: parseInt(element.style.top)
+                }));
+            } catch (e) {}
+        };
 
-        console.log('🔧 [调试] 拖动结束, 最终位置:', element.style.left, element.style.top);
-
-        // 保存位置
-        try {
-            sessionStorage.setItem('ai-batch-progress-pos', JSON.stringify({
-                left: parseInt(element.style.left),
-                top: parseInt(element.style.top)
-            }));
-        } catch (e) {}
+        // 绑定事件
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     });
 }
 
