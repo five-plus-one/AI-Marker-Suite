@@ -482,23 +482,24 @@ function applyDiligenceBonus(accuracyScore, diligenceLevel, maxScore, diligenceC
 }
 
 // ========== 勤勉加分分配到小题（供 adapter 使用）==========
-function distributeDiligenceBonus(subScores, bonus) {
+function distributeDiligenceBonus(subScores, bonus, roundFn) {
     if (!bonus || bonus <= 0 || !subScores || subScores.length === 0) return subScores;
 
     const totalMax = subScores.reduce((s, sq) => s + (sq.maxScore || 1), 0);
     if (totalMax <= 0) return subScores;
 
+    const round = roundFn || (v => Math.round(v * 100) / 100);
     let remaining = bonus;
     return subScores.map((sq, i) => {
         if (i === subScores.length - 1) {
             // 最后一题吸收剩余
             const added = Math.min(remaining, (sq.maxScore || Infinity) - (sq.score || 0));
-            return { ...sq, score: Math.round((sq.score + added) * 100) / 100 };
+            return { ...sq, score: round(sq.score + added) };
         }
         const share = Math.round(bonus * (sq.maxScore || 1) / totalMax * 10) / 10;
         const maxAdd = (sq.maxScore || 0) - (sq.score || 0);
         const added = Math.min(share, maxAdd, remaining);
         remaining -= added;
-        return { ...sq, score: Math.round((sq.score + added) * 100) / 100 };
+        return { ...sq, score: round(sq.score + added) };
     });
 }

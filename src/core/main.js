@@ -150,12 +150,15 @@ async function startAutoGrading() {
                 ...sq,
                 score: sq.score !== null ? applyScoringRules(sq.score, scoringConfig) : null
             }));
+            // 勤勉加分分配到小题（在 main.js 侧完成，确保取整规则生效）
+            const finalSubScores = roundedBonus > 0
+                ? distributeDiligenceBonus(roundedSubScores, roundedBonus, s => applyScoringRules(s, scoringConfig))
+                : roundedSubScores;
             const adapter = window.__AI_MARKER_ADAPTER__;
             if (adapter && adapter.fillScore) {
                 adapter.fillScore({
                     total: finalScore,
-                    subScores: roundedSubScores,
-                    diligenceBonus: roundedBonus
+                    subScores: finalSubScores
                 });
             }
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
