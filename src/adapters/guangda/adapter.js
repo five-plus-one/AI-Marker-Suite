@@ -2,52 +2,56 @@
 // pj.yixx.cn — Vue 2 + Canvas 渲染
 
 // 拦截 getDdb API 响应，获取当前试卷图片 URL
+// 仅在光大平台 (pj.yixx.cn) 上执行 XHR 拦截，避免影响其他平台
 let _guangdaCurrentPaperImages = [];
 let _guangdaNextPaperImages = [];
-const _guangdaOrigOpen = XMLHttpRequest.prototype.open;
-const _guangdaOrigSend = XMLHttpRequest.prototype.send;
 
-XMLHttpRequest.prototype.open = function(method, url, ...args) {
-    this._guangdaUrl = url;
-    return _guangdaOrigOpen.call(this, method, url, ...args);
-};
+if (window.location.hostname.includes('pj.yixx.cn')) {
+    const _guangdaOrigOpen = XMLHttpRequest.prototype.open;
+    const _guangdaOrigSend = XMLHttpRequest.prototype.send;
 
-XMLHttpRequest.prototype.send = function(...args) {
-    this.addEventListener('load', function() {
-        try {
-            const url = this._guangdaUrl || '';
-            if (url.includes('getDdb') || url.includes('getDdbByNext')) {
-                const response = JSON.parse(this.responseText);
-                const vKs = response?.result?.vKs;
+    XMLHttpRequest.prototype.open = function(method, url, ...args) {
+        this._guangdaUrl = url;
+        return _guangdaOrigOpen.call(this, method, url, ...args);
+    };
 
-                if (vKs && vKs.length > 0) {
-                    // 当前试卷（第一份）
-                    const currentPaper = vKs[0];
-                    if (currentPaper?.imageData?.vUrl) {
-                        _guangdaCurrentPaperImages = currentPaper.imageData.vUrl.filter(url =>
-                            url && (url.startsWith('http://') || url.startsWith('https://'))
-                        );
-                        console.log(`🎯 [API拦截] 当前试卷图片: ${_guangdaCurrentPaperImages.length} 张`);
-                        _guangdaCurrentPaperImages.forEach((url, i) => {
-                            console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`);
-                        });
-                    }
+    XMLHttpRequest.prototype.send = function(...args) {
+        this.addEventListener('load', function() {
+            try {
+                const url = this._guangdaUrl || '';
+                if (url.includes('getDdb') || url.includes('getDdbByNext')) {
+                    const response = JSON.parse(this.responseText);
+                    const vKs = response?.result?.vKs;
 
-                    // 预加载的下一份试卷
-                    if (vKs.length > 1 && vKs[1]?.imageData?.vUrl) {
-                        _guangdaNextPaperImages = vKs[1].imageData.vUrl.filter(url =>
-                            url && (url.startsWith('http://') || url.startsWith('https://'))
-                        );
-                        console.log(`📦 [API拦截] 预加载下一份试卷图片: ${_guangdaNextPaperImages.length} 张`);
+                    if (vKs && vKs.length > 0) {
+                        // 当前试卷（第一份）
+                        const currentPaper = vKs[0];
+                        if (currentPaper?.imageData?.vUrl) {
+                            _guangdaCurrentPaperImages = currentPaper.imageData.vUrl.filter(url =>
+                                url && (url.startsWith('http://') || url.startsWith('https://'))
+                            );
+                            console.log(`🎯 [API拦截] 当前试卷图片: ${_guangdaCurrentPaperImages.length} 张`);
+                            _guangdaCurrentPaperImages.forEach((url, i) => {
+                                console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`);
+                            });
+                        }
+
+                        // 预加载的下一份试卷
+                        if (vKs.length > 1 && vKs[1]?.imageData?.vUrl) {
+                            _guangdaNextPaperImages = vKs[1].imageData.vUrl.filter(url =>
+                                url && (url.startsWith('http://') || url.startsWith('https://'))
+                            );
+                            console.log(`📦 [API拦截] 预加载下一份试卷图片: ${_guangdaNextPaperImages.length} 张`);
+                        }
                     }
                 }
+            } catch (e) {
+                // 忽略解析错误
             }
-        } catch (e) {
-            // 忽略解析错误
-        }
-    });
-    return _guangdaOrigSend.call(this, ...args);
-};
+        });
+        return _guangdaOrigSend.call(this, ...args);
+    };
+}
 
 const GuangdaAdapter = {
     name: '光大阅卷',
