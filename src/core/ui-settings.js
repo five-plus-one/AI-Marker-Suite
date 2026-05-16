@@ -1199,6 +1199,10 @@ function fillFormFromActivePreset() {
                 subToggle.checked = true;
                 subContainer.style.display = 'block';
                 detected.forEach(sq => addSubQuestionItem({ label: sq.label, maxScore: '', answer: '', rubric: '' }));
+                // 自动展开"分小题评分"手风琴，引导用户填写满分
+                const subSection = subToggle.closest('.form-section');
+                if (subSection) subSection.classList.remove('collapsed');
+                setTimeout(() => showToast(`已识别 ${detected.length} 个小题，请为每题填写满分后保存`, 'info'), 300);
             } else {
                 subToggle.checked = false;
                 subContainer.style.display = 'none';
