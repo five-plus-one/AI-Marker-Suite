@@ -117,11 +117,27 @@ async function startAutoGrading() {
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
         if (result.score !== undefined && result.score !== null) {
-            // 应用取整规则
+            // 应用取整规则（准确性分数）
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
-            const finalScore = applyScoringRules(result.score, scoringConfig);
-            if (finalScore !== result.score) {
-                console.log(`📐 [诊断] 取整: ${result.score} → ${finalScore} (步长: ${scoringConfig.roundStep}, 方式: ${scoringConfig.roundMethod})`);
+            const accuracyScore = applyScoringRules(result.score, scoringConfig);
+            if (accuracyScore !== result.score) {
+                console.log(`📐 [诊断] 取整: ${result.score} → ${accuracyScore} (步长: ${scoringConfig.roundStep}, 方式: ${scoringConfig.roundMethod})`);
+            }
+
+            // 勤勉加分计算
+            const maxScore = result.subScores
+                ? result.subScores.reduce((sum, sq) => sum + (sq.maxScore || 0), 0)
+                : 100;
+            const diligenceResult = applyDiligenceBonus(
+                result.rawScore || result.score, // 使用原始分数计算衰减，不受取整影响
+                result.diligenceLevel || 0,
+                maxScore,
+                scoringConfig.diligence
+            );
+            const finalScore = applyScoringRules(diligenceResult.finalScore, scoringConfig);
+
+            if (diligenceResult.bonus > 0) {
+                console.log(`🌟 [勤勉加分] 等级${result.diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${diligenceResult.bonus}, 最终${finalScore}`);
             }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
@@ -134,13 +150,24 @@ async function startAutoGrading() {
             }));
             const adapter = window.__AI_MARKER_ADAPTER__;
             if (adapter && adapter.fillScore) {
-                adapter.fillScore({ total: finalScore, subScores: roundedSubScores });
+                adapter.fillScore({
+                    total: finalScore,
+                    subScores: roundedSubScores,
+                    diligenceBonus: diligenceResult.bonus
+                });
             }
-            // 传递结构化评分详情和双评信息到提交对话框
+            // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
             showAutoSubmitDialog(finalScore, result.comment, roundedSubScores, {
                 scoringDetails: result._sections || null,
                 dualEval: result.dualEval || null,
-                rawScore: result.rawScore || result.score
+                rawScore: result.rawScore || result.score,
+                diligence: {
+                    level: result.diligenceLevel || 0,
+                    reason: result.diligenceReason || '',
+                    bonus: diligenceResult.bonus,
+                    decayFactor: diligenceResult.decayFactor,
+                    accuracyScore: accuracyScore
+                }
             });
         } else {
             // 分数解析失败（"未能识别"），自动重试

@@ -619,6 +619,37 @@ function createSettingsPanel() {
                     </div>
                 </div>
 
+                <!-- 勤勉加分 -->
+                <div class="form-section collapsed">
+                    <div class="section-header"><h4>勤勉加分</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="diligence-enabled">
+                            <label for="diligence-enabled">启用勤勉加分</label>
+                        </div>
+                        <div style="font-size:12px;color:#86868b;margin-top:4px;margin-bottom:12px;">对态度认真但未踩中得分点的学生酌情加分，分数越高权重越低</div>
+                        <div id="diligence-config-group">
+                            <div class="form-group">
+                                <label>最大勤勉分</label>
+                                <input type="number" id="diligence-max-bonus" min="1" max="10" value="3">
+                                <div style="font-size:11px;color:#86868b;margin-top:4px;">勤勉加分的上限，不超过满分</div>
+                            </div>
+                            <div class="form-group">
+                                <label>衰减强度</label>
+                                <select id="diligence-decay-power">
+                                    <option value="1">缓慢衰减（高分也给少量加分）</option>
+                                    <option value="2" selected>标准衰减（推荐）</option>
+                                    <option value="3">快速衰减（仅低分有加分）</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>自定义评估标准（可选）</label>
+                                <textarea id="diligence-criteria" rows="3" placeholder="例如：书写工整、解题步骤完整、答题态度认真...&#10;留空则使用通用评估"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ===== 其他 ===== -->
                 <div class="group-title" id="group-other">其他</div>
 
@@ -1118,6 +1149,25 @@ function fillFormFromActivePreset() {
     if (stepSelect) stepSelect.value = scoring.roundStep;
     if (methodSelect) methodSelect.value = scoring.roundMethod;
 
+    // 勤勉加分配置
+    const diligence = scoring.diligence || { enabled: false, maxBonus: 3, decayPower: 2, criteria: '' };
+    const diligenceEnabled = document.getElementById('diligence-enabled');
+    const diligenceConfigGroup = document.getElementById('diligence-config-group');
+    if (diligenceEnabled) {
+        diligenceEnabled.checked = diligence.enabled;
+        diligenceEnabled.addEventListener('change', () => {
+            if (diligenceConfigGroup) diligenceConfigGroup.style.display = diligenceEnabled.checked ? 'block' : 'none';
+            markUnsavedChanges();
+        });
+    }
+    const maxBonusInput = document.getElementById('diligence-max-bonus');
+    if (maxBonusInput) maxBonusInput.value = diligence.maxBonus || 3;
+    const decayPowerSelect = document.getElementById('diligence-decay-power');
+    if (decayPowerSelect) decayPowerSelect.value = diligence.decayPower || 2;
+    const criteriaTextarea = document.getElementById('diligence-criteria');
+    if (criteriaTextarea) criteriaTextarea.value = diligence.criteria || '';
+    if (diligenceConfigGroup) diligenceConfigGroup.style.display = diligence.enabled ? 'block' : 'none';
+
     const gradingMode = config.gradingMode || 'normal';
     const modeRadio = document.querySelector(`input[name="grading-mode"][value="${gradingMode}"]`);
     if (modeRadio) modeRadio.checked = true;
@@ -1219,7 +1269,7 @@ function addSubQuestionItem(data) {
             <button class="preset-btn danger sq-del-btn" style="margin-left:8px;padding:4px 8px;font-size:11px;">删除</button>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
-            <div style="flex:1;"><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">满分</label><input type="number" class="sq-max-score" placeholder="分" value="${data?.maxScore || ''}" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;box-sizing:border-box;"></div>
+            <div style="flex:1;"><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">满分 <span style="color:#D93025;">*</span></label><input type="number" class="sq-max-score" placeholder="满分(必填)" value="${data?.maxScore || ''}" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;box-sizing:border-box;"></div>
         </div>
         <div style="margin-bottom:8px;"><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">参考答案</label><textarea class="sq-answer" placeholder="该小题的参考答案" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;min-height:50px;resize:vertical;box-sizing:border-box;font-family:inherit;">${data?.answer || ''}</textarea></div>
         <div><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">评分标准</label><textarea class="sq-rubric" placeholder="该小题的评分标准" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;min-height:50px;resize:vertical;box-sizing:border-box;font-family:inherit;">${data?.rubric || ''}</textarea></div>
@@ -1248,7 +1298,7 @@ function getSubQuestionsFromForm() {
                 label,
                 answer: answer || '',
                 rubric: rubric || '',
-                maxScore: isNaN(maxScore) ? 0 : maxScore
+                maxScore: isNaN(maxScore) ? null : maxScore
             });
         }
     });
@@ -1786,6 +1836,16 @@ function saveAISettings() {
     const providerName = document.getElementById('ai-provider').value;
     const subQuestions = getSubQuestionsFromForm();
 
+    // 分小题满分校验：防止 maxScore 为空或 0 导致 AI 按"满分0分"打分
+    if (subQuestions.length > 0) {
+        const missingMaxScore = subQuestions.filter(sq => !sq.maxScore || sq.maxScore <= 0);
+        if (missingMaxScore.length > 0) {
+            const labels = missingMaxScore.map(sq => sq.label).join('、');
+            safeAlert(`⚠️ 以下小题的满分未填写或为0：${labels}\n\n满分为0会导致 AI 给出0分，请填写每道小题的满分后再保存。`);
+            return;
+        }
+    }
+
     // 保存供应商配置（仅保存当前编辑的供应商，不设置"活跃"供应商）
     const provider = ProviderManager.getProvider(providerName);
     if (provider) {
@@ -1804,6 +1864,12 @@ function saveAISettings() {
     const roundStep = parseFloat(document.getElementById('scoring-round-step')?.value) || 1;
     const roundMethod = document.getElementById('scoring-round-method')?.value || 'round';
 
+    // 保存勤勉加分配置
+    const diligenceEnabled = document.getElementById('diligence-enabled')?.checked || false;
+    const diligenceMaxBonus = parseInt(document.getElementById('diligence-max-bonus')?.value) || 3;
+    const diligenceDecayPower = parseInt(document.getElementById('diligence-decay-power')?.value) || 2;
+    const diligenceCriteria = document.getElementById('diligence-criteria')?.value?.trim() || '';
+
     // 保存批阅份数配置
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
@@ -1815,7 +1881,15 @@ function saveAISettings() {
         workflowId: workflowId || 'fast',
         gradingMode,
         subQuestions: subQuestions.length > 0 ? subQuestions : undefined,
-        scoring: { roundStep, roundMethod },
+        scoring: {
+            roundStep, roundMethod,
+            diligence: {
+                enabled: diligenceEnabled,
+                maxBonus: diligenceMaxBonus,
+                decayPower: diligenceDecayPower,
+                criteria: diligenceCriteria
+            }
+        },
         batchConfig: {
             enabled: batchEnabled,
             targetCount: batchTargetCount

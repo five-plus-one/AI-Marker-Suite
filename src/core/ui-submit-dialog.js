@@ -26,6 +26,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const scoringDetails = extraInfo?.scoringDetails || null;
     const dualEval = extraInfo?.dualEval || null;
     const rawScore = extraInfo?.rawScore || score;
+    const diligence = extraInfo?.diligence || null;
 
     console.log(`🪟 [诊断] showAutoSubmitDialog 调用 — 分数: ${score}, 模式: ${mode}, 双评: ${!!dualEval}`);
 
@@ -233,6 +234,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     <div class="asd-score-meta">
                         <div class="asd-score-label">最终得分</div>
                         ${subScores && subScores.length > 0 ? `<div style="font-size:12px;color:#86868b;">满分 ${maxScore}</div>` : ''}
+                        ${diligence && diligence.bonus > 0 ? `<div style="font-size:12px;color:#34A853;font-weight:500;">准确性 ${diligence.accuracyScore} + 勤勉 +${diligence.bonus}</div>` : ''}
                     </div>
                 </div>
                 ${subScores && subScores.length > 0 ? `
@@ -331,6 +333,25 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     </div>
                 </div>` : ''}
                 ` : ''}
+                ${diligence && diligence.bonus > 0 ? `
+                <div class="asd-info-block">
+                    <div class="asd-info-label">勤勉加分</div>
+                    <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                            <span style="font-size:12px;color:#666;">勤勉度等级</span>
+                            <span style="font-size:13px;font-weight:600;">${diligence.level}/5</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                            <span style="font-size:12px;color:#666;">衰减系数</span>
+                            <span style="font-size:13px;">${diligence.decayFactor.toFixed(2)}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                            <span style="font-size:12px;color:#666;">加分</span>
+                            <span style="font-size:14px;font-weight:600;color:#34A853;">+${diligence.bonus}</span>
+                        </div>
+                        ${diligence.reason ? `<div style="font-size:12px;color:#666;margin-top:4px;">${diligence.reason}</div>` : ''}
+                    </div>
+                </div>` : ''}
                 <div class="asd-info-block"><div class="asd-info-label">识别答案</div><div class="asd-info-content">${studentAnswer}</div></div>
                 ${comment ? `<div class="asd-info-block"><div class="asd-info-label">评语</div><div class="asd-info-content">${comment}</div></div>` : ''}
             </div>
@@ -382,7 +403,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         correctionReason: correctionInfo.correctionReason,
                         imageBase64s: window.aiGradingState.currentBase64DataArray || [],
                         subScores: correctedSubScores,
-                        dualEval: dualEval || null
+                        dualEval: dualEval || null,
+                        diligenceLevel: diligence?.level || 0,
+                        diligenceBonus: diligence?.bonus || 0,
+                        diligenceReason: diligence?.reason || ''
                     });
                     if (correctionInfo.newAnswer || correctionInfo.newRubric) {
                         const activeName = PresetManager.data.active;
@@ -559,7 +583,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 finalScore: score, isCorrected: false, correctionReason: '',
                 imageBase64s: window.aiGradingState.currentBase64DataArray || [],
                 subScores: subScores,
-                dualEval: dualEval || null
+                dualEval: dualEval || null,
+                diligenceLevel: diligence?.level || 0,
+                diligenceBonus: diligence?.bonus || 0,
+                diligenceReason: diligence?.reason || ''
             });
         } catch (e) {
             console.error('⚠️ [诊断] 历史记录保存失败（不影响批阅进度）:', e);

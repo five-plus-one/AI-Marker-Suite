@@ -656,14 +656,23 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
             console.log(`✅ [双评] 分小题平均: ${finalSubScores.map(s => s.label + '=' + s.score).join(', ')}`);
         }
 
+        // 勤勉度也取平均
+        const avgDiligenceLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
+        const avgDiligenceReason = detailA?.diligenceLevel >= (detailB?.diligenceLevel || 0)
+            ? (detailA?.diligenceReason || '') : (detailB?.diligenceReason || '');
+
         return {
             ...detailA,
             score: finalScore,
             subScores: finalSubScores,
+            diligenceLevel: avgDiligenceLevel,
+            diligenceReason: avgDiligenceReason,
             dualEval: {
                 scoreA, scoreB, diff, result: 'consensus',
                 detailA: detailA?._sections || null,
-                detailB: detailB?._sections || null
+                detailB: detailB?._sections || null,
+                diligenceA: detailA?.diligenceLevel || 0,
+                diligenceB: detailB?.diligenceLevel || 0
             }
         };
     }
@@ -681,7 +690,14 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     if (!arbConfig) {
         console.warn('⚠️ [三评] 仲裁模型配置不完整，取平均分');
         const finalScore = Math.round((scoreA + scoreB) / 2);
-        return { ...detailA, score: finalScore, dualEval: { scoreA, scoreB, diff, result: 'average-fallback', detailA: detailA?._sections || null, detailB: detailB?._sections || null } };
+        const avgLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
+        return {
+            ...detailA,
+            score: finalScore,
+            diligenceLevel: avgLevel,
+            diligenceReason: detailA?.diligenceReason || '',
+            dualEval: { scoreA, scoreB, diff, result: 'average-fallback', detailA: detailA?._sections || null, detailB: detailB?._sections || null }
+        };
     }
 
     const arbPrompt = buildArbitrationPrompt(config, detailA, detailB, threshold);
@@ -689,16 +705,22 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     const arbParsed = parseStructuredResponse(arbResult);
 
     console.log(`✅ [三评] 仲裁结果: ${arbParsed.score}`);
+    // 仲裁模型不评估勤勉度，取 A/B 平均
+    const arbDiligenceLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
     return {
         ...arbParsed,
         studentAnswer: detailA?.studentAnswer || detailB?.studentAnswer || arbParsed.studentAnswer || '未能识别',
+        diligenceLevel: arbDiligenceLevel,
+        diligenceReason: detailA?.diligenceReason || '',
         dualEval: {
             scoreA, scoreB, diff,
             result: 'arbitration',
             arbScore: arbParsed.score,
             arbAnalysis: arbParsed._sections?.['仲裁分析'] || '',
             detailA: detailA?._sections || null,
-            detailB: detailB?._sections || null
+            detailB: detailB?._sections || null,
+            diligenceA: detailA?.diligenceLevel || 0,
+            diligenceB: detailB?.diligenceLevel || 0
         }
     };
 }

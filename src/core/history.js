@@ -305,13 +305,14 @@ const HistoryManager = {
 
     exportCSV(records) {
         records = records || this.records;
-        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析\n';
+        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析\n';
         const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const esc = s => '"' + String(s || '').replace(/"/g, '""') + '"';
             const d = r.dualEval;
             return [time, r.presetName, r.gradingMode, r.aiScore, r.finalScore,
                 r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(r.studentAnswer), esc(r.aiComment),
+                r.diligenceLevel || 0, r.diligenceBonus || 0, esc(r.diligenceReason || ''),
                 d ? '是' : '否',
                 d?.scoreA ?? '', esc(d?.detailA?.['评分依据'] ?? ''), esc(d?.detailA?.['分数计算'] ?? ''),
                 d?.scoreB ?? '', esc(d?.detailB?.['评分依据'] ?? ''), esc(d?.detailB?.['分数计算'] ?? ''),
@@ -1057,6 +1058,7 @@ function showHistoryPanel() {
             const markedTag = r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
             const correctedTag = r.isCorrected ? '<span class="hist-tag corrected">已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span class="hist-tag ${r.dualEval.result === 'arbitration' ? 'arbitration' : 'dual'}">双评</span>` : '';
+            const diligenceTag = r.diligenceBonus && r.diligenceBonus > 0 ? `<span class="hist-tag" style="color:#34A853;background:rgba(52,168,83,0.08);border-color:rgba(52,168,83,0.15);">+${r.diligenceBonus}勤勉</span>` : '';
             const showImageTag = (exportFormat === 'html' && htmlImageOption === 'with');
             const imgStatus = showImageTag ? ImageStore.getImageStatus(r.id) : null;
             const imageTag = showImageTag
@@ -1078,7 +1080,7 @@ function showHistoryPanel() {
                             <span class="hist-item-meta">${escapeHtml(presetName)} · ${escapeHtml(modeLabel)}模式</span>
                         </div>
                         <p class="hist-item-text">答案：${escapeHtml(answerPreview)}</p>
-                        <div class="hist-item-tags">${dualTag}${imageTag}${markedTag}${correctedTag}</div>
+                        <div class="hist-item-tags">${dualTag}${diligenceTag}${imageTag}${markedTag}${correctedTag}</div>
                     </div>
                     <div class="hist-item-side">
                         <div class="hist-item-score">
@@ -1234,6 +1236,21 @@ function showHistoryDetail(record) {
                     </div>
                     ${sq.comment ? `<div style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
                     `).join('')}
+                </div>
+            </div>` : ''}
+            ${record.diligenceBonus && record.diligenceBonus > 0 ? `
+            <div style="margin-bottom:16px;">
+                <div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:8px;">勤勉加分</div>
+                <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                        <span style="font-size:12px;color:#666;">勤勉度等级</span>
+                        <span style="font-size:13px;font-weight:600;">${record.diligenceLevel || 0}/5</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                        <span style="font-size:12px;color:#666;">加分</span>
+                        <span style="font-size:14px;font-weight:600;color:#34A853;">+${record.diligenceBonus}</span>
+                    </div>
+                    ${record.diligenceReason ? `<div style="font-size:12px;color:#666;margin-top:4px;">${record.diligenceReason}</div>` : ''}
                 </div>
             </div>` : ''}
             ${record.isCorrected ? `<div style="background:rgba(0,82,255,0.04);border-left:3px solid #0052FF;padding:10px 14px;border-radius:0 8px 8px 0;font-size:12px;color:#0052FF;margin-bottom:16px;line-height:1.5;">${record.correctionReason || '已纠错'}</div>` : ''}

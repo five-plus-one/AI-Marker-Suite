@@ -1,5 +1,19 @@
 // ========== 提示词组装与解析 ==========
 
+// ---------- 勤勉度 Prompt 片段 ----------
+function buildDiligencePromptSection(config) {
+    const diligence = config.scoring?.diligence;
+    if (!diligence || !diligence.enabled) return '';
+
+    const criteria = diligence.criteria || '书写工整、解题过程完整、答题态度认真';
+
+    return `
+
+【勤勉度】
+等级：（1-5的整数，1=态度敷衍，3=中等，5=非常认真）
+依据：（简述理由，参考标准：${criteria}）`;
+}
+
 // ---------- 结构化评分 Prompt（新） ----------
 function buildStructuredPrompt(config) {
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
@@ -27,7 +41,7 @@ function buildStructuredPrompt(config) {
 （一个数字，可以是小数）
 
 【最终得分】
-（一个整数）
+（一个整数）${buildDiligencePromptSection(config)}
 
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记，不要省略任何段落
@@ -95,6 +109,16 @@ function parseStructuredResponse(text) {
         studentAnswer = '未能识别';
     }
 
+    // Level 6: 勤勉度提取
+    let diligenceLevel = 0;
+    let diligenceReason = '';
+    if (sections['勤勉度']) {
+        const levelMatch = sections['勤勉度'].match(/等级[：:]\s*(\d)/);
+        if (levelMatch) diligenceLevel = Math.min(5, Math.max(1, parseInt(levelMatch[1])));
+        const reasonMatch = sections['勤勉度'].match(/依据[：:]\s*(.+?)(?=\n|$)/);
+        if (reasonMatch) diligenceReason = reasonMatch[1].trim();
+    }
+
     return {
         studentAnswer: studentAnswer,
         score: finalScore,
@@ -102,6 +126,8 @@ function parseStructuredResponse(text) {
         scoringBasis: sections['评分依据'] || '',
         calculation: sections['分数计算'] || '',
         comment: (sections['评分依据'] || '').substring(0, 200),
+        diligenceLevel: diligenceLevel,
+        diligenceReason: diligenceReason,
         _sections: sections
     };
 }
@@ -173,6 +199,8 @@ function parseLegacyResponse(text) {
         scoringBasis: '',
         calculation: '',
         comment: comment || text,
+        diligenceLevel: 0,
+        diligenceReason: '',
         _sections: {}
     };
 }
@@ -254,7 +282,8 @@ function buildSubQuestionPrompt(config) {
 
     prompt += `\n【各小题评分要求】\n`;
     for (const sq of config.subQuestions) {
-        prompt += `\n### ${sq.label}（满分${sq.maxScore}分）`;
+        const maxScoreText = (sq.maxScore && sq.maxScore > 0) ? `满分${sq.maxScore}分` : '满分未指定，请根据常规满分评判';
+        prompt += `\n### ${sq.label}（${maxScoreText}）`;
         if (sq.answer) prompt += `\n参考答案：${sq.answer}`;
         if (sq.rubric) prompt += `\n评分标准：${sq.rubric}`;
         prompt += '\n';
@@ -282,7 +311,7 @@ function buildSubQuestionPrompt(config) {
 （一个数字）
 
 【最终得分】
-（一个整数）
+（一个整数）${buildDiligencePromptSection(config)}
 
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
@@ -389,7 +418,7 @@ function parseLegacySubQuestionResponse(text, config) {
     if (totalScore === null) totalScore = calculatedTotal;
 
     console.log(`🧠 [诊断] 分小题解析结果 — 总分: ${totalScore}, 各小题: ${subScores.map(s => s.label + '=' + s.score).join(', ')}`);
-    return { studentAnswer, score: totalScore, rawScore: totalScore, comment: '', subScores, _sections: {} };
+    return { studentAnswer, score: totalScore, rawScore: totalScore, comment: '', subScores, diligenceLevel: 0, diligenceReason: '', _sections: {} };
 }
 
 // ========== 打分专用函数 ==========
@@ -397,6 +426,10 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
     const hasSub = config.subQuestions && config.subQuestions.length > 0;
     // 优先使用结构化 Prompt
     const prompt = hasSub ? buildSubQuestionPrompt(config) : buildStructuredPrompt(config);
+
+    if (hasSub) {
+        console.log(`📋 [诊断] 分小题配置 — 共 ${config.subQuestions.length} 题: ${config.subQuestions.map(sq => `${sq.label}(满分${sq.maxScore ?? '未设置'})`).join(', ')}`);
+    }
 
     return callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate)
         .then(fullText => {
@@ -427,4 +460,45 @@ function applyScoringRules(score, scoringConfig) {
     // 按步长取整
     const rounded = Math[method](score / step) * step;
     return Math.round(rounded * 100) / 100; // 避免浮点精度问题
+}
+
+// ========== 勤勉加分计算 ==========
+function applyDiligenceBonus(accuracyScore, diligenceLevel, maxScore, diligenceConfig) {
+    if (!diligenceConfig || !diligenceConfig.enabled || !diligenceLevel || diligenceLevel <= 0 || maxScore <= 0) {
+        return { bonus: 0, decayFactor: 0, finalScore: accuracyScore };
+    }
+
+    const maxBonus = diligenceConfig.maxBonus || 3;
+    const decayPower = diligenceConfig.decayPower || 2;
+    const perLevel = 1; // 每级1分
+
+    const ratio = Math.min(accuracyScore / maxScore, 1);
+    const decayFactor = Math.pow(1 - ratio, decayPower);
+    const rawBonus = Math.min(diligenceLevel * perLevel, maxBonus);
+    const bonus = Math.round(rawBonus * decayFactor * 100) / 100;
+    const finalScore = Math.min(accuracyScore + bonus, maxScore);
+
+    return { bonus, decayFactor, rawBonus, finalScore };
+}
+
+// ========== 勤勉加分分配到小题（供 adapter 使用）==========
+function distributeDiligenceBonus(subScores, bonus) {
+    if (!bonus || bonus <= 0 || !subScores || subScores.length === 0) return subScores;
+
+    const totalMax = subScores.reduce((s, sq) => s + (sq.maxScore || 1), 0);
+    if (totalMax <= 0) return subScores;
+
+    let remaining = bonus;
+    return subScores.map((sq, i) => {
+        if (i === subScores.length - 1) {
+            // 最后一题吸收剩余
+            const added = Math.min(remaining, (sq.maxScore || Infinity) - (sq.score || 0));
+            return { ...sq, score: Math.round((sq.score + added) * 100) / 100 };
+        }
+        const share = Math.round(bonus * (sq.maxScore || 1) / totalMax * 10) / 10;
+        const maxAdd = (sq.maxScore || 0) - (sq.score || 0);
+        const added = Math.min(share, maxAdd, remaining);
+        remaining -= added;
+        return { ...sq, score: Math.round((sq.score + added) * 100) / 100 };
+    });
 }

@@ -79,14 +79,16 @@ const ZhixueAdapter = {
     },
 
     fillScore(request) {
-        const { total, subScores } = request;
+        const { total, subScores, diligenceBonus } = request;
+        // 有勤勉加分时，按比例分配到各小题
+        const scoresToFill = (subScores && diligenceBonus > 0) ? distributeDiligenceBonus(subScores, diligenceBonus) : subScores;
 
         // 分小题填入
-        if (subScores && subScores.length > 0) {
+        if (scoresToFill && scoresToFill.length > 0) {
             const detected = this.detectSubQuestions();
             if (detected.length > 0) {
                 const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                for (const sq of subScores) {
+                for (const sq of scoresToFill) {
                     const target = detected.find(d =>
                         d.label === sq.label || sq.label.includes(d.label) || d.label.includes(sq.label)
                     );
