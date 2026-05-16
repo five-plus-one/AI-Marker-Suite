@@ -134,10 +134,12 @@ async function startAutoGrading() {
                 maxScore,
                 scoringConfig.diligence
             );
-            const finalScore = applyScoringRules(diligenceResult.finalScore, scoringConfig);
+            // 勤勉加分本身也要取整（如步长=1时，bonus 必须是整数）
+            const roundedBonus = applyScoringRules(diligenceResult.bonus, scoringConfig);
+            const finalScore = applyScoringRules(accuracyScore + roundedBonus, scoringConfig);
 
-            if (diligenceResult.bonus > 0) {
-                console.log(`🌟 [勤勉加分] 等级${result.diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${diligenceResult.bonus}, 最终${finalScore}`);
+            if (roundedBonus > 0) {
+                console.log(`🌟 [勤勉加分] 等级${result.diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${roundedBonus}, 最终${finalScore}`);
             }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
@@ -153,7 +155,7 @@ async function startAutoGrading() {
                 adapter.fillScore({
                     total: finalScore,
                     subScores: roundedSubScores,
-                    diligenceBonus: diligenceResult.bonus
+                    diligenceBonus: roundedBonus
                 });
             }
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
@@ -164,7 +166,7 @@ async function startAutoGrading() {
                 diligence: {
                     level: result.diligenceLevel || 0,
                     reason: result.diligenceReason || '',
-                    bonus: diligenceResult.bonus,
+                    bonus: roundedBonus,
                     decayFactor: diligenceResult.decayFactor,
                     accuracyScore: accuracyScore
                 }
