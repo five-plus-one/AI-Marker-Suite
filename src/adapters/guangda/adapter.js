@@ -150,16 +150,7 @@ const GuangdaAdapter = {
 
     // 从网络请求中获取图片 URL
     _getImageUrlsFromNetwork() {
-        // 最优先：从 getDdb API 拦截获取当前试卷图片
-        if (_guangdaCurrentPaperImages.length > 0) {
-            console.log(`🖼️ [诊断] 从 API 拦截获取当前试卷图片: ${_guangdaCurrentPaperImages.length} 张`);
-            _guangdaCurrentPaperImages.forEach((url, i) => {
-                console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`);
-            });
-            return [..._guangdaCurrentPaperImages];
-        }
-
-        // 备用：从 performance 获取
+        // 最优先：从 performance 获取（实际加载的图片，更可靠）
         const entries = performance.getEntriesByType('resource');
         const imageUrls = entries
             .filter(e => e.initiatorType === 'img' || e.name.includes('.jpg') || e.name.includes('.png'))
@@ -176,6 +167,15 @@ const GuangdaAdapter = {
             console.log(`🖼️ [诊断] 从 performance 找到 ${uniqueUrls.length} 张图片，使用最新的 1 张`);
             console.log(`  📷 图片: ${latestUrl.substring(0, 80)}...`);
             return [latestUrl];
+        }
+
+        // 备用：从 getDdb API 拦截获取当前试卷图片
+        if (_guangdaCurrentPaperImages.length > 0) {
+            console.log(`🖼️ [诊断] 从 API 拦截获取当前试卷图片: ${_guangdaCurrentPaperImages.length} 张`);
+            _guangdaCurrentPaperImages.forEach((url, i) => {
+                console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`);
+            });
+            return [..._guangdaCurrentPaperImages];
         }
 
         console.log(`🖼️ [诊断] 未找到图片`);
