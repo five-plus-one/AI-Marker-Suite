@@ -128,9 +128,13 @@ async function startAutoGrading() {
             const maxScore = result.subScores
                 ? result.subScores.reduce((sum, sq) => sum + (sq.maxScore || 0), 0)
                 : 100;
+            // 字数 ≤ 15 或未作答时，强制无勤勉分
+            let diligenceLevel = result.diligenceLevel || 0;
+            const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
+            if (answerLen <= 15) diligenceLevel = 0;
             const diligenceResult = applyDiligenceBonus(
                 result.rawScore || result.score, // 使用原始分数计算衰减，不受取整影响
-                result.diligenceLevel || 0,
+                diligenceLevel,
                 maxScore,
                 scoringConfig.diligence
             );
@@ -139,7 +143,7 @@ async function startAutoGrading() {
             const finalScore = applyScoringRules(accuracyScore + roundedBonus, scoringConfig);
 
             if (roundedBonus > 0) {
-                console.log(`🌟 [勤勉加分] 等级${result.diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${roundedBonus}, 最终${finalScore}`);
+                console.log(`🌟 [勤勉加分] 等级${diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${roundedBonus}, 最终${finalScore}`);
             }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
@@ -167,7 +171,7 @@ async function startAutoGrading() {
                 dualEval: result.dualEval || null,
                 rawScore: result.rawScore || result.score,
                 diligence: {
-                    level: result.diligenceLevel || 0,
+                    level: diligenceLevel,
                     reason: result.diligenceReason || '',
                     bonus: roundedBonus,
                     decayFactor: diligenceResult.decayFactor,
