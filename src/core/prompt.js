@@ -398,7 +398,7 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
     // 优先使用结构化 Prompt
     const prompt = hasSub ? buildSubQuestionPrompt(config) : buildStructuredPrompt(config);
 
-    return callAI(prompt, base64DataArray, config, onStreamUpdate)
+    return callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate)
         .then(fullText => {
             console.log('📝 [诊断] AI原始返回内容：\n' + fullText);
 

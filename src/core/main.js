@@ -158,26 +158,34 @@ async function startAutoGrading() {
         hideStreamPanel();
         if (error.message === '用户主动暂停' || error.message === '用户暂停') {
             console.log('⏸️ 请求已被暂停');
-        } else {
-            console.error('❌ 打分失败:', error);
-            if (window.aiGradingState.gradingMode === 'unattended' && !window.aiGradingState.isPaused) {
-                window.aiGradingState.errorRetryCount++;
-                if (window.aiGradingState.errorRetryCount <= window.aiGradingState.maxRetries) {
-                    sessionStorage.setItem('ai-grading-auto-resume', 'true');
-                    sessionStorage.setItem('ai-grading-retry-count', window.aiGradingState.errorRetryCount.toString());
-                    setTimeout(() => location.reload(), 2000);
-                    return;
-                } else {
-                    stopAutoGrading();
-                    safeAlert('❌ 错误重试上限，自动停止。');
-                    return;
-                }
-            }
-            safeAlert('❌ 打分失败: ' + error.message);
+            return;
         }
+
+        console.error('❌ 打分失败:', error);
+        window.aiGradingState.errorRetryCount++;
+        const retryCount = window.aiGradingState.errorRetryCount;
+        const maxRetries = window.aiGradingState.maxRetries;
+
+        if (retryCount <= maxRetries) {
+            // 瞬时错误：直接 setTimeout 重试（不刷新页面）
+            const delay = retryCount <= 2 ? 2000 : 5000; // 前2次2秒，之后5秒
+            console.warn(`⚠️ 打分失败(第${retryCount}/${maxRetries}次): ${error.message}，${delay / 1000}秒后重试...`);
+            showToast(`⚠️ 第${retryCount}次重试中... (${error.message.slice(0, 30)})`);
+            setTimeout(() => startAutoGrading(), delay);
+            return;
+        }
+
+        // 超过重试次数：暂停（不停止），让用户决定
+        console.error(`❌ 连续失败${maxRetries}次，已暂停批改`);
         window.aiGradingState.isRunning = false;
+        window.aiGradingState.isPaused = true;
         const btn = document.querySelector('.ai-grade-btn');
-        if (btn) { btn.textContent = window.aiGradingState.isPaused ? '继续批改' : 'AI 批改'; btn.classList.remove('running', 'unattended', 'trial'); }
+        if (btn) {
+            btn.textContent = '继续批改';
+            btn.classList.remove('running', 'unattended', 'trial');
+            btn.classList.add('paused');
+        }
+        showToast(`❌ 连续失败${maxRetries}次，已暂停。点击"继续批改"可重试`);
     }
 }
 

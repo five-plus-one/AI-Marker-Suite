@@ -511,6 +511,43 @@ function callAI(prompt, base64DataArray, config, onStreamUpdate) {
     });
 }
 
+// ========== 带重试的 AI 请求包装 ==========
+// 对瞬时错误（超时/网络/429限流/5xx）自动重试，持久错误直接抛出
+async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, maxRetries = 1) {
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await callAI(prompt, base64DataArray, config, onStreamUpdate);
+        } catch (error) {
+            lastError = error;
+            const msg = error.message || '';
+
+            // 判断是否为可重试的瞬时错误
+            const isTransient =
+                msg.includes('请求超时') ||
+                msg.includes('网络请求被拦截') ||
+                msg.includes('API报错 (429') ||
+                msg.includes('API报错 (5') ||
+                msg.includes('图片下载超时') ||
+                msg.includes('图片下载跨域请求被拒绝');
+
+            if (isTransient && attempt < maxRetries) {
+                // 429限流等5秒，其他瞬时错误等2秒
+                const delay = msg.includes('429') ? 5000 : 2000;
+                console.warn(`⚠️ [重试] 第${attempt + 1}次失败: ${msg}，${delay / 1000}秒后重试...`);
+                await new Promise(r => setTimeout(r, delay));
+                continue;
+            }
+
+            // 不可重试的错误或已达最大重试次数
+            throw error;
+        }
+    }
+
+    throw lastError;
+}
+
 // ========== 双评引擎 ==========
 async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     const workflow = WorkflowManager.getWorkflow(config.workflowId);
@@ -544,20 +581,44 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     console.log(`🔄 [双评] 启动双评模式 — 主模型: ${primaryConfig.model}, 副模型: ${secondaryConfig.model}, 阈值: ${threshold}分`);
     if (onStreamUpdate) onStreamUpdate('🔄 双评模式：正在并发调用两个模型...');
 
-    // 并发调用
-    const [resultA, resultB] = await Promise.allSettled([
+    // 并发调用（使用带重试的包装）
+    let [resultA, resultB] = await Promise.allSettled([
         callAIGrading(base64DataArray, { ...config, ...primaryConfig }, null),
         callAIGrading(base64DataArray, { ...config, ...secondaryConfig }, null)
     ]);
 
-    const scoreA = resultA.status === 'fulfilled' ? resultA.value.score : null;
-    const scoreB = resultB.status === 'fulfilled' ? resultB.value.score : null;
-    const detailA = resultA.status === 'fulfilled' ? resultA.value : null;
-    const detailB = resultB.status === 'fulfilled' ? resultB.value : null;
+    let scoreA = resultA.status === 'fulfilled' ? resultA.value.score : null;
+    let scoreB = resultB.status === 'fulfilled' ? resultB.value.score : null;
+    let detailA = resultA.status === 'fulfilled' ? resultA.value : null;
+    let detailB = resultB.status === 'fulfilled' ? resultB.value : null;
 
-    // 两个都失败
+    // 两个都失败 → 重试一次
     if (scoreA === null && scoreB === null) {
-        throw new Error('双评均失败，请检查网络和模型配置');
+        console.warn('⚠️ [双评] 首次双评均失败，等待2秒后重试...');
+        if (resultA.reason) console.warn('  主模型错误:', resultA.reason.message || resultA.reason);
+        if (resultB.reason) console.warn('  副模型错误:', resultB.reason.message || resultB.reason);
+        if (onStreamUpdate) onStreamUpdate('⚠️ 双评均失败，正在重试...');
+        await new Promise(r => setTimeout(r, 2000));
+
+        [resultA, resultB] = await Promise.allSettled([
+            callAIGrading(base64DataArray, { ...config, ...primaryConfig }, null),
+            callAIGrading(base64DataArray, { ...config, ...secondaryConfig }, null)
+        ]);
+
+        scoreA = resultA.status === 'fulfilled' ? resultA.value.score : null;
+        scoreB = resultB.status === 'fulfilled' ? resultB.value.score : null;
+        detailA = resultA.status === 'fulfilled' ? resultA.value : null;
+        detailB = resultB.status === 'fulfilled' ? resultB.value : null;
+
+        // 重试后仍然都失败
+        if (scoreA === null && scoreB === null) {
+            const errA = resultA.reason?.message || resultA.reason || '未知';
+            const errB = resultB.reason?.message || resultB.reason || '未知';
+            console.error('❌ [双评] 重试后仍然双评均失败');
+            console.error('  主模型错误:', errA);
+            console.error('  副模型错误:', errB);
+            throw new Error(`双评均失败(已重试) — 主: ${errA}, 副: ${errB}`);
+        }
     }
 
     // 一个失败，使用另一个
@@ -624,7 +685,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     const arbPrompt = buildArbitrationPrompt(config, detailA, detailB, threshold);
-    const arbResult = await callAI(arbPrompt, base64DataArray, { ...config, ...arbConfig }, onStreamUpdate);
+    const arbResult = await callAIWithRetry(arbPrompt, base64DataArray, { ...config, ...arbConfig }, onStreamUpdate);
     const arbParsed = parseStructuredResponse(arbResult);
 
     console.log(`✅ [三评] 仲裁结果: ${arbParsed.score}`);

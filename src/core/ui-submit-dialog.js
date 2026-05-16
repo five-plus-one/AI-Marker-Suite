@@ -579,8 +579,17 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             console.log('继续批改...');
                             setTimeout(startAutoGrading, 500);
                         } else {
-                            stopAutoGrading();
-                            safeAlert('加载下一份试卷超时，已自动停止，请手动检查网络。');
+                            // 不停止，改为暂停让用户决定
+                            console.warn('⚠️ 加载下一份试卷超时，暂停批改');
+                            window.aiGradingState.isRunning = false;
+                            window.aiGradingState.isPaused = true;
+                            const btn = document.querySelector('.ai-grade-btn');
+                            if (btn) {
+                                btn.textContent = '继续批改';
+                                btn.classList.remove('running', 'unattended', 'trial');
+                                btn.classList.add('paused');
+                            }
+                            showToast('⚠️ 下一份试卷加载超时，已暂停。点击"继续批改"可重试');
                         }
                     });
                 } else {
@@ -591,8 +600,16 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             }
         } else {
             console.warn('未找到提交按钮，无法自动提交');
-            safeAlert('分数已填，但未找到页面的提交按钮');
-            if (mode === 'unattended') stopAutoGrading();
+            // 不停止，改为暂停让用户手动提交后继续
+            window.aiGradingState.isRunning = false;
+            window.aiGradingState.isPaused = true;
+            const btn = document.querySelector('.ai-grade-btn');
+            if (btn) {
+                btn.textContent = '继续批改';
+                btn.classList.remove('running', 'unattended', 'trial');
+                btn.classList.add('paused');
+            }
+            showToast('⚠️ 未找到提交按钮，请手动提交后点击"继续批改"');
         }
     };
 
