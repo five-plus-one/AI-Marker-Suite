@@ -162,7 +162,7 @@ const QitianAdapter = {
                 subs.push({ label, element: input, index: i });
             }
         });
-        return subs;
+        return subs.length > 1 ? subs : [];
     }
 };
 
