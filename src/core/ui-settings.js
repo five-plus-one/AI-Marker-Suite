@@ -644,7 +644,7 @@ function createSettingsPanel() {
                             </div>
                             <div class="form-group">
                                 <label>自定义评估标准（可选）</label>
-                                <textarea id="diligence-criteria" rows="3" placeholder="例如：书写工整、解题步骤完整、答题态度认真...&#10;留空则使用通用评估"></textarea>
+                                <textarea id="diligence-criteria" rows="3" placeholder="例如：字数较多(>15字)且书写较为工整&#10;留空则使用默认评估标准"></textarea>
                             </div>
                         </div>
                     </div>

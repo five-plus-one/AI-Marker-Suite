@@ -5,7 +5,7 @@ function buildDiligencePromptSection(config) {
     const diligence = config.scoring?.diligence;
     if (!diligence || !diligence.enabled) return '';
 
-    const criteria = diligence.criteria || '书写工整、解题过程完整、答题态度认真';
+    const criteria = diligence.criteria || '字数较多(>15字)且书写较为工整';
 
     return `
 
