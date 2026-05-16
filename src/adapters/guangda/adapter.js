@@ -1,11 +1,10 @@
 // ========== 光大阅卷适配器 ==========
 // pj.yixx.cn — Vue 2 + Canvas 渲染
 
-// 拦截 getDdb API 响应，获取当前试卷图片 URL
-// 仅在光大平台 (pj.yixx.cn) 上执行 XHR 拦截，避免影响其他平台
-let _guangdaCurrentPaperImages = [];
-let _guangdaNextPaperImages = [];
-let _guangdaImageVersion = 0; // 每次拦截到新图片时递增，用于检测图片更新
+// 图片池：密号(mh) → 图片URL 的映射
+// getDdb API 返回多份试卷，每份有 mh 和 imageData.vUrl
+// 通过页面上显示的"密号"精确匹配当前试卷的图片
+let _guangdaImagePool = {};
 
 if (window.location.hostname.includes('pj.yixx.cn')) {
     const _guangdaOrigOpen = XMLHttpRequest.prototype.open;
@@ -25,26 +24,23 @@ if (window.location.hostname.includes('pj.yixx.cn')) {
                     const vKs = response?.result?.vKs;
 
                     if (vKs && vKs.length > 0) {
-                        // 当前试卷（第一份）
-                        const currentPaper = vKs[0];
-                        if (currentPaper?.imageData?.vUrl) {
-                            _guangdaCurrentPaperImages = currentPaper.imageData.vUrl.filter(url =>
-                                url && (url.startsWith('http://') || url.startsWith('https://'))
-                            );
-                            _guangdaImageVersion++;
-                            console.log(`🎯 [API拦截] 当前试卷图片: ${_guangdaCurrentPaperImages.length} 张 (v${_guangdaImageVersion})`);
-                            _guangdaCurrentPaperImages.forEach((url, i) => {
-                                console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`);
-                            });
-                        }
-
-                        // 预加载的下一份试卷
-                        if (vKs.length > 1 && vKs[1]?.imageData?.vUrl) {
-                            _guangdaNextPaperImages = vKs[1].imageData.vUrl.filter(url =>
-                                url && (url.startsWith('http://') || url.startsWith('https://'))
-                            );
-                            console.log(`📦 [API拦截] 预加载下一份试卷图片: ${_guangdaNextPaperImages.length} 张`);
-                        }
+                        // 将所有 vKs 中的试卷信息存入图片池
+                        vKs.forEach(paper => {
+                            const mh = paper?.mh;
+                            const vUrl = paper?.imageData?.vUrl;
+                            if (mh && vUrl && vUrl.length > 0) {
+                                const validUrl = vUrl.find(u => u && (u.startsWith('http://') || u.startsWith('https://')));
+                                if (validUrl) {
+                                    _guangdaImagePool[mh] = validUrl;
+                                }
+                            }
+                        });
+                        const poolSize = Object.keys(_guangdaImagePool).length;
+                        console.log(`🎯 [API拦截] 更新图片池，共 ${poolSize} 份试卷`);
+                        // 打印当前池中的密号
+                        Object.keys(_guangdaImagePool).forEach((mh, i) => {
+                            console.log(`  📋 密号${i + 1}: ${mh}`);
+                        });
                     }
                 }
             } catch (e) {
@@ -129,60 +125,64 @@ const GuangdaAdapter = {
         return `guangda_${hash}_${questionIndex}`;
     },
 
+    // 从 DOM 读取当前显示的密号（如 "1588-1-4"）
+    _getCurrentMh() {
+        // 查找包含"密号"文字的 label 元素
+        const labels = document.querySelectorAll('.jl label, .hp-header label, label');
+        for (const label of labels) {
+            const text = label.textContent.trim();
+            if (text.includes('密号')) {
+                const match = text.match(/密号[：:]\s*(.+)/);
+                if (match) {
+                    return match[1].trim();
+                }
+            }
+        }
+        return '';
+    },
+
     async gatherAnswerImages() {
         console.log('🖼️ [诊断] 光大阅卷 — 开始获取答题卡图片...');
 
-        // 记录当前版本号，等待新版本（表示新图片到达）
-        const versionBefore = _guangdaImageVersion;
-        const maxWait = 5000;
         const startTime = Date.now();
+        const maxWait = 8000;
 
-        // 等待版本号变化（新图片到达）或图片数组非空
-        while (_guangdaImageVersion === versionBefore && _guangdaCurrentPaperImages.length === 0 && Date.now() - startTime < maxWait) {
-            await new Promise(r => setTimeout(r, 200));
+        // 等待图片池中有当前密号的数据（最多 8 秒）
+        while (Date.now() - startTime < maxWait) {
+            const imageUrls = this._getImageUrlsFromPool();
+            if (imageUrls.length > 0) {
+                return imageUrls;
+            }
+            await new Promise(r => setTimeout(r, 300));
         }
 
-        const elapsed = Date.now() - startTime;
-        if (elapsed > 300) {
-            console.log(`🖼️ [诊断] 等待 API 拦截耗时: ${elapsed}ms (v${versionBefore}→v${_guangdaImageVersion})`);
-        }
-
-        // 第一优先：API 拦截（精确匹配当前试卷）
-        const imageUrls = this._getImageUrlsFromNetwork();
-        if (imageUrls.length > 0) {
-            console.log(`🖼️ [诊断] 从 API 拦截找到 ${imageUrls.length} 张图片`);
-            return imageUrls;
-        }
-
-        // 第二优先：performance API（回退方案，取最新一张避免预加载干扰）
+        // 超时：尝试用 performance API 回退
+        console.warn('⚠️ [诊断] 等待图片池超时，尝试回退方案');
         const perfUrls = this._getImageUrlsFromPerformance();
         if (perfUrls.length > 0) {
             console.log(`🖼️ [诊断] 从 performance 回退找到 ${perfUrls.length} 张图片`);
             return perfUrls;
         }
 
-        // 第三优先：Vue 组件
-        const vueUrls = this._getImageUrlsFromVue();
-        if (vueUrls.length > 0) {
-            console.log(`🖼️ [诊断] 从 Vue 组件找到 ${vueUrls.length} 张图片`);
-            return vueUrls;
-        }
-
         console.warn('⚠️ [诊断] 未找到答题卡图片');
         return [];
     },
 
-    // 从网络请求中获取图片 URL（仅 API 拦截）
-    _getImageUrlsFromNetwork() {
-        if (_guangdaCurrentPaperImages.length > 0) {
-            console.log(`🖼️ [诊断] 从 API 拦截获取当前试卷图片: ${_guangdaCurrentPaperImages.length} 张`);
-            _guangdaCurrentPaperImages.forEach((url, i) => {
-                console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`);
-            });
-            return [..._guangdaCurrentPaperImages];
+    // 从图片池中获取当前密号对应的图片
+    _getImageUrlsFromPool() {
+        const mh = this._getCurrentMh();
+        if (!mh) {
+            console.log('🖼️ [诊断] 未找到当前密号');
+            return [];
         }
 
-        console.log(`🖼️ [诊断] API 拦截暂未捕获图片`);
+        const url = _guangdaImagePool[mh];
+        if (url) {
+            console.log(`🖼️ [诊断] 从图片池找到密号 ${mh} 的图片`);
+            console.log(`  📷 图片: ${url.substring(0, 80)}...`);
+            return [url];
+        }
+
         return [];
     },
 
@@ -207,55 +207,6 @@ const GuangdaAdapter = {
         }
 
         return [];
-    },
-
-    // 从 Vue 组件获取图片 URL
-    _getImageUrlsFromVue() {
-        try {
-            const painterEl = document.querySelector('#painter');
-            const painterVm = painterEl?.closest('[data-v-]')?.__vue__;
-
-            if (!painterVm) {
-                console.log('🖼️ [诊断] 未找到 painter Vue 实例');
-                return [];
-            }
-
-            const data = painterVm.$data || {};
-            const urls = [];
-
-            // 检查 imgUrl
-            if (data.imgUrl && typeof data.imgUrl === 'string') {
-                if (data.imgUrl.startsWith('http')) {
-                    urls.push(data.imgUrl);
-                }
-            }
-
-            // 检查 listAllUrlPath
-            if (Array.isArray(data.listAllUrlPath)) {
-                data.listAllUrlPath.forEach(item => {
-                    if (typeof item === 'string' && item.startsWith('http')) {
-                        urls.push(item);
-                    } else if (typeof item === 'object' && item?.url) {
-                        urls.push(item.url);
-                    }
-                });
-            }
-
-            // 检查 source
-            if (Array.isArray(data.source)) {
-                data.source.forEach(item => {
-                    if (typeof item === 'string' && item.startsWith('http')) {
-                        urls.push(item);
-                    }
-                });
-            }
-
-            console.log(`🖼️ [诊断] 从 Vue 组件找到 ${urls.length} 张图片`);
-            return [...new Set(urls)];
-        } catch (e) {
-            console.error('❌ [诊断] 从 Vue 获取图片失败:', e);
-            return [];
-        }
     },
 
     async fetchImageAsBase64(url) {
@@ -482,9 +433,10 @@ const GuangdaAdapter = {
 
     async waitForNextPaper(oldImageUrl) {
         console.log('⏳ [诊断] 光大阅卷 — 等待下一份试卷...');
-        let checkTimes = 0;
-        const maxChecks = 60; // 最多等待 30 秒
-        const versionBefore = _guangdaImageVersion;
+
+        // 记录当前密号
+        const oldMh = this._getCurrentMh();
+        console.log(`⏳ [诊断] 当前密号: ${oldMh || '(未找到)'}`);
 
         // 先快速检查弹窗是否还在（不等待，只是检查）
         const hasDialog = document.querySelector('.dialog-btns .sure');
@@ -503,38 +455,26 @@ const GuangdaAdapter = {
             });
         }
 
-        console.log(`⏳ [诊断] 开始检测新试卷 (当前版本: v${versionBefore})...`);
+        console.log('⏳ [诊断] 开始检测新试卷（密号变化）...');
+
+        // 等待密号变化（最可靠的信号）
+        const startTime = Date.now();
+        const maxWait = 30000; // 最多等待 30 秒
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
-                checkTimes++;
+                const currentMh = this._getCurrentMh();
 
-                // 方法1: 检测 API 拦截到的新图片（版本号变化）
-                if (_guangdaImageVersion !== versionBefore && checkTimes > 2) {
+                // 密号变化 = 新试卷已加载
+                if (currentMh && currentMh !== oldMh) {
                     clearInterval(timer);
-                    // 清空旧图片，让 gatherAnswerImages 等待新图片
-                    _guangdaCurrentPaperImages = [];
-                    console.log(`✅ 光大阅卷 — 新试卷已加载（API拦截到新图片 v${versionBefore}→v${_guangdaImageVersion}）`);
-                    resolve(true);
-                    return;
-                }
-
-                // 方法2: 检测得分显示区域重置
-                const scoreDisplay = document.querySelector(GUANGDA_SELECTORS.SCORE_DISPLAY);
-                const currentScore = scoreDisplay?.textContent?.trim();
-
-                // 得分区域消失或变为0，说明新试卷已加载
-                if (checkTimes > 3 && (!scoreDisplay || currentScore === '' || currentScore === '0' || currentScore === '—')) {
-                    clearInterval(timer);
-                    // 清空旧图片，让 gatherAnswerImages 等待新图片
-                    _guangdaCurrentPaperImages = [];
-                    console.log('✅ 光大阅卷 — 新试卷已加载（得分重置）');
+                    console.log(`✅ 光大阅卷 — 新试卷已加载（密号: ${oldMh} → ${currentMh}）`);
                     resolve(true);
                     return;
                 }
 
                 // 超时检测
-                if (checkTimes >= maxChecks) {
+                if (Date.now() - startTime > maxWait) {
                     clearInterval(timer);
                     console.warn('⚠️ 光大阅卷 — 等待下一份试卷超时');
                     resolve(false);
