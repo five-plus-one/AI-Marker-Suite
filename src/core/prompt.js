@@ -475,8 +475,9 @@ function applyDiligenceBonus(accuracyScore, diligenceLevel, maxScore, diligenceC
 
     const ratio = Math.min(accuracyScore / maxScore, 1);
     const decayFactor = Math.pow(1 - ratio, decayPower);
-    // 等级1=无勤勉(0分)，等级2起才加分
-    const rawBonus = Math.min(Math.max(0, diligenceLevel - 1) * perLevel, maxBonus);
+    // 等级1=无勤勉(0分)，等级2起才加分；加分不能超过满分与准确性得分的差值
+    const maxAddable = Math.max(0, maxScore - accuracyScore);
+    const rawBonus = Math.min(Math.max(0, diligenceLevel - 1) * perLevel, maxBonus, maxAddable);
     const bonus = Math.round(rawBonus * decayFactor * 100) / 100;
     const finalScore = Math.min(accuracyScore + bonus, maxScore);
 
@@ -493,15 +494,16 @@ function distributeDiligenceBonus(subScores, bonus, roundFn) {
     const round = roundFn || (v => Math.round(v * 100) / 100);
     let remaining = bonus;
     return subScores.map((sq, i) => {
+        const maxScore = sq.maxScore || Infinity;
         if (i === subScores.length - 1) {
             // 最后一题吸收剩余
-            const added = Math.min(remaining, (sq.maxScore || Infinity) - (sq.score || 0));
-            return { ...sq, score: round(sq.score + added) };
+            const added = Math.min(remaining, maxScore - (sq.score || 0));
+            return { ...sq, score: Math.min(round(sq.score + added), maxScore) };
         }
         const share = Math.round(bonus * (sq.maxScore || 1) / totalMax * 10) / 10;
-        const maxAdd = (sq.maxScore || 0) - (sq.score || 0);
+        const maxAdd = maxScore - (sq.score || 0);
         const added = Math.min(share, maxAdd, remaining);
         remaining -= added;
-        return { ...sq, score: round(sq.score + added) };
+        return { ...sq, score: Math.min(round(sq.score + added), maxScore) };
     });
 }

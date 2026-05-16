@@ -140,7 +140,7 @@ async function startAutoGrading() {
             );
             // 勤勉加分本身也要取整（如步长=1时，bonus 必须是整数）
             const roundedBonus = applyScoringRules(diligenceResult.bonus, scoringConfig);
-            const finalScore = applyScoringRules(accuracyScore + roundedBonus, scoringConfig);
+            const finalScore = Math.min(applyScoringRules(accuracyScore + roundedBonus, scoringConfig), maxScore);
 
             if (roundedBonus > 0) {
                 console.log(`🌟 [勤勉加分] 等级${diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${roundedBonus}, 最终${finalScore}`);
