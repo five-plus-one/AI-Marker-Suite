@@ -1,5 +1,5 @@
 // ========== 图片下载处理 ==========
-async function fetchImageAsBase64(url) {
+function _fetchImageAsBase64Single(url) {
     return new Promise((resolve, reject) => {
         console.log(`📥 正在请求下载图片: ${url.substring(0, 60)}...`);
         if (window.aiGradingState.isPaused) return reject(new Error('用户暂停'));
@@ -45,4 +45,36 @@ async function fetchImageAsBase64(url) {
             });
         }
     });
+}
+
+// 带重试的图片下载（超时/网络错误自动重试1次）
+async function fetchImageAsBase64(url) {
+    const maxRetries = 1;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await _fetchImageAsBase64Single(url);
+        } catch (error) {
+            lastError = error;
+            const msg = error.message || '';
+
+            // 403 和用户暂停不重试
+            if (msg.includes('403') || msg.includes('用户暂停')) {
+                throw error;
+            }
+
+            // 超时/网络错误可重试
+            const isTransient = msg.includes('超时') || msg.includes('跨域请求被拒绝') || msg.includes('网络断开');
+            if (isTransient && attempt < maxRetries) {
+                console.warn(`⚠️ [图片重试] 第${attempt + 1}次失败: ${msg}，1秒后重试...`);
+                await new Promise(r => setTimeout(r, 1000));
+                continue;
+            }
+
+            throw error;
+        }
+    }
+
+    throw lastError;
 }

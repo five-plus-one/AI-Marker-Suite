@@ -60,6 +60,10 @@ const PresetManager = {
                 cfg.scoring = { roundStep: 1, roundMethod: 'round' };
                 changed = true;
             }
+            if (cfg.scoring && !cfg.scoring.diligence) {
+                cfg.scoring.diligence = { enabled: false, maxBonus: 3, decayPower: 2, criteria: '' };
+                changed = true;
+            }
         }
         if (changed) this.save();
     },

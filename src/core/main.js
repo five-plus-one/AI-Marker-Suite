@@ -117,11 +117,33 @@ async function startAutoGrading() {
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
         if (result.score !== undefined && result.score !== null) {
-            // 应用取整规则
+            // 应用取整规则（准确性分数）
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
-            const finalScore = applyScoringRules(result.score, scoringConfig);
-            if (finalScore !== result.score) {
-                console.log(`📐 [诊断] 取整: ${result.score} → ${finalScore} (步长: ${scoringConfig.roundStep}, 方式: ${scoringConfig.roundMethod})`);
+            const accuracyScore = applyScoringRules(result.score, scoringConfig);
+            if (accuracyScore !== result.score) {
+                console.log(`📐 [诊断] 取整: ${result.score} → ${accuracyScore} (步长: ${scoringConfig.roundStep}, 方式: ${scoringConfig.roundMethod})`);
+            }
+
+            // 勤勉加分计算
+            const maxScore = result.subScores
+                ? result.subScores.reduce((sum, sq) => sum + (sq.maxScore || 0), 0)
+                : 100;
+            // 字数 ≤ 15 或未作答时，强制无勤勉分
+            let diligenceLevel = result.diligenceLevel || 0;
+            const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
+            if (answerLen <= 15) diligenceLevel = 0;
+            const diligenceResult = applyDiligenceBonus(
+                result.rawScore || result.score, // 使用原始分数计算衰减，不受取整影响
+                diligenceLevel,
+                maxScore,
+                scoringConfig.diligence
+            );
+            // 勤勉加分本身也要取整（如步长=1时，bonus 必须是整数）
+            const roundedBonus = applyScoringRules(diligenceResult.bonus, scoringConfig);
+            const finalScore = Math.min(applyScoringRules(accuracyScore + roundedBonus, scoringConfig), maxScore);
+
+            if (roundedBonus > 0) {
+                console.log(`🌟 [勤勉加分] 等级${diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${roundedBonus}, 最终${finalScore}`);
             }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
@@ -132,15 +154,29 @@ async function startAutoGrading() {
                 ...sq,
                 score: sq.score !== null ? applyScoringRules(sq.score, scoringConfig) : null
             }));
+            // 勤勉加分分配到小题（在 main.js 侧完成，确保取整规则生效）
+            const finalSubScores = roundedBonus > 0
+                ? distributeDiligenceBonus(roundedSubScores, roundedBonus, s => applyScoringRules(s, scoringConfig))
+                : roundedSubScores;
             const adapter = window.__AI_MARKER_ADAPTER__;
             if (adapter && adapter.fillScore) {
-                adapter.fillScore({ total: finalScore, subScores: roundedSubScores });
+                adapter.fillScore({
+                    total: finalScore,
+                    subScores: finalSubScores
+                });
             }
-            // 传递结构化评分详情和双评信息到提交对话框
+            // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
             showAutoSubmitDialog(finalScore, result.comment, roundedSubScores, {
                 scoringDetails: result._sections || null,
                 dualEval: result.dualEval || null,
-                rawScore: result.rawScore || result.score
+                rawScore: result.rawScore || result.score,
+                diligence: {
+                    level: diligenceLevel,
+                    reason: result.diligenceReason || '',
+                    bonus: roundedBonus,
+                    decayFactor: diligenceResult.decayFactor,
+                    accuracyScore: accuracyScore
+                }
             });
         } else {
             // 分数解析失败（"未能识别"），自动重试
@@ -158,26 +194,34 @@ async function startAutoGrading() {
         hideStreamPanel();
         if (error.message === '用户主动暂停' || error.message === '用户暂停') {
             console.log('⏸️ 请求已被暂停');
-        } else {
-            console.error('❌ 打分失败:', error);
-            if (window.aiGradingState.gradingMode === 'unattended' && !window.aiGradingState.isPaused) {
-                window.aiGradingState.errorRetryCount++;
-                if (window.aiGradingState.errorRetryCount <= window.aiGradingState.maxRetries) {
-                    sessionStorage.setItem('ai-grading-auto-resume', 'true');
-                    sessionStorage.setItem('ai-grading-retry-count', window.aiGradingState.errorRetryCount.toString());
-                    setTimeout(() => location.reload(), 2000);
-                    return;
-                } else {
-                    stopAutoGrading();
-                    safeAlert('❌ 错误重试上限，自动停止。');
-                    return;
-                }
-            }
-            safeAlert('❌ 打分失败: ' + error.message);
+            return;
         }
+
+        console.error('❌ 打分失败:', error);
+        window.aiGradingState.errorRetryCount++;
+        const retryCount = window.aiGradingState.errorRetryCount;
+        const maxRetries = window.aiGradingState.maxRetries;
+
+        if (retryCount <= maxRetries) {
+            // 瞬时错误：直接 setTimeout 重试（不刷新页面）
+            const delay = retryCount <= 2 ? 2000 : 5000; // 前2次2秒，之后5秒
+            console.warn(`⚠️ 打分失败(第${retryCount}/${maxRetries}次): ${error.message}，${delay / 1000}秒后重试...`);
+            showToast(`⚠️ 第${retryCount}次重试中... (${error.message.slice(0, 30)})`);
+            setTimeout(() => startAutoGrading(), delay);
+            return;
+        }
+
+        // 超过重试次数：暂停（不停止），让用户决定
+        console.error(`❌ 连续失败${maxRetries}次，已暂停批改`);
         window.aiGradingState.isRunning = false;
+        window.aiGradingState.isPaused = true;
         const btn = document.querySelector('.ai-grade-btn');
-        if (btn) { btn.textContent = window.aiGradingState.isPaused ? '继续批改' : 'AI 批改'; btn.classList.remove('running', 'unattended', 'trial'); }
+        if (btn) {
+            btn.textContent = '继续批改';
+            btn.classList.remove('running', 'unattended', 'trial');
+            btn.classList.add('paused');
+        }
+        showToast(`❌ 连续失败${maxRetries}次，已暂停。点击"继续批改"可重试`);
     }
 }
 
