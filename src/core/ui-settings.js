@@ -703,15 +703,16 @@ function createSettingsPanel() {
                 </div>
 
                 <div class="form-section">
-                    <div class="section-header"><h4>分小题评分</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-header"><h4>评分单元配置</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="enable-sub-questions">
-                            <label for="enable-sub-questions">启用分小题评分</label>
+                        <div style="font-size:12px;color:#86868b;margin-bottom:12px;">系统会自动检测页面上的分数输入框。每个输入框对应一个评分单元，AI 将独立为每个单元打分。</div>
+                        <div id="scoring-units-container">
+                            <div id="scoring-units-list"></div>
+                            <button class="preset-btn" id="btn-detect-inputs" style="width:100%;margin-top:8px;padding:8px;">检测页面输入框</button>
+                            <button class="preset-btn" id="btn-add-unit" style="width:100%;margin-top:4px;padding:8px;">+ 手动添加单元</button>
                         </div>
-                        <div id="sub-questions-container" style="display:none;">
-                            <div id="sub-questions-list"></div>
-                            <button class="preset-btn" id="btn-add-sub-question" style="width:100%;margin-top:8px;padding:8px;">+ 添加小题</button>
+                        <div id="scoring-units-warning" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(217,48,37,0.06);border:1px solid rgba(217,48,37,0.15);border-radius:8px;font-size:12px;color:#D93025;">
+                            请为所有评分单元填写满分后再保存
                         </div>
                     </div>
                 </div>
@@ -789,6 +790,18 @@ function createSettingsPanel() {
                                 <option value="floor">向下取整</option>
                                 <option value="ceil">向上取整</option>
                             </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 满分设置（单题模式） -->
+                <div class="form-section" id="max-score-section">
+                    <div class="section-header"><h4>满分设置</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label>题目满分</label>
+                            <input type="number" id="scoring-max-score" min="1" placeholder="100" value="100">
+                            <div style="font-size:11px;color:#86868b;margin-top:4px;">当页面只有一个分数输入框时使用。配置了多个评分单元时，满分由各单元自动计算。</div>
                         </div>
                     </div>
                 </div>
@@ -1122,36 +1135,26 @@ function createSettingsPanel() {
         questionInput.addEventListener('input', () => updateGroupHints());
     }
 
-    // 分小题评分交互
-    const subToggle = panel.querySelector('#enable-sub-questions');
-    const subContainer = panel.querySelector('#sub-questions-container');
-    const subList = panel.querySelector('#sub-questions-list');
-    subToggle.addEventListener('change', () => {
-        if (subToggle.checked) {
-            const adapter = window.__AI_MARKER_ADAPTER__;
-            if (adapter && typeof adapter.detectSubQuestions === 'function') {
-                const detected = adapter.detectSubQuestions();
-                if (detected.length > 0) {
-                    subContainer.style.display = 'block';
-                    subList.innerHTML = '';
-                    detected.forEach(sq => {
-                        addSubQuestionItem({ label: sq.label, maxScore: '', answer: '', rubric: '' });
-                    });
-                    showToast(`已自动识别 ${detected.length} 个小题，请为每题填写满分`);
-                    markUnsavedChanges();
-                    updateSettingsNavBadges();
-                    return;
-                }
+    // 评分单元配置交互
+    panel.querySelector('#btn-detect-inputs').onclick = () => {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        if (adapter && typeof adapter.getScoreInputs === 'function') {
+            const inputs = adapter.getScoreInputs();
+            if (inputs.length > 0) {
+                const list = panel.querySelector('#scoring-units-list');
+                list.innerHTML = '';
+                inputs.forEach(inp => addScoringUnitItem({ label: inp.label || '', maxScore: inp.maxScore || '' }));
+                showToast(`已检测到 ${inputs.length} 个输入框，请为每个单元填写满分`);
+                markUnsavedChanges();
+                updateSettingsNavBadges();
+            } else {
+                showToast('未检测到分数输入框');
             }
-            subToggle.checked = false;
-            showToast('当前平台暂不支持分小题给分');
-            return;
+        } else {
+            showToast('当前平台不支持自动检测');
         }
-        subContainer.style.display = 'none';
-        markUnsavedChanges();
-        updateSettingsNavBadges();
-    });
-    panel.querySelector('#btn-add-sub-question').onclick = () => addSubQuestionItem();
+    };
+    panel.querySelector('#btn-add-unit').onclick = () => { addScoringUnitItem(); markUnsavedChanges(); updateSettingsNavBadges(); };
 
     loadSettings();
     renderChangelog();
@@ -1436,6 +1439,10 @@ function fillFormFromActivePreset() {
     if (stepSelect) stepSelect.value = scoring.roundStep;
     if (methodSelect) methodSelect.value = scoring.roundMethod;
 
+    // 满分设置（单题模式）
+    const maxScoreInput = document.getElementById('scoring-max-score');
+    if (maxScoreInput) maxScoreInput.value = scoring.maxScore || 100;
+
     // 勤勉加分配置
     const diligence = scoring.diligence || { enabled: false, maxBonus: 3, decayPower: 2, criteria: '' };
     const diligenceEnabled = document.getElementById('diligence-enabled');
@@ -1469,34 +1476,27 @@ function fillFormFromActivePreset() {
 
     document.getElementById('bind-url-checkbox').checked = (PresetManager.data.bindings[currentUrlId] === PresetManager.data.active);
 
-    const subToggle = document.getElementById('enable-sub-questions');
-    const subContainer = document.getElementById('sub-questions-container');
-    const subList = document.getElementById('sub-questions-list');
-    subList.innerHTML = '';
-    const subQuestions = config.subQuestions || [];
-    if (subQuestions.length > 0) {
-        subToggle.checked = true;
-        subContainer.style.display = 'block';
-        subQuestions.forEach(sq => addSubQuestionItem(sq));
+    // 评分单元配置
+    const unitsList = document.getElementById('scoring-units-list');
+    unitsList.innerHTML = '';
+    const units = config.scoring?.units || [];
+    if (units.length > 0) {
+        units.forEach(u => addScoringUnitItem(u));
     } else {
+        // 尝试从 adapter 自动检测
         const adapter = window.__AI_MARKER_ADAPTER__;
-        if (adapter && typeof adapter.detectSubQuestions === 'function') {
-            const detected = adapter.detectSubQuestions();
-            if (detected.length > 0) {
-                subToggle.checked = true;
-                subContainer.style.display = 'block';
-                detected.forEach(sq => addSubQuestionItem({ label: sq.label, maxScore: '', answer: '', rubric: '' }));
-                // 自动展开"分小题评分"手风琴，引导用户填写满分
-                const subSection = subToggle.closest('.form-section');
-                if (subSection) subSection.classList.remove('collapsed');
-                setTimeout(() => showToast(`已识别 ${detected.length} 个小题，请为每题填写满分后保存`, 'info'), 300);
-            } else {
-                subToggle.checked = false;
-                subContainer.style.display = 'none';
+        if (adapter && typeof adapter.getScoreInputs === 'function') {
+            const inputs = adapter.getScoreInputs();
+            if (inputs.length > 0) {
+                inputs.forEach(inp => addScoringUnitItem({ label: inp.label || '', maxScore: inp.maxScore || '' }));
+                // 自动展开"评分单元配置"手风琴，引导用户填写满分
+                const unitsSection = document.getElementById('scoring-units-list')?.closest('.form-section');
+                if (unitsSection) unitsSection.classList.remove('collapsed');
+                const hasEmpty = inputs.some(inp => !inp.maxScore || inp.maxScore <= 0);
+                if (hasEmpty) {
+                    setTimeout(() => showToast(`已检测到 ${inputs.length} 个输入框，请为每个单元填写满分后保存`, 'info'), 300);
+                }
             }
-        } else {
-            subToggle.checked = false;
-            subContainer.style.display = 'none';
         }
     }
 
@@ -1549,51 +1549,49 @@ function fillFormFromActivePreset() {
     clearUnsavedChanges();
 }
 
-function addSubQuestionItem(data) {
-    const list = document.getElementById('sub-questions-list');
+function addScoringUnitItem(data) {
+    const list = document.getElementById('scoring-units-list');
     const item = document.createElement('div');
-    item.className = 'sub-question-item';
+    item.className = 'scoring-unit-item';
     item.style.cssText = 'padding:12px;margin-bottom:8px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;';
     item.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <input type="text" class="sq-label" placeholder="标签 (如: 第1题(a))" value="${data?.label || ''}" style="flex:1;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;">
-            <button class="preset-btn danger sq-del-btn" style="margin-left:8px;padding:4px 8px;font-size:11px;">删除</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <input type="text" class="su-label" placeholder="标签 (如: 第1题)" value="${data?.label || ''}" style="flex:1;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;">
+            <button class="preset-btn danger su-del-btn" style="margin-left:8px;padding:4px 8px;font-size:11px;">删除</button>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-            <div style="flex:1;"><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">满分 <span style="color:#D93025;">*</span></label><input type="number" class="sq-max-score" placeholder="满分(必填)" value="${data?.maxScore || ''}" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;box-sizing:border-box;"></div>
+        <div style="display:flex;gap:8px;">
+            <div style="flex:1;"><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">满分 <span style="color:#D93025;">*</span></label><input type="number" class="su-max-score" min="1" placeholder="满分(必填)" value="${data?.maxScore || ''}" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;box-sizing:border-box;"></div>
         </div>
-        <div style="margin-bottom:8px;"><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">参考答案</label><textarea class="sq-answer" placeholder="该小题的参考答案" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;min-height:50px;resize:vertical;box-sizing:border-box;font-family:inherit;">${data?.answer || ''}</textarea></div>
-        <div><label style="font-size:11px;color:#86868b;display:block;margin-bottom:4px;">评分标准</label><textarea class="sq-rubric" placeholder="该小题的评分标准" style="width:100%;padding:6px 8px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:12px;min-height:50px;resize:vertical;box-sizing:border-box;font-family:inherit;">${data?.rubric || ''}</textarea></div>
     `;
-    item.querySelector('.sq-del-btn').onclick = () => { item.remove(); markUnsavedChanges(); updateSettingsNavBadges(); };
-    item.querySelectorAll('input, textarea').forEach(el => {
+    item.querySelector('.su-del-btn').onclick = () => { item.remove(); markUnsavedChanges(); updateSettingsNavBadges(); };
+    item.querySelectorAll('input').forEach(el => {
         el.addEventListener('input', () => { markUnsavedChanges(); updateSettingsNavBadges(); });
         el.addEventListener('change', () => { markUnsavedChanges(); updateSettingsNavBadges(); });
     });
     list.appendChild(item);
 }
 
-function getSubQuestionsFromForm() {
-    const enabled = document.getElementById('enable-sub-questions')?.checked;
-    if (!enabled) return [];
-    const items = document.querySelectorAll('#sub-questions-list .sub-question-item');
-    const subQuestions = [];
+function getScoringUnitsFromForm() {
+    const items = document.querySelectorAll('#scoring-units-list .scoring-unit-item');
+    const units = [];
     items.forEach((item, i) => {
-        const label = item.querySelector('.sq-label')?.value?.trim();
-        const maxScore = parseFloat(item.querySelector('.sq-max-score')?.value);
-        const answer = item.querySelector('.sq-answer')?.value?.trim();
-        const rubric = item.querySelector('.sq-rubric')?.value?.trim();
-        if (label) {
-            subQuestions.push({
-                id: String.fromCharCode(97 + i),
-                label,
-                answer: answer || '',
-                rubric: rubric || '',
-                maxScore: isNaN(maxScore) ? null : maxScore
-            });
-        }
+        const label = item.querySelector('.su-label')?.value?.trim() || `第${i + 1}题`;
+        const maxScore = parseFloat(item.querySelector('.su-max-score')?.value);
+        units.push({
+            label,
+            maxScore: isNaN(maxScore) ? 0 : maxScore,
+            index: i
+        });
     });
-    return subQuestions;
+    return units;
+}
+
+function validateScoringUnits() {
+    const units = getScoringUnitsFromForm();
+    const missing = units.filter(u => !u.maxScore || u.maxScore <= 0);
+    const warning = document.getElementById('scoring-units-warning');
+    if (warning) warning.style.display = missing.length > 0 ? 'block' : 'none';
+    return missing.length === 0;
 }
 
 function updateUIVisibility() {
@@ -1698,7 +1696,7 @@ function updateSettingsNavBadges() {
     const questionEl = document.getElementById('question-content');
     const answerEl = document.getElementById('standard-answer');
     const rubricEl = document.getElementById('grading-rubric');
-    const subQuestions = getSubQuestionsFromForm();
+    const scoringUnits = getScoringUnitsFromForm();
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked;
     const batchTarget = parseInt(document.getElementById('batch-target-count')?.value, 10) || 0;
     const currentProvider = ProviderManager.getProvider(providerSelect?.value);
@@ -1707,7 +1705,7 @@ function updateSettingsNavBadges() {
     const missing = {
         plan: !document.getElementById('preset-select')?.value,
         grading: !questionEl?.value.trim() || !answerEl?.value.trim() || !rubricEl?.value.trim() ||
-            subQuestions.some(sq => !sq.maxScore || sq.maxScore <= 0),
+            scoringUnits.some(u => !u.maxScore || u.maxScore <= 0),
         scoring: false,
         ai: !apiKeyInput?.value.trim() || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
         automation: !!batchEnabled && batchTarget <= 0,
@@ -2177,14 +2175,14 @@ function saveAISettings() {
     const gradingMode = checkedMode ? checkedMode.value : 'normal';
 
     const providerName = document.getElementById('ai-provider').value;
-    const subQuestions = getSubQuestionsFromForm();
+    const scoringUnits = getScoringUnitsFromForm();
 
-    // 分小题满分校验：防止 maxScore 为空或 0 导致 AI 按"满分0分"打分
-    if (subQuestions.length > 0) {
-        const missingMaxScore = subQuestions.filter(sq => !sq.maxScore || sq.maxScore <= 0);
+    // 评分单元满分校验
+    if (scoringUnits.length > 0) {
+        const missingMaxScore = scoringUnits.filter(u => !u.maxScore || u.maxScore <= 0);
         if (missingMaxScore.length > 0) {
-            const labels = missingMaxScore.map(sq => sq.label).join('、');
-            safeAlert(`⚠️ 以下小题的满分未填写或为0：${labels}\n\n满分为0会导致 AI 给出0分，请填写每道小题的满分后再保存。`);
+            const labels = missingMaxScore.map(u => u.label).join('、');
+            safeAlert(`⚠️ 以下评分单元的满分未填写或为0：${labels}\n\n满分为0会导致 AI 给出0分，请填写每个单元的满分后再保存。`);
             return;
         }
     }
@@ -2223,9 +2221,13 @@ function saveAISettings() {
         rubric: document.getElementById('grading-rubric').value,
         workflowId: workflowId || 'fast',
         gradingMode,
-        subQuestions: subQuestions.length > 0 ? subQuestions : undefined,
+        subQuestions: scoringUnits.length > 1 ? scoringUnits.map((u, i) => ({ id: String.fromCharCode(97 + i), label: u.label, maxScore: u.maxScore, answer: '', rubric: '' })) : undefined,
         scoring: {
             roundStep, roundMethod,
+            maxScore: scoringUnits.length > 0
+                ? scoringUnits.reduce((sum, u) => sum + (u.maxScore || 0), 0)
+                : (parseFloat(document.getElementById('scoring-max-score')?.value) || 100),
+            units: scoringUnits.length > 0 ? scoringUnits : [],
             diligence: {
                 enabled: diligenceEnabled,
                 maxBonus: diligenceMaxBonus,

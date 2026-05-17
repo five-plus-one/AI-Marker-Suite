@@ -22,6 +22,7 @@ const CORE_MODULES = [
     'config.js',
     'state.js',
     'preset.js',
+    'score.js',           // ScoreCalculator (需在 prompt.js 之前)
     'ui-toast.js',
     'ui-modal.js',
     'ui-stream.js',

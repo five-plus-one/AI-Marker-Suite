@@ -64,8 +64,80 @@ const PresetManager = {
                 cfg.scoring.diligence = { enabled: false, maxBonus: 3, decayPower: 2, criteria: '' };
                 changed = true;
             }
+            // 迁移：添加 units[] 和 maxScore
+            if (cfg.scoring && cfg.scoring.units === undefined) {
+                cfg.scoring.units = [];  // 空数组 = 未配置，运行时从 adapter 检测
+                changed = true;
+            }
+            if (cfg.scoring && cfg.scoring.maxScore === undefined) {
+                cfg.scoring.maxScore = 100;  // 默认满分 100
+                changed = true;
+            }
         }
         if (changed) this.save();
+    },
+    /**
+     * 获取当前配置的评分单元列表
+     * 优先使用用户手动配置的 units[]，回退到 adapter 自动检测
+     * @returns {Array<{label, maxScore, index}>}
+     */
+    getScoringUnits() {
+        const config = this.getCurrentConfig();
+        const units = config.scoring?.units || [];
+
+        // 如果用户已手动配置，直接返回
+        if (units.length > 0) return units;
+
+        // 回退：从 adapter 检测
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        if (adapter && adapter.getScoreInputs) {
+            const inputs = adapter.getScoreInputs();
+            if (inputs.length > 1) {
+                // 多个输入框 → 每个都是一个评分单元
+                return inputs.map((inp, i) => ({
+                    label: inp.label || `第${i + 1}题`,
+                    maxScore: inp.maxScore || 0,
+                    index: inp.index !== undefined ? inp.index : i
+                }));
+            }
+        }
+
+        // 单输入框或无 adapter → 返回空（使用 maxScore 作为单题模式）
+        return [];
+    },
+    /**
+     * 获取总满分
+     * 优先从 units 计算，回退到 scoring.maxScore
+     * @returns {number}
+     */
+    getMaxScore() {
+        const units = this.getScoringUnits();
+        if (units.length > 0) {
+            return units.reduce((sum, u) => sum + (u.maxScore || 0), 0);
+        }
+        const config = this.getCurrentConfig();
+        return config.scoring?.maxScore || 100;
+    },
+    /**
+     * 检查评分单元是否都已配置满分
+     * @returns {{ valid: boolean, missingMaxScore: Array<{index, label}> }}
+     */
+    validateScoringUnits() {
+        const units = this.getScoringUnits();
+        const missingMaxScore = [];
+        for (let i = 0; i < units.length; i++) {
+            if (!units[i].maxScore || units[i].maxScore <= 0) {
+                missingMaxScore.push({ index: i, label: units[i].label || `第${i + 1}题` });
+            }
+        }
+        // 单题模式也需要检查 maxScore
+        if (units.length === 0) {
+            const config = this.getCurrentConfig();
+            if (!config.scoring?.maxScore || config.scoring.maxScore <= 0) {
+                missingMaxScore.push({ index: 0, label: '总分' });
+            }
+        }
+        return { valid: missingMaxScore.length === 0, missingMaxScore };
     },
     save() {
         GM_setValue('ai-grading-presets', JSON.stringify(this.data));

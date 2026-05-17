@@ -117,56 +117,45 @@ async function startAutoGrading() {
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
         if (result.score !== undefined && result.score !== null) {
-            // 应用取整规则（准确性分数）
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
-            const accuracyScore = applyScoringRules(result.score, scoringConfig);
-            if (accuracyScore !== result.score) {
-                console.log(`📐 [诊断] 取整: ${result.score} → ${accuracyScore} (步长: ${scoringConfig.roundStep}, 方式: ${scoringConfig.roundMethod})`);
-            }
+            const maxScore = PresetManager.getMaxScore();
 
-            // 勤勉加分计算
-            const maxScore = result.subScores
-                ? result.subScores.reduce((sum, sq) => sum + (sq.maxScore || 0), 0)
-                : 100;
             // 字数 ≤ 15 或未作答时，强制无勤勉分
             let diligenceLevel = result.diligenceLevel || 0;
             const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
             if (answerLen <= 15) diligenceLevel = 0;
-            const diligenceResult = applyDiligenceBonus(
-                result.rawScore || result.score, // 使用原始分数计算衰减，不受取整影响
+
+            // 使用 ScoreCalculator 统一计算流水线
+            const calculated = ScoreCalculator.calculate({
+                aiScore: result.rawScore || result.score,
                 diligenceLevel,
                 maxScore,
-                scoringConfig.diligence
-            );
-            // 勤勉加分本身也要取整（如步长=1时，bonus 必须是整数）
-            const roundedBonus = applyScoringRules(diligenceResult.bonus, scoringConfig);
-            const finalScore = Math.min(applyScoringRules(accuracyScore + roundedBonus, scoringConfig), maxScore);
+                scoringConfig,
+                aiUnitScores: result.subScores || null
+            });
 
-            if (roundedBonus > 0) {
-                console.log(`🌟 [勤勉加分] 等级${diligenceLevel}/5, 衰减系数${diligenceResult.decayFactor.toFixed(2)}, 加分+${roundedBonus}, 最终${finalScore}`);
-            }
+            const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
-            console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScore...`);
-            // 对分小题分数也应用取整规则
-            const roundedSubScores = result.subScores?.map(sq => ({
-                ...sq,
-                score: sq.score !== null ? applyScoringRules(sq.score, scoringConfig) : null
-            }));
-            // 勤勉加分分配到小题（在 main.js 侧完成，确保取整规则生效）
-            const finalSubScores = roundedBonus > 0
-                ? distributeDiligenceBonus(roundedSubScores, roundedBonus, s => applyScoringRules(s, scoringConfig))
-                : roundedSubScores;
+            console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
+
+            // 填分：优先使用新接口 fillScores，回退到旧接口 fillScore
             const adapter = window.__AI_MARKER_ADAPTER__;
-            if (adapter && adapter.fillScore) {
-                adapter.fillScore({
-                    total: finalScore,
-                    subScores: finalSubScores
-                });
+            if (adapter) {
+                if (adapter.fillScores && finalUnitScores) {
+                    // 新接口：按评分单元顺序填入
+                    adapter.fillScores(finalUnitScores.map(u => u.score));
+                } else if (adapter.fillScores) {
+                    // 单题模式
+                    adapter.fillScores([finalScore]);
+                } else if (adapter.fillScore) {
+                    // 旧接口兼容
+                    adapter.fillScore({ total: finalScore, subScores: finalUnitScores });
+                }
             }
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
-            showAutoSubmitDialog(finalScore, result.comment, roundedSubScores, {
+            showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
                 scoringDetails: result._sections || null,
                 dualEval: result.dualEval || null,
                 rawScore: result.rawScore || result.score,
@@ -174,8 +163,8 @@ async function startAutoGrading() {
                     level: diligenceLevel,
                     reason: result.diligenceReason || '',
                     bonus: roundedBonus,
-                    decayFactor: diligenceResult.decayFactor,
-                    accuracyScore: accuracyScore
+                    decayFactor: breakdown.decayFactor,
+                    accuracyScore: breakdown.accuracyScore
                 }
             });
         } else {

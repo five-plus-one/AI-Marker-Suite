@@ -507,19 +507,74 @@ const GuangdaAdapter = {
     getScoreInputs() {
         const inputs = [];
 
-        // 光大阅卷使用点击选择，不是输入框
-        // 返回分数项信息
-        const scoreItems = document.querySelectorAll(GUANGDA_SELECTORS.SCORE_ITEM);
-        scoreItems.forEach((item, i) => {
-            inputs.push({
-                element: item,
-                label: item.textContent.trim() + '分',
-                index: i,
-                type: 'click', // 标记为点击类型
+        // 光大阅卷使用点击式评分，每个 .score.big-score 容器是一个评分单元
+        const scoreWraps = document.querySelectorAll('.score.big-score');
+        if (scoreWraps.length > 0) {
+            scoreWraps.forEach((container, i) => {
+                const label = container.querySelector('.xtList label');
+                const questionNum = label ? label.textContent.trim() : `${i + 1}`;
+                const scoreItems = container.querySelectorAll('.scores li');
+                const scores = Array.from(scoreItems).map(li => parseInt(li.textContent.trim())).filter(n => !isNaN(n));
+                const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+                inputs.push({
+                    element: container,
+                    label: `第${questionNum}题`,
+                    index: i,
+                    maxScore,
+                    type: 'click',
+                    scores // 可选分数列表
+                });
             });
-        });
+            return inputs;
+        }
+
+        // 单题模式：返回整个评分区域
+        const scoreItems = document.querySelectorAll(GUANGDA_SELECTORS.SCORE_ITEM);
+        if (scoreItems.length > 0) {
+            const scores = Array.from(scoreItems).map(li => parseInt(li.textContent.trim())).filter(n => !isNaN(n));
+            const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+            inputs.push({
+                element: scoreItems[0]?.closest('.score') || scoreItems[0],
+                label: '总分',
+                index: 0,
+                maxScore,
+                type: 'click',
+                scores
+            });
+        }
 
         return inputs;
+    },
+
+    fillScores(scores) {
+        const inputs = this.getScoreInputs();
+        if (inputs.length === 0) return false;
+
+        let successCount = 0;
+        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
+            if (scores[i] === null || scores[i] === undefined) continue;
+            const input = inputs[i];
+            const container = input.element;
+            if (input.type === 'click') {
+                // 在容器中查找匹配的分数选项并点击
+                const scoreItems = container.querySelectorAll('.scores li');
+                let clicked = false;
+                for (const item of scoreItems) {
+                    if (item.textContent.trim() === String(scores[i])) {
+                        item.click();
+                        clicked = true;
+                        break;
+                    }
+                }
+                if (clicked) {
+                    successCount++;
+                    console.log(`✅ [诊断] ${input.label} 分数 ${scores[i]} 已点击`);
+                } else {
+                    console.warn(`⚠️ [诊断] ${input.label} 未找到分数 ${scores[i]} 的选项`);
+                }
+            }
+        }
+        return successCount > 0;
     },
 
     detectSubQuestions() {
