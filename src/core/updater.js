@@ -234,6 +234,18 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
             <button class="upd-btn upd-btn-secondary" id="upd-btn-later">稍后</button>
         </div>
         <button class="upd-btn-skip" id="upd-btn-skip">跳过此版本</button>
+        ${getChannelName() === 'preview' ? `
+        <div class="upd-channel-section">
+            <div class="upd-channel-hint">建议使用稳定版 <button class="upd-btn-link" id="upd-switch-stable">切换渠道 →</button></div>
+        </div>` : ''}
+        ${getChannelName() === 'dev' ? `
+        <div class="upd-channel-warning">
+            <div class="upd-channel-warning-text">⚠️ 开发版可能存在极强的不稳定性，建议切换到稳定版或预览版</div>
+            <div class="upd-channel-warning-btns">
+                <button class="upd-btn-warn" id="upd-switch-stable">切换到稳定版</button>
+                <button class="upd-btn-warn-secondary" id="upd-switch-preview">切换到预览版</button>
+            </div>
+        </div>` : ''}
     `;
     document.body.appendChild(dialog);
 
