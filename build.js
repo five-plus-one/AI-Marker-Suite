@@ -287,8 +287,15 @@ async function build() {
             const filePath = path.join(CORE_DIR, mod);
             try {
                 let content = readModule(filePath, `core/${mod}`);
-                // 构建时注入渠道到 config.js 的 SCRIPT_CONFIG 对象中
+                // 构建时注入渠道和完整版本号到 config.js 的 SCRIPT_CONFIG 对象中
                 if (mod === 'config.js') {
+                    // 将 VERSION 替换为带后缀的完整版本号（如 1.21.6.100-dev.231）
+                    if (VERSION !== BASE_VERSION) {
+                        content = content.replace(
+                            /VERSION\s*:\s*['"][^'"]+['"]/,
+                            `VERSION: '${VERSION}'`
+                        );
+                    }
                     content = content.replace(
                         /}\s*;\s*$/,
                         `    CHANNEL: '${CHANNEL}',\n};`
