@@ -1,12 +1,14 @@
 // ========== 光大阅卷适配器 ==========
-// pj.yixx.cn — Vue 2 + Canvas 渲染
+// 支持多种部署地址：pj.yixx.cn、IP:端口 等
 
 // 图片池：密号(mh) → 图片URL 的映射
 // getDdb API 返回多份试卷，每份有 mh 和 imageData.vUrl
 // 通过页面上显示的"密号"精确匹配当前试卷的图片
 let _guangdaImagePool = {};
 
-if (window.location.hostname.includes('pj.yixx.cn')) {
+// XHR 拦截器：不限制域名，只处理 getDdb 相关请求
+// 这样可以支持各种部署地址（如 http://202.104.21.72:40002/#/）
+{
     const _guangdaOrigOpen = XMLHttpRequest.prototype.open;
     const _guangdaOrigSend = XMLHttpRequest.prototype.send;
 
@@ -54,11 +56,25 @@ if (window.location.hostname.includes('pj.yixx.cn')) {
 const GuangdaAdapter = {
     name: '光大阅卷',
     id: 'guangda',
-    urlPatterns: ['*://pj.yixx.cn/*'],
+    urlPatterns: ['*://pj.yixx.cn/*', '*://*/*'],
     iconUrl: 'https://pj.yixx.cn/njs_2006/images/yuejuan.ico',
 
     shouldInitialize() {
-        return window.location.hostname.includes('pj.yixx.cn');
+        const hostname = window.location.hostname;
+
+        // 已知的光大阅卷域名
+        if (hostname.includes('pj.yixx.cn')) return true;
+
+        // 检测特征：页面包含光大阅卷特有的元素
+        // #painter 是光大阅卷的绘图/阅卷组件
+        // .score.big-score 是分数选择区域
+        if (document.querySelector('#painter') ||
+            document.querySelector('.score.big-score')) {
+            console.log('🎯 [光大阅卷] 通过 DOM 特征检测到光大阅卷系统');
+            return true;
+        }
+
+        return false;
     },
 
     // 快速页面检查（不等待 DOM），用于 URL 变化监听器
