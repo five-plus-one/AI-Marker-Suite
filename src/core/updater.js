@@ -296,6 +296,16 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
         dialog.remove();
         console.log(`[更新检查] 已跳过版本 ${remoteVersion}`);
     });
+
+    // 渠道切换按钮（非 stable 渠道时存在）
+    const switchStableBtn = dialog.querySelector('#upd-switch-stable');
+    if (switchStableBtn) {
+        switchStableBtn.addEventListener('click', () => { dialog.remove(); switchChannel('stable'); });
+    }
+    const switchPreviewBtn = dialog.querySelector('#upd-switch-preview');
+    if (switchPreviewBtn) {
+        switchPreviewBtn.addEventListener('click', () => { dialog.remove(); switchChannel('preview'); });
+    }
 }
 
 /**
@@ -323,7 +333,18 @@ function handleUpdateResult(remoteVersion, remoteChangelog, force, restoreBtn) {
         showUpdateDialog(remoteVersion, remoteChangelog);
     } else {
         console.log('[更新检查] 当前已是最新版本');
-        if (force) showToast('当前已是最新版本');
+        if (force) {
+            showToast('当前已是最新版本');
+            // 手动检查时，非 stable 渠道追加渠道引导
+            const ch = getChannelName();
+            if (ch === 'dev') {
+                showChannelSwitchDialog().then(action => {
+                    if (action === 'stable' || action === 'preview') switchChannel(action);
+                });
+            } else if (ch === 'preview') {
+                showToast('建议切换到稳定版以获得更可靠的体验', 'info');
+            }
+        }
     }
 }
 
