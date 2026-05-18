@@ -47,26 +47,49 @@ function getBuildChannelLabel() {
 }
 
 /**
+ * 提取版本号的基础部分（去掉 -preview / -dev 等后缀）。
+ * @param {string} version - 版本号字符串
+ * @returns {string} 基础版本号
+ */
+function extractBaseVersion(version) {
+    return version.split('-')[0];
+}
+
+/**
  * 比较两个版本号字符串，返回：
  *   1  表示 a > b
  *   -1 表示 a < b
  *   0  表示相等
  *
- * 支持带后缀的版本号（如 1.21.5.115-preview.3），
- * 比较时忽略 -preview / -dev 等后缀，仅比较数字部分。
+ * 完整比较逻辑：
+ * 1. 先比较基础版本号（- 前的数字部分）
+ * 2. 基础版本不等 → 直接返回
+ * 3. 基础版本相等时：
+ *    - 两者都无后缀 → 相等
+ *    - 有后缀 vs 无后缀 → 有后缀的更新（如 1.21.5.202-dev.224 > 1.21.5.202）
+ *    - 两者都有后缀 → 比较后缀中的 build number
  */
 function compareVersions(a, b) {
-    // 按 '-' 分割取数字部分，忽略渠道后缀
     const numsA = a.split('-')[0].split('.').map(Number);
     const numsB = b.split('-')[0].split('.').map(Number);
     const len = Math.max(numsA.length, numsB.length);
+    // 1. 比较基础版本号
     for (let i = 0; i < len; i++) {
         const na = numsA[i] || 0;
         const nb = numsB[i] || 0;
         if (na > nb) return 1;
         if (na < nb) return -1;
     }
-    return 0;
+    // 2. 基础版本相等，比较后缀
+    const hasSuffixA = a.includes('-');
+    const hasSuffixB = b.includes('-');
+    if (!hasSuffixA && !hasSuffixB) return 0;
+    if (!hasSuffixA) return 1;   // 1.21.5.202 > 1.21.5.202-dev.224
+    if (!hasSuffixB) return -1;  // 1.21.5.202-dev.224 < 1.21.5.202
+    // 两者都有后缀 → 比较 build number
+    const buildA = parseInt(a.split('-')[1].split('.').pop(), 10) || 0;
+    const buildB = parseInt(b.split('-')[1].split('.').pop(), 10) || 0;
+    return buildA > buildB ? 1 : buildA < buildB ? -1 : 0;
 }
 
 /**
