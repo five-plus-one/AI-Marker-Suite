@@ -269,10 +269,10 @@ const Guangda2Adapter = {
     // ========== 提交 ==========
     // V2 版本的工作流：点击分数选项 → 系统自动调用 commitKsGrade 提交
     // 不需要单独点击"提交分数"按钮
-    submitGrade() {
+    async submitGrade() {
         console.log('📤 [诊断] 光大V2 — V2版本点击分数后自动提交，无需额外操作');
-        // 只处理可能出现的确认弹窗
-        this._handleConfirmDialog();
+        // 等待确认弹窗处理完成
+        await this._handleConfirmDialog();
         return true;
     },
 
@@ -298,7 +298,8 @@ const Guangda2Adapter = {
             });
         };
 
-        waitForDialog().then(confirmBtn => {
+        // 返回 Promise，让 submitGrade 可以等待完成
+        return waitForDialog().then(confirmBtn => {
             if (!confirmBtn) {
                 console.log('⚠️ [诊断] 光大V2 未检测到确认弹窗（可能未启用）');
                 return;
@@ -306,33 +307,54 @@ const Guangda2Adapter = {
 
             console.log('✅ [诊断] 光大V2 找到确认弹窗');
 
-            // 方案：找到子组件并触发 confirm 事件，绕过父组件的用户信息检查
-            const dialogVm = confirmBtn.__vue__;
-            if (dialogVm) {
-                // 向上查找弹窗组件，寻找包含 confirm 事件监听的组件
-                let vm = dialogVm;
-                while (vm) {
-                    // 查找包含 confirm 事件监听的组件
-                    if (vm.$listeners && vm.$listeners.confirm) {
-                        console.log('✅ [诊断] 找到 confirm 事件监听器，直接触发');
-                        vm.$emit('confirm');
-                        return;
+            // 方案：直接找到包含 commitKsGrade 的组件，触发 confirm 事件
+            // 绕过父组件的 sure 函数（它会检查用户信息并调用 firstUpdateUserInfo）
+            const app = window.app;
+            if (app) {
+                // 递归查找包含 commitKsGrade 方法的组件
+                const findCommitComponent = (vm) => {
+                    if (vm.$options.methods && vm.$options.methods.commitKsGrade) {
+                        return vm;
                     }
-                    // 或者查找包含 sure 方法的组件
-                    if (vm.$options.methods && vm.$options.methods.sure) {
-                        const sureStr = vm.$options.methods.sure.toString();
-                        // 如果是子组件（没有用户信息检查），则调用
-                        if (!sureStr.includes('姓名不能为空') && !sureStr.includes('CompleteInfo')) {
-                            console.log('✅ [诊断] 找到子组件 sure 方法，直接调用');
-                            vm.$options.methods.sure.call(vm);
+                    for (const child of (vm.$children || [])) {
+                        const found = findCommitComponent(child);
+                        if (found) return found;
+                    }
+                    return null;
+                };
+
+                const commitComponent = findCommitComponent(app);
+                if (commitComponent) {
+                    console.log('✅ [诊断] 找到 commitKsGrade 组件');
+
+                    // 从 commitComponent 向上查找监听 confirm 事件的父组件
+                    let parent = commitComponent.$parent;
+                    while (parent) {
+                        if (parent.$listeners && parent.$listeners.confirm) {
+                            console.log('✅ [诊断] 找到 confirm 事件监听器，直接触发');
+                            parent.$emit('confirm');
                             return;
                         }
+                        parent = parent.$parent;
                     }
-                    vm = vm.$parent;
+
+                    // 备用：查找包含 sure 方法但不检查用户信息的组件
+                    let vm = commitComponent;
+                    while (vm) {
+                        if (vm.$options.methods && vm.$options.methods.sure) {
+                            const sureStr = vm.$options.methods.sure.toString();
+                            if (!sureStr.includes('姓名不能为空') && !sureStr.includes('CompleteInfo')) {
+                                console.log('✅ [诊断] 找到子组件 sure 方法，直接调用');
+                                vm.$options.methods.sure.call(vm);
+                                return;
+                            }
+                        }
+                        vm = vm.$parent;
+                    }
                 }
             }
 
-            // 备用方案：直接点击按钮（可能会触发错误，但至少能提交）
+            // 最终备用方案：直接点击按钮
             console.log('⚠️ [诊断] 未找到合适的组件，使用备用方案点击按钮');
             confirmBtn.click();
         });
