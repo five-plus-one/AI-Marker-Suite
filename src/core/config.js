@@ -3,13 +3,32 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.5.113',
+    VERSION: '1.21.6.300',
 
-    /** 轻量级更新检查 UL（优先使用，~1KB） */
+    /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
 
-    /** 远端原始脚本地址（降级使用 + 立即更新） */
+    /** 远端原始脚本地址（降级使用 + 立即更新）—— stable 渠道默认值 */
     UPDATE_CHECK_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js',
+
+    /** 渠道定义 */
+    CHANNELS: {
+        stable: {
+            label: '稳定版',
+            manifestUrl: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
+            scriptUrl: 'https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js',
+        },
+        preview: {
+            label: '预览版',
+            manifestUrl: 'https://auto-update.aimarking.five-plus-one.com/ota/preview/manifest.json',
+            scriptUrl: 'https://auto-update.aimarking.five-plus-one.com/ota/preview/ai_marker.user.js',
+        },
+        dev: {
+            label: '开发版',
+            manifestUrl: 'https://auto-update.aimarking.five-plus-one.com/ota/dev/manifest.json',
+            scriptUrl: 'https://auto-update.aimarking.five-plus-one.com/ota/dev/ai_marker.user.js',
+        },
+    },
 
     /** 更新检查间隔（毫秒），默认 24 小时 */
     UPDATE_CHECK_INTERVAL_MS: 24 * 60 * 60 * 1000,
@@ -25,6 +44,15 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.6': [
+            '【修复】修复光大V2适配器在SPA页面加载时无法正确注册的问题',
+            '【修复】修复光大V2提交时错误触发firstUpdateUserInfo请求的问题',
+            '【修复】修复光大V2答题卡与实际评阅不一致的问题',
+            '【修复】修复光大V2刷新后重复显示OOBE引导界面的问题',
+            '【修复】修复光大V2等待下一份试卷超时的问题',
+            '【优化】光大V2提交流程重构：用户确认后才点击分数选项提交',
+            '【优化】光大V2图片池使用bh-ddh作为包号标识，与界面显示一致',
+        ],
         '1.21.5': [
             '【新功能】光大阅卷图片获取重构：使用密号(mh)索引图片池，通过页面密号精确匹配当前试卷图片，彻底解决图片错位问题',
             '【新功能】提交对话框新增「取消」按钮，可关闭面板不提交分数',
