@@ -444,7 +444,28 @@ const Guangda2Adapter = {
     },
 };
 
-// 注册适配器
-if (Guangda2Adapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = Guangda2Adapter;
-}
+// 注册适配器（等待DOM准备，SPA页面可能需要延迟检测）
+(function registerGuangda2Adapter() {
+    // 如果已经检测到，直接注册
+    if (Guangda2Adapter.shouldInitialize()) {
+        window.__AI_MARKER_ADAPTER__ = Guangda2Adapter;
+        return;
+    }
+
+    // 使用 MutationObserver 等待特征元素出现
+    const observer = new MutationObserver(() => {
+        if (Guangda2Adapter.shouldInitialize()) {
+            window.__AI_MARKER_ADAPTER__ = Guangda2Adapter;
+            observer.disconnect();
+            console.log('🎯 [光大V2] 延迟注册适配器成功');
+        }
+    });
+
+    observer.observe(document.body || document.documentElement, {
+        childList: true,
+        subtree: true
+    });
+
+    // 超时保护：10秒后停止观察
+    setTimeout(() => observer.disconnect(), 10000);
+})();
