@@ -56,25 +56,13 @@ let _guangdaImagePool = {};
 const GuangdaAdapter = {
     name: '光大阅卷',
     id: 'guangda',
-    urlPatterns: ['*://pj.yixx.cn/*', '*://*/*'],
+    urlPatterns: ['*://pj.yixx.cn/*'],
     iconUrl: 'https://pj.yixx.cn/njs_2006/images/yuejuan.ico',
 
     shouldInitialize() {
-        const hostname = window.location.hostname;
-
-        // 已知的光大阅卷域名
-        if (hostname.includes('pj.yixx.cn')) return true;
-
-        // 检测特征：页面包含光大阅卷特有的元素
-        // #painter 是光大阅卷的绘图/阅卷组件
-        // .score.big-score 是分数选择区域
-        if (document.querySelector('#painter') ||
-            document.querySelector('.score.big-score')) {
-            console.log('🎯 [光大阅卷] 通过 DOM 特征检测到光大阅卷系统');
-            return true;
-        }
-
-        return false;
+        // 仅匹配 pj.yixx.cn 域名
+        // IP:端口 部署由 guangda-2 适配器处理
+        return window.location.hostname.includes('pj.yixx.cn');
     },
 
     // 快速页面检查（不等待 DOM），用于 URL 变化监听器

@@ -606,9 +606,18 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
 
     // 两个都失败 → 重试两个
     if (scoreA === null && scoreB === null) {
+        const errA = resultA.reason?.message || '';
+        const errB = resultB.reason?.message || '';
+
+        // 用户主动暂停 → 直接抛出，不重试
+        if (errA.includes('用户主动暂停') || errA.includes('用户暂停') ||
+            errB.includes('用户主动暂停') || errB.includes('用户暂停')) {
+            throw resultA.reason || resultB.reason;
+        }
+
         console.warn('⚠️ [双评] 首次双评均失败，等待2秒后重试两个模型...');
-        if (resultA.reason) console.warn('  主模型错误:', resultA.reason.message || resultA.reason);
-        if (resultB.reason) console.warn('  副模型错误:', resultB.reason.message || resultB.reason);
+        console.warn('  主模型错误:', errA || resultA.reason);
+        console.warn('  副模型错误:', errB || resultB.reason);
         if (onStreamUpdate) onStreamUpdate('⚠️ 双评均失败，正在重试...');
         await new Promise(r => setTimeout(r, 2000));
 
@@ -636,6 +645,14 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     // 一个失败 → 只重试失败的那个，最多重试 MAX_DUAL_RETRIES 次
     let dualRetryCount = 0;
     while ((scoreA === null || scoreB === null) && dualRetryCount < MAX_DUAL_RETRIES) {
+        // 用户主动暂停 → 直接抛出，不重试
+        const failMsg = scoreA === null
+            ? (resultA.reason?.message || '')
+            : (resultB.reason?.message || '');
+        if (failMsg.includes('用户主动暂停') || failMsg.includes('用户暂停')) {
+            throw scoreA === null ? resultA.reason : resultB.reason;
+        }
+
         dualRetryCount++;
         const waitSec = dualRetryCount <= 2 ? 2 : 5;
         if (scoreA === null) {

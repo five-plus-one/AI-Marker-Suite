@@ -560,7 +560,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         });
     }
 
-    const confirmSubmitFn = () => {
+    const confirmSubmitFn = async () => {
         if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
         dialog.remove();
 
@@ -591,7 +591,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         }
 
         const adapter = window.__AI_MARKER_ADAPTER__;
-        const submitted = adapter && adapter.submitGrade ? adapter.submitGrade() : false;
+        const submitted = adapter && adapter.submitGrade ? await adapter.submitGrade() : false;
 
         if (submitted) {
             if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
