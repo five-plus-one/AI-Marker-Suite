@@ -2604,9 +2604,9 @@ function showOnboardingDialog(forceShow, mode) {
 
     function renderWorkflowStep() {
         const workflows = [
-            { id: 'fast', icon: '⚡', name: '快速批改', desc: '速度快、性价比高，适合大多数题型', color: '#0052FF' },
-            { id: 'normal', icon: '🎯', name: '普通批改', desc: '精度更高，适合复杂题型', color: '#1d1d1f' },
-            { id: 'dual', icon: '🔄', name: '双评模式', desc: '两个模型独立评分，分差超阈值自动仲裁', color: '#7c3aed' }
+            { id: 'fast', icon: '⚡', name: '快速批改（推荐）', desc: '快速低价，适合大多数题型', color: '#0052FF' },
+            { id: 'normal', icon: '🎯', name: '高精模式', desc: '响应速度较慢，消耗额度相对较高，准确度较高', color: '#1d1d1f' },
+            { id: 'dual', icon: '🔄', name: '双评模式（推荐）', desc: '兼顾准确度、速度与价格', color: '#7c3aed' }
         ];
         return `
             <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
