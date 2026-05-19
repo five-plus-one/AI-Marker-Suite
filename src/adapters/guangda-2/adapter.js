@@ -290,64 +290,19 @@ const Guangda2Adapter = {
     // ========== 提交 ==========
     // V2 版本的工作流：用户确认 → 点击分数选项 → 系统自动调用 commitKsGrade 提交
     async submitGrade() {
-        console.log('📤 [诊断] 光大V2 — 等待用户确认后提交');
+        console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
-        // 先点击分数选项（触发 commitKsGrade）
+        // 点击分数选项（触发 commitKsGrade）
         this._clickScore();
 
-        // 然后等待确认弹窗处理完成
-        await this._handleConfirmDialog();
+        // 不需要点击确认按钮，系统会自动处理
         return true;
     },
 
     _handleConfirmDialog() {
-        console.log('⏳ [诊断] 光大V2 等待确认弹窗...');
-
-        // 等待弹窗出现
-        const waitForDialog = () => {
-            return new Promise((resolve) => {
-                let checkCount = 0;
-                const checkInterval = setInterval(() => {
-                    checkCount++;
-                    const confirmBtn = document.querySelector(GUANGDA2_SELECTORS.DIALOG_CONFIRM);
-                    if (confirmBtn) {
-                        clearInterval(checkInterval);
-                        resolve(confirmBtn);
-                    }
-                    if (checkCount >= 20) {
-                        clearInterval(checkInterval);
-                        resolve(null);
-                    }
-                }, 100);
-            });
-        };
-
-        // 返回 Promise，让 submitGrade 可以等待完成
-        return waitForDialog().then(confirmBtn => {
-            if (!confirmBtn) {
-                console.log('⚠️ [诊断] 光大V2 未检测到确认弹窗（可能未启用）');
-                return;
-            }
-
-            console.log('✅ [诊断] 光大V2 找到确认弹窗');
-
-            // 方案：直接触发子组件的 confirm 事件
-            // 从诊断信息看，子组件路径是 app.$children[0].$children[0].$children[0]
-            // 子组件的 $listeners 中有 confirm 事件
-            const app = window.app;
-            if (app) {
-                const child = app.$children[0]?.$children[0]?.$children[0];
-                if (child && child.$listeners && child.$listeners.confirm) {
-                    console.log('✅ [诊断] 找到子组件，触发 confirm 事件');
-                    child.$emit('confirm');
-                    return;
-                }
-            }
-
-            // 备用方案：直接点击按钮
-            console.log('⚠️ [诊断] 未找到子组件，使用备用方案点击按钮');
-            confirmBtn.click();
-        });
+        // 光大V2系统会自动处理确认弹窗，不需要我们干预
+        console.log('⏳ [诊断] 光大V2 — 系统自动处理确认弹窗');
+        return Promise.resolve();
     },
 
     // ========== 等待下一份试卷 ==========
