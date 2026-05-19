@@ -196,12 +196,33 @@ const Guangda2Adapter = {
     },
 
     _getImageUrlsFromPool() {
+        // 获取当前包号（界面上显示的格式，如 "161-1"）
+        const currentPkg = this._getCurrentPackage();
+
+        if (currentPkg) {
+            // 提取包号的主要部分（如 "161-1" → "161"）
+            const mainPkg = currentPkg.split('-')[0];
+
+            // 查找匹配的图片 URL
+            if (_guangda2ImagePool[mainPkg]) {
+                console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${mainPkg} 的图片`);
+                return [_guangda2ImagePool[mainPkg]];
+            }
+
+            // 尝试完整包号匹配
+            if (_guangda2ImagePool[currentPkg]) {
+                console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${currentPkg} 的图片`);
+                return [_guangda2ImagePool[currentPkg]];
+            }
+        }
+
+        // 备用方案：返回第一张图片
         const urls = Object.values(_guangda2ImagePool).filter(u => u && u.length > 0);
         if (urls.length > 0) {
-            console.log(`🖼️ [诊断] 光大V2 从图片池找到 ${urls.length} 张图片`);
-            // 返回第一张（当前试卷）
+            console.log(`🖼️ [诊断] 光大V2 从图片池找到 ${urls.length} 张图片（备用）`);
             return [urls[0]];
         }
+
         return [];
     },
 
