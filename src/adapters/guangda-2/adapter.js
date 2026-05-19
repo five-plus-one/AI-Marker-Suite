@@ -154,8 +154,8 @@ const Guangda2Adapter = {
         const hash = window.location.hash;
         const questionEl = document.querySelector(GUANGDA2_SELECTORS.QUESTION_NUM);
         const questionNum = questionEl ? questionEl.textContent.trim() : '';
-        const pkg = this._getCurrentPackage();
-        return `guangda2_${hash}_${questionNum}_${pkg}`;
+        // 不包含包号，因为包号会随试卷变化，导致绑定失效
+        return `guangda2_${hash}_${questionNum}`;
     },
 
     // ========== 包号读取（替代密号） ==========
@@ -307,55 +307,25 @@ const Guangda2Adapter = {
 
             console.log('✅ [诊断] 光大V2 找到确认弹窗');
 
-            // 方案：直接找到包含 commitKsGrade 的组件，触发 confirm 事件
-            // 绕过父组件的 sure 函数（它会检查用户信息并调用 firstUpdateUserInfo）
+            // 直接找到子组件并调用 sure 方法
+            // 从诊断信息看，子组件路径是 /child[0]/child[0]/child[0]
+            // 子组件的 sure 方法只会触发 confirm 事件，不会检查用户信息
             const app = window.app;
             if (app) {
-                // 递归查找包含 commitKsGrade 方法的组件
-                const findCommitComponent = (vm) => {
-                    if (vm.$options.methods && vm.$options.methods.commitKsGrade) {
-                        return vm;
-                    }
-                    for (const child of (vm.$children || [])) {
-                        const found = findCommitComponent(child);
-                        if (found) return found;
-                    }
-                    return null;
-                };
-
-                const commitComponent = findCommitComponent(app);
-                if (commitComponent) {
-                    console.log('✅ [诊断] 找到 commitKsGrade 组件');
-
-                    // 从 commitComponent 向上查找监听 confirm 事件的父组件
-                    let parent = commitComponent.$parent;
-                    while (parent) {
-                        if (parent.$listeners && parent.$listeners.confirm) {
-                            console.log('✅ [诊断] 找到 confirm 事件监听器，直接触发');
-                            parent.$emit('confirm');
-                            return;
-                        }
-                        parent = parent.$parent;
-                    }
-
-                    // 备用：查找包含 sure 方法但不检查用户信息的组件
-                    let vm = commitComponent;
-                    while (vm) {
-                        if (vm.$options.methods && vm.$options.methods.sure) {
-                            const sureStr = vm.$options.methods.sure.toString();
-                            if (!sureStr.includes('姓名不能为空') && !sureStr.includes('CompleteInfo')) {
-                                console.log('✅ [诊断] 找到子组件 sure 方法，直接调用');
-                                vm.$options.methods.sure.call(vm);
-                                return;
-                            }
-                        }
-                        vm = vm.$parent;
+                const child = app.$children[0]?.$children[0]?.$children[0];
+                if (child && child.$options.methods && child.$options.methods.sure) {
+                    const sureStr = child.$options.methods.sure.toString();
+                    // 确认是子组件（不包含用户信息检查）
+                    if (!sureStr.includes('姓名不能为空') && !sureStr.includes('CompleteInfo')) {
+                        console.log('✅ [诊断] 直接调用子组件的 sure 方法');
+                        child.$options.methods.sure.call(child);
+                        return;
                     }
                 }
             }
 
-            // 最终备用方案：直接点击按钮
-            console.log('⚠️ [诊断] 未找到合适的组件，使用备用方案点击按钮');
+            // 备用方案：直接点击按钮
+            console.log('⚠️ [诊断] 未找到子组件，使用备用方案点击按钮');
             confirmBtn.click();
         });
     },
