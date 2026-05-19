@@ -279,65 +279,63 @@ const Guangda2Adapter = {
     _handleConfirmDialog() {
         console.log('⏳ [诊断] 光大V2 等待确认弹窗...');
 
-        // 临时拦截 firstUpdateUserInfo 请求（该接口在自动批改时不需要，会因姓名为空而报错）
-        const _origOpen = XMLHttpRequest.prototype.open;
-        const _origSend = XMLHttpRequest.prototype.send;
-
-        XMLHttpRequest.prototype.open = function(method, url, ...args) {
-            this._diagUrl = url;
-            return _origOpen.call(this, method, url, ...args);
-        };
-
-        XMLHttpRequest.prototype.send = function(...args) {
-            if (this._diagUrl && this._diagUrl.includes('firstUpdateUserInfo')) {
-                console.log('🚫 [诊断] 拦截 firstUpdateUserInfo 请求（自动批改不需要）');
-                // 模拟成功响应，避免报错
-                Object.defineProperty(this, 'status', { value: 200, writable: false, configurable: true });
-                Object.defineProperty(this, 'readyState', { value: 4, writable: false, configurable: true });
-                Object.defineProperty(this, 'responseText', { value: JSON.stringify({result: 'ok'}), writable: false, configurable: true });
-                if (this.onload) {
-                    setTimeout(() => this.onload(), 0);
-                }
-                return;
-            }
-            return _origSend.call(this, ...args);
-        };
-
-        // 恢复原始方法的函数
-        const restoreXHR = () => {
-            XMLHttpRequest.prototype.open = _origOpen;
-            XMLHttpRequest.prototype.send = _origSend;
-        };
-
-        // 立即检查一次
-        const immediateBtn = document.querySelector(GUANGDA2_SELECTORS.DIALOG_CONFIRM);
-        if (immediateBtn) {
-            console.log('✅ [诊断] 光大V2 立即找到确认弹窗，自动点击');
-            immediateBtn.click();
-            setTimeout(restoreXHR, 500);
-            return;
-        }
-
         // 等待弹窗出现
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-            checkCount++;
+        const waitForDialog = () => {
+            return new Promise((resolve) => {
+                let checkCount = 0;
+                const checkInterval = setInterval(() => {
+                    checkCount++;
+                    const confirmBtn = document.querySelector(GUANGDA2_SELECTORS.DIALOG_CONFIRM);
+                    if (confirmBtn) {
+                        clearInterval(checkInterval);
+                        resolve(confirmBtn);
+                    }
+                    if (checkCount >= 20) {
+                        clearInterval(checkInterval);
+                        resolve(null);
+                    }
+                }, 100);
+            });
+        };
 
-            const confirmBtn = document.querySelector(GUANGDA2_SELECTORS.DIALOG_CONFIRM);
-            if (confirmBtn) {
-                console.log('✅ [诊断] 光大V2 找到确认弹窗，自动点击');
-                confirmBtn.click();
-                clearInterval(checkInterval);
-                setTimeout(restoreXHR, 500);
+        waitForDialog().then(confirmBtn => {
+            if (!confirmBtn) {
+                console.log('⚠️ [诊断] 光大V2 未检测到确认弹窗（可能未启用）');
                 return;
             }
 
-            if (checkCount >= 10) {
-                clearInterval(checkInterval);
-                restoreXHR();
-                console.log('⚠️ [诊断] 光大V2 未检测到确认弹窗（可能未启用）');
+            console.log('✅ [诊断] 光大V2 找到确认弹窗');
+
+            // 方案：找到子组件并触发 confirm 事件，绕过父组件的用户信息检查
+            const dialogVm = confirmBtn.__vue__;
+            if (dialogVm) {
+                // 向上查找弹窗组件，寻找包含 confirm 事件监听的组件
+                let vm = dialogVm;
+                while (vm) {
+                    // 查找包含 confirm 事件监听的组件
+                    if (vm.$listeners && vm.$listeners.confirm) {
+                        console.log('✅ [诊断] 找到 confirm 事件监听器，直接触发');
+                        vm.$emit('confirm');
+                        return;
+                    }
+                    // 或者查找包含 sure 方法的组件
+                    if (vm.$options.methods && vm.$options.methods.sure) {
+                        const sureStr = vm.$options.methods.sure.toString();
+                        // 如果是子组件（没有用户信息检查），则调用
+                        if (!sureStr.includes('姓名不能为空') && !sureStr.includes('CompleteInfo')) {
+                            console.log('✅ [诊断] 找到子组件 sure 方法，直接调用');
+                            vm.$options.methods.sure.call(vm);
+                            return;
+                        }
+                    }
+                    vm = vm.$parent;
+                }
             }
-        }, 200);
+
+            // 备用方案：直接点击按钮（可能会触发错误，但至少能提交）
+            console.log('⚠️ [诊断] 未找到合适的组件，使用备用方案点击按钮');
+            confirmBtn.click();
+        });
     },
 
     // ========== 等待下一份试卷 ==========
