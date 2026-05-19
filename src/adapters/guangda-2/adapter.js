@@ -4,16 +4,12 @@
 // 差异：DOM 结构不同、分数选项用 LI.f-csp、提交按钮是 input[type="submit"]
 
 // ========== XR 拦截器 ==========
-// 拦截 getDdb 和 getYpData API，获取图片 URL
-let _guangda2ImagePool = {};  // 包号 → 图片URL 的映射
+// 拦截 getDdb API，获取 imageUrlPath_all 并构造完整图片 URL
+// 图片 URL 格式: http://${hostname}:${mainPort - 1}/mark/res.do?rt=qtpj_kscqk&path=${imageUrlPath_all}
+let _guangda2ImagePool = {};  // 包号 → 完整图片URL 的映射
 let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
 
 {
-    const _origOpen = XMLHttpRequest.prototype.open;
-    const _origSend = XMLHttpRequest.prototype.send;
-
-    // 注意：如果 guangda 适配器已经拦截了 XHR，这里会形成链式拦截
-    // 每个拦截器只处理自己关心的 API
     const _innerOpen = XMLHttpRequest.prototype.open;
     const _innerSend = XMLHttpRequest.prototype.send;
 
@@ -34,17 +30,22 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                     const vKs = response?.result?.vKs;
 
                     if (vKs && vKs.length > 0) {
+                        const hostname = window.location.hostname;
+                        const mainPort = parseInt(window.location.port) || 80;
+                        const imgPort = mainPort - 1;
+
                         vKs.forEach(paper => {
-                            // V2 版本可能没有 mh（密号），用包号(bh)或ddh作为 key
-                            const mh = paper?.mh || paper?.bh || paper?.ddh || '';
-                            const vUrl = paper?.imageData?.vUrl;
-                            if (mh && vUrl && vUrl.length > 0) {
-                                const validUrl = vUrl.find(u => u && (u.startsWith('http://') || u.startsWith('https://')));
-                                if (validUrl) {
-                                    _guangda2ImagePool[mh] = validUrl;
-                                }
+                            const bh = paper?.bh || paper?.ddh || '';
+                            const imagePath = paper?.imageUrlPath_all || '';
+
+                            if (bh && imagePath) {
+                                // 构造完整图片 URL
+                                const fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                _guangda2ImagePool[bh] = fullUrl;
+                                console.log(`🖼️ [V2 API拦截] 包号 ${bh} → ${fullUrl.substring(0, 60)}...`);
                             }
                         });
+
                         const poolSize = Object.keys(_guangda2ImagePool).length;
                         console.log(`🎯 [V2 API拦截] 更新图片池，共 ${poolSize} 份试卷`);
                     }
@@ -54,13 +55,16 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                 if (url.includes('getYpData')) {
                     const response = JSON.parse(this.responseText);
                     if (Array.isArray(response) && response.length > 0) {
-                        // getYpData 返回数组，每项包含 imageUrlPath_all
+                        const hostname = window.location.hostname;
+                        const mainPort = parseInt(window.location.port) || 80;
+                        const imgPort = mainPort - 1;
+
                         response.forEach(record => {
                             const bh = record?.bh || '';
                             const imagePath = record?.imageUrlPath_all || '';
                             if (bh && imagePath) {
-                                // 存储原始路径，后续需要拼接 base URL
-                                _guangda2ImagePool[bh] = imagePath;
+                                const fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                _guangda2ImagePool[bh] = fullUrl;
                             }
                         });
                         console.log(`🎯 [V2 API拦截] getYpData 更新图片池，共 ${response.length} 条记录`);
@@ -75,9 +79,8 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
 }
 
 // ========== 版本检测 ==========
-// V2 版本的特征：有 LI.f-csp 分数选项，有 Vue scoped style（data-v-xxxxx）
+// V2 版本的特征：有 LI.f-csp 分数选项
 function _isGuangdaV2() {
-    // 检测 LI.f-csp 分数选项（V2 独有）
     if (document.querySelector('LI.f-csp')) {
         return true;
     }
@@ -124,9 +127,9 @@ const Guangda2Adapter = {
         try {
             // 等待关键元素出现
             const result = await Promise.race([
-                waitForElement(GUANGDA2_SELECTORS.ANSWER_CANVAS, 5000).then(() => 'canvas'),
                 waitForElement(GUANGDA2_SELECTORS.SCORE_ITEM, 5000).then(() => 'score-item'),
                 waitForElement(GUANGDA2_SELECTORS.SUBMIT_INPUT, 5000).then(() => 'submit-btn'),
+                waitForElement(GUANGDA2_SELECTORS.ANSWER_CANVAS, 5000).then(() => 'canvas'),
             ]).catch(() => null);
 
             if (result) {
@@ -136,10 +139,10 @@ const Guangda2Adapter = {
 
             // 兜底检测
             await new Promise(resolve => setTimeout(resolve, 1000));
-            const hasCanvas = document.querySelector(GUANGDA2_SELECTORS.ANSWER_CANVAS);
             const hasScore = document.querySelector(GUANGDA2_SELECTORS.SCORE_ITEM);
-            const detected = !!(hasCanvas || hasScore);
-            console.log(`🔎 [诊断] 光大V2 兜底检测 — Canvas: ${!!hasCanvas}, 分数项: ${!!hasScore}, 最终: ${detected}`);
+            const hasCanvas = document.querySelector(GUANGDA2_SELECTORS.ANSWER_CANVAS);
+            const detected = !!(hasScore || hasCanvas);
+            console.log(`🔎 [诊断] 光大V2 兜底检测 — 分数项: ${!!hasScore}, Canvas: ${!!hasCanvas}, 最终: ${detected}`);
             return detected;
         } catch (error) {
             console.error('❌ [诊断] 光大V2 detectMarkingPage 异常:', error);
@@ -149,10 +152,8 @@ const Guangda2Adapter = {
 
     getTaskIdentifier() {
         const hash = window.location.hash;
-        // 尝试获取当前题号
         const questionEl = document.querySelector(GUANGDA2_SELECTORS.QUESTION_NUM);
         const questionNum = questionEl ? questionEl.textContent.trim() : '';
-        // 尝试获取包号
         const pkg = this._getCurrentPackage();
         return `guangda2_${hash}_${questionNum}_${pkg}`;
     },
@@ -165,7 +166,6 @@ const Guangda2Adapter = {
                 const span = label.nextElementSibling;
                 if (span) {
                     const text = span.textContent.trim();
-                    // 过滤掉无效值 "-" 和空值
                     if (text && text !== '-' && text !== '：') {
                         return text;
                     }
@@ -175,32 +175,11 @@ const Guangda2Adapter = {
         return '';
     },
 
-    // ========== Canvas 指纹（用于检测试卷切换） ==========
-    _getCanvasFingerprint() {
-        const canvas = document.querySelector(GUANGDA2_SELECTORS.ANSWER_CANVAS_FIRST);
-        if (!canvas) return '';
-        try {
-            const ctx = canvas.getContext('2d');
-            // 采样几个像素点作为指纹
-            const w = canvas.width;
-            const h = canvas.height;
-            const points = [
-                ctx.getImageData(0, 0, 1, 1).data.join(','),
-                ctx.getImageData(Math.floor(w / 2), Math.floor(h / 2), 1, 1).data.join(','),
-                ctx.getImageData(w - 1, h - 1, 1, 1).data.join(','),
-            ];
-            return points.join('|');
-        } catch (e) {
-            // tainted canvas 无法读取
-            return '';
-        }
-    },
-
-    // ========== 图片获取 ==========
+    // ========== 图片获取（仅 API 拦截） ==========
     async gatherAnswerImages() {
         console.log('🖼️ [诊断] 光大V2 — 开始获取答题卡图片...');
 
-        // 方案 1: 从 XHR 拦截的图片池获取
+        // 等待 XHR 拦截器获取图片 URL（最多 8 秒）
         const startTime = Date.now();
         const maxWait = 8000;
 
@@ -212,22 +191,7 @@ const Guangda2Adapter = {
             await new Promise(r => setTimeout(r, 300));
         }
 
-        // 方案 2: 从 Canvas 导出
-        console.warn('⚠️ [诊断] 光大V2 图片池为空，尝试 Canvas 导出');
-        const canvasUrls = this._getImageFromCanvas();
-        if (canvasUrls.length > 0) {
-            console.log(`🖼️ [诊断] 光大V2 从 Canvas 导出 ${canvasUrls.length} 张图片`);
-            return canvasUrls;
-        }
-
-        // 方案 3: performance API 回退
-        console.warn('⚠️ [诊断] 光大V2 Canvas 导出失败，尝试 performance API');
-        const perfUrls = this._getImageUrlsFromPerformance();
-        if (perfUrls.length > 0) {
-            return perfUrls;
-        }
-
-        console.warn('⚠️ [诊断] 光大V2 未找到答题卡图片');
+        console.warn('⚠️ [诊断] 光大V2 等待图片池超时，未找到答题卡图片');
         return [];
     },
 
@@ -241,49 +205,8 @@ const Guangda2Adapter = {
         return [];
     },
 
-    _getImageFromCanvas() {
-        // 跳过 tainted canvas#0，从 canvas#1 或 #2 导出
-        const canvases = document.querySelectorAll(GUANGDA2_SELECTORS.ANSWER_CANVAS_FIRST);
-        for (const canvas of canvases) {
-            try {
-                // 检查 canvas 是否有内容（尺寸 > 0）
-                if (canvas.width === 0 || canvas.height === 0) continue;
-                const dataUrl = canvas.toDataURL('image/png');
-                if (dataUrl.length > 1000) {
-                    console.log(`🖼️ [诊断] 光大V2 从 canvas#${canvas.id} 导出成功 (${dataUrl.length} bytes)`);
-                    return [dataUrl];
-                }
-            } catch (e) {
-                // tainted canvas 会抛出 SecurityError
-                console.log(`🖼️ [诊断] 光大V2 canvas#${canvas.id} 导出失败: ${e.message}`);
-            }
-        }
-        return [];
-    },
-
-    _getImageUrlsFromPerformance() {
-        const entries = performance.getEntriesByType('resource');
-        const imageUrls = entries
-            .filter(e => e.initiatorType === 'img' || e.name.includes('.jpg') || e.name.includes('.png'))
-            .filter(e => e.name.includes('rescenter') || e.name.includes('markpic') || e.name.includes('image'))
-            .map(e => e.name);
-
-        const uniqueUrls = [...new Set(imageUrls)].filter(url =>
-            url.includes('.jpg') || url.includes('.png')
-        );
-
-        if (uniqueUrls.length > 0) {
-            const latestUrl = uniqueUrls[uniqueUrls.length - 1];
-            console.log(`🖼️ [诊断] 光大V2 从 performance 找到 ${uniqueUrls.length} 张图片`);
-            return [latestUrl];
-        }
-        return [];
-    },
-
     async fetchImageAsBase64(url) {
-        if (url.startsWith('data:')) {
-            return url.split(',')[1];
-        }
+        // V2 的图片 URL 是完整的 HTTP URL，直接下载
         return fetchImageAsBase64(url);
     },
 
@@ -292,7 +215,6 @@ const Guangda2Adapter = {
         const { total, subScores } = request;
         console.log(`📝 [诊断] 光大V2 fillScore — 总分: ${total}, 小题分数:`, subScores);
 
-        // V2 版本通常是单题模式，直接点击分数选项
         if (subScores && subScores.length > 0) {
             return this._fillSubScores(subScores);
         }
@@ -318,7 +240,6 @@ const Guangda2Adapter = {
     },
 
     _fillSubScores(subScores) {
-        // V2 版本可能是单题模式，直接填入第一个小题分数
         const score = typeof subScores[0] === 'object' ? subScores[0].score : subScores[0];
         return this._fillSingleScore(score);
     },
@@ -328,7 +249,6 @@ const Guangda2Adapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
-        // 单题模式：直接点击第一个分数
         const score = scores[0];
         if (score === null || score === undefined) return false;
 
@@ -355,13 +275,11 @@ const Guangda2Adapter = {
         if (submitBtn) {
             console.log('✅ [诊断] 光大V2 找到提交按钮，点击中...');
             submitBtn.click();
-
-            // 处理确认弹窗
             this._handleConfirmDialog();
             return true;
         }
 
-        // 备选：查找包含"提交分数"文字的按钮
+        // 备选：查找包含"提交"文字的 input
         const allInputs = document.querySelectorAll('input[type="submit"]');
         for (const input of allInputs) {
             if (input.value && input.value.includes('提交')) {
@@ -369,21 +287,6 @@ const Guangda2Adapter = {
                 input.click();
                 this._handleConfirmDialog();
                 return true;
-            }
-        }
-
-        // 备选：查找包含"确定"的 SPAN
-        const spans = document.querySelectorAll('SPAN.text.f-pa.f-csp');
-        for (const span of spans) {
-            if (span.textContent.trim() === '确定') {
-                // 检查是否是提交相关的确定按钮（不是回评弹窗的确定）
-                const parent = span.closest('.button');
-                if (parent && !parent.closest('.hp-dialog')) {
-                    console.log('✅ [诊断] 光大V2 找到确定按钮，点击中...');
-                    span.click();
-                    this._handleConfirmDialog();
-                    return true;
-                }
             }
         }
 
@@ -426,9 +329,7 @@ const Guangda2Adapter = {
     async waitForNextPaper(oldImageUrl) {
         console.log('⏳ [诊断] 光大V2 — 等待下一份试卷...');
 
-        // 记录当前包号和 Canvas 指纹
         const oldPkg = this._getCurrentPackage();
-        const oldFingerprint = this._getCanvasFingerprint();
         console.log(`⏳ [诊断] 光大V2 当前包号: ${oldPkg || '(未找到)'}`);
 
         // 等待确认弹窗消失
@@ -455,20 +356,11 @@ const Guangda2Adapter = {
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
-                // 方案 1: 包号变化
+                // 监听包号变化
                 const currentPkg = this._getCurrentPackage();
                 if (currentPkg && currentPkg !== oldPkg && currentPkg !== '-') {
                     clearInterval(timer);
                     console.log(`✅ 光大V2 — 新试卷已加载（包号: ${oldPkg} → ${currentPkg}）`);
-                    resolve(true);
-                    return;
-                }
-
-                // 方案 2: Canvas 指纹变化
-                const currentFingerprint = this._getCanvasFingerprint();
-                if (currentFingerprint && currentFingerprint !== oldFingerprint) {
-                    clearInterval(timer);
-                    console.log('✅ 光大V2 — 新试卷已加载（Canvas 内容变化）');
                     resolve(true);
                     return;
                 }
@@ -485,12 +377,10 @@ const Guangda2Adapter = {
 
     // ========== 回评模式检测 ==========
     isRegradeMode() {
-        // 检查"退出回评"按钮是否可见
         const exitBtn = document.querySelector(GUANGDA2_SELECTORS.REGRADE_EXIT_BTN);
         if (exitBtn && exitBtn.style.display !== 'none') {
             return true;
         }
-        // 检查回评列表是否可见
         const regradeList = document.querySelector(GUANGDA2_SELECTORS.REGRADE_LIST);
         if (regradeList) {
             return true;
@@ -502,7 +392,6 @@ const Guangda2Adapter = {
     getScoreInputs() {
         const inputs = [];
 
-        // 查找分数选项容器
         const scoreItems = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
         if (scoreItems.length === 0) return inputs;
 
@@ -516,7 +405,6 @@ const Guangda2Adapter = {
             const scores = clickableItems.map(li => parseInt(li.textContent.trim())).filter(n => !isNaN(n));
             const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
 
-            // 获取题号
             const questionEl = document.querySelector(GUANGDA2_SELECTORS.QUESTION_NUM);
             const questionNum = questionEl ? questionEl.textContent.trim() : '总分';
 
