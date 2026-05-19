@@ -35,14 +35,16 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                         const imgPort = mainPort - 1;
 
                         vKs.forEach(paper => {
-                            const bh = paper?.bh || paper?.ddh || '';
+                            const bh = paper?.bh || '';
+                            const ddh = paper?.ddh || '';
                             const imagePath = paper?.imageUrlPath_all || '';
 
                             if (bh && imagePath) {
-                                // 构造完整图片 URL
+                                // 使用 bh-ddh 作为 key，与界面上显示的包号格式一致
+                                const key = ddh ? `${bh}-${ddh}` : bh;
                                 const fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
-                                _guangda2ImagePool[bh] = fullUrl;
-                                console.log(`🖼️ [V2 API拦截] 包号 ${bh} → ${fullUrl.substring(0, 60)}...`);
+                                _guangda2ImagePool[key] = fullUrl;
+                                console.log(`🖼️ [V2 API拦截] 包号 ${key} → ${fullUrl.substring(0, 60)}...`);
                             }
                         });
 
@@ -199,21 +201,9 @@ const Guangda2Adapter = {
         // 获取当前包号（界面上显示的格式，如 "161-1"）
         const currentPkg = this._getCurrentPackage();
 
-        if (currentPkg) {
-            // 提取包号的主要部分（如 "161-1" → "161"）
-            const mainPkg = currentPkg.split('-')[0];
-
-            // 查找匹配的图片 URL
-            if (_guangda2ImagePool[mainPkg]) {
-                console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${mainPkg} 的图片`);
-                return [_guangda2ImagePool[mainPkg]];
-            }
-
-            // 尝试完整包号匹配
-            if (_guangda2ImagePool[currentPkg]) {
-                console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${currentPkg} 的图片`);
-                return [_guangda2ImagePool[currentPkg]];
-            }
+        if (currentPkg && _guangda2ImagePool[currentPkg]) {
+            console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${currentPkg} 的图片`);
+            return [_guangda2ImagePool[currentPkg]];
         }
 
         // 备用方案：返回第一张图片
