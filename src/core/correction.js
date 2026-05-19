@@ -539,7 +539,10 @@ function showCorrectionPanel(context) {
 // ========== AI 提示词修改分析 ==========
 function analyzePromptModification(context, feedback, onStreamUpdate) {
     const hasSubScores = context.subScores && context.subScores.length > 0;
-    const originalPrompt = hasSubScores ? buildSubQuestionPrompt(context.config) : buildPrompt(context.config);
+    const configForPrompt = hasSubScores
+        ? { ...context.config, subQuestions: (context.config.scoring?.units || []).map((u, i) => ({ id: String.fromCharCode(97 + i), label: u.label, maxScore: u.maxScore })) }
+        : context.config;
+    const originalPrompt = hasSubScores ? buildSubQuestionPrompt(configForPrompt) : buildPrompt(configForPrompt);
 
     let scoreComparison = '';
     if (hasSubScores && feedback.subScoreCorrections) {
