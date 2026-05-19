@@ -71,6 +71,8 @@ const BUILD_CONFIGS = [
             'adapters/hanhan/adapter.js',
             'adapters/guangda/selectors.js',
             'adapters/guangda/adapter.js',
+            'adapters/guangda-2/selectors.js',
+            'adapters/guangda-2/adapter.js',
             'adapters/yunyuejuan/selectors.js',
             'adapters/yunyuejuan/adapter.js',
             'adapters/xinjiaoyu/selectors.js',
@@ -99,6 +101,9 @@ const BUILD_CONFIGS = [
                 '*://www.xinjiaoyu.com/*',
                 'https://aimarking.five-plus-one.com/*',
                 'https://five-plus-one.github.io/*',
+            ],
+            include: [
+                '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
             grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_registerMenuCommand'],
@@ -244,6 +249,9 @@ function generateHeader(config, version) {
     lines.push(`// @description  ${h.description}`);
     lines.push(`// @author       ${h.author || '5plus1'}`);
     for (const m of h.match) lines.push(`// @match        ${m}`);
+    if (h.include) {
+        for (const i of h.include) lines.push(`// @include      ${i}`);
+    }
     if (h.icon) lines.push(`// @icon         ${h.icon}`);
     for (const g of h.grant) lines.push(`// @grant        ${g}`);
     for (const c of h.connect) lines.push(`// @connect      ${c}`);
