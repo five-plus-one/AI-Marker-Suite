@@ -10,11 +10,11 @@ const GUANGDA2_SELECTORS = {
     ANSWER_CANVAS_FIRST: 'canvas:not([id="0"])',  // 跳过 tainted canvas
 
     // ========== 分数选择 ==========
-    // LI.f-csp 是分数选项，如 "0~10", "0", "1", "2"... "10"
-    // "0~10" 是范围指示器（第一个），不是可点击的分数
-    SCORE_ITEM: 'LI.f-csp',
-    SCORE_ITEM_ACTIVE: 'LI.f-csp.activeB',  // 当前选中的分数
-    SCORE_ITEM_CLICKABLE: 'LI.f-csp:not(:first-child)',  // 排除范围指示器
+    // .dfBox .scores li 是实际分数选项（如 "0", "1", "2"）
+    // .bzBox .scores li 是范围指示器（如 "0~2"），应排除
+    SCORE_ITEM: '.dfBox .scores li.f-csp',
+    SCORE_ITEM_ACTIVE: '.dfBox .scores li.f-csp.activeB',  // 当前选中的分数
+    SCORE_ITEM_CLICKABLE: '.dfBox .scores li.f-csp',
 
     // ========== 提交 ==========
     // 提交按钮是 <input type="submit" value="提交分数"> 包裹在 .button 容器中
