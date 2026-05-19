@@ -270,21 +270,27 @@ const Guangda2Adapter = {
     submitGrade() {
         console.log('📤 [诊断] 光大V2 — 开始提交分数...');
 
-        // 查找提交按钮：input[type="submit"][value="提交分数"]
-        const submitBtn = document.querySelector(GUANGDA2_SELECTORS.SUBMIT_INPUT);
-        if (submitBtn) {
-            console.log('✅ [诊断] 光大V2 找到提交按钮，点击中...');
-            submitBtn.click();
-            this._handleConfirmDialog();
-            return true;
+        // 查找提交按钮：点击父元素 span.text 而不是 input 本身
+        // input[type="submit"] 会触发表单默认提交，导致请求 firstUpdateUserInfo
+        const submitInput = document.querySelector(GUANGDA2_SELECTORS.SUBMIT_INPUT);
+        if (submitInput) {
+            // 点击父元素 span.text.f-pa.f-csp
+            const clickTarget = submitInput.closest('span.text') || submitInput.parentElement;
+            if (clickTarget) {
+                console.log('✅ [诊断] 光大V2 找到提交按钮，点击父元素 span.text...');
+                clickTarget.click();
+                this._handleConfirmDialog();
+                return true;
+            }
         }
 
-        // 备选：查找包含"提交"文字的 input
-        const allInputs = document.querySelectorAll('input[type="submit"]');
-        for (const input of allInputs) {
-            if (input.value && input.value.includes('提交')) {
-                console.log('✅ [诊断] 光大V2 找到提交 input，点击中...');
-                input.click();
+        // 备选：直接查找 span.text.f-pa.f-csp 中包含 input[type="submit"] 的元素
+        const submitSpans = document.querySelectorAll('span.text.f-pa.f-csp');
+        for (const span of submitSpans) {
+            const input = span.querySelector('input[type="submit"]');
+            if (input && input.value && input.value.includes('提交')) {
+                console.log('✅ [诊断] 光大V2 找到提交 span，点击中...');
+                span.click();
                 this._handleConfirmDialog();
                 return true;
             }
