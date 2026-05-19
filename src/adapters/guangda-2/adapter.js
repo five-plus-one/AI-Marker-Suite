@@ -252,6 +252,27 @@ const Guangda2Adapter = {
         const score = scores[0];
         if (score === null || score === undefined) return false;
 
+        // 不直接点击分数选项，而是记录待填入的分数
+        // 光大V2系统会在点击分数选项后自动调用 commitKsGrade 提交
+        // 所以需要延迟到用户确认后再点击
+        this._pendingScore = score;
+        console.log(`📝 [诊断] 光大V2 记录待填入分数: ${score}（等待用户确认后点击）`);
+        return true;
+    },
+
+    // 点击分数选项（在用户确认后调用）
+    _clickScore() {
+        if (this._pendingScore === null || this._pendingScore === undefined) {
+            console.warn('⚠️ [诊断] 光大V2 没有待填入的分数');
+            return false;
+        }
+
+        const score = this._pendingScore;
+        this._pendingScore = null;
+
+        const inputs = this.getScoreInputs();
+        if (inputs.length === 0) return false;
+
         const container = inputs[0].element;
         const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE);
         for (const item of scoreItems) {
@@ -267,11 +288,14 @@ const Guangda2Adapter = {
     },
 
     // ========== 提交 ==========
-    // V2 版本的工作流：点击分数选项 → 系统自动调用 commitKsGrade 提交
-    // 不需要单独点击"提交分数"按钮
+    // V2 版本的工作流：用户确认 → 点击分数选项 → 系统自动调用 commitKsGrade 提交
     async submitGrade() {
-        console.log('📤 [诊断] 光大V2 — V2版本点击分数后自动提交，无需额外操作');
-        // 等待确认弹窗处理完成
+        console.log('📤 [诊断] 光大V2 — 等待用户确认后提交');
+
+        // 先点击分数选项（触发 commitKsGrade）
+        this._clickScore();
+
+        // 然后等待确认弹窗处理完成
         await this._handleConfirmDialog();
         return true;
     },
@@ -307,20 +331,16 @@ const Guangda2Adapter = {
 
             console.log('✅ [诊断] 光大V2 找到确认弹窗');
 
-            // 直接找到子组件并调用 sure 方法
-            // 从诊断信息看，子组件路径是 /child[0]/child[0]/child[0]
-            // 子组件的 sure 方法只会触发 confirm 事件，不会检查用户信息
+            // 方案：直接触发子组件的 confirm 事件
+            // 从诊断信息看，子组件路径是 app.$children[0].$children[0].$children[0]
+            // 子组件的 $listeners 中有 confirm 事件
             const app = window.app;
             if (app) {
                 const child = app.$children[0]?.$children[0]?.$children[0];
-                if (child && child.$options.methods && child.$options.methods.sure) {
-                    const sureStr = child.$options.methods.sure.toString();
-                    // 确认是子组件（不包含用户信息检查）
-                    if (!sureStr.includes('姓名不能为空') && !sureStr.includes('CompleteInfo')) {
-                        console.log('✅ [诊断] 直接调用子组件的 sure 方法');
-                        child.$options.methods.sure.call(child);
-                        return;
-                    }
+                if (child && child.$listeners && child.$listeners.confirm) {
+                    console.log('✅ [诊断] 找到子组件，触发 confirm 事件');
+                    child.$emit('confirm');
+                    return;
                 }
             }
 
