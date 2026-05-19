@@ -645,6 +645,14 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     // 一个失败 → 只重试失败的那个，最多重试 MAX_DUAL_RETRIES 次
     let dualRetryCount = 0;
     while ((scoreA === null || scoreB === null) && dualRetryCount < MAX_DUAL_RETRIES) {
+        // 用户主动暂停 → 直接抛出，不重试
+        const failMsg = scoreA === null
+            ? (resultA.reason?.message || '')
+            : (resultB.reason?.message || '');
+        if (failMsg.includes('用户主动暂停') || failMsg.includes('用户暂停')) {
+            throw scoreA === null ? resultA.reason : resultB.reason;
+        }
+
         dualRetryCount++;
         const waitSec = dualRetryCount <= 2 ? 2 : 5;
         if (scoreA === null) {
