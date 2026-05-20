@@ -284,21 +284,21 @@ const WorkflowManager = {
             workflows: {
                 "快速批改(推荐)": {
                     id: "fast",
-                    description: "快速、高性价比，适合逻辑题、画图题等",
+                    description: "快速低价，适合大多数题型",
                     model: { provider: "5plus1官方", model: "aimarker-fast", reasoningEffort: "minimal" },
                     dualEval: null,
                     isBuiltin: true
                 },
                 "普通批改": {
                     id: "normal",
-                    description: "普通模式，适合大多数题型",
+                    description: "响应速度较慢，消耗额度相对较高，准确度较高",
                     model: { provider: "5plus1官方", model: "aimarker-pro", reasoningEffort: "" },
                     dualEval: null,
                     isBuiltin: true
                 },
                 "双评模式(高精度)": {
                     id: "dual",
-                    description: "高精准度，两次评分超阈值自动仲裁",
+                    description: "兼顾准确度、速度与价格",
                     model: { provider: "5plus1官方", model: "aimarker-fast", reasoningEffort: "minimal" },
                     dualEval: {
                         enabled: true,
