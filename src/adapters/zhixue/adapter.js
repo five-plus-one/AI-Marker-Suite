@@ -14,6 +14,43 @@ const ZhixueAdapter = {
             || !!document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW);
     },
 
+    // 辅助方法：检测当前URL是否为阅卷页面（支持新版SPA结构）
+    _isMarkingUrl() {
+        // 旧版：pathname 直接包含 /webmarking/
+        if (window.location.pathname.includes('/webmarking/')) {
+            return true;
+        }
+        // 新版：阅卷路径编码在 app-1 参数中（双重URL编码）
+        const appParam = new URLSearchParams(window.location.search).get('app-1');
+        if (appParam) {
+            try {
+                const decodedPath = decodeURIComponent(decodeURIComponent(appParam));
+                return decodedPath.includes('/webmarking/');
+            } catch (e) {
+                return false;
+            }
+        }
+        return false;
+    },
+
+    // 辅助方法：获取实际的阅卷路径（新版从 app-1 参数解码）
+    _getActualPath() {
+        // 旧版：直接使用 pathname
+        if (window.location.pathname.includes('/webmarking/')) {
+            return window.location.pathname;
+        }
+        // 新版：从 app-1 参数解码
+        const appParam = new URLSearchParams(window.location.search).get('app-1');
+        if (appParam) {
+            try {
+                return decodeURIComponent(decodeURIComponent(appParam));
+            } catch (e) {
+                return window.location.pathname;
+            }
+        }
+        return window.location.pathname;
+    },
+
     shouldInitialize() {
         // 在整个智学网域名上都初始化，以便在首页也能使用油猴菜单
         return window.location.hostname.includes('zhixue.com');
@@ -21,12 +58,12 @@ const ZhixueAdapter = {
 
     // 快速页面检查（不等待 DOM），用于 URL 变化监听器
     isMarkingPage() {
-        return window.location.pathname.includes('/webmarking/');
+        return this._isMarkingUrl();
     },
 
     async detectMarkingPage() {
         // 只在阅卷路径下才进行详细检测
-        if (!window.location.pathname.includes('/webmarking/')) {
+        if (!this._isMarkingUrl()) {
             console.log('🔎 [诊断] 智学网 — 当前不在阅卷页面 (pathname:', window.location.pathname, ')');
             return false;
         }
@@ -70,7 +107,9 @@ const ZhixueAdapter = {
     },
 
     getTaskIdentifier() {
-        const baseUrl = window.location.pathname + window.location.hash.split('&_t=')[0];
+        // 使用实际路径（新版SPA从 app-1 参数解码）
+        const actualPath = this._getActualPath();
+        const baseUrl = actualPath + window.location.hash.split('&_t=')[0];
         let questionIdentifier = '';
         try {
             const exactElement = document.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX);
