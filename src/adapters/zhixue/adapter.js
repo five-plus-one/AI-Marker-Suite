@@ -7,6 +7,13 @@ const ZhixueAdapter = {
     urlPatterns: ['https://www.zhixue.com/*', 'https://zhixue.com/*', 'https://*.zhixue.com/*'],
     iconUrl: 'https://www.zhixue.com/favicon.ico',
 
+    // 辅助方法：检测当前是否为新版UI
+    _isNewUI() {
+        return !!document.querySelector(ZHIXUE_SELECTORS.ANSWER_IMAGE_NEW)
+            || !!document.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW)
+            || !!document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW);
+    },
+
     shouldInitialize() {
         // 在整个智学网域名上都初始化，以便在首页也能使用油猴菜单
         return window.location.hostname.includes('zhixue.com');
@@ -26,10 +33,16 @@ const ZhixueAdapter = {
 
         console.log('🔎 [诊断] 智学网 — 开始检测批改页面元素...');
         try {
+            // 同时检测新旧版本元素
             const result = await Promise.race([
-                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_IMAGE).then(() => 'topicImg'),
-                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_INPUT).then(() => 'score-input'),
-                waitForElement('button:contains("提交分数")').then(() => 'submit-btn')
+                // 旧版检测
+                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_IMAGE).then(() => 'topicImg(旧版)'),
+                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_INPUT).then(() => 'score-input(旧版)'),
+                waitForElement('button:contains("提交分数")').then(() => 'submit-btn(旧版)'),
+                // 新版检测
+                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_IMAGE_NEW).then(() => 'answerImg(新版)'),
+                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_BUTTON_NEW).then(() => 'submitBtn(新版)'),
+                waitForElement(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW).then(() => 'scoreAll(新版)'),
             ]).catch(() => null);
             if (result) {
                 console.log(`✅ [诊断] 检测到批改页面元素: ${result}`);
@@ -37,10 +50,15 @@ const ZhixueAdapter = {
             }
 
             await new Promise(resolve => setTimeout(resolve, 3000));
-            const hasInput = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) || document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT) || document.querySelector('input[type="text"]');
-            const hasButton = Array.from(document.querySelectorAll('button')).some(btn => btn.textContent.includes('提交') || btn.textContent.includes('分数'));
-            const detected = !!(hasInput && hasButton);
-            console.log(`🔎 [诊断] 兜底检测结果 — 输入框: ${!!hasInput}, 提交按钮: ${hasButton}, 最终判断: ${detected}`);
+            // 旧版兜底检测
+            const hasInputOld = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) || document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
+            const hasButtonOld = Array.from(document.querySelectorAll('button')).some(btn => btn.textContent.includes('提交') || btn.textContent.includes('分数'));
+            // 新版兜底检测
+            const hasInputNew = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_NEW) || document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW);
+            const hasButtonNew = !!document.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW);
+
+            const detected = !!(hasInputOld && hasButtonOld) || !!(hasInputNew && hasButtonNew);
+            console.log(`🔎 [诊断] 兜底检测结果 — 旧版(输入框:${!!hasInputOld}, 按钮:${hasButtonOld}), 新版(输入框:${!!hasInputNew}, 按钮:${hasButtonNew}), 最终判断: ${detected}`);
             if (!detected) {
                 console.warn('⚠️ [诊断] 未检测到批改页面，脚本将不会初始化。当前所有按钮文字:', Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => t).join(' | '));
             }
@@ -69,9 +87,20 @@ const ZhixueAdapter = {
     },
 
     async gatherAnswerImages() {
-        const imgElements = document.querySelectorAll(ZHIXUE_SELECTORS.ANSWER_IMAGE);
-        console.log(`🖼️ [诊断] 找到答题卡图片数量: ${imgElements.length}`);
-        return Array.from(imgElements).map(img => img.src);
+        // 先尝试旧版选择器
+        let imgElements = document.querySelectorAll(ZHIXUE_SELECTORS.ANSWER_IMAGE);
+        if (imgElements.length > 0) {
+            console.log(`🖼️ [诊断] 旧版选择器找到答题卡图片数量: ${imgElements.length}`);
+            return Array.from(imgElements).map(img => img.src);
+        }
+        // 再尝试新版选择器
+        imgElements = document.querySelectorAll(ZHIXUE_SELECTORS.ANSWER_IMAGE_NEW);
+        if (imgElements.length > 0) {
+            console.log(`🖼️ [诊断] 新版选择器找到答题卡图片数量: ${imgElements.length}`);
+            return Array.from(imgElements).map(img => img.src);
+        }
+        console.warn('⚠️ [诊断] 未找到答题卡图片');
+        return [];
     },
 
     async fetchImageAsBase64(url) {
@@ -129,12 +158,23 @@ const ZhixueAdapter = {
     submitGrade() {
         const allBtns = Array.from(document.querySelectorAll('button'));
         console.log(`🔎 [诊断] submitGrade — 页面按钮总数: ${allBtns.length}，文字列表: ${allBtns.map(b => b.textContent.trim()).filter(t => t).join(' | ')}`);
-        const submitBtn = allBtns.find(btn => btn.textContent.includes(ZHIXUE_SELECTORS.SUBMIT_BUTTON_TEXT));
-        if (submitBtn) {
-            console.log(`✅ [诊断] 找到"提交分数"按钮，准备点击`);
-            submitBtn.click();
+
+        // 先尝试旧版：通过文字匹配
+        const submitBtnOld = allBtns.find(btn => btn.textContent.includes(ZHIXUE_SELECTORS.SUBMIT_BUTTON_TEXT));
+        if (submitBtnOld) {
+            console.log(`✅ [诊断] 旧版找到"提交分数"按钮，准备点击`);
+            submitBtnOld.click();
             return true;
         }
+
+        // 再尝试新版：通过选择器
+        const submitBtnNew = document.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW);
+        if (submitBtnNew) {
+            console.log(`✅ [诊断] 新版找到"提交分数"按钮，准备点击`);
+            submitBtnNew.click();
+            return true;
+        }
+
         console.warn(`⚠️ [诊断] 未找到"提交分数"按钮`);
         return false;
     },
@@ -145,20 +185,35 @@ const ZhixueAdapter = {
             const checkNextTimer = setInterval(() => {
                 checkTimes++;
 
-                // 检测1：图片 src 变化
-                const currentImg = document.querySelector(ZHIXUE_SELECTORS.ANSWER_IMAGE);
-                if (currentImg && currentImg.src !== oldImageUrl) {
+                // 检测1：图片 src 变化（旧版）
+                const currentImgOld = document.querySelector(ZHIXUE_SELECTORS.ANSWER_IMAGE);
+                if (currentImgOld && currentImgOld.src !== oldImageUrl) {
                     clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（图片变化）');
+                    console.log('✅ 新试卷已加载完毕（旧版图片变化）');
+                    resolve(true);
+                    return;
+                }
+
+                // 检测1b：图片 src 变化（新版）
+                const currentImgNew = document.querySelector(ZHIXUE_SELECTORS.ANSWER_IMAGE_NEW);
+                if (currentImgNew && currentImgNew.src !== oldImageUrl) {
+                    clearInterval(checkNextTimer);
+                    console.log('✅ 新试卷已加载完毕（新版图片变化）');
                     resolve(true);
                     return;
                 }
 
                 // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框）
-                const scoreInput = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
+                // 旧版输入框
+                const scoreInputOld = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
                                    document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && (scoreInput.value === '' || scoreInput.value === '0');
-                if (inputCleared && checkTimes > 3) {
+                const inputClearedOld = scoreInputOld && (scoreInputOld.value === '' || scoreInputOld.value === '0');
+                // 新版输入框
+                const scoreInputNew = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW) ||
+                                   document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_NEW);
+                const inputClearedNew = scoreInputNew && (scoreInputNew.value === '' || scoreInputNew.value === '0');
+
+                if ((inputClearedOld || inputClearedNew) && checkTimes > 3) {
                     clearInterval(checkNextTimer);
                     console.log('✅ 新试卷已加载完毕（输入框清空）');
                     resolve(true);
@@ -180,24 +235,53 @@ const ZhixueAdapter = {
 
     getScoreInputs() {
         const inputs = [];
-        // 优先返回分小题输入框
-        const subInputs = document.querySelectorAll('#containter_topicTxt input[name="topicTxt"]');
-        if (subInputs.length > 0) {
-            subInputs.forEach((el, i) => {
+
+        // ========== 旧版：分小题输入框 ==========
+        const subInputsOld = document.querySelectorAll('#containter_topicTxt input[name="topicTxt"]');
+        if (subInputsOld.length > 0) {
+            subInputsOld.forEach((el, i) => {
                 const labelEl = el.closest('li')?.querySelector('.label');
                 const label = labelEl?.textContent?.trim() || `第${i + 1}题`;
                 const maxScore = parseInt(el.getAttribute('score')) || parseInt(el.placeholder?.match(/\d+/)?.[0]) || 0;
                 inputs.push({ element: el, label, index: i, maxScore });
             });
+            console.log(`📋 [诊断] 旧版小题输入框: ${inputs.length} 个`);
             return inputs;
         }
-        // 回退到总分输入框（优先 placeholder 匹配，避免误匹配批阅份数等输入框）
-        const scoreInput = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
-                           document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
-        if (scoreInput) {
-            const maxScore = parseInt(scoreInput.getAttribute('score')) || parseInt(scoreInput.placeholder?.match(/\d+/)?.[0]) || 0;
-            inputs.push({ element: scoreInput, label: '总分', index: 0, maxScore });
+
+        // ========== 新版：分小题输入框 ==========
+        // 新版UI中小题输入框的 name 也是 "topicTxt"，但不在 #containter_topicTxt 容器内
+        const subInputsNew = document.querySelectorAll('input[name="topicTxt"]');
+        if (subInputsNew.length > 0) {
+            subInputsNew.forEach((el, i) => {
+                const maxScore = parseInt(el.getAttribute('score')) || parseInt(el.placeholder?.match(/\d+/)?.[0]) || 0;
+                inputs.push({ element: el, label: `第${i + 1}题`, index: i, maxScore });
+            });
+            console.log(`📋 [诊断] 新版小题输入框: ${inputs.length} 个`);
+            return inputs;
         }
+
+        // ========== 回退：总分输入框 ==========
+        // 优先使用 placeholder 匹配，避免误匹配批阅份数等输入框
+        const scoreInputOld = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
+                           document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
+        if (scoreInputOld) {
+            const maxScore = parseInt(scoreInputOld.getAttribute('score')) || parseInt(scoreInputOld.placeholder?.match(/\d+/)?.[0]) || 0;
+            inputs.push({ element: scoreInputOld, label: '总分', index: 0, maxScore });
+            console.log(`📋 [诊断] 旧版总分输入框`);
+            return inputs;
+        }
+
+        // 新版总分输入框
+        const scoreInputNew = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW);
+        if (scoreInputNew) {
+            const maxScore = parseInt(scoreInputNew.getAttribute('score')) || parseInt(scoreInputNew.placeholder?.match(/\d+/)?.[0]) || 0;
+            inputs.push({ element: scoreInputNew, label: '总分', index: 0, maxScore });
+            console.log(`📋 [诊断] 新版总分输入框`);
+            return inputs;
+        }
+
+        console.warn('⚠️ [诊断] 未找到任何分数输入框');
         return inputs;
     },
 
