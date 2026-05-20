@@ -152,8 +152,8 @@ const ZhixueAdapter = {
                     }, 5000);
                 });
 
-                // 额外等待一点时间，确保iframe内部DOM完全渲染
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                // 额外等待时间，确保iframe内部DOM完全渲染（增加到3秒）
+                await new Promise(resolve => setTimeout(resolve, 3000));
 
                 // 获取iframe文档
                 const iframeDoc = this._getIframeDoc();
@@ -172,6 +172,24 @@ const ZhixueAdapter = {
 
                     if (hasInput && hasButton) {
                         console.log('✅ [诊断] 在iframe中检测到批改页面元素');
+                        return true;
+                    }
+
+                    // 如果第一次检测失败，再等待2秒后重试
+                    console.log('🔍 [调试] 第一次检测未找到元素，等待2秒后重试...');
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
+                    const hasInputRetry = !!iframeDoc.querySelector('input[name="topicTxt"]') ||
+                                         !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW) ||
+                                         !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
+                                         !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
+                    const hasButtonRetry = !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW) ||
+                                           Array.from(iframeDoc.querySelectorAll('button')).some(btn => btn.textContent.includes('提交分数'));
+
+                    console.log(`🔎 [诊断] 重试检测结果 — 输入框:${hasInputRetry}, 按钮:${hasButtonRetry}`);
+
+                    if (hasInputRetry && hasButtonRetry) {
+                        console.log('✅ [诊断] 重试后在iframe中检测到批改页面元素');
                         return true;
                     }
 
