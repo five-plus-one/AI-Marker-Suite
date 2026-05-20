@@ -116,59 +116,92 @@ const ZhixueAdapter = {
 
         console.log('🔎 [诊断] 智学网 — 开始检测批改页面元素...');
         try {
-            // 获取iframe文档（新版微前端架构）
-            const iframeDoc = this._getIframeDoc();
-            const searchDoc = iframeDoc || document;
-            console.log('🔍 [调试] 检测目标:', iframeDoc ? 'iframe内部' : '主页面');
+            // ========== 新版微前端架构：等待iframe加载 ==========
+            console.log('🔍 [调试] 等待iframe出现...');
+            const iframe = await waitForElement('iframe', 10000).catch(() => null);
 
-            // 同时检测新旧版本元素（在主页面和iframe中都检测）
-            const result = await Promise.race([
-                // 旧版检测（主页面）
-                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_IMAGE).then(() => 'topicImg(旧版-主页面)'),
-                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_INPUT).then(() => 'score-input(旧版-主页面)'),
-                waitForElement('button:contains("提交分数")').then(() => 'submit-btn(旧版-主页面)'),
-                // 新版检测（主页面）
-                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_IMAGE_NEW).then(() => 'answerImg(新版-主页面)'),
-                waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_BUTTON_NEW).then(() => 'submitBtn(新版-主页面)'),
-                waitForElement(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW).then(() => 'scoreAll(新版-主页面)'),
-                // 新版检测（iframe内部）
-                ...(iframeDoc ? [
-                    waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_IMAGE_NEW, iframeDoc).then(() => 'answerImg(新版-iframe)'),
-                    waitForElement(ZHIXUE_SELECTORS.PAGE_DETECT_BUTTON_NEW, iframeDoc).then(() => 'submitBtn(新版-iframe)'),
-                    waitForElement(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW, iframeDoc).then(() => 'scoreAll(新版-iframe)'),
-                    waitForElement(ZHIXUE_SELECTORS.SCORE_INPUT_NEW, iframeDoc).then(() => 'scoreInput(新版-iframe)'),
-                ] : []),
-            ]).catch(() => null);
-            if (result) {
-                console.log(`✅ [诊断] 检测到批改页面元素: ${result}`);
-                return true;
+            if (iframe) {
+                console.log('🔍 [调试] 找到iframe，等待内容加载...');
+
+                // 等待iframe内容加载完成
+                await new Promise((resolve) => {
+                    // 检查是否已经加载完成
+                    try {
+                        if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+                            console.log('🔍 [调试] iframe已加载完成');
+                            resolve();
+                            return;
+                        }
+                    } catch (e) {
+                        // 跨域情况下无法访问contentDocument
+                    }
+
+                    // 监听load事件
+                    const onLoad = () => {
+                        console.log('🔍 [调试] iframe onload事件触发');
+                        iframe.removeEventListener('load', onLoad);
+                        resolve();
+                    };
+                    iframe.addEventListener('load', onLoad);
+
+                    // 超时保护（5秒）
+                    setTimeout(() => {
+                        console.log('🔍 [调试] iframe等待超时，继续检测');
+                        iframe.removeEventListener('load', onLoad);
+                        resolve();
+                    }, 5000);
+                });
+
+                // 额外等待一点时间，确保iframe内部DOM完全渲染
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // 获取iframe文档
+                const iframeDoc = this._getIframeDoc();
+                if (iframeDoc) {
+                    console.log('🔍 [调试] 成功获取iframe文档，开始检测元素...');
+
+                    // 在iframe中检测元素
+                    const hasInput = !!iframeDoc.querySelector('input[name="topicTxt"]') ||
+                                   !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW) ||
+                                   !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
+                                   !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
+                    const hasButton = !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW) ||
+                                     Array.from(iframeDoc.querySelectorAll('button')).some(btn => btn.textContent.includes('提交分数'));
+
+                    console.log(`🔎 [诊断] iframe检测结果 — 输入框:${hasInput}, 按钮:${hasButton}`);
+
+                    if (hasInput && hasButton) {
+                        console.log('✅ [诊断] 在iframe中检测到批改页面元素');
+                        return true;
+                    }
+
+                    // 打印iframe中的按钮信息（调试用）
+                    const iframeButtons = Array.from(iframeDoc.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => t);
+                    console.log('🔍 [调试] iframe中的按钮:', iframeButtons.join(' | '));
+                    const iframeInputs = Array.from(iframeDoc.querySelectorAll('input')).map(i => `type=${i.type},name=${i.name},placeholder=${i.placeholder}`);
+                    console.log('🔍 [调试] iframe中的输入框:', iframeInputs.join(' | '));
+                } else {
+                    console.warn('⚠️ [诊断] 无法获取iframe文档（可能是跨域限制）');
+                }
+            } else {
+                console.log('🔍 [调试] 未找到iframe，尝试在主页面检测...');
             }
 
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // ========== 兜底：在主页面检测 ==========
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
             // 旧版兜底检测（主页面）
             const hasInputOld = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) || document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
             const hasButtonOld = Array.from(document.querySelectorAll('button')).some(btn => btn.textContent.includes('提交') || btn.textContent.includes('分数'));
             // 新版兜底检测（主页面）
             const hasInputNew = document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_NEW) || document.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW);
             const hasButtonNew = !!document.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW);
-            // 新版兜底检测（iframe内部）
-            let hasInputIframe = false;
-            let hasButtonIframe = false;
-            if (iframeDoc) {
-                hasInputIframe = !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_NEW) ||
-                               !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW) ||
-                               !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER);
-                hasButtonIframe = !!iframeDoc.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW) ||
-                                 Array.from(iframeDoc.querySelectorAll('button')).some(btn => btn.textContent.includes('提交分数'));
-            }
 
-            const detected = !!(hasInputOld && hasButtonOld) || !!(hasInputNew && hasButtonNew) || !!(hasInputIframe && hasButtonIframe);
-            console.log(`🔎 [诊断] 兜底检测结果 — 旧版(输入框:${!!hasInputOld}, 按钮:${hasButtonOld}), 新版主页面(输入框:${!!hasInputNew}, 按钮:${hasButtonNew}), 新版iframe(输入框:${hasInputIframe}, 按钮:${hasButtonIframe}), 最终判断: ${detected}`);
+            const detected = !!(hasInputOld && hasButtonOld) || !!(hasInputNew && hasButtonNew);
+            console.log(`🔎 [诊断] 主页面兜底检测结果 — 旧版(输入框:${!!hasInputOld}, 按钮:${hasButtonOld}), 新版(输入框:${!!hasInputNew}, 按钮:${hasButtonNew}), 最终判断: ${detected}`);
+
             if (!detected) {
                 console.warn('⚠️ [诊断] 未检测到批改页面，脚本将不会初始化。主页面按钮:', Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => t).join(' | '));
-                if (iframeDoc) {
-                    console.warn('⚠️ [诊断] iframe按钮:', Array.from(iframeDoc.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => t).join(' | '));
-                }
             }
             return detected;
         } catch (error) {
