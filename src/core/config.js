@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.6.301',
+    VERSION: '1.21.7.100',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.7': [
+            '【新平台】新增润建学情大数据精准分析平台适配，支持 CSS 背景图渲染和点击式评分',
+        ],
         '1.21.6': [
             '【修复】修复光大V2适配器在SPA页面加载时无法正确注册的问题',
             '【修复】修复光大V2提交时错误触发firstUpdateUserInfo请求的问题',
