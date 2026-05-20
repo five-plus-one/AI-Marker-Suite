@@ -1,11 +1,16 @@
 // ========== 页面元素等待与检测 ==========
-function waitForElement(selector, timeout = 15000) {
+function waitForElement(selector, timeoutOrDoc = 15000) {
+    // 支持传入自定义document（用于iframe检测）
+    const isDoc = timeoutOrDoc && typeof timeoutOrDoc.querySelector === 'function';
+    const doc = isDoc ? timeoutOrDoc : document;
+    const timeout = isDoc ? 15000 : timeoutOrDoc;
+
     return new Promise((resolve, reject) => {
-        const immediateCheck = document.querySelector(selector);
+        const immediateCheck = doc.querySelector(selector);
         if (immediateCheck) return resolve(immediateCheck);
         const startTime = Date.now();
         const timer = setInterval(() => {
-            const element = document.querySelector(selector);
+            const element = doc.querySelector(selector);
             if (element) {
                 clearInterval(timer);
                 resolve(element);
