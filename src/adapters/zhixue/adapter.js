@@ -16,20 +16,41 @@ const ZhixueAdapter = {
 
     // 辅助方法：检测当前URL是否为阅卷页面（支持新版SPA结构）
     _isMarkingUrl() {
+        console.log('🔍 [调试] _isMarkingUrl() 开始检测');
+        console.log('🔍 [调试] pathname:', window.location.pathname);
+        console.log('🔍 [调试] search:', window.location.search);
+
         // 旧版：pathname 直接包含 /webmarking/
         if (window.location.pathname.includes('/webmarking/')) {
+            console.log('✅ [调试] 旧版URL检测成功（pathname包含/webmarking/）');
             return true;
         }
+
         // 新版：阅卷路径编码在 app-1 参数中（双重URL编码）
-        const appParam = new URLSearchParams(window.location.search).get('app-1');
+        const searchParams = new URLSearchParams(window.location.search);
+        const appParam = searchParams.get('app-1');
+        console.log('🔍 [调试] app-1 参数:', appParam ? '存在' : '不存在');
+
         if (appParam) {
+            console.log('🔍 [调试] app-1 原始值:', appParam);
             try {
-                const decodedPath = decodeURIComponent(decodeURIComponent(appParam));
-                return decodedPath.includes('/webmarking/');
+                const decoded1 = decodeURIComponent(appParam);
+                console.log('🔍 [调试] 第一次解码:', decoded1);
+                const decoded2 = decodeURIComponent(decoded1);
+                console.log('🔍 [调试] 第二次解码:', decoded2);
+                const hasWebmarking = decoded2.includes('/webmarking/');
+                console.log('🔍 [调试] 是否包含 /webmarking/:', hasWebmarking);
+                if (hasWebmarking) {
+                    console.log('✅ [调试] 新版URL检测成功（app-1参数包含/webmarking/）');
+                }
+                return hasWebmarking;
             } catch (e) {
+                console.error('❌ [调试] 解码失败:', e);
                 return false;
             }
         }
+
+        console.log('❌ [调试] 未检测到阅卷URL');
         return false;
     },
 
