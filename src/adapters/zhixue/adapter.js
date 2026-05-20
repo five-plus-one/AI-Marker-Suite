@@ -26,13 +26,16 @@ const ZhixueAdapter = {
             return true;
         }
 
-        // 新版：阅卷路径编码在 app-1 参数中（双重URL编码）
+        // 新版：阅卷路径编码在 app-N 参数中（双重URL编码，N为动态数字）
         const searchParams = new URLSearchParams(window.location.search);
-        const appParam = searchParams.get('app-1');
-        console.log('🔍 [调试] app-1 参数:', appParam ? '存在' : '不存在');
+        const appEntry = Array.from(searchParams.entries())
+            .find(([key]) => /^app-\d+$/.test(key));
+        const appParam = appEntry ? appEntry[1] : null;
+        const paramName = appEntry ? appEntry[0] : 'app-N';
+        console.log('🔍 [调试] app-N 参数:', appParam ? `存在 (${paramName})` : '不存在');
 
         if (appParam) {
-            console.log('🔍 [调试] app-1 原始值:', appParam);
+            console.log('🔍 [调试] 原始值:', appParam);
             try {
                 const decoded1 = decodeURIComponent(appParam);
                 console.log('🔍 [调试] 第一次解码:', decoded1);
@@ -41,7 +44,7 @@ const ZhixueAdapter = {
                 const hasWebmarking = decoded2.includes('/webmarking/');
                 console.log('🔍 [调试] 是否包含 /webmarking/:', hasWebmarking);
                 if (hasWebmarking) {
-                    console.log('✅ [调试] 新版URL检测成功（app-1参数包含/webmarking/）');
+                    console.log('✅ [调试] 新版URL检测成功（app-N参数包含/webmarking/）');
                 }
                 return hasWebmarking;
             } catch (e) {
@@ -54,14 +57,17 @@ const ZhixueAdapter = {
         return false;
     },
 
-    // 辅助方法：获取实际的阅卷路径（新版从 app-1 参数解码）
+    // 辅助方法：获取实际的阅卷路径（新版从 app-N 参数解码）
     _getActualPath() {
         // 旧版：直接使用 pathname
         if (window.location.pathname.includes('/webmarking/')) {
             return window.location.pathname;
         }
-        // 新版：从 app-1 参数解码
-        const appParam = new URLSearchParams(window.location.search).get('app-1');
+        // 新版：从 app-N 参数解码（N为动态数字）
+        const searchParams = new URLSearchParams(window.location.search);
+        const appEntry = Array.from(searchParams.entries())
+            .find(([key]) => /^app-\d+$/.test(key));
+        const appParam = appEntry ? appEntry[1] : null;
         if (appParam) {
             try {
                 return decodeURIComponent(decodeURIComponent(appParam));
