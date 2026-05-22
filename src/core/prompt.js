@@ -94,10 +94,14 @@ function parseStructuredResponse(text, maxScore) {
     if (rawScore === null) rawScore = extractScore(sections['总分'], maxScore);
     let finalScore = rawScore;
 
-    // Level 4: 分数范围校验
-    if (finalScore !== null && (finalScore < 0 || finalScore > scoreLimit)) {
-        console.warn(`⚠️ [解析] 分数超出范围(0-${scoreLimit}): ${finalScore}`);
-        finalScore = null;
+    // Level 4: 分数范围校验（截断到有效范围，避免因AI给分超出满分导致null）
+    if (finalScore !== null && finalScore < 0) {
+        console.warn(`⚠️ [解析] 分数为负数(${finalScore})，修正为0`);
+        finalScore = 0;
+    }
+    if (finalScore !== null && finalScore > scoreLimit) {
+        console.warn(`⚠️ [解析] 分数超出满分(${finalScore} > ${scoreLimit})，截断为满分`);
+        finalScore = scoreLimit;
     }
 
     // Level 5: 识别答案校验
@@ -135,9 +139,11 @@ function extractScore(text, maxScore) {
     if (!text) return null;
     const match = text.match(/(\d+\.?\d*)/);
     if (match) {
-        const num = parseFloat(match[1]);
+        let num = parseFloat(match[1]);
+        if (num < 0) num = 0;
         const upperLimit = (maxScore && maxScore > 0) ? maxScore : 999;
-        if (num >= 0 && num <= upperLimit) return num;
+        if (num > upperLimit) num = upperLimit;
+        return num;
     }
     return null;
 }
@@ -183,8 +189,11 @@ function parseLegacyResponse(text, maxScore) {
             const line = lines[i].trim();
             const numMatch = line.match(/^(\d+\.?\d*)$/);
             if (numMatch) {
-                const num = parseFloat(numMatch[1]);
-                if (num >= 0 && num <= scoreLimit) { score = num; break; }
+                let num = parseFloat(numMatch[1]);
+                if (num < 0) num = 0;
+                if (num > scoreLimit) num = scoreLimit;
+                score = num;
+                break;
             }
         }
     }
@@ -355,6 +364,15 @@ function parseSubQuestionResponse(text, config) {
                 if (scoreMatch) score = parseFloat(scoreMatch[1]);
             }
 
+            // 小题分数范围截断
+            if (score !== null) {
+                if (score < 0) score = 0;
+                if (sq.maxScore > 0 && score > sq.maxScore) {
+                    console.warn(`⚠️ [解析] ${sq.label}分数超出满分(${score} > ${sq.maxScore})，截断为满分`);
+                    score = sq.maxScore;
+                }
+            }
+
             const commentMatch = clean.match(new RegExp(escapedLabel + '评语[：:]\\s*(.+?)(?=\\n|$)'));
             if (score !== null) calculatedTotal += score;
             subScores.push({
@@ -397,6 +415,15 @@ function parseLegacySubQuestionResponse(text, config) {
         if (score === null) {
             scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
             if (scoreMatch) score = parseFloat(scoreMatch[1]);
+        }
+
+        // 小题分数范围截断
+        if (score !== null) {
+            if (score < 0) score = 0;
+            if (sq.maxScore > 0 && score > sq.maxScore) {
+                console.warn(`⚠️ [解析] ${sq.label}分数超出满分(${score} > ${sq.maxScore})，截断为满分`);
+                score = sq.maxScore;
+            }
         }
 
         const commentMatch = clean.match(new RegExp(escapedLabel + '评语[：:]\\s*(.+?)(?=\\n|$)'));
@@ -452,8 +479,12 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
                 ? parseSubQuestionResponse(fullText, callConfig)
                 : parseStructuredResponse(fullText, maxScore);
             console.log(`🧠 [诊断] AI响应解析结果 — 分数: ${parsed.score}, 满分: ${maxScore}, 识别答案长度: ${(parsed.studentAnswer || '').length}字, 原始文本长度: ${fullText.length}字`);
+            if (parsed._sections) {
+                const sectionKeys = Object.keys(parsed._sections);
+                console.log(`📋 [诊断] 解析到 ${sectionKeys.length} 个段落: ${sectionKeys.join(', ')}`);
+            }
             if (parsed.score === null) {
-                console.warn('⚠️ [诊断] 分数解析为 null');
+                console.warn('⚠️ [诊断] 分数解析为 null，AI原始文本前200字: ' + fullText.substring(0, 200));
             }
             return parsed;
         });
