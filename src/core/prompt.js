@@ -50,7 +50,8 @@ function buildStructuredPrompt(config) {
 2. 【得分】必须只有一行，只包含数字，可以是小数
 3. 不要在输出中使用 ** 加粗标记或其他 markdown 格式
 4. 如果无法识别学生答案，在【答案复述】写"未能识别"
-5. 严格按照评分标准打分，不要随意给分`;
+5. 严格按照评分标准打分，不要随意给分
+6. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
 
@@ -60,7 +61,7 @@ function buildPrompt(config) {
     if (config.question) prompt += `**题目内容：**\n${config.question}\n\n`;
     if (config.answer) prompt += `**标准答案：**\n${config.answer}\n\n`;
     if (config.rubric) prompt += `**评分标准：**\n${config.rubric}\n\n`;
-    prompt += `请仔细查看图片中的学生答案，并按照以下格式返回评分结果（必须严格按此格式）：\n\n学生答案：[OCR识别出的学生答案文字内容]\n分数：[数字]\n评语：[简短评语]\n\n注意：\n1. 先OCR识别图片中的文字，将识别结果写在"学生答案"后\n2. 只返回数字分数，不要带单位\n3. 评语控制在100字以内\n4. 严格按照评分标准打分`;
+    prompt += `请仔细查看图片中的学生答案，并按照以下格式返回评分结果（必须严格按此格式）：\n\n学生答案：[OCR识别出的学生答案文字内容]\n分数：[数字]\n评语：[简短评语]\n\n注意：\n1. 先OCR识别图片中的文字，将识别结果写在"学生答案"后\n2. 只返回数字分数，不要带单位\n3. 评语控制在100字以内\n4. 严格按照评分标准打分\n5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
 
@@ -128,7 +129,7 @@ function parseStructuredResponse(text, maxScore) {
         rawScore: rawScore,
         scoringBasis: sections['评分依据'] || '',
         calculation: sections['分数计算'] || '',
-        comment: (sections['评分依据'] || '').substring(0, 200),
+        comment: (sections['评分依据'] || '').substring(0, 500),
         diligenceLevel: diligenceLevel,
         diligenceReason: diligenceReason,
         _sections: sections
@@ -324,7 +325,8 @@ function buildSubQuestionPrompt(config) {
 1. 必须使用【】作为段落标记
 2. 各小题分数和【得分】必须各只有一行，只包含数字
 3. 不要使用 ** 加粗标记
-4. 各小题分数之和应等于【得分】`;
+4. 各小题分数之和应等于【得分】
+5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
 
@@ -348,17 +350,48 @@ function parseSubQuestionResponse(text, config) {
             const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             let score = null;
 
-            // 格式1: "第1题分数：8"
+            // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
+            // 策略1: 精确匹配 label + "分数" 格式（最可靠）
+            // 格式1a: "25(1)分数：8" 或 "第1题分数：8"
             let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-            if (scoreMatch) score = parseFloat(scoreMatch[1]);
+            if (scoreMatch) {
+                score = parseFloat(scoreMatch[1]);
+            }
 
-            // 格式2: "第1题：8分" 或 "第1题: 8"
+            // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
+            // 例如：label="25"，文本="25(1)分数：2"，应该匹配 "25(1)" 而不是 "25"
+            if (score === null) {
+                // 检查文本中是否存在 label 后跟括号数字的模式
+                const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
+                const bracketMatch = clean.match(bracketPattern);
+                if (bracketMatch) {
+                    // 找到了括号格式，使用完整的 label（包括括号）进行匹配
+                    const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                    const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                    // 尝试匹配 "25(1)分数：2"
+                    const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+                    if (fullScoreMatch) {
+                        score = parseFloat(fullScoreMatch[1]);
+                    }
+
+                    // 如果还是没匹配到，尝试匹配 "25(1)：2"
+                    if (score === null) {
+                        const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
+                        if (fullScoreMatch2) {
+                            score = parseFloat(fullScoreMatch2[1]);
+                        }
+                    }
+                }
+            }
+
+            // 策略3: 直接匹配 label + 冒号格式（可能误匹配，所以放在后面）
             if (score === null) {
                 scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
                 if (scoreMatch) score = parseFloat(scoreMatch[1]);
             }
 
-            // 格式3: "第1题 8分"
+            // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
             if (score === null) {
                 scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
                 if (scoreMatch) score = parseFloat(scoreMatch[1]);
@@ -404,14 +437,43 @@ function parseLegacySubQuestionResponse(text, config) {
         const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         let score = null;
-        let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-        if (scoreMatch) score = parseFloat(scoreMatch[1]);
 
+        // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
+        // 策略1: 精确匹配 label + "分数" 格式（最可靠）
+        let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+        if (scoreMatch) {
+            score = parseFloat(scoreMatch[1]);
+        }
+
+        // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
+        if (score === null) {
+            const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
+            const bracketMatch = clean.match(bracketPattern);
+            if (bracketMatch) {
+                const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+                if (fullScoreMatch) {
+                    score = parseFloat(fullScoreMatch[1]);
+                }
+
+                if (score === null) {
+                    const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
+                    if (fullScoreMatch2) {
+                        score = parseFloat(fullScoreMatch2[1]);
+                    }
+                }
+            }
+        }
+
+        // 策略3: 直接匹配 label + 冒号格式
         if (score === null) {
             scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
             if (scoreMatch) score = parseFloat(scoreMatch[1]);
         }
 
+        // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
         if (score === null) {
             scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
             if (scoreMatch) score = parseFloat(scoreMatch[1]);

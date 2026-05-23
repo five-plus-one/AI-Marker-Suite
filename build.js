@@ -81,11 +81,13 @@ const BUILD_CONFIGS = [
             'adapters/xinkao/adapter.js',
             'adapters/runjian/selectors.js',
             'adapters/runjian/adapter.js',
+            'adapters/xueba54/selectors.js',
+            'adapters/xueba54/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'https://aimarking.five-plus-one.com/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、鑫考、润建等平台。自动识别答案、智能评分、自动提交！',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、鑫考、润建、54学霸等平台。自动识别答案、智能评分、自动提交！',
             author: '5plus1',
             match: [
                 'https://www.zhixue.com/*',
@@ -104,6 +106,7 @@ const BUILD_CONFIGS = [
                 '*://www.xinjiaoyu.com/*',
                 'https://aimarking.five-plus-one.com/*',
                 'https://five-plus-one.github.io/*',
+                '*://54xueba.cn/*',
             ],
             include: [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
