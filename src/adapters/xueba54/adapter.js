@@ -357,17 +357,30 @@ if (Xueba54Adapter.shouldInitialize()) {
     `;
     document.head.appendChild(style);
 
-    // 核心模块通过内联样式设置按钮 z-index，CSS !important 无法覆盖
-    // 需要等待 UI 创建后，用 JS 强制修改内联样式
+    // 核心模块通过内联样式或 CSS 设置 z-index，CSS !important 可能存在优先级冲突
+    // 需要用 JS 强制修改内联样式，覆盖所有脚本 UI 元素
+    const XUEBA54_UI_SELECTORS = [
+        '.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn',
+        '#ai-grading-settings', '#ai-history-panel', '#ai-history-overlay',
+        '#ai-history-detail', '#ai-stream-panel', '#auto-submit-dialog',
+        '#asd-minimized-bar', '#correction-panel', '.ai-modal-overlay',
+        '.ai-toast', '#ai-update-dialog'
+    ];
+
     const fixInlineZIndex = () => {
-        document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn').forEach(el => {
+        document.querySelectorAll(XUEBA54_UI_SELECTORS.join(', ')).forEach(el => {
             el.style.setProperty('z-index', '2147483640', 'important');
         });
     };
-    // 多次尝试，确保覆盖
+
+    // 多次尝试，确保在 UI 创建后执行
     setTimeout(fixInlineZIndex, 3000);
     setTimeout(fixInlineZIndex, 5000);
     setTimeout(fixInlineZIndex, 8000);
+
+    // 监听 DOM 变化，自动修复新创建的脚本 UI 元素
+    const observer = new MutationObserver(() => fixInlineZIndex());
+    observer.observe(document.body, { childList: true, subtree: true });
 
     console.log('[54学霸] 已注入 z-index 修复样式');
 }
