@@ -169,6 +169,8 @@ const Xueba54Adapter = {
             const text = (btn.textContent || '').trim();
             if (text.includes('立即提交') || text.includes('提交')) {
                 btn.click();
+                // 自动点击确认弹窗
+                this._autoConfirmDialog();
                 return true;
             }
         }
@@ -179,12 +181,52 @@ const Xueba54Adapter = {
             const text = (btn.textContent || '').trim();
             if (text === '立即提交') {
                 btn.click();
+                // 自动点击确认弹窗
+                this._autoConfirmDialog();
                 return true;
             }
         }
 
         console.warn('[54学霸] 未找到提交按钮');
         return false;
+    },
+
+    // 自动点击确认弹窗（layui-layer）
+    _autoConfirmDialog() {
+        const maxAttempts = 30; // 最多检测 30 次（6秒）
+        let attempts = 0;
+
+        const checkDialog = setInterval(() => {
+            attempts++;
+
+            // 查找 layui-layer 弹窗中的"确认"按钮
+            const confirmBtns = document.querySelectorAll('.layui-layer-btn0, .layui-layer-btn .layui-layer-btn0');
+            for (const btn of confirmBtns) {
+                const text = (btn.textContent || '').trim();
+                if (text === '确认' || text === '确定') {
+                    console.log('[54学霸] 自动点击确认按钮');
+                    btn.click();
+                    clearInterval(checkDialog);
+                    return;
+                }
+            }
+
+            // 备选：查找包含"确认"文字的按钮
+            const allBtns = document.querySelectorAll('.layui-layer-btn a, .layui-layer button');
+            for (const btn of allBtns) {
+                const text = (btn.textContent || '').trim();
+                if (text === '确认' || text === '确定') {
+                    console.log('[54学霸] 自动点击确认按钮');
+                    btn.click();
+                    clearInterval(checkDialog);
+                    return;
+                }
+            }
+
+            if (attempts >= maxAttempts) {
+                clearInterval(checkDialog);
+            }
+        }, 200);
     },
 
     async waitForNextPaper(oldImageUrl) {
@@ -242,6 +284,24 @@ const Xueba54Adapter = {
 
     detectSubQuestions() {
         return [];
+    },
+
+    // 页面加载后设置 z-index，解决 layui-layer 遮挡问题
+    onPageLoad() {
+        const style = document.createElement('style');
+        style.id = 'xueba54-zindex-fix';
+        style.textContent = `
+            /* 提高脚本 UI 的 z-index，避免被 layui-layer 遮挡 */
+            .ai-grade-btn, .ai-history-btn, .ai-settings-btn,
+            .ai-toast, #ai-history-panel, #ai-grading-settings,
+            .ai-modal-overlay, #correction-panel,
+            #auto-submit-dialog, #asd-minimized-bar,
+            #ai-stream-container, #ai-history-overlay {
+                z-index: 19999999 !important;
+            }
+        `;
+        document.head.appendChild(style);
+        console.log('[54学霸] 已注入 z-index 修复样式');
     },
 };
 
