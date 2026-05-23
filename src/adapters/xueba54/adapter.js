@@ -63,41 +63,42 @@ const Xueba54Adapter = {
         const maxWait = 8000;
         const MIN_VALID_LENGTH = 5000; // 空白 canvas 的 dataURL 约 200-500 字节，真实图片 > 10KB
 
-        // 轮询等待 Canvas/img 内容就绪（最多 8 秒）
+        // 轮询等待图片内容就绪（最多 8 秒）
+        // 优先等待 img 标签（平台实际渲染的图片），canvas 可能为空白
         while (Date.now() - startTime < maxWait) {
-            // 策略1: 从 img 标签提取 base64（避免跨域问题）
+            // 策略1（优先）: 从 img 标签提取 base64
             const base64Img = document.querySelector(XUEBA54_SELECTORS.BASE64_IMG);
             if (base64Img && base64Img.src && base64Img.src.startsWith('data:image')) {
-                // 验证: 空白 canvas 导出的 dataURL 很短，真实图片很长
                 if (base64Img.src.length > MIN_VALID_LENGTH) {
                     console.log(`[54学霸] 从 img 标签获取有效 base64 图片 (${base64Img.src.length} bytes)`);
                     return [base64Img.src];
                 }
             }
 
-            // 策略2: 从 canvas 导出
-            const canvas = document.querySelector(XUEBA54_SELECTORS.CANVAS);
-            if (canvas) {
-                try {
-                    const dataUrl = canvas.toDataURL('image/png');
-                    // 验证: 空白 canvas 的 dataURL 很短，真实图片很长
-                    if (dataUrl && dataUrl.length > MIN_VALID_LENGTH) {
-                        console.log(`[54学霸] 从 canvas 导出有效图片 (${dataUrl.length} bytes)`);
-                        return [dataUrl];
-                    }
-                } catch (e) {
-                    // 忽略
+            // 策略2（备选）: 从 canvas 导出（仅在 img 不存在时尝试）
+            if (!base64Img) {
+                const canvas = document.querySelector(XUEBA54_SELECTORS.CANVAS);
+                if (canvas) {
+                    try {
+                        const dataUrl = canvas.toDataURL('image/png');
+                        if (dataUrl && dataUrl.length > MIN_VALID_LENGTH) {
+                            console.log(`[54学霸] 从 canvas 导出有效图片 (${dataUrl.length} bytes)`);
+                            return [dataUrl];
+                        }
+                    } catch (e) { /* 忽略 */ }
                 }
             }
 
-            console.log(`[54学霸] 图片内容尚未就绪，等待中... (${Date.now() - startTime}ms)`);
+            const elapsed = Date.now() - startTime;
+            console.log(`[54学霸] 图片内容尚未就绪，等待中... (${elapsed}ms)`);
             await new Promise(r => setTimeout(r, 300));
         }
 
-        // 超时兜底: 返回能找到的任何内容
+        // 超时兜底: 返回能找到的任何内容（降低阈值）
         console.warn('[54学霸] 等待图片就绪超时，尝试返回已有内容...');
         const fallbackImg = document.querySelector(XUEBA54_SELECTORS.BASE64_IMG);
         if (fallbackImg?.src?.startsWith('data:image') && fallbackImg.src.length > 500) {
+            console.log(`[54学霸] 超时兜底: 从 img 获取 (${fallbackImg.src.length} bytes)`);
             return [fallbackImg.src];
         }
 
@@ -105,7 +106,10 @@ const Xueba54Adapter = {
         if (fallbackCanvas) {
             try {
                 const dataUrl = fallbackCanvas.toDataURL('image/png');
-                if (dataUrl && dataUrl.length > 500) return [dataUrl];
+                if (dataUrl && dataUrl.length > 500) {
+                    console.log(`[54学霸] 超时兜底: 从 canvas 获取 (${dataUrl.length} bytes)`);
+                    return [dataUrl];
+                }
             } catch (e) { /* 忽略 */ }
         }
 
@@ -337,7 +341,7 @@ const Xueba54Adapter = {
 if (Xueba54Adapter.shouldInitialize()) {
     window.__AI_MARKER_ADAPTER__ = Xueba54Adapter;
 
-    // 立即注入 z-index 修复样式（不依赖 onPageLoad）
+    // 立即注入 z-index 修复样式（覆盖 ID 选择器元素）
     const style = document.createElement('style');
     style.id = 'xueba54-zindex-fix';
     style.textContent = `
@@ -352,5 +356,18 @@ if (Xueba54Adapter.shouldInitialize()) {
         }
     `;
     document.head.appendChild(style);
+
+    // 核心模块通过内联样式设置按钮 z-index，CSS !important 无法覆盖
+    // 需要等待 UI 创建后，用 JS 强制修改内联样式
+    const fixInlineZIndex = () => {
+        document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn').forEach(el => {
+            el.style.setProperty('z-index', '2147483640', 'important');
+        });
+    };
+    // 多次尝试，确保覆盖
+    setTimeout(fixInlineZIndex, 3000);
+    setTimeout(fixInlineZIndex, 5000);
+    setTimeout(fixInlineZIndex, 8000);
+
     console.log('[54学霸] 已注入 z-index 修复样式');
 }
