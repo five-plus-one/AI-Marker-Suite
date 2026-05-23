@@ -1,11 +1,16 @@
 // ========== 页面元素等待与检测 ==========
-function waitForElement(selector, timeout = 15000) {
+function waitForElement(selector, timeoutOrDoc = 15000) {
+    // 支持传入自定义document（用于iframe检测）
+    const isDoc = timeoutOrDoc && typeof timeoutOrDoc.querySelector === 'function';
+    const doc = isDoc ? timeoutOrDoc : document;
+    const timeout = isDoc ? 15000 : timeoutOrDoc;
+
     return new Promise((resolve, reject) => {
-        const immediateCheck = document.querySelector(selector);
+        const immediateCheck = doc.querySelector(selector);
         if (immediateCheck) return resolve(immediateCheck);
         const startTime = Date.now();
         const timer = setInterval(() => {
-            const element = document.querySelector(selector);
+            const element = doc.querySelector(selector);
             if (element) {
                 clearInterval(timer);
                 resolve(element);
@@ -527,6 +532,14 @@ setInterval(async () => {
 
             const boundPreset = PresetManager.data.bindings[currentUrlId];
 
+            // ========== OOBE调试日志 ==========
+            console.log('🔍 [OOBE调试] currentUrlId:', currentUrlId);
+            console.log('🔍 [OOBE调试] boundPreset:', boundPreset);
+            console.log('🔍 [OOBE调试] 所有绑定:', JSON.stringify(PresetManager.data.bindings));
+            console.log('🔍 [OOBE调试] 活动配置:', PresetManager.data.active);
+            console.log('🔍 [OOBE调试] 配置列表:', Object.keys(PresetManager.data.list).join(', '));
+            // ========== OOBE调试日志结束 ==========
+
             if (boundPreset && PresetManager.data.list[boundPreset]) {
                 PresetManager.data.active = boundPreset;
                 PresetManager.save();
@@ -539,15 +552,21 @@ setInterval(async () => {
 
             // 检查 API KEY 是否配置
             const apiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
+            console.log('🔍 [OOBE调试] apiKey存在:', !!apiKey);
             if (!apiKey) {
+                console.log('🔍 [OOBE调试] 无API Key，弹出首次启动OOBE');
                 showOnboardingDialog(true, 'first-launch');
                 return;
             }
 
             // 检查是否是新试题（未绑定配置）
+            console.log('🔍 [OOBE调试] 检查新试题条件: boundPreset=', boundPreset, ', 存在配置=', !!PresetManager.data.list[boundPreset]);
             if (!boundPreset || !PresetManager.data.list[boundPreset]) {
+                console.log('🔍 [OOBE调试] 条件满足，弹出新试题OOBE');
                 showOnboardingDialog(true, 'new-question');
                 return;
+            } else {
+                console.log('🔍 [OOBE调试] 条件不满足，不弹出OOBE');
             }
 
             const select = document.getElementById('preset-select');
