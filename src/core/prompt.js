@@ -129,7 +129,7 @@ function parseStructuredResponse(text, maxScore) {
         rawScore: rawScore,
         scoringBasis: sections['评分依据'] || '',
         calculation: sections['分数计算'] || '',
-        comment: (sections['评分依据'] || '').substring(0, 200),
+        comment: (sections['评分依据'] || '').substring(0, 500),
         diligenceLevel: diligenceLevel,
         diligenceReason: diligenceReason,
         _sections: sections
@@ -350,17 +350,48 @@ function parseSubQuestionResponse(text, config) {
             const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             let score = null;
 
-            // 格式1: "第1题分数：8"
+            // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
+            // 策略1: 精确匹配 label + "分数" 格式（最可靠）
+            // 格式1a: "25(1)分数：8" 或 "第1题分数：8"
             let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-            if (scoreMatch) score = parseFloat(scoreMatch[1]);
+            if (scoreMatch) {
+                score = parseFloat(scoreMatch[1]);
+            }
 
-            // 格式2: "第1题：8分" 或 "第1题: 8"
+            // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
+            // 例如：label="25"，文本="25(1)分数：2"，应该匹配 "25(1)" 而不是 "25"
+            if (score === null) {
+                // 检查文本中是否存在 label 后跟括号数字的模式
+                const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
+                const bracketMatch = clean.match(bracketPattern);
+                if (bracketMatch) {
+                    // 找到了括号格式，使用完整的 label（包括括号）进行匹配
+                    const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                    const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                    // 尝试匹配 "25(1)分数：2"
+                    const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+                    if (fullScoreMatch) {
+                        score = parseFloat(fullScoreMatch[1]);
+                    }
+
+                    // 如果还是没匹配到，尝试匹配 "25(1)：2"
+                    if (score === null) {
+                        const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
+                        if (fullScoreMatch2) {
+                            score = parseFloat(fullScoreMatch2[1]);
+                        }
+                    }
+                }
+            }
+
+            // 策略3: 直接匹配 label + 冒号格式（可能误匹配，所以放在后面）
             if (score === null) {
                 scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
                 if (scoreMatch) score = parseFloat(scoreMatch[1]);
             }
 
-            // 格式3: "第1题 8分"
+            // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
             if (score === null) {
                 scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
                 if (scoreMatch) score = parseFloat(scoreMatch[1]);
@@ -406,14 +437,43 @@ function parseLegacySubQuestionResponse(text, config) {
         const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         let score = null;
-        let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-        if (scoreMatch) score = parseFloat(scoreMatch[1]);
 
+        // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
+        // 策略1: 精确匹配 label + "分数" 格式（最可靠）
+        let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+        if (scoreMatch) {
+            score = parseFloat(scoreMatch[1]);
+        }
+
+        // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
+        if (score === null) {
+            const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
+            const bracketMatch = clean.match(bracketPattern);
+            if (bracketMatch) {
+                const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+                if (fullScoreMatch) {
+                    score = parseFloat(fullScoreMatch[1]);
+                }
+
+                if (score === null) {
+                    const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
+                    if (fullScoreMatch2) {
+                        score = parseFloat(fullScoreMatch2[1]);
+                    }
+                }
+            }
+        }
+
+        // 策略3: 直接匹配 label + 冒号格式
         if (score === null) {
             scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
             if (scoreMatch) score = parseFloat(scoreMatch[1]);
         }
 
+        // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
         if (score === null) {
             scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
             if (scoreMatch) score = parseFloat(scoreMatch[1]);
