@@ -419,6 +419,13 @@ async function init() {
         showToast('脚本已更新至最新版本 v' + SCRIPT_CONFIG.VERSION);
     }
 
+    // 配置恢复提示
+    const restoredFrom = sessionStorage.getItem('ai-config-restored');
+    if (restoredFrom) {
+        sessionStorage.removeItem('ai-config-restored');
+        showToast(`配置已从备份恢复（备份于 v${restoredFrom}）`);
+    }
+
     if (sessionStorage.getItem('ai-grading-auto-resume') === 'true') {
         sessionStorage.removeItem('ai-grading-auto-resume');
         window.aiGradingState.errorRetryCount = parseInt(sessionStorage.getItem('ai-grading-retry-count') || '0');

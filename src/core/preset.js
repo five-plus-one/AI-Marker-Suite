@@ -206,4 +206,7 @@ const PresetManager = {
         };
     }
 };
+
+// 更新后配置恢复检测（必须在 init 之前调用）
+if (typeof restoreConfigIfMissing === 'function') restoreConfigIfMissing();
 PresetManager.init();

@@ -250,12 +250,15 @@ function readModule(filePath, moduleName) {
 
 function generateHeader(config, version) {
     const h = config.header;
+    const channelUrl = CHANNEL_URLS[CHANNEL] || CHANNEL_URLS.stable;
     const lines = ['// ==UserScript=='];
     lines.push(`// @name         ${h.name}`);
     lines.push(`// @namespace    ${h.namespace || 'https://aimarking.five-plus-one.com/'}`);
     lines.push(`// @version      ${version}`);
     lines.push(`// @description  ${h.description}`);
     lines.push(`// @author       ${h.author || '5plus1'}`);
+    lines.push(`// @downloadURL  ${channelUrl.scriptUrl}`);
+    lines.push(`// @updateURL    ${channelUrl.manifestUrl.replace('manifest.json', 'ai_marker.user.js')}`);
     for (const m of h.match) lines.push(`// @match        ${m}`);
     if (h.include) {
         for (const i of h.include) lines.push(`// @include      ${i}`);
