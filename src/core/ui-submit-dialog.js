@@ -414,10 +414,18 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             if (correctionInfo.newRubric) cfg.rubric = correctionInfo.newRubric;
                             PresetManager.save();
                             showToast('提示词已更新');
-                            const answerEl = document.getElementById('standard-answer');
-                            const rubricEl = document.getElementById('grading-rubric');
-                            if (answerEl) answerEl.value = cfg.answer;
-                            if (rubricEl) rubricEl.value = cfg.rubric;
+                            // 同步更新 Markdown 数据和预览
+                            if (typeof normalizeMarkdownField === 'function') {
+                                window.__aiMarkdownData = window.__aiMarkdownData || {};
+                                if (correctionInfo.newAnswer) {
+                                    window.__aiMarkdownData.answer = normalizeMarkdownField(cfg.answer);
+                                    if (typeof renderMarkdownPreview === 'function') renderMarkdownPreview('answer', window.__aiMarkdownData.answer);
+                                }
+                                if (correctionInfo.newRubric) {
+                                    window.__aiMarkdownData.rubric = normalizeMarkdownField(cfg.rubric);
+                                    if (typeof renderMarkdownPreview === 'function') renderMarkdownPreview('rubric', window.__aiMarkdownData.rubric);
+                                }
+                            }
                         }
                     }
                     fillScore(finalScore, comment, correctedSubScores);

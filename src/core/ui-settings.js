@@ -753,9 +753,9 @@ function createSettingsPanel() {
                 <div class="form-section">
                     <div class="section-header"><h4>批改上下文</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
-                        <div class="form-group"><label>题目内容</label><textarea id="question-content"></textarea></div>
-                        <div class="form-group"><label>参考答案<span class="required-mark">*</span></label><textarea id="standard-answer"></textarea><div class="field-error" data-for="standard-answer">请填写参考答案</div></div>
-                        <div class="form-group"><label>评卷标准<span class="required-mark">*</span></label><textarea id="grading-rubric"></textarea><div class="field-error" data-for="grading-rubric">请填写评卷标准</div></div>
+                        <div class="form-group"><label>题目内容</label><div class="md-preview-container" id="question-preview"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="question" data-label="题目内容">编辑</button></div></div>
+                        <div class="form-group"><label>参考答案<span class="required-mark">*</span></label><div class="md-preview-container" id="answer-preview"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="answer" data-label="参考答案">编辑</button></div><div class="field-error" data-for="standard-answer">请填写参考答案</div></div>
+                        <div class="form-group"><label>评卷标准<span class="required-mark">*</span></label><div class="md-preview-container" id="rubric-preview"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="rubric" data-label="评卷标准">编辑</button></div><div class="field-error" data-for="grading-rubric">请填写评卷标准</div></div>
                     </div>
                 </div>
 
@@ -1068,6 +1068,54 @@ function createSettingsPanel() {
     panel.querySelector('#btn-del-preset').onclick = handleDeletePreset;
     panel.querySelector('#preset-select').onchange = handlePresetChange;
     panel.querySelector('#save-config-btn').onclick = saveAISettings;
+
+    // Markdown 编辑按钮事件（题目/答案/评分标准）
+    panel.querySelectorAll('.md-edit-btn').forEach(function (btn) {
+        btn.onclick = function () {
+            var field = btn.getAttribute('data-field');
+            var label = btn.getAttribute('data-label') || field;
+            var mdData = window.__aiMarkdownData || {};
+            var fieldData = mdData[field] || { text: '', images: [], format: 'plain' };
+            // 获取当前 AI 调用配置（用于 AI 识别功能）
+            var callConfig = null;
+            try {
+                var wfId = document.getElementById('workflow-select')?.value || 'fast';
+                var wf = WorkflowManager.getWorkflow(wfId);
+                if (wf) {
+                    var pName = wf.model?.provider || ProviderManager.data.activeProvider;
+                    var mName = wf.model?.model || ProviderManager.data.activeModel;
+                    var prov = ProviderManager.getProvider(pName);
+                    callConfig = {
+                        endpoint: prov?.endpoint || '',
+                        apiKey: prov?.apiKey || '',
+                        model: mName,
+                        reasoningEffort: wf.model?.reasoningEffort || '',
+                    };
+                }
+            } catch (e) { /* ignore */ }
+            if (typeof openMarkdownEditor === 'function') {
+                openMarkdownEditor({
+                    field: field,
+                    label: label,
+                    initialText: fieldData.text,
+                    initialImages: fieldData.images,
+                    callConfig: callConfig,
+                    onConfirm: function (newText, newImages) {
+                        window.__aiMarkdownData[field] = {
+                            text: newText,
+                            images: newImages,
+                            format: 'markdown',
+                        };
+                        if (typeof renderMarkdownPreview === 'function') {
+                            renderMarkdownPreview(field, window.__aiMarkdownData[field]);
+                        }
+                        // 触发批改上下文提示更新
+                        if (typeof updateGroupHints === 'function') updateGroupHints();
+                    },
+                });
+            }
+        };
+    });
     panel.querySelector('#btn-history').onclick = () => showHistoryPanel();
     const pageHistoryBtn = panel.querySelector('#btn-history-page');
     if (pageHistoryBtn) pageHistoryBtn.onclick = () => showHistoryPanel();
@@ -1206,11 +1254,8 @@ function createSettingsPanel() {
         });
     }
 
-    // 批改上下文实时监听
-    const questionInput = panel.querySelector('#question-content');
-    if (questionInput) {
-        questionInput.addEventListener('input', () => updateGroupHints());
-    }
+    // 批改上下文实时监听（编辑器确认后触发）
+    // 注：实时监听现在由 MarkdownEditor 的 onConfirm 回调触发
 
     // 分数设置交互
     panel.querySelector('#btn-detect-inputs').onclick = () => {
@@ -1484,9 +1529,16 @@ function fillFormFromActivePreset() {
     const config = PresetManager.getCurrentConfig();
     const currentUrlId = PresetManager.getTaskIdentifier();
 
-    document.getElementById('question-content').value = config.question || '';
-    document.getElementById('standard-answer').value = config.answer || '';
-    document.getElementById('grading-rubric').value = config.rubric || '';
+    // Markdown 预览渲染（兼容旧格式字符串和新格式对象）
+    if (typeof renderMarkdownPreview === 'function' && typeof normalizeMarkdownField === 'function') {
+        var qData = normalizeMarkdownField(config.question);
+        var aData = normalizeMarkdownField(config.answer);
+        var rData = normalizeMarkdownField(config.rubric);
+        window.__aiMarkdownData = { question: qData, answer: aData, rubric: rData };
+        renderMarkdownPreview('question', qData);
+        renderMarkdownPreview('answer', aData);
+        renderMarkdownPreview('rubric', rData);
+    }
 
     // 供应商下拉（仅用于管理供应商配置，默认选中 5plus1官方）
     renderProviderDropdown();
@@ -1742,20 +1794,23 @@ function validateScoringUnits(options = {}) {
 
 function validateRequiredFields(options = {}) {
     const showErrors = options.showErrors !== false;
-    const answerEl = document.getElementById('standard-answer');
-    const rubricEl = document.getElementById('grading-rubric');
-    const answerMissing = !answerEl?.value.trim();
-    const rubricMissing = !rubricEl?.value.trim();
+    // 从 Markdown 数据中读取（兼容旧格式）
+    var mdData = window.__aiMarkdownData || {};
+    var answerText = ((mdData.answer?.text) || '').trim();
+    var rubricText = ((mdData.rubric?.text) || '').trim();
+    const answerMissing = !answerText;
+    const rubricMissing = !rubricText;
     const scoringValid = validateScoringUnits({ showErrors });
 
-    [
-        { el: answerEl, missing: answerMissing, id: 'standard-answer' },
-        { el: rubricEl, missing: rubricMissing, id: 'grading-rubric' }
-    ].forEach(({ el, missing, id }) => {
-        const error = document.querySelector(`.field-error[data-for="${id}"]`);
-        if (el) el.classList.toggle('is-invalid', showErrors && missing);
-        if (error) error.classList.toggle('visible', showErrors && missing);
-    });
+    // 更新预览容器的错误状态
+    var answerPreview = document.getElementById('answer-preview');
+    var rubricPreview = document.getElementById('rubric-preview');
+    var answerError = document.querySelector('.field-error[data-for="standard-answer"]');
+    var rubricError = document.querySelector('.field-error[data-for="grading-rubric"]');
+    if (answerPreview) answerPreview.classList.toggle('is-invalid', showErrors && answerMissing);
+    if (answerError) answerError.classList.toggle('visible', showErrors && answerMissing);
+    if (rubricPreview) rubricPreview.classList.toggle('is-invalid', showErrors && rubricMissing);
+    if (rubricError) rubricError.classList.toggle('visible', showErrors && rubricMissing);
 
     refreshScoringTotal();
     updateSettingsNavBadges();
@@ -1874,8 +1929,10 @@ function updateSettingsNavBadges() {
     const endpointInput = document.getElementById('api-endpoint');
     const providerSelect = document.getElementById('ai-provider');
     const workflowSelect = document.getElementById('workflow-select');
-    const answerEl = document.getElementById('standard-answer');
-    const rubricEl = document.getElementById('grading-rubric');
+    // 从 Markdown 数据读取（兼容旧格式）
+    var _mdData = window.__aiMarkdownData || {};
+    var _answerText = ((_mdData.answer?.text) || '').trim();
+    var _rubricText = ((_mdData.rubric?.text) || '').trim();
     const scoringUnits = getScoringUnitsFromForm();
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked;
     const batchTarget = parseInt(document.getElementById('batch-target-count')?.value, 10) || 0;
@@ -1884,7 +1941,7 @@ function updateSettingsNavBadges() {
 
     const missing = {
         plan: !document.getElementById('preset-select')?.value,
-        grading: !answerEl?.value.trim() || !rubricEl?.value.trim() ||
+        grading: !_answerText || !_rubricText ||
             scoringUnits.some(u => !u.maxScore || u.maxScore <= 0),
         ai: !apiKeyInput?.value.trim() || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
         automation: !!batchEnabled && batchTarget <= 0,
@@ -2400,10 +2457,16 @@ function saveAISettings() {
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
 
+    // 从 Markdown 数据读取（兼容旧格式）
+    var mdData = window.__aiMarkdownData || {};
+    var questionData = mdData.question || { text: '', images: [], format: 'plain' };
+    var answerData = mdData.answer || { text: '', images: [], format: 'plain' };
+    var rubricData = mdData.rubric || { text: '', images: [], format: 'plain' };
+
     const config = {
-        question: document.getElementById('question-content').value,
-        answer: document.getElementById('standard-answer').value,
-        rubric: document.getElementById('grading-rubric').value,
+        question: questionData,
+        answer: answerData,
+        rubric: rubricData,
         workflowId: workflowId || 'fast',
         gradingMode,
         scoring: {

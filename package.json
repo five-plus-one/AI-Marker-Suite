@@ -8,6 +8,8 @@
   "author": "5plus1",
   "license": "MIT",
   "devDependencies": {
+    "katex": "^0.17.0",
+    "marked": "^18.0.4",
     "terser": "^5.46.2"
   }
 }

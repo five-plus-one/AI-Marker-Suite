@@ -473,7 +473,13 @@ function showCorrectionPanel(context) {
         const streamEl = document.getElementById('cor-analysis-stream');
         try {
             const rawText = await analyzePromptModification(context, feedback, streamed => {
-                if (streamEl) streamEl.textContent = streamed;
+                if (streamEl) {
+                    if (window.__aiMarkdownRenderer) {
+                        streamEl.innerHTML = window.__aiMarkdownRenderer.render(streamed);
+                    } else {
+                        streamEl.textContent = streamed;
+                    }
+                }
             });
             analysisResult = parsePromptModification(rawText);
 
