@@ -39,76 +39,55 @@ function createMarkdownRenderer() {
         return null;
     }
 
-    // 自定义 tokenizer：优先匹配 $$...$$ 块级公式和 $...$ 行内公式
-    const latexBlockTokenizer = {
+    // 自定义扩展：块级公式 $$...$$
+    const latexBlockExt = {
         name: 'latexBlock',
         level: 'block',
         start(src) { return src.indexOf('$$'); },
         tokenizer(src) {
-            const match = src.match(/^\$\$([\s\S]+?)\$\$/);
+            var match = src.match(/^\$\$([\s\S]+?)\$\$/);
             if (match) {
-                return {
-                    type: 'latexBlock',
-                    raw: match[0],
-                    text: match[1].trim(),
-                };
+                return { type: 'latexBlock', raw: match[0], text: match[1].trim() };
             }
+        },
+        renderer(token) {
+            try {
+                if (window.katex) {
+                    return '<div class="katex-display">' +
+                        katex.renderToString(token.text, { displayMode: true, throwOnError: false, trust: true }) +
+                        '</div>';
+                }
+            } catch (e) { /* fallback */ }
+            return '<pre class="katex-fallback"><code>' + escapeHtml(token.text) + '</code></pre>';
         },
     };
 
-    const latexInlineTokenizer = {
+    // 自定义扩展：行内公式 $...$
+    const latexInlineExt = {
         name: 'latexInline',
         level: 'inline',
         start(src) { return src.indexOf('$'); },
         tokenizer(src) {
-            // 匹配 $...$ 但不匹配 $$（那是块级）
-            const match = src.match(/^\$([^\$\n]+?)\$/);
+            var match = src.match(/^\$([^\$\n]+?)\$/);
             if (match) {
-                return {
-                    type: 'latexInline',
-                    raw: match[0],
-                    text: match[1].trim(),
-                };
+                return { type: 'latexInline', raw: match[0], text: match[1].trim() };
             }
         },
-    };
-
-    // 自定义 renderer
-    const renderer = {
-        latexblock({ text }) {
+        renderer(token) {
             try {
                 if (window.katex) {
-                    return '<div class="katex-display">' +
-                        katex.renderToString(text, { displayMode: true, throwOnError: false, trust: true }) +
-                        '</div>';
+                    return katex.renderToString(token.text, { displayMode: false, throwOnError: false, trust: true });
                 }
-            } catch (e) { /* fallback below */ }
-            return '<pre class="katex-fallback"><code>' + escapeHtml(text) + '</code></pre>';
-        },
-        latexinline({ text }) {
-            try {
-                if (window.katex) {
-                    return katex.renderToString(text, { displayMode: false, throwOnError: false, trust: true });
-                }
-            } catch (e) { /* fallback below */ }
-            return '<code class="katex-fallback">' + escapeHtml(text) + '</code>';
+            } catch (e) { /* fallback */ }
+            return '<code class="katex-fallback">' + escapeHtml(token.text) + '</code>';
         },
     };
 
-    // 配置 marked
-    const markedInstance = new marked.Marked({
-        tokenizer: latexBlockTokenizer,
-        extensions: [latexBlockTokenizer, latexInlineTokenizer],
-        renderer: renderer,
-        breaks: true,       // 支持 GFM 换行
-        gfm: true,          // GitHub Flavored Markdown
-    });
-
-    // 高亮代码块（可选，简单实现）
-    markedInstance.setOptions({
-        highlight: function (code, lang) {
-            return '<pre><code class="language-' + (lang || 'text') + '">' + escapeHtml(code) + '</code></pre>';
-        },
+    // 配置 marked（renderer 定义在扩展内部，不传给构造函数）
+    var markedInstance = new marked.Marked({
+        extensions: [latexBlockExt, latexInlineExt],
+        breaks: true,
+        gfm: true,
     });
 
     return {
