@@ -1,7 +1,7 @@
 {
   "name": "zhixue-ai-marking",
   "version": "1.21.3",
-  "description": "智学网AI自动打分助手 - Tampermonkey 用户脚本",
+  "description": "AI批改助手 - 基于多模态AI的在线阅卷自动批改工具",
   "scripts": {
     "build": "node build.js"
   },

@@ -1069,11 +1069,13 @@ function createSettingsPanel() {
     panel.querySelector('#preset-select').onchange = handlePresetChange;
     panel.querySelector('#save-config-btn').onclick = saveAISettings;
 
-    // Markdown 编辑按钮事件（题目/答案/评分标准）
-    panel.querySelectorAll('.md-edit-btn').forEach(function (btn) {
-        btn.onclick = function () {
-            var field = btn.getAttribute('data-field');
-            var label = btn.getAttribute('data-label') || field;
+    // Markdown 编辑事件（题目/答案/评分标准）— 点击整个预览容器打开编辑器
+    panel.querySelectorAll('.md-preview-container').forEach(function (container) {
+        container.onclick = function () {
+            var btn = container.querySelector('.md-edit-btn');
+            var field = btn ? btn.getAttribute('data-field') : null;
+            var label = btn ? btn.getAttribute('data-label') || field : '';
+            if (!field) return;
             var mdData = window.__aiMarkdownData || {};
             var fieldData = mdData[field] || { text: '', images: [], format: 'plain' };
             // 获取当前 AI 调用配置（用于 AI 识别功能）
@@ -2567,6 +2569,7 @@ function showOnboardingDialog(forceShow, mode) {
     let presetName = '';
     let gradingMode = 'trial';
     let selectedWorkflow = 'fast';
+    let detectedUnits = [];  // 检测到的小题列表
 
     function getStepInfo() {
         const isFirst = mode === 'first-launch';
@@ -2696,23 +2699,53 @@ function showOnboardingDialog(forceShow, mode) {
     }
 
     function renderCtxStep() {
-        return `
-            <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
-                配置批改上下文可以提高评分准确性。这些信息也可以稍后在设置中配置。
-            </p>
-            <div class="form-group">
-                <label>题目内容</label>
-                <textarea id="ob-question" placeholder="粘贴题目内容..." style="width:100%;min-height:60px;"></textarea>
-            </div>
-            <div class="form-group">
-                <label>参考答案</label>
-                <textarea id="ob-answer" placeholder="粘贴参考答案..." style="width:100%;min-height:60px;"></textarea>
-            </div>
-            <div class="form-group">
-                <label>评分标准</label>
-                <textarea id="ob-rubric" placeholder="粘贴评分标准..." style="width:100%;min-height:60px;"></textarea>
-            </div>
-        `;
+        // 尝试检测页面小题
+        detectedUnits = [];
+        try {
+            var adapter = window.__AI_MARKER_ADAPTER__;
+            if (adapter && typeof adapter.getScoreInputs === 'function') {
+                var inputs = adapter.getScoreInputs();
+                if (inputs.length > 0) {
+                    detectedUnits = inputs.map(function (inp, i) {
+                        return { label: inp.label || ('第' + (i + 1) + '题'), maxScore: inp.maxScore || '' };
+                    });
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        var unitsHtml = '';
+        if (detectedUnits.length > 0) {
+            unitsHtml = '<div class="form-group" style="margin-top:12px;">' +
+                '<label style="font-weight:600;">检测到 ' + detectedUnits.length + ' 个小题</label>' +
+                '<div id="ob-units-list" style="margin-top:6px;">' +
+                detectedUnits.map(function (u, i) {
+                    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+                        '<span style="flex:1;font-size:13px;color:#1a1a1a;">' + escapeSettingsHtml(u.label) + '</span>' +
+                        '<input type="number" class="ob-unit-score" data-index="' + i + '" placeholder="满分" min="0" step="1" value="' + (u.maxScore || '') + '" style="width:80px;padding:4px 8px;border:1px solid rgba(0,0,0,0.1);border-radius:6px;font-size:13px;">' +
+                        '<span style="font-size:12px;color:#888;">分</span>' +
+                        '</div>';
+                }).join('') +
+                '</div>' +
+                '<div style="font-size:11px;color:#888;margin-top:4px;">请填写每个小题的满分值</div>' +
+                '</div>';
+        }
+
+        return '<p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">' +
+            '配置批改上下文可以提高评分准确性。点击下方区域可打开 Markdown 编辑器（支持公式和图片）。' +
+            '</p>' +
+            '<div class="form-group">' +
+            '<label>题目内容</label>' +
+            '<div class="md-preview-container ob-md-field" data-field="question"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="question" data-label="题目内容">编辑</button></div>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label>参考答案</label>' +
+            '<div class="md-preview-container ob-md-field" data-field="answer"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="answer" data-label="参考答案">编辑</button></div>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label>评分标准</label>' +
+            '<div class="md-preview-container ob-md-field" data-field="rubric"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="rubric" data-label="评分标准">编辑</button></div>' +
+            '</div>' +
+            unitsHtml;
     }
 
     function renderDoneStep() {
@@ -2790,8 +2823,34 @@ function showOnboardingDialog(forceShow, mode) {
             });
             overlay.querySelector('#ob-next').onclick = () => { currentStep++; render(); };
         } else if (s.ctxStep) {
-            overlay.querySelector('#ob-skip-ctx').onclick = () => saveAndFinish(false);
-            overlay.querySelector('#ob-next').onclick = () => saveAndFinish(true);
+            // 初始化 OOBE 的 Markdown 数据
+            if (!window.__aiMarkdownData) window.__aiMarkdownData = {};
+
+            // Markdown 编辑容器点击事件
+            overlay.querySelectorAll('.ob-md-field').forEach(function (container) {
+                container.onclick = function () {
+                    var btn = container.querySelector('.md-edit-btn');
+                    var field = btn ? btn.getAttribute('data-field') : null;
+                    var label = btn ? btn.getAttribute('data-label') || field : '';
+                    if (!field) return;
+                    var fieldData = window.__aiMarkdownData[field] || { text: '', images: [], format: 'plain' };
+                    if (typeof openMarkdownEditor === 'function') {
+                        openMarkdownEditor({
+                            field: field, label: label,
+                            initialText: fieldData.text, initialImages: fieldData.images,
+                            onConfirm: function (newText, newImages) {
+                                window.__aiMarkdownData[field] = { text: newText, images: newImages, format: 'markdown' };
+                                if (typeof renderMarkdownPreview === 'function') {
+                                    renderMarkdownPreview(field, window.__aiMarkdownData[field]);
+                                }
+                            },
+                        });
+                    }
+                };
+            });
+
+            overlay.querySelector('#ob-skip-ctx').onclick = function () { saveAndFinish(false); };
+            overlay.querySelector('#ob-next').onclick = function () { saveAndFinish(true); };
         } else if (s.doneStep) {
             overlay.querySelector('#ob-start').onclick = () => {
                 _onboardingDialogOpen = false;
@@ -2862,15 +2921,29 @@ function showOnboardingDialog(forceShow, mode) {
     }
 
     function saveAndFinish(saveCtx) {
+        var emptyField = { text: '', images: [], format: 'markdown' };
+        var mdData = window.__aiMarkdownData || {};
         const newPreset = {
-            question: '', answer: '', rubric: '',
+            question: saveCtx ? (mdData.question || emptyField) : emptyField,
+            answer: saveCtx ? (mdData.answer || emptyField) : emptyField,
+            rubric: saveCtx ? (mdData.rubric || emptyField) : emptyField,
             workflowId: selectedWorkflow, gradingMode: gradingMode,
             scoring: { roundStep: 1, roundMethod: 'round' }
         };
+
+        // 保存小题数据（如果检测到）
         if (saveCtx) {
-            newPreset.question = overlay.querySelector('#ob-question')?.value?.trim() || '';
-            newPreset.answer = overlay.querySelector('#ob-answer')?.value?.trim() || '';
-            newPreset.rubric = overlay.querySelector('#ob-rubric')?.value?.trim() || '';
+            var unitEls = overlay.querySelectorAll('.ob-unit-score');
+            if (unitEls.length > 0) {
+                var units = [];
+                unitEls.forEach(function (inp, i) {
+                    var label = detectedUnits[i] ? detectedUnits[i].label : ('第' + (i + 1) + '题');
+                    var maxScore = parseFloat(inp.value) || 0;
+                    units.push({ label: label, maxScore: maxScore, index: i, roundStep: 1 });
+                });
+                newPreset.scoring.units = units;
+                newPreset.scoring.maxScore = units.reduce(function (sum, u) { return sum + (u.maxScore || 0); }, 0);
+            }
         }
         PresetManager.data.list[presetName] = newPreset;
         PresetManager.data.active = presetName;
