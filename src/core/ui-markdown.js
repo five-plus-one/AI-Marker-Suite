@@ -161,6 +161,7 @@ function openMarkdownEditor(options) {
     overlay.id = 'ai-md-editor-overlay';
     overlay.setAttribute('data-vendor', 'ai-marker');
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:1000010;display:flex;align-items:center;justify-content:center;';
+    overlay.style.setProperty('z-index', '1000010', 'important');
 
     // 主容器
     const container = document.createElement('div');
