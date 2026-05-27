@@ -457,11 +457,11 @@ function showCorrectionPanel(context) {
                 <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:10px;">建议修改</div>
                 <div style="margin-bottom:10px;">
                     <label class="cor-field-label">参考答案</label>
-                    <textarea id="cor-new-answer" class="cor-input cor-textarea"></textarea>
+                    <div class="cor-preview-box" id="cor-answer-preview" style="position:relative;min-height:48px;padding:9px 12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);border-radius:8px;font-size:13px;line-height:1.6;color:#1a1a1a;cursor:pointer;word-break:break-word;" title="点击编辑"></div>
                 </div>
                 <div style="margin-bottom:10px;">
                     <label class="cor-field-label">评分标准</label>
-                    <textarea id="cor-new-rubric" class="cor-input cor-textarea"></textarea>
+                    <div class="cor-preview-box" id="cor-rubric-preview" style="position:relative;min-height:48px;padding:9px 12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);border-radius:8px;font-size:13px;line-height:1.6;color:#1a1a1a;cursor:pointer;word-break:break-word;" title="点击编辑"></div>
                 </div>
             </div>
         `;
@@ -473,7 +473,41 @@ function showCorrectionPanel(context) {
 
         footer.querySelector('#cor-cancel2').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
 
+        // 预览区点击 → 打开 Markdown 编辑器
+        document.getElementById('cor-answer-preview')?.addEventListener('click', function () {
+            if (typeof openMarkdownEditor !== 'function') return;
+            openMarkdownEditor({
+                field: 'correction-answer', label: '参考答案',
+                initialText: editedAnswer, initialImages: [],
+                onConfirm: function (newText) {
+                    editedAnswer = newText;
+                    corRenderPreview('cor-answer-preview', newText);
+                }
+            });
+        });
+        document.getElementById('cor-rubric-preview')?.addEventListener('click', function () {
+            if (typeof openMarkdownEditor !== 'function') return;
+            openMarkdownEditor({
+                field: 'correction-rubric', label: '评分标准',
+                initialText: editedRubric, initialImages: [],
+                onConfirm: function (newText) {
+                    editedRubric = newText;
+                    corRenderPreview('cor-rubric-preview', newText);
+                }
+            });
+        });
+
         startAnalysis();
+    }
+
+    function corRenderPreview(elId, text) {
+        var el = document.getElementById(elId);
+        if (!el) return;
+        if (window.__aiMarkdownRenderer) {
+            el.innerHTML = window.__aiMarkdownRenderer.render(text || '');
+        } else {
+            el.textContent = text || '';
+        }
     }
 
     async function startAnalysis() {
@@ -497,18 +531,18 @@ function showCorrectionPanel(context) {
             const editSection = document.getElementById('cor-edit-section');
             if (editSection) editSection.style.display = 'block';
 
-            const answerEl = document.getElementById('cor-new-answer');
-            if (answerEl) answerEl.value = analysisResult.answer !== '不变' ? analysisResult.answer : extractFieldText(context.config.answer);
-            const rubricEl = document.getElementById('cor-new-rubric');
-            if (rubricEl) rubricEl.value = analysisResult.rubric !== '不变' ? analysisResult.rubric : extractFieldText(context.config.rubric);
+            editedAnswer = analysisResult.answer !== '不变' ? analysisResult.answer : extractFieldText(context.config.answer);
+            editedRubric = analysisResult.rubric !== '不变' ? analysisResult.rubric : extractFieldText(context.config.rubric);
+            corRenderPreview('cor-answer-preview', editedAnswer);
+            corRenderPreview('cor-rubric-preview', editedRubric);
 
             const confirmBtn = document.getElementById('cor-confirm-score');
             if (confirmBtn) {
                 confirmBtn.style.display = '';
                 confirmBtn.onclick = e => {
                     e.stopPropagation();
-                    const newAnswer = document.getElementById('cor-new-answer')?.value;
-                    const newRubric = document.getElementById('cor-new-rubric')?.value;
+                    const newAnswer = editedAnswer;
+                    const newRubric = editedRubric;
                     console.log(`📝 [纠错] 确认提交 — 教师分数: ${feedback.teacherScore}, 新答案长度: ${(newAnswer||'').length}, 新标准长度: ${(newRubric||'').length}`);
 
                     // 对教师分数应用取整规则
