@@ -229,7 +229,11 @@ function createSettingsPanel() {
             }
 
             .checkbox-group { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-            .checkbox-group input[type="checkbox"] { accent-color: #0052FF; width: 15px; height: 15px; }
+            #ai-grading-settings .checkbox-group input[type="checkbox"] {
+                -webkit-appearance: auto !important; appearance: auto !important;
+                accent-color: #0052FF !important; width: 15px !important; height: 15px !important;
+                display: inline-block !important; visibility: visible !important; opacity: 1 !important;
+            }
             .checkbox-group label { margin: 0; font-size: 13px; color: #1a1a1a; font-weight: 500; }
 
             .preset-controls { display: flex; gap: 6px; margin-bottom: 12px; }
