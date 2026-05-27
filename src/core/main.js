@@ -46,7 +46,7 @@ async function startAutoGrading() {
         }
 
         const presetConfig = PresetManager.getCurrentConfig();
-        if (!presetConfig.answer?.trim() || !presetConfig.rubric?.trim()) {
+        if (!extractFieldText(presetConfig.answer).trim() || !extractFieldText(presetConfig.rubric).trim()) {
             openSettingsPanel();
             showToast('请先填写参考答案和评卷标准');
             window.aiGradingState.isRunning = false;
