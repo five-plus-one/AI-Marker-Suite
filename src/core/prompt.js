@@ -337,7 +337,7 @@ function parseAIResponseText(text) {
 }
 
 function parsePromptModification(text) {
-    const clean = text.replace(/\*\*/g, '');
+    const clean = text;
 
     function extract(fieldNames) {
         for (const name of fieldNames) {

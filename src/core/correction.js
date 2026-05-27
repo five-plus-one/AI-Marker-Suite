@@ -279,6 +279,8 @@ function showCorrectionPanel(context) {
     let analysisResult = null;
     let editedAnswer = '';
     let editedRubric = '';
+    let editedAnswerData = null;  // 完整字段数据（可能是 string 或 {text, images, format}）
+    let editedRubricData = null;
 
     function updateStepsBar() {
         const bar = document.getElementById('cor-steps-bar');
@@ -391,6 +393,14 @@ function showCorrectionPanel(context) {
         `;
         footer.className = 'cor-footer';
 
+        // Markdown 渲染：识别答案和小题评语
+        if (window.__aiMarkdownRenderer) {
+            body.querySelectorAll('.cor-answer-block').forEach(function (el) {
+                var raw = el.textContent;
+                if (raw) el.innerHTML = window.__aiMarkdownRenderer.render(raw);
+            });
+        }
+
         // 分小题模式下自动计算总分
         if (hasSubScores) {
             const subInputs = body.querySelectorAll('.cor-sub-score-input');
@@ -478,9 +488,13 @@ function showCorrectionPanel(context) {
             if (typeof openMarkdownEditor !== 'function') return;
             openMarkdownEditor({
                 field: 'correction-answer', label: '参考答案',
-                initialText: editedAnswer, initialImages: [],
-                onConfirm: function (newText) {
+                initialText: editedAnswer,
+                initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedAnswerData) : [],
+                onConfirm: function (newText, newImages) {
                     editedAnswer = newText;
+                    editedAnswerData = newImages && newImages.length
+                        ? { text: newText, images: newImages, format: 'markdown' }
+                        : newText;
                     corRenderPreview('cor-answer-preview', newText);
                 }
             });
@@ -489,9 +503,13 @@ function showCorrectionPanel(context) {
             if (typeof openMarkdownEditor !== 'function') return;
             openMarkdownEditor({
                 field: 'correction-rubric', label: '评分标准',
-                initialText: editedRubric, initialImages: [],
-                onConfirm: function (newText) {
+                initialText: editedRubric,
+                initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedRubricData) : [],
+                onConfirm: function (newText, newImages) {
                     editedRubric = newText;
+                    editedRubricData = newImages && newImages.length
+                        ? { text: newText, images: newImages, format: 'markdown' }
+                        : newText;
                     corRenderPreview('cor-rubric-preview', newText);
                 }
             });
@@ -531,8 +549,20 @@ function showCorrectionPanel(context) {
             const editSection = document.getElementById('cor-edit-section');
             if (editSection) editSection.style.display = 'block';
 
-            editedAnswer = String(analysisResult.answer !== '不变' ? analysisResult.answer : extractFieldText(context.config.answer) || '');
-            editedRubric = String(analysisResult.rubric !== '不变' ? analysisResult.rubric : extractFieldText(context.config.rubric) || '');
+            if (analysisResult.answer !== '不变') {
+                editedAnswer = analysisResult.answer;
+                editedAnswerData = analysisResult.answer;
+            } else {
+                editedAnswer = extractFieldText(context.config.answer);
+                editedAnswerData = context.config.answer;  // 保留完整对象（含图片）
+            }
+            if (analysisResult.rubric !== '不变') {
+                editedRubric = analysisResult.rubric;
+                editedRubricData = analysisResult.rubric;
+            } else {
+                editedRubric = extractFieldText(context.config.rubric);
+                editedRubricData = context.config.rubric;
+            }
             corRenderPreview('cor-answer-preview', editedAnswer);
             corRenderPreview('cor-rubric-preview', editedRubric);
 
@@ -541,9 +571,9 @@ function showCorrectionPanel(context) {
                 confirmBtn.style.display = '';
                 confirmBtn.onclick = e => {
                     e.stopPropagation();
-                    const newAnswer = editedAnswer;
-                    const newRubric = editedRubric;
-                    console.log(`📝 [纠错] 确认提交 — 教师分数: ${feedback.teacherScore}, 新答案长度: ${(newAnswer||'').length}, 新标准长度: ${(newRubric||'').length}`);
+                    const newAnswer = editedAnswerData;
+                    const newRubric = editedRubricData;
+                    console.log(`📝 [纠错] 确认提交 — 教师分数: ${feedback.teacherScore}, 新答案长度: ${(extractFieldText(newAnswer)||'').length}, 新标准长度: ${(extractFieldText(newRubric)||'').length}`);
 
                     // 对教师分数应用取整规则
                     const scoringConfig = PresetManager.getCurrentConfig().scoring || { roundStep: 1, roundMethod: 'round' };

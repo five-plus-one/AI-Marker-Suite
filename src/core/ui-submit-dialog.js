@@ -244,7 +244,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             <span style="font-size:13px;color:#1d1d1f;font-weight:500;">${sq.label}</span>
                             <span style="font-size:14px;font-weight:600;color:${sq.score >= sq.maxScore * 0.6 ? '#1d1d1f' : '#D93025'};">${sq.score !== null ? sq.score : '—'}<span style="font-size:11px;color:#86868b;font-weight:normal;">/${sq.maxScore}</span></span>
                         </div>
-                        ${sq.comment ? `<div style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
+                        ${sq.comment ? `<div class="asd-md-content" style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
                         `).join('')}
                     </div>
                 </div>` : ''}
@@ -287,12 +287,12 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.detailA ? `
                         <div style="margin-bottom:6px;">
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                            <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailA['评分依据'] || '—'}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailA['评分依据'] || '—'}</div>
                         </div>` : ''}
                         ${dualEval.detailA && dualEval.detailA['分数计算'] ? `
                         <div>
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
-                            <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailA['分数计算']}</div>
+                            <div class="asd-md-content" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailA['分数计算']}</div>
                         </div>` : ''}
                     </div>
                 </div>
@@ -306,12 +306,12 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.detailB ? `
                         <div style="margin-bottom:6px;">
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                            <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailB['评分依据'] || '—'}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailB['评分依据'] || '—'}</div>
                         </div>` : ''}
                         ${dualEval.detailB && dualEval.detailB['分数计算'] ? `
                         <div>
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
-                            <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailB['分数计算']}</div>
+                            <div class="asd-md-content" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailB['分数计算']}</div>
                         </div>` : ''}
                     </div>
                 </div>
@@ -326,7 +326,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.arbAnalysis ? `
                         <div>
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">仲裁分析</div>
-                            <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.arbAnalysis}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.arbAnalysis}</div>
                         </div>` : ''}
                     </div>
                 </div>` : ''}
@@ -372,6 +372,14 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         </div>
     `;
     document.body.appendChild(dialog);
+
+    // Markdown+KaTeX 渲染：所有文本内容区域
+    if (window.__aiMarkdownRenderer) {
+        dialog.querySelectorAll('.asd-info-content, .asd-md-content').forEach(function (el) {
+            var raw = el.textContent;
+            if (raw) el.innerHTML = window.__aiMarkdownRenderer.render(raw);
+        });
+    }
 
     // 环形分数动画
     requestAnimationFrame(() => {
