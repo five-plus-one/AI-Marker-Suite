@@ -304,6 +304,10 @@ function openMarkdownEditor(options) {
 
     // 快捷键
     textarea.addEventListener('keydown', function (e) {
+        // 阻止 Enter 键冒泡到宿主平台的全局监听器（避免触发表单提交）
+        if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+            e.stopPropagation();
+        }
         if (e.ctrlKey || e.metaKey) {
             if (e.key === 'b') { e.preventDefault(); insertMarkdownSyntax(textarea, 'bold'); schedulePreview(); }
             if (e.key === 'i') { e.preventDefault(); insertMarkdownSyntax(textarea, 'italic'); schedulePreview(); }
