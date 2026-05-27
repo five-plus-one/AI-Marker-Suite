@@ -75,7 +75,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     dialog.innerHTML = `
         <style>
             #auto-submit-dialog {
-                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999;
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999 !important;
                 background: rgba(255, 255, 255, 0.92);
                 backdrop-filter: blur(32px) saturate(180%);
                 -webkit-backdrop-filter: blur(32px) saturate(180%);

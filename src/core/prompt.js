@@ -129,10 +129,13 @@ function buildStructuredPrompt(config) {
 
 // ---------- 旧格式兼容 Prompt ----------
 function buildPrompt(config) {
+    var _q = extractFieldText(config.question);
+    var _a = extractFieldText(config.answer);
+    var _r = extractFieldText(config.rubric);
     let prompt = `你是一位严格的阅卷老师，请根据以下信息对学生答案进行评分：\n\n`;
-    if (config.question) prompt += `**题目内容：**\n${config.question}\n\n`;
-    if (config.answer) prompt += `**标准答案：**\n${config.answer}\n\n`;
-    if (config.rubric) prompt += `**评分标准：**\n${config.rubric}\n\n`;
+    if (_q) prompt += `**题目内容：**\n${_q}\n\n`;
+    if (_a) prompt += `**标准答案：**\n${_a}\n\n`;
+    if (_r) prompt += `**评分标准：**\n${_r}\n\n`;
     prompt += `请仔细查看图片中的学生答案，并按照以下格式返回评分结果（必须严格按此格式）：\n\n学生答案：[OCR识别出的学生答案文字内容]\n分数：[数字]\n评语：[简短评语]\n\n注意：\n1. 先OCR识别图片中的文字，将识别结果写在"学生答案"后\n2. 只返回数字分数，不要带单位\n3. 评语控制在100字以内\n4. 严格按照评分标准打分\n5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
@@ -302,9 +305,9 @@ function buildArbitrationPrompt(config, resultA, resultB, threshold) {
 分差：${Math.abs(resultA.score - resultB.score)}分（阈值：${threshold}分）
 
 ===== 参考信息 =====
-【题目】${config.question || '未提供'}
-【标准答案】${config.answer || '未提供'}
-【评分标准】${config.rubric || '未提供'}
+【题目】${extractFieldText(config.question) || '未提供'}
+【标准答案】${extractFieldText(config.answer) || '未提供'}
+【评分标准】${extractFieldText(config.rubric) || '未提供'}
 
 ===== 输出要求 =====
 你必须严格按照以下格式输出：

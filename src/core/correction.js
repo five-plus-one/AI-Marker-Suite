@@ -5,7 +5,7 @@ function showCorrectionPanel(context) {
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
     overlay.id = 'correction-panel';
-    overlay.style.zIndex = '999998';
+    overlay.style.setProperty('z-index', '999998', 'important');
 
     const imagesHtml = (context.base64DataArray || []).map(b64 =>
         `<img src="data:image/png;base64,${b64}" style="width:100%;border-radius:10px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">`
@@ -277,6 +277,8 @@ function showCorrectionPanel(context) {
     let currentStep = 1;
     let feedback = null;
     let analysisResult = null;
+    let editedAnswer = '';
+    let editedRubric = '';
 
     function updateStepsBar() {
         const bar = document.getElementById('cor-steps-bar');
@@ -403,6 +405,11 @@ function showCorrectionPanel(context) {
             subInputs.forEach(inp => inp.addEventListener('input', updateTotal));
         }
 
+        // 阻止数字输入框的 Enter 键触发表单提交
+        body.querySelectorAll('input[type="number"]').forEach(inp => {
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+        });
+
         footer.querySelector('#cor-cancel').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
         footer.querySelector('#cor-next').onclick = e => {
             e.stopPropagation();
@@ -491,9 +498,9 @@ function showCorrectionPanel(context) {
             if (editSection) editSection.style.display = 'block';
 
             const answerEl = document.getElementById('cor-new-answer');
-            if (answerEl) answerEl.value = analysisResult.answer !== '不变' ? analysisResult.answer : (context.config.answer || '');
+            if (answerEl) answerEl.value = analysisResult.answer !== '不变' ? analysisResult.answer : extractFieldText(context.config.answer);
             const rubricEl = document.getElementById('cor-new-rubric');
-            if (rubricEl) rubricEl.value = analysisResult.rubric !== '不变' ? analysisResult.rubric : (context.config.rubric || '');
+            if (rubricEl) rubricEl.value = analysisResult.rubric !== '不变' ? analysisResult.rubric : extractFieldText(context.config.rubric);
 
             const confirmBtn = document.getElementById('cor-confirm-score');
             if (confirmBtn) {
