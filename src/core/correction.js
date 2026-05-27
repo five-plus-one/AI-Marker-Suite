@@ -531,8 +531,8 @@ function showCorrectionPanel(context) {
             const editSection = document.getElementById('cor-edit-section');
             if (editSection) editSection.style.display = 'block';
 
-            editedAnswer = analysisResult.answer !== '不变' ? analysisResult.answer : extractFieldText(context.config.answer);
-            editedRubric = analysisResult.rubric !== '不变' ? analysisResult.rubric : extractFieldText(context.config.rubric);
+            editedAnswer = String(analysisResult.answer !== '不变' ? analysisResult.answer : extractFieldText(context.config.answer) || '');
+            editedRubric = String(analysisResult.rubric !== '不变' ? analysisResult.rubric : extractFieldText(context.config.rubric) || '');
             corRenderPreview('cor-answer-preview', editedAnswer);
             corRenderPreview('cor-rubric-preview', editedRubric);
 

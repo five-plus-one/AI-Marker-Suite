@@ -9,7 +9,13 @@
  */
 function extractFieldText(field) {
     if (typeof field === 'string') return field;
-    if (field && typeof field === 'object') return field.text || '';
+    if (field && typeof field === 'object') {
+        var t = field.text;
+        if (typeof t === 'string') return t;
+        // 递归处理：text 本身也可能是对象（双重嵌套）
+        if (t && typeof t === 'object' && typeof t.text === 'string') return t.text;
+        return '';
+    }
     return '';
 }
 
