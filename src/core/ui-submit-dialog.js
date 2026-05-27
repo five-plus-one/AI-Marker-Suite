@@ -75,7 +75,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     dialog.innerHTML = `
         <style>
             #auto-submit-dialog {
-                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999;
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2147483647 !important;
                 background: rgba(255, 255, 255, 0.92);
                 backdrop-filter: blur(32px) saturate(180%);
                 -webkit-backdrop-filter: blur(32px) saturate(180%);
@@ -244,7 +244,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             <span style="font-size:13px;color:#1d1d1f;font-weight:500;">${sq.label}</span>
                             <span style="font-size:14px;font-weight:600;color:${sq.score >= sq.maxScore * 0.6 ? '#1d1d1f' : '#D93025'};">${sq.score !== null ? sq.score : '—'}<span style="font-size:11px;color:#86868b;font-weight:normal;">/${sq.maxScore}</span></span>
                         </div>
-                        ${sq.comment ? `<div style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
+                        ${sq.comment ? `<div class="asd-md-content" style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
                         `).join('')}
                     </div>
                 </div>` : ''}
@@ -287,12 +287,12 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.detailA ? `
                         <div style="margin-bottom:6px;">
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                            <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailA['评分依据'] || '—'}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailA['评分依据'] || '—'}</div>
                         </div>` : ''}
                         ${dualEval.detailA && dualEval.detailA['分数计算'] ? `
                         <div>
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
-                            <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailA['分数计算']}</div>
+                            <div class="asd-md-content" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailA['分数计算']}</div>
                         </div>` : ''}
                     </div>
                 </div>
@@ -306,12 +306,12 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.detailB ? `
                         <div style="margin-bottom:6px;">
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                            <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailB['评分依据'] || '—'}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailB['评分依据'] || '—'}</div>
                         </div>` : ''}
                         ${dualEval.detailB && dualEval.detailB['分数计算'] ? `
                         <div>
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
-                            <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailB['分数计算']}</div>
+                            <div class="asd-md-content" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${dualEval.detailB['分数计算']}</div>
                         </div>` : ''}
                     </div>
                 </div>
@@ -326,7 +326,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.arbAnalysis ? `
                         <div>
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">仲裁分析</div>
-                            <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.arbAnalysis}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.arbAnalysis}</div>
                         </div>` : ''}
                     </div>
                 </div>` : ''}
@@ -364,7 +364,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             </div>
         </div>
         <!-- 最小化后的浮动条 -->
-        <div id="asd-minimized-bar" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:999999; background:#fff; border:1px solid #e1e6ef; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); padding:10px 20px; display:none; align-items:center; gap:12px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;">
+        <div id="asd-minimized-bar" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:2147483647; background:#fff; border:1px solid #e1e6ef; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); padding:10px 20px; display:none; align-items:center; gap:12px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;">
             <span style="font-size:18px;font-weight:700;color:${scoreColor};">${score}分</span>
             <span style="font-size:12px;color:#86868b;">${headerLabel}</span>
             <button id="restore-btn" style="background:#172033;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">恢复</button>
@@ -372,6 +372,14 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         </div>
     `;
     document.body.appendChild(dialog);
+
+    // Markdown+KaTeX 渲染：所有文本内容区域
+    if (window.__aiMarkdownRenderer) {
+        dialog.querySelectorAll('.asd-info-content, .asd-md-content').forEach(function (el) {
+            var raw = el.textContent;
+            if (raw) el.innerHTML = window.__aiMarkdownRenderer.render(raw);
+        });
+    }
 
     // 环形分数动画
     requestAnimationFrame(() => {
@@ -414,10 +422,18 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             if (correctionInfo.newRubric) cfg.rubric = correctionInfo.newRubric;
                             PresetManager.save();
                             showToast('提示词已更新');
-                            const answerEl = document.getElementById('standard-answer');
-                            const rubricEl = document.getElementById('grading-rubric');
-                            if (answerEl) answerEl.value = cfg.answer;
-                            if (rubricEl) rubricEl.value = cfg.rubric;
+                            // 同步更新 Markdown 数据和预览
+                            if (typeof normalizeMarkdownField === 'function') {
+                                window.__aiMarkdownData = window.__aiMarkdownData || {};
+                                if (correctionInfo.newAnswer) {
+                                    window.__aiMarkdownData.answer = normalizeMarkdownField(cfg.answer);
+                                    if (typeof renderMarkdownPreview === 'function') renderMarkdownPreview('answer', window.__aiMarkdownData.answer);
+                                }
+                                if (correctionInfo.newRubric) {
+                                    window.__aiMarkdownData.rubric = normalizeMarkdownField(cfg.rubric);
+                                    if (typeof renderMarkdownPreview === 'function') renderMarkdownPreview('rubric', window.__aiMarkdownData.rubric);
+                                }
+                            }
                         }
                     }
                     fillScore(finalScore, comment, correctedSubScores);

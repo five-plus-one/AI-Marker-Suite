@@ -2,7 +2,7 @@
 
 > **晚上挂机睡觉，早上起来全改完。**
 
-[![版本](https://img.shields.io/badge/version-1.21.7-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
+[![版本](https://img.shields.io/badge/version-1.21.8-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
 [![许可证](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
 ---
@@ -17,7 +17,7 @@
 | 每道题都要手动输分、点提交 | **全自动**：识别 → 打分 → 填入 → 提交 → 下一份 |
 | 改完想回头看某份试卷 | **评阅历史**，一键回看，支持导出报告 |
 
-**支持平台：智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、润建学情**  如果您有适配需求，请联系我。
+**支持平台：智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、润建学情、54学霸**  如果您有适配需求，请联系我。
 
 ![](./img/1.png)
 
@@ -140,6 +140,13 @@
 ## 更新日志
 
 > 完整更新日志见 [更新日志页面](https://aimarking.five-plus-one.com/changelog)
+
+### v1.21.8 (2026-05-23)
+**新平台**
+- 新增54学霸阅卷平台适配，支持 Canvas/base64 图片渲染和多小题输入框评分
+
+**优化**
+- AI 评分时自动忽略涂改、划掉的内容，只评判最终保留的答案
 
 ### v1.21.7 (2026-05-20)
 **新平台**

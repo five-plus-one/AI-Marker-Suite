@@ -1,5 +1,77 @@
 // ========== 提示词组装与解析 ==========
 
+// ---------- 字段数据工具函数 ----------
+
+/**
+ * 从字段数据中提取纯文本（兼容旧格式字符串和新格式对象）
+ * @param {string|object} field - 旧格式字符串或 { text, images, format } 对象
+ * @returns {string}
+ */
+function extractFieldText(field) {
+    if (typeof field === 'string') return field;
+    if (field && typeof field === 'object') {
+        var t = field.text;
+        if (typeof t === 'string') return t;
+        // 递归处理：text 本身也可能是对象（双重嵌套）
+        if (t && typeof t === 'object' && typeof t.text === 'string') return t.text;
+        return '';
+    }
+    return '';
+}
+
+/**
+ * 从字段数据中提取图片数组
+ * @param {string|object} field
+ * @returns {string[]}
+ */
+function extractFieldImages(field) {
+    if (field && typeof field === 'object' && Array.isArray(field.images)) return field.images;
+    return [];
+}
+
+/**
+ * 从 config 中收集所有字段的图片（题目/答案/评分标准）
+ * @param {object} config
+ * @returns {string[]}
+ */
+function collectFieldImages(config) {
+    var images = [];
+    var qImg = extractFieldImages(config.question);
+    var aImg = extractFieldImages(config.answer);
+    var rImg = extractFieldImages(config.rubric);
+    // 为每组图片添加标注，便于 AI 区分
+    if (qImg.length) images.push.apply(images, qImg);
+    if (aImg.length) images.push.apply(images, aImg);
+    if (rImg.length) images.push.apply(images, rImg);
+    return images;
+}
+
+/**
+ * 构建图片归属说明（告知 AI 哪些图片属于题目/答案/评分标准）
+ */
+function buildImageAnnotation(config) {
+    var qLen = extractFieldImages(config.question).length;
+    var aLen = extractFieldImages(config.answer).length;
+    var rLen = extractFieldImages(config.rubric).length;
+    if (qLen + aLen + rLen === 0) return '';
+
+    var parts = [];
+    var idx = 1;
+    if (qLen > 0) {
+        parts.push('第' + idx + '-' + (idx + qLen - 1) + '张为题目配图');
+        idx += qLen;
+    }
+    if (aLen > 0) {
+        parts.push('第' + idx + '-' + (idx + aLen - 1) + '张为参考答案配图');
+        idx += aLen;
+    }
+    if (rLen > 0) {
+        parts.push('第' + idx + '-' + (idx + rLen - 1) + '张为评分标准配图');
+        idx += rLen;
+    }
+    return '\n（图片说明：' + parts.join('，') + '）';
+}
+
 // ---------- 勤勉度 Prompt 片段 ----------
 function buildDiligencePromptSection(config) {
     const diligence = config.scoring?.diligence;
@@ -20,12 +92,18 @@ function buildStructuredPrompt(config) {
     const maxScore = config.maxScore || 0;
     const maxScoreText = maxScore > 0 ? `满分${maxScore}分` : '满分未指定，请根据常规满分评判';
 
+    // 兼容新格式对象和旧格式字符串
+    var questionText = extractFieldText(config.question);
+    var answerText = extractFieldText(config.answer);
+    var rubricText = extractFieldText(config.rubric);
+    var imgAnnotation = buildImageAnnotation(config);
+
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
 
 ===== 输入信息 =====`;
-    if (config.question) prompt += `\n【题目】\n${config.question}`;
-    if (config.answer) prompt += `\n【标准答案】\n${config.answer}`;
-    if (config.rubric) prompt += `\n【评分标准】\n${config.rubric}`;
+    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
+    if (answerText) prompt += `\n【标准答案】\n${answerText}`;
+    if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
     prompt += `\n【满分】\n${maxScoreText}`;
 
     prompt += `
@@ -48,7 +126,7 @@ function buildStructuredPrompt(config) {
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记，不要省略任何段落
 2. 【得分】必须只有一行，只包含数字，可以是小数
-3. 不要在输出中使用 ** 加粗标记或其他 markdown 格式
+3. 可以在内容中使用 Markdown 格式（如 **加粗**、列表、$公式$），但【】段落标记必须保留
 4. 如果无法识别学生答案，在【答案复述】写"未能识别"
 5. 严格按照评分标准打分，不要随意给分
 6. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
@@ -57,17 +135,20 @@ function buildStructuredPrompt(config) {
 
 // ---------- 旧格式兼容 Prompt ----------
 function buildPrompt(config) {
+    var _q = extractFieldText(config.question);
+    var _a = extractFieldText(config.answer);
+    var _r = extractFieldText(config.rubric);
     let prompt = `你是一位严格的阅卷老师，请根据以下信息对学生答案进行评分：\n\n`;
-    if (config.question) prompt += `**题目内容：**\n${config.question}\n\n`;
-    if (config.answer) prompt += `**标准答案：**\n${config.answer}\n\n`;
-    if (config.rubric) prompt += `**评分标准：**\n${config.rubric}\n\n`;
+    if (_q) prompt += `**题目内容：**\n${_q}\n\n`;
+    if (_a) prompt += `**标准答案：**\n${_a}\n\n`;
+    if (_r) prompt += `**评分标准：**\n${_r}\n\n`;
     prompt += `请仔细查看图片中的学生答案，并按照以下格式返回评分结果（必须严格按此格式）：\n\n学生答案：[OCR识别出的学生答案文字内容]\n分数：[数字]\n评语：[简短评语]\n\n注意：\n1. 先OCR识别图片中的文字，将识别结果写在"学生答案"后\n2. 只返回数字分数，不要带单位\n3. 评语控制在100字以内\n4. 严格按照评分标准打分\n5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
 
 // ---------- 结构化解析器（新） ----------
 function parseStructuredResponse(text, maxScore) {
-    const clean = text.replace(/\*\*/g, '').replace(/\*/g, '');
+    const clean = text;  // 保留 markdown 格式，不再清除
     const scoreLimit = (maxScore && maxScore > 0) ? maxScore : 999;
 
     // Level 1: 按【】标记分段
@@ -230,9 +311,9 @@ function buildArbitrationPrompt(config, resultA, resultB, threshold) {
 分差：${Math.abs(resultA.score - resultB.score)}分（阈值：${threshold}分）
 
 ===== 参考信息 =====
-【题目】${config.question || '未提供'}
-【标准答案】${config.answer || '未提供'}
-【评分标准】${config.rubric || '未提供'}
+【题目】${extractFieldText(config.question) || '未提供'}
+【标准答案】${extractFieldText(config.answer) || '未提供'}
+【评分标准】${extractFieldText(config.rubric) || '未提供'}
 
 ===== 输出要求 =====
 你必须严格按照以下格式输出：
@@ -247,7 +328,7 @@ function buildArbitrationPrompt(config, resultA, resultB, threshold) {
 1. 必须使用【】作为段落标记
 2. 【最终得分】必须只有一行，只包含一个整数
 3. 你必须在两个分数之间选择，或给出折中分数
-4. 不要使用 ** 加粗标记`;
+4. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留`;
 }
 
 // ---------- 旧格式 Prompt 解析（保留兼容） ----------
@@ -256,7 +337,7 @@ function parseAIResponseText(text) {
 }
 
 function parsePromptModification(text) {
-    const clean = text.replace(/\*\*/g, '');
+    const clean = text;
 
     function extract(fieldNames) {
         for (const name of fieldNames) {
@@ -286,10 +367,13 @@ function parsePromptModification(text) {
 
 // ========== 分小题提示词组装 ==========
 function buildSubQuestionPrompt(config) {
+    var questionText = extractFieldText(config.question);
+    var imgAnnotation = buildImageAnnotation(config);
+
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
 
 ===== 输入信息 =====`;
-    if (config.question) prompt += `\n【题目】\n${config.question}`;
+    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
 
     prompt += `\n【各小题评分要求】\n`;
     for (const sq of config.subQuestions) {
@@ -324,7 +408,7 @@ function buildSubQuestionPrompt(config) {
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
 2. 各小题分数和【得分】必须各只有一行，只包含数字
-3. 不要使用 ** 加粗标记
+3. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
 4. 各小题分数之和应等于【得分】
 5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
@@ -526,6 +610,9 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
 
     const prompt = hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig);
 
+    // 收集题目/答案/评分标准中的内嵌图片
+    const fieldImages = collectFieldImages(config);
+
     // 计算总满分
     const maxScore = PresetManager.getMaxScore();
 
@@ -533,7 +620,7 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
         console.log(`📋 [诊断] 评分单元配置 — 共 ${subQuestions.length} 个: ${subQuestions.map(sq => `${sq.label}(满分${sq.maxScore ?? '未设置'})`).join(', ')}`);
     }
 
-    return callAIWithRetry(prompt, base64DataArray, callConfig, onStreamUpdate)
+    return callAIWithRetry(prompt, base64DataArray, callConfig, onStreamUpdate, fieldImages)
         .then(fullText => {
             console.log('📝 [诊断] AI原始返回内容：\n' + fullText);
 

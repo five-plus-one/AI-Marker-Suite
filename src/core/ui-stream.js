@@ -53,6 +53,7 @@ function showStreamPanel() {
         document.body.appendChild(panel);
 
         panel.querySelector('#stream-copy-btn').onclick = () => {
+            // 复制纯文本（从 textContent 取，避免复制 HTML 标签）
             const text = document.getElementById('ai-stream-content')?.textContent || '';
             navigator.clipboard.writeText(text).then(() => {
                 const btn = panel.querySelector('#stream-copy-btn');
@@ -69,7 +70,12 @@ function showStreamPanel() {
 function updateStreamPanel(text) {
     const content = document.getElementById('ai-stream-content');
     if (content) {
-        content.textContent = text;
+        // 优先使用 Markdown 渲染器（如果可用）
+        if (window.__aiMarkdownRenderer) {
+            content.innerHTML = window.__aiMarkdownRenderer.render(text);
+        } else {
+            content.textContent = text;
+        }
         content.scrollTop = content.scrollHeight;
     }
 }

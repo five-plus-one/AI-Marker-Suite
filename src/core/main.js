@@ -46,7 +46,7 @@ async function startAutoGrading() {
         }
 
         const presetConfig = PresetManager.getCurrentConfig();
-        if (!presetConfig.answer?.trim() || !presetConfig.rubric?.trim()) {
+        if (!extractFieldText(presetConfig.answer).trim() || !extractFieldText(presetConfig.rubric).trim()) {
             openSettingsPanel();
             showToast('请先填写参考答案和评卷标准');
             window.aiGradingState.isRunning = false;
@@ -417,6 +417,13 @@ async function init() {
     if (sessionStorage.getItem('ai-update-reloaded') === 'true') {
         sessionStorage.removeItem('ai-update-reloaded');
         showToast('脚本已更新至最新版本 v' + SCRIPT_CONFIG.VERSION);
+    }
+
+    // 配置恢复提示
+    const restoredFrom = sessionStorage.getItem('ai-config-restored');
+    if (restoredFrom) {
+        sessionStorage.removeItem('ai-config-restored');
+        showToast(`配置已从备份恢复（备份于 v${restoredFrom}）`);
     }
 
     if (sessionStorage.getItem('ai-grading-auto-resume') === 'true') {

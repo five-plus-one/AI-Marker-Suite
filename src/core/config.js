@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.7.200',
+    VERSION: '1.21.8.000',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.8': [
+            '【新平台】新增54学霸阅卷平台适配，支持 Canvas/base64 图片渲染和多小题输入框评分',
+            '【优化】AI 评分时自动忽略涂改、划掉的内容，只评判最终保留的答案',
+        ],
         '1.21.7': [
             '【新平台】新增润建学情大数据精准分析平台适配，支持 CSS 背景图渲染和点击式评分',
         ],

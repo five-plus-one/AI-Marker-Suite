@@ -336,7 +336,7 @@ function showAboutPanel() {
                 .ai-modal-overlay {
                     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
                     background: rgba(0,0,0,0.25); backdrop-filter: blur(6px);
-                    z-index: 1000010;
+                    z-index: 2147483647;
                     display: flex; justify-content: center; align-items: center;
                     animation: ai-modal-fadein 0.25s ease-out;
                 }
@@ -359,7 +359,7 @@ function showAboutPanel() {
     // 创建弹窗
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
-    overlay.style.zIndex = '1000010';
+    overlay.style.setProperty('z-index', '2147483647', 'important');
 
     overlay.innerHTML = `
         <div class="ai-modal-card" style="max-width:500px;max-height:85vh;display:flex;flex-direction:column;">

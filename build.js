@@ -27,6 +27,17 @@ const BUILD_NUM = getArg('build');                // 可选，不传则 dev 自�
 const SRC_DIR = path.join(__dirname, 'src');
 const CORE_DIR = path.join(SRC_DIR, 'core');
 const DIST_DIR = path.join(__dirname, 'dist');
+const NODE_MODULES_DIR = path.join(__dirname, 'node_modules');
+
+// 外部库（内联打包，按依赖顺序）
+const VENDOR_LIBS = [
+    { name: 'marked', path: path.join(NODE_MODULES_DIR, 'marked/lib/marked.umd.js') },
+    { name: 'katex',  path: path.join(NODE_MODULES_DIR, 'katex/dist/katex.min.js') },
+];
+
+// KaTeX CSS（注入为 <style> 标签，字体 URL 改为 CDN 绝对路径）
+const KATEX_CSS_PATH = path.join(NODE_MODULES_DIR, 'katex/dist/katex.min.css');
+const KATEX_FONTS_CDN = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/fonts/';
 
 // 核心模块加载顺序（顺序很重要：被依赖的模块先加载）
 const CORE_MODULES = [
@@ -40,6 +51,7 @@ const CORE_MODULES = [
     'ui-button.js',
     'ai-engine.js',      // ProviderManager + callAI (需在 ui-settings 之前)
     'prompt.js',          // buildPrompt + parse 函数 (需在 ui-settings 之前)
+    'ui-markdown.js',     // Markdown 渲染器 + 全屏编辑器 (需在 ui-settings 之前)
     'ui-settings.js',
     'ui-submit-dialog.js',
     'image.js',
@@ -83,11 +95,13 @@ const BUILD_CONFIGS = [
             'adapters/runjian/adapter.js',
             'adapters/xueba54/selectors.js',
             'adapters/xueba54/adapter.js',
+            'adapters/jiukexing/selectors.js',
+            'adapters/jiukexing/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'https://aimarking.five-plus-one.com/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、鑫考、润建、54学霸等平台。自动识别答案、智能评分、自动提交！',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、鑫考、润建、54学霸、九科星等平台。自动识别答案、智能评分、自动提交！',
             author: '5plus1',
             match: [
                 'https://www.zhixue.com/*',
@@ -107,6 +121,7 @@ const BUILD_CONFIGS = [
                 'https://aimarking.five-plus-one.com/*',
                 'https://five-plus-one.github.io/*',
                 '*://54xueba.cn/*',
+                '*://marking.jkxjxw.com/*',
             ],
             include: [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
@@ -128,6 +143,7 @@ const BUILD_CONFIGS = [
                 'resource.xinjiaoyu.com',
                 'guangxi-1308783540.cos.ap-guangzhou.myqcloud.com',
                 'rjedu.runjian.com',
+                'jty-scancard.obs.cn-north-4.myhuaweicloud.com',
                 '*',
             ],
             runAt: 'document-idle',
@@ -248,14 +264,60 @@ function readModule(filePath, moduleName) {
     return divider + content + '\n';
 }
 
+/**
+ * 读取外部库源码并生成内联代码。
+ * - marked.js / katex.js 直接内联（它们会注册为全局变量）
+ * - katex.css 转为运行时注入的 <style> 标签（字体 URL 替换为 CDN 绝对路径）
+ */
+function buildVendorCode() {
+    let code = '\n// ========== [Vendor Libraries] ==========\n';
+
+    // 内联 JS 库
+    for (const lib of VENDOR_LIBS) {
+        if (!fs.existsSync(lib.path)) {
+            throw new Error(`外部库文件不存在: ${lib.path}`);
+        }
+        const libCode = fs.readFileSync(lib.path, 'utf8');
+        code += `\n// --- vendor: ${lib.name} ---\n${libCode}\n`;
+        const sizeKB = (Buffer.byteLength(libCode, 'utf8') / 1024).toFixed(1);
+        console.log(`  📚 vendor/${lib.name}.js (${sizeKB} KB)`);
+    }
+
+    // KaTeX CSS → 注入为 <style> 标签
+    if (fs.existsSync(KATEX_CSS_PATH)) {
+        let css = fs.readFileSync(KATEX_CSS_PATH, 'utf8');
+        // 将相对路径 fonts/ 替换为 CDN 绝对路径
+        css = css.replace(/url\(fonts\//g, `url(${KATEX_FONTS_CDN}`);
+        // 转义反引号和 $ 符号，防止破坏模板字符串
+        css = css.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+        code += `
+// --- vendor: katex CSS injection ---
+(function() {
+    var __katexCSS = \`${css}\`;
+    var style = document.createElement('style');
+    style.setAttribute('data-vendor', 'katex');
+    style.textContent = __katexCSS;
+    (document.head || document.documentElement).appendChild(style);
+})();
+`;
+        const cssSizeKB = (Buffer.byteLength(css, 'utf8') / 1024).toFixed(1);
+        console.log(`  📚 vendor/katex.css (${cssSizeKB} KB, 字体从 CDN 加载)`);
+    }
+
+    return code;
+}
+
 function generateHeader(config, version) {
     const h = config.header;
+    const channelUrl = CHANNEL_URLS[CHANNEL] || CHANNEL_URLS.stable;
     const lines = ['// ==UserScript=='];
     lines.push(`// @name         ${h.name}`);
     lines.push(`// @namespace    ${h.namespace || 'https://aimarking.five-plus-one.com/'}`);
     lines.push(`// @version      ${version}`);
     lines.push(`// @description  ${h.description}`);
     lines.push(`// @author       ${h.author || '5plus1'}`);
+    lines.push(`// @downloadURL  ${channelUrl.scriptUrl}`);
+    lines.push(`// @updateURL    ${channelUrl.manifestUrl.replace('manifest.json', 'ai_marker.user.js')}`);
     for (const m of h.match) lines.push(`// @match        ${m}`);
     if (h.include) {
         for (const i of h.include) lines.push(`// @include      ${i}`);
@@ -284,8 +346,10 @@ async function build() {
     for (const buildConfig of BUILD_CONFIGS) {
         console.log(`\n📦 构建平台: ${buildConfig.name}`);
 
+        // 构建外部库代码（marked.js + KaTeX）
+        let modulesContent = buildVendorCode();
+
         // 读取适配器模块（需在核心模块之前加载，以便 window.__AI_MARKER_ADAPTER__ 可用）
-        let modulesContent = '';
         if (buildConfig.adapterModules) {
             for (const mod of buildConfig.adapterModules) {
                 const filePath = path.join(SRC_DIR, mod);

@@ -150,7 +150,7 @@ function showChannelSwitchDialog(stableNewer, stableVersion) {
         ensureModalStyles();
         const overlay = document.createElement('div');
         overlay.className = 'ai-modal-overlay';
-        overlay.style.zIndex = '1000020';
+        overlay.style.setProperty('z-index', '2147483647', 'important');
         const stableBtnLabel = stableNewer ? `切换到稳定版 (v${stableVersion})` : '稳定版已是最新';
         const stableBtnStyle = stableNewer
             ? 'flex:1;background:#1a1a1a;'
@@ -226,6 +226,61 @@ function checkStableVersion() {
 }
 
 /**
+ * 备份配置到 GM_setValue（更新前调用）。
+ * 将所有关键配置打包到 ai-grading-config-backup 键中。
+ */
+function backupConfig() {
+    try {
+        const backup = {
+            version: SCRIPT_CONFIG.VERSION,
+            timestamp: new Date().toISOString(),
+            presets: GM_getValue('ai-grading-presets'),
+            providers: GM_getValue('ai-grading-providers-v2'),
+            workflows: GM_getValue('ai-grading-workflows'),
+            channel: GM_getValue('ai-grading-channel'),
+            saveImages: GM_getValue('ai-grading-save-images'),
+        };
+        GM_setValue('ai-grading-config-backup', JSON.stringify(backup));
+        console.log('[更新备份] 配置已备份');
+    } catch (e) {
+        console.warn('[更新备份] 备份失败:', e.message);
+    }
+}
+
+/**
+ * 检测并恢复配置（更新后首次加载时调用）。
+ * 如果主配置丢失但备份存在，自动恢复。
+ * 注意：此函数在 PresetManager.init() 之前调用，showToast 可能不可用。
+ */
+function restoreConfigIfMissing() {
+    try {
+        const hasPresets = GM_getValue('ai-grading-presets');
+        const hasProviders = GM_getValue('ai-grading-providers-v2');
+        // 主配置存在，无需恢复
+        if (hasPresets && hasProviders) return;
+
+        const backupStr = GM_getValue('ai-grading-config-backup');
+        if (!backupStr) return;
+
+        const backup = JSON.parse(backupStr);
+        if (!backup.presets && !backup.providers) return;
+
+        console.log('[更新恢复] 检测到配置丢失，发现备份，正在恢复...');
+        if (backup.presets) GM_setValue('ai-grading-presets', backup.presets);
+        if (backup.providers) GM_setValue('ai-grading-providers-v2', backup.providers);
+        if (backup.workflows) GM_setValue('ai-grading-workflows', backup.workflows);
+        if (backup.channel) GM_setValue('ai-grading-channel', backup.channel);
+        if (backup.saveImages !== undefined) GM_setValue('ai-grading-save-images', backup.saveImages);
+
+        // 设置标志，让 init() 中显示提示
+        sessionStorage.setItem('ai-config-restored', backup.version || 'unknown');
+        console.log('[更新恢复] 配置恢复成功');
+    } catch (e) {
+        console.warn('[更新恢复] 恢复失败:', e.message);
+    }
+}
+
+/**
  * 显示更新提示对话框（非 alert，样式与项目风格一致）。
  */
 function showUpdateDialog(remoteVersion, remoteChangelog) {
@@ -241,7 +296,7 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
     dialog.innerHTML = `
         <style>
             #ai-update-dialog {
-                position: fixed; bottom: 30px; left: 30px; z-index: 1000020;
+                position: fixed; bottom: 30px; left: 30px; z-index: 2147483647;
                 background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
                 border: 1px solid rgba(0,0,0,0.06); border-radius: 12px;
                 box-shadow: 0 16px 40px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.04);
@@ -299,6 +354,7 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
     document.body.appendChild(dialog);
 
     dialog.querySelector('#upd-btn-now').addEventListener('click', () => {
+        backupConfig(); // 更新前备份配置
         window.open(channelUrls.scriptUrl, '_blank');
         let cancelled = false, elapsed = 0;
         const bodyEl = dialog.querySelector('.upd-body');
