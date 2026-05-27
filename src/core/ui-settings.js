@@ -2567,7 +2567,7 @@ function showOnboardingDialog(forceShow, mode) {
 
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
-    overlay.style.zIndex = '1000020';
+    overlay.style.setProperty('z-index', '2147483647', 'important');
 
     let currentStep = 1;
     let presetName = '';
@@ -2974,7 +2974,7 @@ function showInsufficientBalanceDialog(isOfficial) {
     ensureModalStyles();
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
-    overlay.style.zIndex = '1000020';
+    overlay.style.setProperty('z-index', '2147483647', 'important');
     overlay.innerHTML = `
         <div class="ai-modal-card" style="max-width:420px;">
             <div class="ai-modal-header" style="display:flex;align-items:center;gap:10px;">

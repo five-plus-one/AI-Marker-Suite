@@ -5,7 +5,7 @@ function showCorrectionPanel(context) {
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
     overlay.id = 'correction-panel';
-    overlay.style.setProperty('z-index', '999998', 'important');
+    overlay.style.setProperty('z-index', '2147483647', 'important');
 
     const imagesHtml = (context.base64DataArray || []).map(b64 =>
         `<img src="data:image/png;base64,${b64}" style="width:100%;border-radius:10px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">`

@@ -160,8 +160,8 @@ function openMarkdownEditor(options) {
     const overlay = document.createElement('div');
     overlay.id = 'ai-md-editor-overlay';
     overlay.setAttribute('data-vendor', 'ai-marker');
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:1000010;display:flex;align-items:center;justify-content:center;';
-    overlay.style.setProperty('z-index', '1000010', 'important');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:2147483647;display:flex;align-items:center;justify-content:center;';
+    overlay.style.setProperty('z-index', '2147483647', 'important');
 
     // 主容器
     const container = document.createElement('div');
@@ -486,7 +486,7 @@ function showCropModal(base64, callback) {
 
     var overlay = document.createElement('div');
     overlay.id = 'ai-crop-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:1000000;display:flex;align-items:center;justify-content:center;';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:2147483647;display:flex;align-items:center;justify-content:center;';
 
     var card = document.createElement('div');
     card.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-width:90vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;font-family:-apple-system,SF Pro Display,Helvetica Neue,sans-serif;';
@@ -1022,7 +1022,7 @@ function injectMarkdownStyles() {
         '  background: rgba(0,0,0,0.5);',
         '  backdrop-filter: blur(4px);',
         '  -webkit-backdrop-filter: blur(4px);',
-        '  z-index: 1000010 !important;',
+        '  z-index: 2147483647 !important;',
         '  display: flex;',
         '  align-items: center;',
         '  justify-content: center;',

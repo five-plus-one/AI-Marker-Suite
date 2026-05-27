@@ -501,7 +501,7 @@ function showHistoryPanel() {
 
     const overlay = document.createElement('div');
     overlay.id = 'ai-history-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);backdrop-filter:blur(6px);z-index:1000000;';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);backdrop-filter:blur(6px);z-index:2147483647;';
     document.body.appendChild(overlay);
 
     const panel = document.createElement('div');
@@ -510,7 +510,7 @@ function showHistoryPanel() {
         <style>
             #ai-history-panel {
                 position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                z-index: 1000001; width: 920px; max-width: calc(100vw - 32px); height: min(760px, calc(100vh - 48px));
+                z-index: 2147483647; width: 920px; max-width: calc(100vw - 32px); height: min(760px, calc(100vh - 48px));
                 background: #f7f8fa !important;
                 border: 1px solid rgba(18,28,45,0.12); border-radius: 16px;
                 box-shadow: 0 28px 80px rgba(18,28,45,0.24), 0 2px 8px rgba(18,28,45,0.08);
@@ -1196,7 +1196,7 @@ function showHistoryDetail(record) {
 
     const drawerOverlay = document.createElement('div');
     drawerOverlay.id = 'ai-history-detail';
-    drawerOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.2);z-index:1000002;opacity:0;transition:opacity 0.25s;';
+    drawerOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.2);z-index:2147483647;opacity:0;transition:opacity 0.25s;';
 
     const drawer = document.createElement('div');
     drawer.style.cssText = `
@@ -1204,7 +1204,7 @@ function showHistoryDetail(record) {
         background:rgba(255,255,255,0.96);backdrop-filter:blur(32px) saturate(180%);
         border-left:1px solid rgba(0,0,0,0.06);
         box-shadow:-8px 0 40px rgba(0,0,0,0.08);
-        z-index:1000003;display:flex;flex-direction:column;
+        z-index:2147483647;display:flex;flex-direction:column;
         font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",sans-serif;
         transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.16,1,0.3,1);
         overflow:hidden;

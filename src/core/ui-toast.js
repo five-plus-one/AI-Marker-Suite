@@ -20,7 +20,7 @@ function ensureToastStyles() {
             border-radius: 12px !important;
             border: 1px solid rgba(0,0,0,0.06) !important;
             box-shadow: 0 8px 28px rgba(0,0,0,0.1) !important;
-            z-index: 1000020 !important;
+            z-index: 2147483647 !important;
             font-size: 13px !important; font-weight: 500 !important;
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif !important;
             transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;

@@ -75,7 +75,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     dialog.innerHTML = `
         <style>
             #auto-submit-dialog {
-                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999 !important;
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2147483647 !important;
                 background: rgba(255, 255, 255, 0.92);
                 backdrop-filter: blur(32px) saturate(180%);
                 -webkit-backdrop-filter: blur(32px) saturate(180%);
@@ -364,7 +364,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             </div>
         </div>
         <!-- 最小化后的浮动条 -->
-        <div id="asd-minimized-bar" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:999999; background:#fff; border:1px solid #e1e6ef; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); padding:10px 20px; display:none; align-items:center; gap:12px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;">
+        <div id="asd-minimized-bar" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:2147483647; background:#fff; border:1px solid #e1e6ef; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); padding:10px 20px; display:none; align-items:center; gap:12px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;">
             <span style="font-size:18px;font-weight:700;color:${scoreColor};">${score}分</span>
             <span style="font-size:12px;color:#86868b;">${headerLabel}</span>
             <button id="restore-btn" style="background:#172033;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">恢复</button>

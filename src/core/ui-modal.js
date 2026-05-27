@@ -8,7 +8,7 @@ function ensureModalStyles() {
         .ai-modal-overlay {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0,0,0,0.25); backdrop-filter: blur(6px);
-            z-index: 1000010;
+            z-index: 2147483647;
             display: flex; justify-content: center; align-items: center;
             animation: ai-modal-fadein 0.25s ease-out;
         }

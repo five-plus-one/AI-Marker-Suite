@@ -150,7 +150,7 @@ function showChannelSwitchDialog(stableNewer, stableVersion) {
         ensureModalStyles();
         const overlay = document.createElement('div');
         overlay.className = 'ai-modal-overlay';
-        overlay.style.zIndex = '1000020';
+        overlay.style.setProperty('z-index', '2147483647', 'important');
         const stableBtnLabel = stableNewer ? `切换到稳定版 (v${stableVersion})` : '稳定版已是最新';
         const stableBtnStyle = stableNewer
             ? 'flex:1;background:#1a1a1a;'
@@ -296,7 +296,7 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
     dialog.innerHTML = `
         <style>
             #ai-update-dialog {
-                position: fixed; bottom: 30px; left: 30px; z-index: 1000020;
+                position: fixed; bottom: 30px; left: 30px; z-index: 2147483647;
                 background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
                 border: 1px solid rgba(0,0,0,0.06); border-radius: 12px;
                 box-shadow: 0 16px 40px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.04);
