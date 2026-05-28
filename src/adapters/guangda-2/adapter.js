@@ -7,8 +7,10 @@
 // 拦截 getDdb API，获取 imageUrlPath_all 并构造完整图片 URL
 // 新版结构: paper.imageData.imageUrlPath_all = "res.do?rt=qtpj_kscqk&path=..." (完整相对路径)
 // 旧版结构: paper.imageUrlPath_all = "MTMz..." (仅路径参数)
+// 图片 URL 前缀通过拦截页面自身的图片请求自动检测（如 /gzmark/）
 let _guangda2ImagePool = {};  // 包号 → 完整图片URL 的映射
 let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
+let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmark/"，从页面请求自动捕获
 
 {
     const _innerOpen = XMLHttpRequest.prototype.open;
@@ -24,6 +26,16 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
             try {
                 const url = this._guangda2Url || '';
 
+                // 拦截页面自身的图片请求，自动检测图片 URL 前缀
+                // 图片请求 URL 类似: http://host:port/gzmark/res.do?rt=qtpj_kscqk&path=...
+                if (url.includes('qtpj_kscqk') && !_guangda2ImageBase) {
+                    const match = url.match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
+                    if (match) {
+                        _guangda2ImageBase = match[1];
+                        console.log(`🖼️ [V2 API拦截] 检测到图片 URL 前缀: ${_guangda2ImageBase}`);
+                    }
+                }
+
                 // 拦截 getDdb / getDdbByNext（正常阅卷）
                 if (url.includes('getDdb') || url.includes('getDdbByNext')) {
                     const response = JSON.parse(this.responseText);
@@ -31,10 +43,6 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                     const vKs = response?.result?.vKs;
 
                     if (vKs && vKs.length > 0) {
-                        const hostname = window.location.hostname;
-                        const mainPort = parseInt(window.location.port) || 80;
-                        const imgPort = mainPort - 1;
-
                         vKs.forEach(paper => {
                             const bh = paper?.bh || '';
                             const ddh = paper?.ddh || '';
@@ -44,15 +52,7 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                             if (bh && imagePath) {
                                 // 兼容: 新版 mh 字段 vs 旧版 bh-ddh
                                 const key = paper?.mh || (ddh ? `${bh}-${ddh}` : bh);
-                                // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
-                                let fullUrl;
-                                if (imagePath.startsWith('res.do')) {
-                                    // 新版: "res.do?rt=qtpj_kscqk&path=MTMz..."
-                                    fullUrl = `http://${hostname}:${imgPort}/mark/${imagePath}`;
-                                } else {
-                                    // 旧版: "MTMz..."
-                                    fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
-                                }
+                                const fullUrl = _buildGuangda2ImageUrl(imagePath);
                                 _guangda2ImagePool[key] = fullUrl;
                                 console.log(`🖼️ [V2 API拦截] 包号 ${key} → ${fullUrl.substring(0, 60)}...`);
                             }
@@ -67,22 +67,12 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                 if (url.includes('getYpData')) {
                     const response = JSON.parse(this.responseText);
                     if (Array.isArray(response) && response.length > 0) {
-                        const hostname = window.location.hostname;
-                        const mainPort = parseInt(window.location.port) || 80;
-                        const imgPort = mainPort - 1;
-
                         response.forEach(record => {
                             const bh = record?.bh || '';
                             // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
                             const imagePath = record?.imageData?.imageUrlPath_all || record?.imageUrlPath_all || '';
                             if (bh && imagePath) {
-                                // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
-                                let fullUrl;
-                                if (imagePath.startsWith('res.do')) {
-                                    fullUrl = `http://${hostname}:${imgPort}/mark/${imagePath}`;
-                                } else {
-                                    fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
-                                }
+                                const fullUrl = _buildGuangda2ImageUrl(imagePath);
                                 _guangda2ImagePool[bh] = fullUrl;
                             }
                         });
@@ -95,6 +85,34 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
         });
         return _innerSend.call(this, ...args);
     };
+}
+
+// 构造图片完整 URL（兼容新旧两种路径格式和多种部署）
+function _buildGuangda2ImageUrl(imagePath) {
+    const hostname = window.location.hostname;
+    const mainPort = parseInt(window.location.port) || 80;
+
+    // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
+    let relativePath;
+    if (imagePath.startsWith('res.do')) {
+        // 新版: "res.do?rt=qtpj_kscqk&path=MTMz..."
+        relativePath = imagePath;
+    } else {
+        // 旧版: "MTMz..."
+        relativePath = `res.do?rt=qtpj_kscqk&path=${imagePath}`;
+    }
+
+    // 添加缓存破坏参数（与页面自身行为一致）
+    const separator = relativePath.includes('?') ? '&' : '?';
+    const cacheBuster = `t1=0.${Math.random().toString().substring(2, 12)}`;
+
+    // 优先用捕获到的真实前缀
+    if (_guangda2ImageBase) {
+        return `${_guangda2ImageBase}${relativePath}${separator}${cacheBuster}`;
+    }
+
+    // 兜底: 同端口 + /gzmark/（最常见的部署模式）
+    return `http://${hostname}:${mainPort}/gzmark/${relativePath}${separator}${cacheBuster}`;
 }
 
 // ========== 版本检测 ==========
