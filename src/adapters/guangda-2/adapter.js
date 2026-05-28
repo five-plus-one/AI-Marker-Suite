@@ -251,8 +251,17 @@ const Guangda2Adapter = {
     },
 
     _fillSubScores(subScores) {
-        const score = typeof subScores[0] === 'object' ? subScores[0].score : subScores[0];
-        return this._fillSingleScore(score);
+        // 提取所有小题分数
+        const scores = subScores.map(s => typeof s === 'object' ? s.score : s);
+        if (scores.length === 0) return false;
+
+        // 如果只有一个分数，使用单题模式
+        if (scores.length === 1) {
+            return this._fillSingleScore(scores[0]);
+        }
+
+        // 多小题模式：使用 fillScores 记录待填入分数
+        return this.fillScores(scores);
     },
 
     fillScores(scores) {
@@ -260,42 +269,53 @@ const Guangda2Adapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
-        const score = scores[0];
-        if (score === null || score === undefined) return false;
-
-        // 不直接点击分数选项，而是记录待填入的分数
+        // 记录所有小题的待填入分数
         // 光大V2系统会在点击分数选项后自动调用 commitKsGrade 提交
         // 所以需要延迟到用户确认后再点击
-        this._pendingScore = score;
-        console.log(`📝 [诊断] 光大V2 记录待填入分数: ${score}（等待用户确认后点击）`);
-        return true;
+        this._pendingScores = [];
+        let successCount = 0;
+        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
+            if (scores[i] === null || scores[i] === undefined) continue;
+            this._pendingScores.push({ index: i, score: scores[i], container: inputs[i].element });
+            successCount++;
+        }
+
+        if (successCount > 0) {
+            console.log(`📝 [诊断] 光大V2 记录 ${successCount} 个小题待填入分数（等待用户确认后点击）`);
+        }
+        return successCount > 0;
     },
 
     // 点击分数选项（在用户确认后调用）
     _clickScore() {
-        if (this._pendingScore === null || this._pendingScore === undefined) {
+        if (!this._pendingScores || this._pendingScores.length === 0) {
             console.warn('⚠️ [诊断] 光大V2 没有待填入的分数');
             return false;
         }
 
-        const score = this._pendingScore;
-        this._pendingScore = null;
+        const pendingScores = this._pendingScores;
+        this._pendingScores = [];
 
-        const inputs = this.getScoreInputs();
-        if (inputs.length === 0) return false;
-
-        const container = inputs[0].element;
-        const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE);
-        for (const item of scoreItems) {
-            if (item.textContent.trim() === String(score)) {
-                item.click();
-                console.log(`✅ [诊断] 光大V2 分数 ${score} 已点击`);
-                return true;
+        let successCount = 0;
+        for (const pending of pendingScores) {
+            const { score, container } = pending;
+            const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE);
+            let clicked = false;
+            for (const item of scoreItems) {
+                if (item.textContent.trim() === String(score)) {
+                    item.click();
+                    clicked = true;
+                    successCount++;
+                    console.log(`✅ [诊断] 光大V2 小题 ${pending.index + 1} 分数 ${score} 已点击`);
+                    break;
+                }
+            }
+            if (!clicked) {
+                console.warn(`⚠️ [诊断] 光大V2 小题 ${pending.index + 1} 未找到分数 ${score} 的选项`);
             }
         }
 
-        console.warn(`⚠️ [诊断] 光大V2 未找到分数 ${score} 的选项`);
-        return false;
+        return successCount > 0;
     },
 
     // ========== 提交 ==========
@@ -383,10 +403,39 @@ const Guangda2Adapter = {
     getScoreInputs() {
         const inputs = [];
 
-        const scoreItems = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
-        if (scoreItems.length === 0) return inputs;
+        // 多小题模式：遍历每个 .score 容器
+        const scoreContainers = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_CONTAINER);
+        if (scoreContainers.length > 0) {
+            scoreContainers.forEach((container, i) => {
+                const labelEl = container.querySelector('.xtList label');
+                const questionNum = labelEl ? labelEl.textContent.trim() : `第${i + 1}题`;
 
-        // 过滤掉范围指示器（如 "0~10"）
+                // 过滤掉范围指示器（如 "0~10"）
+                const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
+                const clickableItems = Array.from(scoreItems).filter(item => {
+                    const text = item.textContent.trim();
+                    return !text.includes('~') && !isNaN(parseInt(text));
+                });
+
+                if (clickableItems.length > 0) {
+                    const scores = clickableItems.map(li => parseInt(li.textContent.trim())).filter(n => !isNaN(n));
+                    const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+
+                    inputs.push({
+                        element: container,
+                        label: questionNum,
+                        index: i,
+                        maxScore,
+                        type: 'click',
+                        scores
+                    });
+                }
+            });
+            return inputs;
+        }
+
+        // 单题模式兜底：返回整个评分区域
+        const scoreItems = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
         const clickableItems = Array.from(scoreItems).filter(item => {
             const text = item.textContent.trim();
             return !text.includes('~') && !isNaN(parseInt(text));
@@ -400,7 +449,7 @@ const Guangda2Adapter = {
             const questionNum = questionEl ? questionEl.textContent.trim() : '总分';
 
             inputs.push({
-                element: document.querySelector(GUANGDA2_SELECTORS.SCORE_ITEM)?.parentElement || document.body,
+                element: scoreItems[0]?.parentElement?.parentElement || document.body,
                 label: questionNum,
                 index: 0,
                 maxScore,
@@ -416,6 +465,39 @@ const Guangda2Adapter = {
     detectSubQuestions() {
         const subQuestions = [];
 
+        // 多小题模式：遍历每个 .score 容器
+        const scoreContainers = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_CONTAINER);
+        if (scoreContainers.length > 0) {
+            scoreContainers.forEach((container, i) => {
+                const labelEl = container.querySelector('.xtList label');
+                const questionNum = labelEl ? labelEl.textContent.trim() : `第${i + 1}题`;
+
+                const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
+                const clickableItems = Array.from(scoreItems).filter(item => {
+                    const text = item.textContent.trim();
+                    return !text.includes('~') && !isNaN(parseInt(text));
+                });
+
+                if (clickableItems.length > 0) {
+                    const scores = clickableItems.map(li => parseInt(li.textContent.trim())).filter(n => !isNaN(n));
+                    const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+
+                    console.log(`📝 [诊断] 光大V2 小题: ${questionNum}, 可选分数=[${scores.join(',')}], 最高分=${maxScore}`);
+
+                    subQuestions.push({
+                        index: i,
+                        label: questionNum,
+                        maxScore,
+                        scores,
+                    });
+                }
+            });
+
+            console.log(`📝 [诊断] 光大V2 共识别 ${subQuestions.length} 个小题`);
+            return subQuestions;
+        }
+
+        // 单题模式兜底
         const scoreItems = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
         const clickableItems = Array.from(scoreItems).filter(item => {
             const text = item.textContent.trim();
