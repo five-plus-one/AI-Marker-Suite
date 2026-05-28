@@ -1,44 +1,100 @@
 // ========== 慧阅卷适配器 ==========
 // web.17yuejuan.cn — AngularJS
 // 阅卷界面以弹窗形式呈现，评分通过点击分数按钮（+0, +1, +2, ...）
-// 特殊设计：MutationObserver 监听弹窗出现/消失，题号从 DOM 提取
+//
+// 特殊架构：平台使用 <frameset> + <frame> 结构
+// 顶层 frameset 几乎为空，实际内容在 frame 内部
+// 脚本在顶层运行，通过 frame.contentDocument 遍历到内部操作
 
-// ========== 弹窗状态监测 ==========
+// ========== 弹窗状态监测（Frame 感知） ==========
 let _huiyuejuanMarkingActive = false;
 let _huiyuejuanObserver = null;
 
-// 持续监测弹窗状态，确保核心层能正确感知
 if (window.location.hostname.includes('17yuejuan.cn')) {
+    // 获取 frame 内部的 document
+    function _huiGetFrameDoc() {
+        try {
+            const frame = document.querySelector('frame[src*="17yuejuan"], frame[src*="oemimoms"]');
+            if (!frame) return null;
+            return frame.contentDocument || (frame.contentWindow && frame.contentWindow.document) || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // 检测 frame 内部的给分面板
     function _huiCheckMarkingPanel() {
-        const panel = document.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
+        const frameDoc = _huiGetFrameDoc();
+        if (!frameDoc) return;
+        const panel = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
         if (panel && !_huiyuejuanMarkingActive) {
             _huiyuejuanMarkingActive = true;
-            console.log('🔔 [慧阅卷] 检测到阅卷弹窗出现');
+            console.log('🔔 [慧阅卷] 检测到阅卷弹窗出现（frame 内部）');
         } else if (!panel && _huiyuejuanMarkingActive) {
             _huiyuejuanMarkingActive = false;
-            console.log('🔔 [慧阅卷] 检测到阅卷弹窗关闭');
+            console.log('🔔 [慧阅卷] 检测到阅卷弹窗关闭（frame 内部）');
         }
     }
 
-    // 使用 MutationObserver 监听 DOM 变化
-    _huiyuejuanObserver = new MutationObserver(() => {
+    // 启动 MutationObserver
+    function _huiStartObserver() {
+        if (_huiyuejuanObserver) return;
+
+        _huiyuejuanObserver = new MutationObserver(() => {
+            // 先检查 frame 是否已加载
+            const frameDoc = _huiGetFrameDoc();
+            if (frameDoc) {
+                _huiCheckMarkingPanel();
+            }
+        });
+
+        const body = document.body || document.documentElement;
+        _huiyuejuanObserver.observe(body, {
+            childList: true,
+            subtree: true
+        });
+
+        // 立即检查一次（frame 可能已加载）
         _huiCheckMarkingPanel();
-    });
+
+        // 如果 frame 尚未加载完成，轮询等待其 contentDocument 可用
+        let frameCheckCount = 0;
+        const frameCheckTimer = setInterval(() => {
+            frameCheckCount++;
+            const frameDoc = _huiGetFrameDoc();
+            if (frameDoc) {
+                clearInterval(frameCheckTimer);
+                console.log('🔔 [慧阅卷] frame contentDocument 已可访问');
+                _huiCheckMarkingPanel();
+
+                // 在 frame 内部也挂载 observer，监测弹窗变化
+                try {
+                    const innerObserver = new MutationObserver(() => {
+                        _huiCheckMarkingPanel();
+                    });
+                    innerObserver.observe(frameDoc.body || frameDoc.documentElement, {
+                        childList: true,
+                        subtree: true
+                    });
+                } catch (e) {
+                    console.warn('⚠️ [慧阅卷] 无法在 frame 内部挂载 observer:', e.message);
+                }
+            }
+            if (frameCheckCount >= 60) { // 最多等 30 秒
+                clearInterval(frameCheckTimer);
+            }
+        }, 500);
+    }
 
     // 延迟启动 observer，等待 body 可用
-    function _huiStartObserver() {
+    function _huiInitObserver() {
         if (document.body) {
-            _huiyuejuanObserver.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-            // 立即检查一次
-            _huiCheckMarkingPanel();
+            _huiStartObserver();
         } else {
-            setTimeout(_huiStartObserver, 200);
+            setTimeout(_huiInitObserver, 200);
         }
     }
-    _huiStartObserver();
+    _huiInitObserver();
 }
 
 // ========== 适配器定义 ==========
@@ -52,35 +108,73 @@ const HuiyuejuanAdapter = {
         return window.location.hostname.includes('17yuejuan.cn');
     },
 
+    // 获取 frame 内部的 document
+    _getFrameDoc() {
+        try {
+            const frame = document.querySelector('frame[src*="17yuejuan"], frame[src*="oemimoms"]');
+            if (!frame) return null;
+            return frame.contentDocument || (frame.contentWindow && frame.contentWindow.document) || null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     // 快速页面检查（不等待 DOM），用于 URL 变化监听器
-    // 慧阅卷是弹窗模式，直接检查弹窗是否存在
     isMarkingPage() {
-        return !!document.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) return false;
+        return !!frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
     },
 
     async detectMarkingPage() {
         console.log('🔎 [慧阅卷] 开始检测批改页面...');
 
         try {
-            // 等待关键元素出现（弹窗可能延迟打开）
+            // 步骤1: 等待 frame 元素出现
+            console.log('🔎 [慧阅卷] 等待 frame 元素...');
+            const frameEl = await waitForElement('frame[src*="17yuejuan"], frame[src*="oemimoms"]', 10000).catch(() => null);
+            if (!frameEl) {
+                console.warn('⚠️ [慧阅卷] 未找到 frame 元素');
+                return false;
+            }
+            console.log('✅ [慧阅卷] 找到 frame 元素');
+
+            // 步骤2: 等待 frame 的 contentDocument 可访问
+            console.log('🔎 [慧阅卷] 等待 frame contentDocument...');
+            let frameDoc = null;
+            const docWaitStart = Date.now();
+            while (Date.now() - docWaitStart < 10000) {
+                frameDoc = this._getFrameDoc();
+                if (frameDoc) break;
+                await new Promise(r => setTimeout(r, 500));
+            }
+
+            if (!frameDoc) {
+                console.warn('⚠️ [慧阅卷] 无法访问 frame contentDocument（可能跨域）');
+                return false;
+            }
+            console.log('✅ [慧阅卷] frame contentDocument 已可访问');
+
+            // 步骤3: 在 frame 内部检测批改页面元素
+            // 注意：必须传入 frameDoc 作为 waitForElement 的第二个参数
             const result = await Promise.race([
-                waitForElement(HUIYUEJUAN_SELECTORS.PAGE_DETECT_PANEL, 10000).then(() => 'panel'),
-                waitForElement(HUIYUEJUAN_SELECTORS.PAGE_DETECT_IMAGE, 10000).then(() => 'image'),
-                waitForElement(HUIYUEJUAN_SELECTORS.PAGE_DETECT_BUTTONS, 10000).then(() => 'buttons'),
+                waitForElement(HUIYUEJUAN_SELECTORS.PAGE_DETECT_PANEL, frameDoc).then(() => 'panel'),
+                waitForElement(HUIYUEJUAN_SELECTORS.PAGE_DETECT_IMAGE, frameDoc).then(() => 'image'),
+                waitForElement(HUIYUEJUAN_SELECTORS.PAGE_DETECT_BUTTONS, frameDoc).then(() => 'buttons'),
             ]).catch(() => null);
 
             if (result) {
-                console.log(`✅ [慧阅卷] 检测到批改页面元素: ${result}`);
+                console.log(`✅ [慧阅卷] 在 frame 内检测到批改页面元素: ${result}`);
                 _huiyuejuanMarkingActive = true;
                 return true;
             }
 
             // 兜底检测
             await new Promise(resolve => setTimeout(resolve, 2000));
-            const hasPanel = document.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
-            const hasImage = document.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
-            const detected = !!(hasPanel || hasImage);
-            console.log(`🔎 [慧阅卷] 兜底检测 — 给分面板: ${!!hasPanel}, 图片: ${!!hasImage}, 最终: ${detected}`);
+            const hasPanel = !!frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
+            const hasImage = !!frameDoc.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
+            const detected = hasPanel || hasImage;
+            console.log(`🔎 [慧阅卷] 兜底检测 — 给分面板: ${hasPanel}, 图片: ${hasImage}, 最终: ${detected}`);
             if (detected) _huiyuejuanMarkingActive = true;
             return detected;
         } catch (error) {
@@ -90,8 +184,11 @@ const HuiyuejuanAdapter = {
     },
 
     getTaskIdentifier() {
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) return 'hui_unknown';
+
         // 从给分面板标题提取题号（如 "16、(6分)"）
-        const panels = document.querySelectorAll(HUIYUEJUAN_SELECTORS.PANEL_TITLE);
+        const panels = frameDoc.querySelectorAll(HUIYUEJUAN_SELECTORS.PANEL_TITLE);
         if (panels.length > 0) {
             const text = panels[0].textContent.trim();
             const match = text.match(/(\d+)/);
@@ -99,7 +196,7 @@ const HuiyuejuanAdapter = {
         }
 
         // 回退：使用图片 src 中的唯一标识
-        const img = document.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
+        const img = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
         if (img && img.src) {
             const match = img.src.match(/answer_sheets\/(\d+)\/(\d+)/);
             if (match) return `hui_${match[1]}_${match[2]}`;
@@ -111,8 +208,14 @@ const HuiyuejuanAdapter = {
     async gatherAnswerImages() {
         console.log('🖼️ [慧阅卷] 开始获取答题卡图片...');
 
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) {
+            console.warn('⚠️ [慧阅卷] 无法访问 frame 文档');
+            return [];
+        }
+
         // 直接从 img 标签获取 src
-        const img = document.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
+        const img = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
         if (img && img.src) {
             console.log(`🖼️ [慧阅卷] 找到图片: ${img.src.substring(0, 80)}...`);
             return [img.src];
@@ -121,7 +224,7 @@ const HuiyuejuanAdapter = {
         // 等待图片加载（弹窗可能刚打开）
         const startTime = Date.now();
         while (Date.now() - startTime < 5000) {
-            const imgEl = document.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
+            const imgEl = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
             if (imgEl && imgEl.src) {
                 console.log(`🖼️ [慧阅卷] 等待后找到图片: ${imgEl.src.substring(0, 80)}...`);
                 return [imgEl.src];
@@ -142,8 +245,11 @@ const HuiyuejuanAdapter = {
 
     // 获取当前满分值
     _getMaxScore() {
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) return 0;
+
         // 从 "本题总分: 6分" 提取
-        const totalEl = document.querySelector(HUIYUEJUAN_SELECTORS.TOTAL_SCORE_TEXT);
+        const totalEl = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.TOTAL_SCORE_TEXT);
         if (totalEl) {
             const match = totalEl.textContent.match(/(\d+)分/);
             if (match) return parseInt(match[1]);
@@ -153,9 +259,11 @@ const HuiyuejuanAdapter = {
 
     getScoreInputs() {
         const inputs = [];
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) return inputs;
 
         // 查找所有给分面板（可能有多个小题）
-        const panels = document.querySelectorAll(HUIYUEJUAN_SELECTORS.SCORE_PANEL_CONTAINER);
+        const panels = frameDoc.querySelectorAll(HUIYUEJUAN_SELECTORS.SCORE_PANEL_CONTAINER);
 
         if (panels.length > 0) {
             panels.forEach((panel, i) => {
@@ -194,7 +302,7 @@ const HuiyuejuanAdapter = {
         }
 
         // 如果没找到面板，尝试从整个评分区域获取
-        const scoreBtns = document.querySelectorAll(HUIYUEJUAN_SELECTORS.SCORE_BUTTON);
+        const scoreBtns = frameDoc.querySelectorAll(HUIYUEJUAN_SELECTORS.SCORE_BUTTON);
         if (scoreBtns.length > 0) {
             const scores = [];
             scoreBtns.forEach(btn => {
@@ -229,12 +337,18 @@ const HuiyuejuanAdapter = {
 
         console.log(`📝 [慧阅卷] 填入分数: ${score}`);
 
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) {
+            console.warn('⚠️ [慧阅卷] 无法访问 frame 文档');
+            return false;
+        }
+
         // 获取当前满分
         const maxScore = this._getMaxScore();
 
         // 方法1: 使用满分/零分快捷按钮
         if (score === 0) {
-            const zeroBtn = document.querySelector(HUIYUEJUAN_SELECTORS.ZERO_SCORE_BUTTON);
+            const zeroBtn = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.ZERO_SCORE_BUTTON);
             if (zeroBtn) {
                 zeroBtn.click();
                 console.log('✅ [慧阅卷] 已点击"零分"按钮');
@@ -242,7 +356,7 @@ const HuiyuejuanAdapter = {
             }
         }
         if (maxScore > 0 && score === maxScore) {
-            const fullBtn = document.querySelector(HUIYUEJUAN_SELECTORS.FULL_SCORE_BUTTON);
+            const fullBtn = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.FULL_SCORE_BUTTON);
             if (fullBtn) {
                 fullBtn.click();
                 console.log('✅ [慧阅卷] 已点击"满分"按钮');
@@ -251,7 +365,7 @@ const HuiyuejuanAdapter = {
         }
 
         // 方法2: 点击分数按钮
-        const panel = document.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL_CONTAINER);
+        const panel = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL_CONTAINER);
         if (panel) {
             const scoreBtns = panel.querySelectorAll('.ui-input-number-target[ng-repeat]');
             for (const btn of scoreBtns) {
@@ -267,12 +381,13 @@ const HuiyuejuanAdapter = {
         }
 
         // 方法3: 使用自定义分值输入框
-        const customInput = document.querySelector(HUIYUEJUAN_SELECTORS.CUSTOM_SCORE_INPUT);
+        const customInput = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.CUSTOM_SCORE_INPUT);
         if (customInput) {
             console.log(`📝 [慧阅卷] 使用自定义分值输入框: ${score}`);
-            const setter = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value'
-            ).set;
+            // 注意：需要使用 frame 窗口的 HTMLInputElement 原型
+            const frameWin = this._getFrameWindow();
+            const InputProto = frameWin ? frameWin.HTMLInputElement.prototype : window.HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(InputProto, 'value').set;
             setter.call(customInput, String(score));
             customInput.dispatchEvent(new Event('input', { bubbles: true }));
             customInput.dispatchEvent(new Event('change', { bubbles: true }));
@@ -291,15 +406,31 @@ const HuiyuejuanAdapter = {
         return false;
     },
 
+    // 获取 frame 的 window 对象
+    _getFrameWindow() {
+        try {
+            const frame = document.querySelector('frame[src*="17yuejuan"], frame[src*="oemimoms"]');
+            return frame ? frame.contentWindow : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     submitGrade() {
         console.log('📤 [慧阅卷] 开始提交分数...');
+
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) {
+            console.warn('⚠️ [慧阅卷] 无法访问 frame 文档');
+            return false;
+        }
 
         // 慧阅卷的评分流程：点击分数按钮即完成评分
         // 如果"评分后自动进入下一题"已勾选，会自动跳转
         // 否则需要手动点击"下一题"或类似按钮
 
         // 查找可能的提交/下一个按钮
-        const allClickables = document.querySelectorAll('[ng-click]');
+        const allClickables = frameDoc.querySelectorAll('[ng-click]');
         for (const el of allClickables) {
             const ngClick = el.getAttribute('ng-click') || '';
             const text = el.textContent.trim();
@@ -328,8 +459,10 @@ const HuiyuejuanAdapter = {
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
-                // 检测1: 给分面板消失再出现（弹窗切换）
-                // 检测2: 题号变化
+                const frameDoc = this._getFrameDoc();
+                if (!frameDoc) return;
+
+                // 检测1: 题号变化
                 const currentId = this.getTaskIdentifier();
                 if (currentId !== oldId && currentId !== 'hui_unknown') {
                     clearInterval(timer);
@@ -338,7 +471,7 @@ const HuiyuejuanAdapter = {
                     return;
                 }
 
-                // 检测3: 图片 URL 变化
+                // 检测2: 图片 URL 变化
                 const currentUrl = this._getCurrentImageUrl();
                 if (currentUrl && oldUrl && currentUrl !== oldUrl) {
                     clearInterval(timer);
@@ -347,13 +480,11 @@ const HuiyuejuanAdapter = {
                     return;
                 }
 
-                // 检测4: 分数状态重置为"未评分"
-                const scoreText = document.querySelector(HUIYUEJUAN_SELECTORS.CURRENT_SCORE_TEXT);
+                // 检测3: 分数状态重置为"未评分"
+                const scoreText = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.CURRENT_SCORE_TEXT);
                 if (scoreText && scoreText.textContent.includes('未评分')) {
-                    // 确认是新的未评分状态（面板仍然存在）
-                    const panel = document.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
+                    const panel = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
                     if (panel) {
-                        // 等待一小段时间确保不是初始化状态
                         const elapsed = Date.now() - startTime;
                         if (elapsed > 2000) {
                             clearInterval(timer);
@@ -376,13 +507,17 @@ const HuiyuejuanAdapter = {
 
     // 获取当前图片 URL
     _getCurrentImageUrl() {
-        const img = document.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) return null;
+        const img = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.ANSWER_IMAGE);
         return img ? img.src : null;
     },
 
     isRegradeMode() {
-        // 检查是否是回评模式
-        const scorePanel = document.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
+        const frameDoc = this._getFrameDoc();
+        if (!frameDoc) return false;
+
+        const scorePanel = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
         if (scorePanel) {
             const text = scorePanel.textContent;
             if (text.includes('回评') || text.includes('复核')) {
@@ -394,17 +529,6 @@ const HuiyuejuanAdapter = {
 
     onPageLoad() {
         console.log('🚀 [慧阅卷] 页面加载完成，执行初始化...');
-
-        // 注入 z-index 修复，确保 AI 按钮在弹窗之上
-        const style = document.createElement('style');
-        style.textContent = `
-            .ai-grade-btn, .ai-toast, #ai-grading-settings, #ai-settings-overlay,
-            .ai-history-btn, .ai-settings-btn, #ai-batch-progress,
-            #auto-submit-dialog, .ai-stream-panel {
-                z-index: 2147483640 !important;
-            }
-        `;
-        document.head.appendChild(style);
     },
 
     onGradingComplete() {
