@@ -2739,15 +2739,15 @@ function showOnboardingDialog(forceShow, mode) {
             '</p>' +
             '<div class="form-group">' +
             '<label>题目内容</label>' +
-            '<div class="md-preview-container ob-md-field" data-field="question"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="question" data-label="题目内容">编辑</button></div>' +
+            '<div class="md-preview-container ob-md-field" id="question-preview" data-field="question"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="question" data-label="题目内容">编辑</button></div>' +
             '</div>' +
             '<div class="form-group">' +
             '<label>参考答案</label>' +
-            '<div class="md-preview-container ob-md-field" data-field="answer"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="answer" data-label="参考答案">编辑</button></div>' +
+            '<div class="md-preview-container ob-md-field" id="answer-preview" data-field="answer"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="answer" data-label="参考答案">编辑</button></div>' +
             '</div>' +
             '<div class="form-group">' +
             '<label>评分标准</label>' +
-            '<div class="md-preview-container ob-md-field" data-field="rubric"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="rubric" data-label="评分标准">编辑</button></div>' +
+            '<div class="md-preview-container ob-md-field" id="rubric-preview" data-field="rubric"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="rubric" data-label="评分标准">编辑</button></div>' +
             '</div>' +
             unitsHtml;
     }

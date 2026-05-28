@@ -5,9 +5,12 @@
 
 // ========== XR 拦截器 ==========
 // 拦截 getDdb API，获取 imageUrlPath_all 并构造完整图片 URL
-// 图片 URL 格式: http://${hostname}:${mainPort - 1}/mark/res.do?rt=qtpj_kscqk&path=${imageUrlPath_all}
+// 新版结构: paper.imageData.imageUrlPath_all = "res.do?rt=qtpj_kscqk&path=..." (完整相对路径)
+// 旧版结构: paper.imageUrlPath_all = "MTMz..." (仅路径参数)
+// 图片 URL 前缀通过拦截页面自身的图片请求自动检测（如 /gzmark/）
 let _guangda2ImagePool = {};  // 包号 → 完整图片URL 的映射
 let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
+let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmark/"，从页面请求自动捕获
 
 {
     const _innerOpen = XMLHttpRequest.prototype.open;
@@ -23,6 +26,16 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
             try {
                 const url = this._guangda2Url || '';
 
+                // 拦截页面自身的图片请求，自动检测图片 URL 前缀
+                // 图片请求 URL 类似: http://host:port/gzmark/res.do?rt=qtpj_kscqk&path=...
+                if (url.includes('qtpj_kscqk') && !_guangda2ImageBase) {
+                    const match = url.match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
+                    if (match) {
+                        _guangda2ImageBase = match[1];
+                        console.log(`🖼️ [V2 API拦截] 检测到图片 URL 前缀: ${_guangda2ImageBase}`);
+                    }
+                }
+
                 // 拦截 getDdb / getDdbByNext（正常阅卷）
                 if (url.includes('getDdb') || url.includes('getDdbByNext')) {
                     const response = JSON.parse(this.responseText);
@@ -30,19 +43,16 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                     const vKs = response?.result?.vKs;
 
                     if (vKs && vKs.length > 0) {
-                        const hostname = window.location.hostname;
-                        const mainPort = parseInt(window.location.port) || 80;
-                        const imgPort = mainPort - 1;
-
                         vKs.forEach(paper => {
                             const bh = paper?.bh || '';
                             const ddh = paper?.ddh || '';
-                            const imagePath = paper?.imageUrlPath_all || '';
+                            // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
+                            const imagePath = paper?.imageData?.imageUrlPath_all || paper?.imageUrlPath_all || '';
 
                             if (bh && imagePath) {
-                                // 使用 bh-ddh 作为 key，与界面上显示的包号格式一致
-                                const key = ddh ? `${bh}-${ddh}` : bh;
-                                const fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                // 兼容: 新版 mh 字段 vs 旧版 bh-ddh
+                                const key = paper?.mh || (ddh ? `${bh}-${ddh}` : bh);
+                                const fullUrl = _buildGuangda2ImageUrl(imagePath);
                                 _guangda2ImagePool[key] = fullUrl;
                                 console.log(`🖼️ [V2 API拦截] 包号 ${key} → ${fullUrl.substring(0, 60)}...`);
                             }
@@ -57,15 +67,12 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                 if (url.includes('getYpData')) {
                     const response = JSON.parse(this.responseText);
                     if (Array.isArray(response) && response.length > 0) {
-                        const hostname = window.location.hostname;
-                        const mainPort = parseInt(window.location.port) || 80;
-                        const imgPort = mainPort - 1;
-
                         response.forEach(record => {
                             const bh = record?.bh || '';
-                            const imagePath = record?.imageUrlPath_all || '';
+                            // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
+                            const imagePath = record?.imageData?.imageUrlPath_all || record?.imageUrlPath_all || '';
                             if (bh && imagePath) {
-                                const fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                const fullUrl = _buildGuangda2ImageUrl(imagePath);
                                 _guangda2ImagePool[bh] = fullUrl;
                             }
                         });
@@ -78,6 +85,34 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
         });
         return _innerSend.call(this, ...args);
     };
+}
+
+// 构造图片完整 URL（兼容新旧两种路径格式和多种部署）
+function _buildGuangda2ImageUrl(imagePath) {
+    const hostname = window.location.hostname;
+    const mainPort = parseInt(window.location.port) || 80;
+
+    // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
+    let relativePath;
+    if (imagePath.startsWith('res.do')) {
+        // 新版: "res.do?rt=qtpj_kscqk&path=MTMz..."
+        relativePath = imagePath;
+    } else {
+        // 旧版: "MTMz..."
+        relativePath = `res.do?rt=qtpj_kscqk&path=${imagePath}`;
+    }
+
+    // 添加缓存破坏参数（与页面自身行为一致）
+    const separator = relativePath.includes('?') ? '&' : '?';
+    const cacheBuster = `t1=0.${Math.random().toString().substring(2, 12)}`;
+
+    // 优先用捕获到的真实前缀
+    if (_guangda2ImageBase) {
+        return `${_guangda2ImageBase}${relativePath}${separator}${cacheBuster}`;
+    }
+
+    // 兜底: 同端口 + /gzmark/（最常见的部署模式）
+    return `http://${hostname}:${mainPort}/gzmark/${relativePath}${separator}${cacheBuster}`;
 }
 
 // ========== 版本检测 ==========
@@ -251,8 +286,17 @@ const Guangda2Adapter = {
     },
 
     _fillSubScores(subScores) {
-        const score = typeof subScores[0] === 'object' ? subScores[0].score : subScores[0];
-        return this._fillSingleScore(score);
+        // 提取所有小题分数
+        const scores = subScores.map(s => typeof s === 'object' ? s.score : s);
+        if (scores.length === 0) return false;
+
+        // 如果只有一个分数，使用单题模式
+        if (scores.length === 1) {
+            return this._fillSingleScore(scores[0]);
+        }
+
+        // 多小题模式：使用 fillScores 记录待填入分数
+        return this.fillScores(scores);
     },
 
     fillScores(scores) {
@@ -260,60 +304,101 @@ const Guangda2Adapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
-        const score = scores[0];
-        if (score === null || score === undefined) return false;
-
-        // 不直接点击分数选项，而是记录待填入的分数
+        // 记录所有小题的待填入分数
         // 光大V2系统会在点击分数选项后自动调用 commitKsGrade 提交
         // 所以需要延迟到用户确认后再点击
-        this._pendingScore = score;
-        console.log(`📝 [诊断] 光大V2 记录待填入分数: ${score}（等待用户确认后点击）`);
-        return true;
+        this._pendingScores = [];
+        let successCount = 0;
+        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
+            if (scores[i] === null || scores[i] === undefined) continue;
+            this._pendingScores.push({ index: i, score: scores[i], container: inputs[i].element });
+            successCount++;
+        }
+
+        if (successCount > 0) {
+            console.log(`📝 [诊断] 光大V2 记录 ${successCount} 个小题待填入分数（等待用户确认后点击）`);
+        }
+        return successCount > 0;
     },
 
     // 点击分数选项（在用户确认后调用）
     _clickScore() {
-        if (this._pendingScore === null || this._pendingScore === undefined) {
+        if (!this._pendingScores || this._pendingScores.length === 0) {
             console.warn('⚠️ [诊断] 光大V2 没有待填入的分数');
             return false;
         }
 
-        const score = this._pendingScore;
-        this._pendingScore = null;
+        const pendingScores = this._pendingScores;
+        this._pendingScores = [];
 
-        const inputs = this.getScoreInputs();
-        if (inputs.length === 0) return false;
-
-        const container = inputs[0].element;
-        const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE);
-        for (const item of scoreItems) {
-            if (item.textContent.trim() === String(score)) {
-                item.click();
-                console.log(`✅ [诊断] 光大V2 分数 ${score} 已点击`);
-                return true;
+        let successCount = 0;
+        for (const pending of pendingScores) {
+            const { score, container } = pending;
+            const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE);
+            let clicked = false;
+            for (const item of scoreItems) {
+                if (item.textContent.trim() === String(score)) {
+                    item.click();
+                    clicked = true;
+                    successCount++;
+                    console.log(`✅ [诊断] 光大V2 小题 ${pending.index + 1} 分数 ${score} 已点击`);
+                    break;
+                }
+            }
+            if (!clicked) {
+                console.warn(`⚠️ [诊断] 光大V2 小题 ${pending.index + 1} 未找到分数 ${score} 的选项`);
             }
         }
 
-        console.warn(`⚠️ [诊断] 光大V2 未找到分数 ${score} 的选项`);
-        return false;
+        return successCount > 0;
     },
 
     // ========== 提交 ==========
-    // V2 版本的工作流：用户确认 → 点击分数选项 → 系统自动调用 commitKsGrade 提交
+    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理"给分详情"弹窗
     async submitGrade() {
         console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
-        // 点击分数选项（触发 commitKsGrade）
+        // 点击分数选项（触发给分详情弹窗）
         this._clickScore();
 
-        // 不需要点击确认按钮，系统会自动处理
+        // 处理"给分详情"二次确认弹窗
+        this._handleConfirmDialog();
+
         return true;
     },
 
+    // 处理"给分详情"二次确认弹窗
     _handleConfirmDialog() {
-        // 光大V2系统会自动处理确认弹窗，不需要我们干预
-        console.log('⏳ [诊断] 光大V2 — 系统自动处理确认弹窗');
-        return Promise.resolve();
+        console.log('⏳ [诊断] 光大V2 — 等待给分详情弹窗...');
+
+        // 立即检查一次
+        const immediateBtn = document.querySelector('.dialog-btns .sure');
+        if (immediateBtn) {
+            console.log('✅ [诊断] 光大V2 — 立即找到给分详情弹窗，自动点击确认');
+            immediateBtn.click();
+            return;
+        }
+
+        // 等待弹窗出现并自动点击确认
+        let checkCount = 0;
+        const checkInterval = setInterval(() => {
+            checkCount++;
+
+            // 查找"确认"按钮（在 dialog-btns 容器中）
+            const confirmBtn = document.querySelector('.dialog-btns .sure');
+            if (confirmBtn) {
+                console.log('✅ [诊断] 光大V2 — 找到给分详情弹窗，自动点击确认');
+                confirmBtn.click();
+                clearInterval(checkInterval);
+                return;
+            }
+
+            // 超时（最多等2秒）
+            if (checkCount >= 10) {
+                clearInterval(checkInterval);
+                console.log('⚠️ [诊断] 光大V2 — 未检测到给分详情弹窗（可能未启用）');
+            }
+        }, 200);
     },
 
     // ========== 等待下一份试卷 ==========
@@ -383,10 +468,39 @@ const Guangda2Adapter = {
     getScoreInputs() {
         const inputs = [];
 
-        const scoreItems = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
-        if (scoreItems.length === 0) return inputs;
+        // 多小题模式：遍历每个 .score 容器
+        const scoreContainers = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_CONTAINER);
+        if (scoreContainers.length > 0) {
+            scoreContainers.forEach((container, i) => {
+                const labelEl = container.querySelector('.xtList label');
+                const questionNum = labelEl ? labelEl.textContent.trim() : `第${i + 1}题`;
 
-        // 过滤掉范围指示器（如 "0~10"）
+                // 过滤掉范围指示器（如 "0~10"）
+                const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
+                const clickableItems = Array.from(scoreItems).filter(item => {
+                    const text = item.textContent.trim();
+                    return !text.includes('~') && !isNaN(parseInt(text));
+                });
+
+                if (clickableItems.length > 0) {
+                    const scores = clickableItems.map(li => parseInt(li.textContent.trim())).filter(n => !isNaN(n));
+                    const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+
+                    inputs.push({
+                        element: container,
+                        label: questionNum,
+                        index: i,
+                        maxScore,
+                        type: 'click',
+                        scores
+                    });
+                }
+            });
+            return inputs;
+        }
+
+        // 单题模式兜底：返回整个评分区域
+        const scoreItems = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
         const clickableItems = Array.from(scoreItems).filter(item => {
             const text = item.textContent.trim();
             return !text.includes('~') && !isNaN(parseInt(text));
@@ -400,7 +514,7 @@ const Guangda2Adapter = {
             const questionNum = questionEl ? questionEl.textContent.trim() : '总分';
 
             inputs.push({
-                element: document.querySelector(GUANGDA2_SELECTORS.SCORE_ITEM)?.parentElement || document.body,
+                element: scoreItems[0]?.parentElement?.parentElement || document.body,
                 label: questionNum,
                 index: 0,
                 maxScore,
@@ -416,6 +530,39 @@ const Guangda2Adapter = {
     detectSubQuestions() {
         const subQuestions = [];
 
+        // 多小题模式：遍历每个 .score 容器
+        const scoreContainers = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_CONTAINER);
+        if (scoreContainers.length > 0) {
+            scoreContainers.forEach((container, i) => {
+                const labelEl = container.querySelector('.xtList label');
+                const questionNum = labelEl ? labelEl.textContent.trim() : `第${i + 1}题`;
+
+                const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
+                const clickableItems = Array.from(scoreItems).filter(item => {
+                    const text = item.textContent.trim();
+                    return !text.includes('~') && !isNaN(parseInt(text));
+                });
+
+                if (clickableItems.length > 0) {
+                    const scores = clickableItems.map(li => parseInt(li.textContent.trim())).filter(n => !isNaN(n));
+                    const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+
+                    console.log(`📝 [诊断] 光大V2 小题: ${questionNum}, 可选分数=[${scores.join(',')}], 最高分=${maxScore}`);
+
+                    subQuestions.push({
+                        index: i,
+                        label: questionNum,
+                        maxScore,
+                        scores,
+                    });
+                }
+            });
+
+            console.log(`📝 [诊断] 光大V2 共识别 ${subQuestions.length} 个小题`);
+            return subQuestions;
+        }
+
+        // 单题模式兜底
         const scoreItems = document.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM);
         const clickableItems = Array.from(scoreItems).filter(item => {
             const text = item.textContent.trim();

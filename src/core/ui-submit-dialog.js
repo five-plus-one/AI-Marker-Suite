@@ -351,7 +351,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     </div>
                 </div>` : ''}
                 <div class="asd-info-block"><div class="asd-info-label">识别答案</div><div class="asd-info-content">${studentAnswer}</div></div>
-                ${comment ? `<div class="asd-info-block"><div class="asd-info-label">评语</div><div class="asd-info-content">${comment}</div></div>` : ''}
+                ${comment ? `<div class="asd-info-block"><div class="asd-info-label">评语</div><div class="asd-info-content" style="max-height:200px;overflow-y:auto;">${comment}</div></div>` : ''}
             </div>
         </div>
         <div class="asd-footer">

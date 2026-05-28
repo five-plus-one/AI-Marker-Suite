@@ -210,7 +210,7 @@ function parseStructuredResponse(text, maxScore) {
         rawScore: rawScore,
         scoringBasis: sections['评分依据'] || '',
         calculation: sections['分数计算'] || '',
-        comment: (sections['评分依据'] || '').substring(0, 500),
+        comment: sections['评分依据'] || '',
         diligenceLevel: diligenceLevel,
         diligenceReason: diligenceReason,
         _sections: sections
