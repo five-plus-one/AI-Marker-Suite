@@ -5,7 +5,8 @@
 
 // ========== XR 拦截器 ==========
 // 拦截 getDdb API，获取 imageUrlPath_all 并构造完整图片 URL
-// 图片 URL 格式: http://${hostname}:${mainPort - 1}/mark/res.do?rt=qtpj_kscqk&path=${imageUrlPath_all}
+// 新版结构: paper.imageData.imageUrlPath_all = "res.do?rt=qtpj_kscqk&path=..." (完整相对路径)
+// 旧版结构: paper.imageUrlPath_all = "MTMz..." (仅路径参数)
 let _guangda2ImagePool = {};  // 包号 → 完整图片URL 的映射
 let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
 
@@ -37,12 +38,21 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
                         vKs.forEach(paper => {
                             const bh = paper?.bh || '';
                             const ddh = paper?.ddh || '';
-                            const imagePath = paper?.imageUrlPath_all || '';
+                            // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
+                            const imagePath = paper?.imageData?.imageUrlPath_all || paper?.imageUrlPath_all || '';
 
                             if (bh && imagePath) {
-                                // 使用 bh-ddh 作为 key，与界面上显示的包号格式一致
-                                const key = ddh ? `${bh}-${ddh}` : bh;
-                                const fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                // 兼容: 新版 mh 字段 vs 旧版 bh-ddh
+                                const key = paper?.mh || (ddh ? `${bh}-${ddh}` : bh);
+                                // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
+                                let fullUrl;
+                                if (imagePath.startsWith('res.do')) {
+                                    // 新版: "res.do?rt=qtpj_kscqk&path=MTMz..."
+                                    fullUrl = `http://${hostname}:${imgPort}/mark/${imagePath}`;
+                                } else {
+                                    // 旧版: "MTMz..."
+                                    fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                }
                                 _guangda2ImagePool[key] = fullUrl;
                                 console.log(`🖼️ [V2 API拦截] 包号 ${key} → ${fullUrl.substring(0, 60)}...`);
                             }
@@ -63,9 +73,16 @@ let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
 
                         response.forEach(record => {
                             const bh = record?.bh || '';
-                            const imagePath = record?.imageUrlPath_all || '';
+                            // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
+                            const imagePath = record?.imageData?.imageUrlPath_all || record?.imageUrlPath_all || '';
                             if (bh && imagePath) {
-                                const fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
+                                let fullUrl;
+                                if (imagePath.startsWith('res.do')) {
+                                    fullUrl = `http://${hostname}:${imgPort}/mark/${imagePath}`;
+                                } else {
+                                    fullUrl = `http://${hostname}:${imgPort}/mark/res.do?rt=qtpj_kscqk&path=${imagePath}`;
+                                }
                                 _guangda2ImagePool[bh] = fullUrl;
                             }
                         });
