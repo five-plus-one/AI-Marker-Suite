@@ -354,21 +354,51 @@ const Guangda2Adapter = {
     },
 
     // ========== 提交 ==========
-    // V2 版本的工作流：用户确认 → 点击分数选项 → 系统自动调用 commitKsGrade 提交
+    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理"给分详情"弹窗
     async submitGrade() {
         console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
-        // 点击分数选项（触发 commitKsGrade）
+        // 点击分数选项（触发给分详情弹窗）
         this._clickScore();
 
-        // 不需要点击确认按钮，系统会自动处理
+        // 处理"给分详情"二次确认弹窗
+        this._handleConfirmDialog();
+
         return true;
     },
 
+    // 处理"给分详情"二次确认弹窗
     _handleConfirmDialog() {
-        // 光大V2系统会自动处理确认弹窗，不需要我们干预
-        console.log('⏳ [诊断] 光大V2 — 系统自动处理确认弹窗');
-        return Promise.resolve();
+        console.log('⏳ [诊断] 光大V2 — 等待给分详情弹窗...');
+
+        // 立即检查一次
+        const immediateBtn = document.querySelector('.dialog-btns .sure');
+        if (immediateBtn) {
+            console.log('✅ [诊断] 光大V2 — 立即找到给分详情弹窗，自动点击确认');
+            immediateBtn.click();
+            return;
+        }
+
+        // 等待弹窗出现并自动点击确认
+        let checkCount = 0;
+        const checkInterval = setInterval(() => {
+            checkCount++;
+
+            // 查找"确认"按钮（在 dialog-btns 容器中）
+            const confirmBtn = document.querySelector('.dialog-btns .sure');
+            if (confirmBtn) {
+                console.log('✅ [诊断] 光大V2 — 找到给分详情弹窗，自动点击确认');
+                confirmBtn.click();
+                clearInterval(checkInterval);
+                return;
+            }
+
+            // 超时（最多等2秒）
+            if (checkCount >= 10) {
+                clearInterval(checkInterval);
+                console.log('⚠️ [诊断] 光大V2 — 未检测到给分详情弹窗（可能未启用）');
+            }
+        }, 200);
     },
 
     // ========== 等待下一份试卷 ==========
