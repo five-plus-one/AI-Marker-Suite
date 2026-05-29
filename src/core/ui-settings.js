@@ -1,5 +1,5 @@
 // ========== 创建配置面板（侧边栏） ==========
-function createSettingsPanel() {
+function createSettingsPanel(options) {
     if (document.getElementById('ai-grading-settings')) return;
     if (document.getElementById('ai-settings-overlay')) return;
 
@@ -1295,8 +1295,10 @@ function createSettingsPanel() {
     loadSettings();
     renderChangelog();
 
-    // 初始化后打开侧边栏
-    requestAnimationFrame(() => openSettingsPanel());
+    // 初始化后打开侧边栏（除非调用方要求延迟打开，如 OOBE 场景）
+    if (!options || !options.deferOpen) {
+        requestAnimationFrame(() => openSettingsPanel());
+    }
 }
 
 function setupSettingsMenuLayout(panel) {
@@ -2296,7 +2298,7 @@ function showWorkflowEditModal(wf) {
                         <div class="form-group"><label>供应商</label><select id="wf-edit-arb-provider">${providerOptions}</select></div>
                         <div class="form-group"><label>模型</label><select id="wf-edit-arb-model"></select></div>
                         <div class="form-group"><label>思考链深度</label><select id="wf-edit-arb-reasoning">${reasoningEffortOptions}</select></div>
-                        <div class="form-group"><label>分差阈值 (分)</label><input type="number" id="wf-edit-threshold" value="${wf.dualEval?.threshold || 2}" min="1" max="10"></div>
+                        <div class="form-group"><label>分差阈值 (分，设为0则两模型必须完全一致)</label><input type="number" id="wf-edit-threshold" value="${wf.dualEval?.threshold != null ? wf.dualEval.threshold : 2}" min="0" max="10"></div>
                     </div>
                 </div>
             </div>
@@ -2389,7 +2391,7 @@ function showWorkflowEditModal(wf) {
                 enabled: true,
                 secondary: { provider: secProvider.value, model: secModel.value, reasoningEffort: secReasoning.value },
                 arbitration: { provider: arbProvider.value, model: arbModel.value, reasoningEffort: arbReasoning.value },
-                threshold: parseInt(document.getElementById('wf-edit-threshold').value) || 2
+                threshold: (function () { var v = parseInt(document.getElementById('wf-edit-threshold').value); return isNaN(v) ? 2 : Math.max(0, v); })()
             } : null
         };
 
@@ -2839,13 +2841,35 @@ function showOnboardingDialog(forceShow, mode) {
                     if (!field) return;
                     var fieldData = window.__aiMarkdownData[field] || { text: '', images: [], format: 'plain' };
                     if (typeof openMarkdownEditor === 'function') {
+                        // 构建 callConfig（复用 ProviderManager 中已保存的 API Key）
+                        var _callConfig = null;
+                        try {
+                            var _wfId = selectedWorkflow || 'fast';
+                            var _wf = typeof WorkflowManager !== 'undefined' ? WorkflowManager.getWorkflow(_wfId) : null;
+                            if (_wf) {
+                                var _pName = _wf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
+                                var _mName = _wf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
+                                var _prov = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_pName) : null;
+                                _callConfig = { endpoint: _prov?.endpoint || '', apiKey: _prov?.apiKey || '', model: _mName, reasoningEffort: _wf.model?.reasoningEffort || '' };
+                            }
+                        } catch (e) { /* ignore */ }
                         openMarkdownEditor({
                             field: field, label: label,
                             initialText: fieldData.text, initialImages: fieldData.images,
+                            callConfig: _callConfig,
                             onConfirm: function (newText, newImages) {
                                 window.__aiMarkdownData[field] = { text: newText, images: newImages, format: 'markdown' };
-                                if (typeof renderMarkdownPreview === 'function') {
-                                    renderMarkdownPreview(field, window.__aiMarkdownData[field]);
+                                // 直接更新 OOBE overlay 内的预览（避免与设置面板的同名 ID 冲突）
+                                var previewEl = container.querySelector('.md-preview-content');
+                                if (previewEl) {
+                                    if (window.__aiMarkdownRenderer && newText) {
+                                        var resolved = typeof resolveMarkdownImages === 'function' ? resolveMarkdownImages(newText, newImages || []) : newText;
+                                        previewEl.innerHTML = window.__aiMarkdownRenderer.render(resolved);
+                                    } else if (newText) {
+                                        previewEl.textContent = newText;
+                                    } else {
+                                        previewEl.innerHTML = '<span class="md-placeholder">点击编辑</span>';
+                                    }
                                 }
                             },
                         });

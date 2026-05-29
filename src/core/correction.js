@@ -484,12 +484,26 @@ function showCorrectionPanel(context) {
         footer.querySelector('#cor-cancel2').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
 
         // 预览区点击 → 打开 Markdown 编辑器
+        // 构建 callConfig（复用 ProviderManager 中已保存的 API Key）
+        var _corCallConfig = null;
+        try {
+            var _corWfId = context?.config?.workflowId || 'fast';
+            var _corWf = typeof WorkflowManager !== 'undefined' ? WorkflowManager.getWorkflow(_corWfId) : null;
+            if (_corWf) {
+                var _corPName = _corWf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
+                var _corMName = _corWf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
+                var _corProv = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_corPName) : null;
+                _corCallConfig = { endpoint: _corProv?.endpoint || '', apiKey: _corProv?.apiKey || '', model: _corMName, reasoningEffort: _corWf.model?.reasoningEffort || '' };
+            }
+        } catch (e) { /* ignore */ }
+
         document.getElementById('cor-answer-preview')?.addEventListener('click', function () {
             if (typeof openMarkdownEditor !== 'function') return;
             openMarkdownEditor({
                 field: 'correction-answer', label: '参考答案',
                 initialText: editedAnswer,
                 initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedAnswerData) : [],
+                callConfig: _corCallConfig,
                 onConfirm: function (newText, newImages) {
                     editedAnswer = newText;
                     editedAnswerData = newImages && newImages.length
@@ -505,6 +519,7 @@ function showCorrectionPanel(context) {
                 field: 'correction-rubric', label: '评分标准',
                 initialText: editedRubric,
                 initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedRubricData) : [],
+                callConfig: _corCallConfig,
                 onConfirm: function (newText, newImages) {
                     editedRubric = newText;
                     editedRubricData = newImages && newImages.length
@@ -530,15 +545,44 @@ function showCorrectionPanel(context) {
 
     async function startAnalysis() {
         const streamEl = document.getElementById('cor-analysis-stream');
+        // 流式渲染节流（与 ui-stream.js 同理）
+        var _corThrottleTimer = null;
+        var _corLastRenderTime = 0;
+        var _corPendingText = null;
+        var COR_THROTTLE_MS = 100;
+        function _doCorRender(text) {
+            if (!streamEl) return;
+            if (window.__aiMarkdownRenderer) {
+                streamEl.innerHTML = window.__aiMarkdownRenderer.render(text);
+            } else {
+                streamEl.textContent = text;
+            }
+        }
+        function throttledCorRender(text) {
+            var now = Date.now();
+            var elapsed = now - _corLastRenderTime;
+            if (elapsed >= COR_THROTTLE_MS) {
+                _corLastRenderTime = now;
+                _corPendingText = null;
+                if (_corThrottleTimer) { clearTimeout(_corThrottleTimer); _corThrottleTimer = null; }
+                _doCorRender(text);
+            } else {
+                _corPendingText = text;
+                if (!_corThrottleTimer) {
+                    _corThrottleTimer = setTimeout(function () {
+                        _corThrottleTimer = null;
+                        _corLastRenderTime = Date.now();
+                        if (_corPendingText !== null) {
+                            _doCorRender(_corPendingText);
+                            _corPendingText = null;
+                        }
+                    }, COR_THROTTLE_MS - elapsed);
+                }
+            }
+        }
         try {
             const rawText = await analyzePromptModification(context, feedback, streamed => {
-                if (streamEl) {
-                    if (window.__aiMarkdownRenderer) {
-                        streamEl.innerHTML = window.__aiMarkdownRenderer.render(streamed);
-                    } else {
-                        streamEl.textContent = streamed;
-                    }
-                }
+                throttledCorRender(streamed);
             });
             analysisResult = parsePromptModification(rawText);
 

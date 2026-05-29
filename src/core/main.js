@@ -397,18 +397,21 @@ async function init() {
 
     console.log('✅ [诊断] 检测到批改页面，开始初始化UI');
     createMainButton();
-    createSettingsPanel();
+
+    // 首次启动或重置后显示新手引导
+    const showOnboarding = GM_getValue('ai-grading-show-onboarding', true);
+    if (showOnboarding) {
+        // 先创建设置面板但不打开（避免空表单与 OOBE 竞争）
+        createSettingsPanel({ deferOpen: true });
+        setTimeout(() => showOnboardingDialog(true, 'first-launch'), 500);
+    } else {
+        createSettingsPanel();
+    }
     if (typeof updateMainButtonState === 'function') updateMainButtonState();
 
     // 初始化批阅份数功能
     initBatchProgress();
     renderBatchProgress();
-
-    // 首次启动或重置后显示新手引导
-    const showOnboarding = GM_getValue('ai-grading-show-onboarding', true);
-    if (showOnboarding) {
-        setTimeout(() => showOnboardingDialog(true, 'first-launch'), 500);
-    }
 
     // 检查更新（延迟 5 秒，避免影响页面主要功能加载）
     setTimeout(() => checkForUpdate(), 5000);
