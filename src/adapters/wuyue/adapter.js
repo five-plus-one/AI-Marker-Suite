@@ -48,28 +48,42 @@ const WuyueAdapter = {
         // 等待图片加载
         await new Promise(r => setTimeout(r, 1000));
 
-        // 方法1: 获取当前显示的 AnswerSheet 类型图片（不在 hideBox 中）
-        const activeImage = document.querySelector(WUYUE_SELECTORS.ANSWER_IMAGE);
-        if (activeImage && activeImage.src) {
-            console.log(`🖼️ [诊断] 找到当前显示的答题卡图片: ${activeImage.src.substring(0, 60)}...`);
-            return [activeImage.src];
-        }
-
-        // 方法2: 获取当前显示的 outBox 中的所有图片（包括 PaperScan）
-        const activeBox = document.querySelector('.outBox:not(.hideBox)');
-        if (activeBox) {
-            const img = activeBox.querySelector('img');
-            if (img && img.src) {
-                console.log(`🖼️ [诊断] 找到当前显示的图片: ${img.src.substring(0, 60)}...`);
-                return [img.src];
+        // 方法1: 获取所有 AnswerSheet 类型图片（包括隐藏的 hideBox 中的）
+        const allAnswerImages = document.querySelectorAll(WUYUE_SELECTORS.ANSWER_IMAGE_ALL);
+        if (allAnswerImages.length > 0) {
+            const urls = Array.from(allAnswerImages)
+                .map(img => img.src)
+                .filter(src => src && src.includes('AnswerSheet'));
+            if (urls.length > 0) {
+                console.log(`🖼️ [诊断] 找到 ${urls.length} 张答题卡图片（含隐藏区域）`);
+                urls.forEach((url, i) => console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`));
+                return urls;
             }
         }
 
-        // 方法3: 只获取第一个 AnswerSheet 图片（排除 hideBox 中的）
-        const firstAnswerSheet = document.querySelector('.outBox:not(.hideBox) img[src*="AnswerSheet"], .outBox:not(.hideBox) img[src*="PaperScan"]');
-        if (firstAnswerSheet && firstAnswerSheet.src) {
-            console.log(`🖼️ [诊断] 找到第一个答题卡图片: ${firstAnswerSheet.src.substring(0, 60)}...`);
-            return [firstAnswerSheet.src];
+        // 方法2: 遍历所有 outBox（包括 hideBox）获取 AnswerSheet 图片
+        const allOutBoxes = document.querySelectorAll('.outBox');
+        if (allOutBoxes.length > 0) {
+            const urls = [];
+            allOutBoxes.forEach(box => {
+                const imgs = box.querySelectorAll('img[src*="AnswerSheet"]');
+                imgs.forEach(img => {
+                    if (img.src && !urls.includes(img.src)) {
+                        urls.push(img.src);
+                    }
+                });
+            });
+            if (urls.length > 0) {
+                console.log(`🖼️ [诊断] 从 ${allOutBoxes.length} 个 outBox 中找到 ${urls.length} 张答题卡图片`);
+                return urls;
+            }
+        }
+
+        // 方法3: 兜底 - 获取当前显示的图片（兼容旧逻辑）
+        const activeImage = document.querySelector(WUYUE_SELECTORS.ANSWER_IMAGE);
+        if (activeImage && activeImage.src) {
+            console.log(`🖼️ [诊断] 兜底: 找到当前显示的答题卡图片: ${activeImage.src.substring(0, 60)}...`);
+            return [activeImage.src];
         }
 
         console.warn('⚠️ [诊断] 未找到答题卡图片');
