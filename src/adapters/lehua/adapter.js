@@ -147,23 +147,38 @@ const LehuaAdapter = {
         const score = scores[0];
         if (score === null || score === undefined) return false;
 
-        console.log(`📝 [诊断] 乐华阅卷 — 填入分数: ${score}`);
+        // 乐华阅卷平台在点击分数后会自动提交
+        // 所以需要延迟到用户确认后再点击分数按钮
+        this._pendingScore = score;
+        console.log(`📝 [诊断] 乐华阅卷 — 记录待填入分数: ${score}（等待用户确认后点击）`);
+        return true;
+    },
 
-        // 方法1: 点击评分按钮
+    // 点击分数按钮（在用户确认后调用）
+    _clickScore() {
+        if (this._pendingScore === null || this._pendingScore === undefined) {
+            console.warn('⚠️ [诊断] 乐华阅卷 — 没有待填入的分数');
+            return false;
+        }
+
+        const score = this._pendingScore;
+        this._pendingScore = null;
+
+        // 点击评分按钮
         const scoreBtns = document.querySelectorAll(LEHUA_SELECTORS.SCORE_BUTTON);
         if (scoreBtns.length > 0) {
             for (const btn of scoreBtns) {
                 const text = btn.textContent.trim();
                 if (text === String(score)) {
                     btn.click();
-                    console.log(`✅ [诊断] 已点击分数按钮: ${score}`);
+                    console.log(`✅ [诊断] 乐华阅卷 — 已点击分数按钮: ${score}`);
                     return true;
                 }
             }
-            console.warn(`⚠️ [诊断] 未找到分数 ${score} 对应的按钮`);
+            console.warn(`⚠️ [诊断] 乐华阅卷 — 未找到分数 ${score} 对应的按钮`);
         }
 
-        // 方法2: 使用输入框
+        // 备用：使用输入框
         const scoreInput = document.querySelector(LEHUA_SELECTORS.SCORE_INPUT);
         if (scoreInput) {
             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -171,36 +186,24 @@ const LehuaAdapter = {
             scoreInput.dispatchEvent(new Event('input', { bubbles: true }));
             scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
             scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log(`✅ [诊断] 分数已填入输入框`);
+            console.log(`✅ [诊断] 乐华阅卷 — 分数已填入输入框`);
             return true;
         }
 
-        console.warn('⚠️ [诊断] 无法填入分数');
+        console.warn('⚠️ [诊断] 乐华阅卷 — 无法填入分数');
         return false;
     },
 
     submitGrade() {
-        console.log('📤 [诊断] 乐华阅卷 — 开始提交分数...');
+        console.log('📤 [诊断] 乐华阅卷 — 用户确认后点击分数按钮提交');
 
-        // 查找"确认提交"按钮
-        const allButtons = document.querySelectorAll('button');
-        for (const btn of allButtons) {
-            const text = btn.textContent.trim();
-            if (text === '确认提交' || text === '确认') {
-                // 检查是否可见且未禁用
-                if (btn.offsetParent !== null && !btn.disabled && !btn.classList.contains('is-disabled')) {
-                    console.log(`✅ [诊断] 找到提交按钮: "${text}"`);
-                    btn.click();
+        // 点击分数按钮（触发平台自动提交）
+        this._clickScore();
 
-                    // 处理可能的二次确认弹窗
-                    this._handleConfirmDialog();
-                    return true;
-                }
-            }
-        }
+        // 处理可能的二次确认弹窗
+        this._handleConfirmDialog();
 
-        console.warn('⚠️ [诊断] 未找到提交按钮');
-        return false;
+        return true;
     },
 
     // 处理二次确认弹窗
