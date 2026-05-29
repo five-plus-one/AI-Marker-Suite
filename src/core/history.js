@@ -515,7 +515,7 @@ function showHistoryPanel() {
     const overlay = document.createElement('div');
     overlay.id = 'ai-history-overlay';
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);backdrop-filter:blur(6px);z-index:2147483647;';
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     const panel = document.createElement('div');
     panel.id = 'ai-history-panel';
@@ -780,7 +780,7 @@ function showHistoryPanel() {
             <div class="hist-list" id="hist-list"></div>
         </div>
     `;
-    document.body.appendChild(panel);
+    getUIRoot().appendChild(panel);
 
     let filterState = { startDate: '', endDate: '', presetName: '' };
     let paginationState = { page: 1, pageSize: 20 };
@@ -1339,8 +1339,8 @@ function showHistoryDetail(record) {
         </div>
     `;
 
-    document.body.appendChild(drawerOverlay);
-    document.body.appendChild(drawer);
+    getUIRoot().appendChild(drawerOverlay);
+    getUIRoot().appendChild(drawer);
 
     // Markdown+KaTeX 渲染
     if (window.__aiMarkdownRenderer) {

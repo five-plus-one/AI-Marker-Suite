@@ -144,7 +144,7 @@ function showAlertModal(message) {
                 </div>
             </div>
         `;
-        document.body.appendChild(overlay);
+        getUIRoot().appendChild(overlay);
         let closed = false;
         const close = () => { if (closed) return; closed = true; overlay.remove(); resolve(); };
         overlay.querySelector('.ai-modal-btn-confirm').onclick = e => { e.stopPropagation(); close(); };
@@ -166,7 +166,7 @@ function showConfirmModal(message) {
                 </div>
             </div>
         `;
-        document.body.appendChild(overlay);
+        getUIRoot().appendChild(overlay);
         let closed = false;
         const close = result => { if (closed) return; closed = true; overlay.remove(); resolve(result); };
         overlay.querySelector('.ai-modal-btn-cancel').onclick = e => { e.stopPropagation(); close(false); };
@@ -192,7 +192,7 @@ function showPromptModal(message, defaultValue) {
                 </div>
             </div>
         `;
-        document.body.appendChild(overlay);
+        getUIRoot().appendChild(overlay);
         const input = overlay.querySelector('.ai-modal-input');
         input.focus();
         input.select();
@@ -227,7 +227,7 @@ function showBatchTargetDialog(targetCount) {
                 </div>
             </div>
         `;
-        document.body.appendChild(overlay);
+        getUIRoot().appendChild(overlay);
         let closed = false;
         const close = result => { if (closed) return; closed = true; overlay.remove(); resolve(result); };
         overlay.querySelector('[data-action="continue"]').onclick = e => { e.stopPropagation(); close('continue'); };

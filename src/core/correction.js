@@ -269,7 +269,7 @@ function showCorrectionPanel(context) {
             </div>
         </div>
     `;
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     overlay.querySelector('#cor-close-btn').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
     overlay.onclick = e => { if (e.target === overlay) { cleanup(); if (context.onCancel) context.onCancel(); } };
