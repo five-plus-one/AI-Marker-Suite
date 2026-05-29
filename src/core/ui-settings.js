@@ -2859,8 +2859,17 @@ function showOnboardingDialog(forceShow, mode) {
                             callConfig: _callConfig,
                             onConfirm: function (newText, newImages) {
                                 window.__aiMarkdownData[field] = { text: newText, images: newImages, format: 'markdown' };
-                                if (typeof renderMarkdownPreview === 'function') {
-                                    renderMarkdownPreview(field, window.__aiMarkdownData[field]);
+                                // 直接更新 OOBE overlay 内的预览（避免与设置面板的同名 ID 冲突）
+                                var previewEl = container.querySelector('.md-preview-content');
+                                if (previewEl) {
+                                    if (window.__aiMarkdownRenderer && newText) {
+                                        var resolved = typeof resolveMarkdownImages === 'function' ? resolveMarkdownImages(newText, newImages || []) : newText;
+                                        previewEl.innerHTML = window.__aiMarkdownRenderer.render(resolved);
+                                    } else if (newText) {
+                                        previewEl.textContent = newText;
+                                    } else {
+                                        previewEl.innerHTML = '<span class="md-placeholder">点击编辑</span>';
+                                    }
                                 }
                             },
                         });
