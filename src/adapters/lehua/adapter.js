@@ -267,22 +267,18 @@ const LehuaAdapter = {
     },
 
     // 获取 Canvas 内容的简单 hash（用于变化检测）
+    // 注意：不能用 getImageData()，因为 Canvas 加载了跨域图片会 tainted
     _getCanvasHash() {
         try {
             const canvas = document.querySelector(LEHUA_SELECTORS.ANSWER_CANVAS);
             if (!canvas) return null;
 
-            // 取 Canvas 左上角一小块区域的像素数据来计算 hash
-            // 这样比导出整个 Canvas 更快
-            const ctx = canvas.getContext('2d');
-            const width = Math.min(canvas.width, 100);
-            const height = Math.min(canvas.height, 100);
-            const imageData = ctx.getImageData(0, 0, width, height);
-
-            // 简单 hash：取前 100 个像素的 RGB 值之和
+            // 使用 toDataURL() 导出 PNG，取前 2000 字符计算 hash
+            const dataUrl = canvas.toDataURL('image/png');
             let hash = 0;
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                hash = (hash * 31 + imageData.data[i] + imageData.data[i + 1] + imageData.data[i + 2]) & 0xFFFFFFFF;
+            const len = Math.min(dataUrl.length, 2000);
+            for (let i = 0; i < len; i++) {
+                hash = (hash * 31 + dataUrl.charCodeAt(i)) & 0xFFFFFFFF;
             }
             return hash.toString(16);
         } catch (e) {
