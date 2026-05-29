@@ -530,15 +530,44 @@ function showCorrectionPanel(context) {
 
     async function startAnalysis() {
         const streamEl = document.getElementById('cor-analysis-stream');
+        // 流式渲染节流（与 ui-stream.js 同理）
+        var _corThrottleTimer = null;
+        var _corLastRenderTime = 0;
+        var _corPendingText = null;
+        var COR_THROTTLE_MS = 100;
+        function _doCorRender(text) {
+            if (!streamEl) return;
+            if (window.__aiMarkdownRenderer) {
+                streamEl.innerHTML = window.__aiMarkdownRenderer.render(text);
+            } else {
+                streamEl.textContent = text;
+            }
+        }
+        function throttledCorRender(text) {
+            var now = Date.now();
+            var elapsed = now - _corLastRenderTime;
+            if (elapsed >= COR_THROTTLE_MS) {
+                _corLastRenderTime = now;
+                _corPendingText = null;
+                if (_corThrottleTimer) { clearTimeout(_corThrottleTimer); _corThrottleTimer = null; }
+                _doCorRender(text);
+            } else {
+                _corPendingText = text;
+                if (!_corThrottleTimer) {
+                    _corThrottleTimer = setTimeout(function () {
+                        _corThrottleTimer = null;
+                        _corLastRenderTime = Date.now();
+                        if (_corPendingText !== null) {
+                            _doCorRender(_corPendingText);
+                            _corPendingText = null;
+                        }
+                    }, COR_THROTTLE_MS - elapsed);
+                }
+            }
+        }
         try {
             const rawText = await analyzePromptModification(context, feedback, streamed => {
-                if (streamEl) {
-                    if (window.__aiMarkdownRenderer) {
-                        streamEl.innerHTML = window.__aiMarkdownRenderer.render(streamed);
-                    } else {
-                        streamEl.textContent = streamed;
-                    }
-                }
+                throttledCorRender(streamed);
             });
             analysisResult = parsePromptModification(rawText);
 

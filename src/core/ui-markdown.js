@@ -39,6 +39,20 @@ function createMarkdownRenderer() {
         return null;
     }
 
+    // KaTeX 渲染缓存：避免相同公式重复渲染（流式输出时尤为关键）
+    const latexCache = new Map();
+    const KATEX_CACHE_MAX = 500;
+    function cachedKatexRender(text, options) {
+        var key = (options.displayMode ? 'D' : 'I') + ':' + text;
+        var cached = latexCache.get(key);
+        if (cached !== undefined) return cached;
+        var html = katex.renderToString(text, options);
+        // 简易 LRU：缓存满时清空（避免内存无限增长）
+        if (latexCache.size >= KATEX_CACHE_MAX) latexCache.clear();
+        latexCache.set(key, html);
+        return html;
+    }
+
     // 自定义扩展：块级公式 $$...$$
     const latexBlockExt = {
         name: 'latexBlock',
@@ -54,7 +68,7 @@ function createMarkdownRenderer() {
             try {
                 if (window.katex) {
                     return '<div class="katex-display">' +
-                        katex.renderToString(token.text, { displayMode: true, throwOnError: false, trust: true }) +
+                        cachedKatexRender(token.text, { displayMode: true, throwOnError: false, trust: true, strict: false }) +
                         '</div>';
                 }
             } catch (e) { /* fallback */ }
@@ -76,7 +90,7 @@ function createMarkdownRenderer() {
         renderer(token) {
             try {
                 if (window.katex) {
-                    return katex.renderToString(token.text, { displayMode: false, throwOnError: false, trust: true });
+                    return cachedKatexRender(token.text, { displayMode: false, throwOnError: false, trust: true, strict: false });
                 }
             } catch (e) { /* fallback */ }
             return '<code class="katex-fallback">' + escapeHtml(token.text) + '</code>';
