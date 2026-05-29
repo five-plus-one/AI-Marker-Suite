@@ -201,6 +201,7 @@ function openMarkdownEditor(options) {
         '<span class="md-toolbar-sep"></span>' +
         '<button data-cmd="mathInline" title="行内公式 $...$">𝑥</button>' +
         '<button data-cmd="mathBlock" title="公式块 $$...$$">∑</button>' +
+        '<span style="position:relative;display:inline-block;"><button data-cmd="formula" title="常用公式模板">fx</button></span>' +
         '<span class="md-toolbar-sep"></span>' +
         '<button data-cmd="image" title="插入图片">🖼</button>' +
         '<span class="md-toolbar-sep"></span>' +
@@ -313,7 +314,7 @@ function openMarkdownEditor(options) {
         const btn = e.target.closest('button[data-cmd]');
         if (!btn) return;
         const cmd = btn.getAttribute('data-cmd');
-        handleToolbarCommand(cmd, textarea, images, fileInput, callConfig, schedulePreview);
+        handleToolbarCommand(cmd, textarea, images, fileInput, callConfig, schedulePreview, btn);
     });
 
     // 快捷键
@@ -346,7 +347,7 @@ function openMarkdownEditor(options) {
             if (items[i].type.indexOf('image') !== -1) {
                 e.preventDefault();
                 const file = items[i].getAsFile();
-                addImageFromFile(file, textarea, images, schedulePreview);
+                addImageFromFile(file, textarea, images, schedulePreview, callConfig);
                 return;
             }
         }
@@ -360,7 +361,7 @@ function openMarkdownEditor(options) {
         if (!files) return;
         for (let i = 0; i < files.length; i++) {
             if (files[i].type.indexOf('image') !== -1) {
-                addImageFromFile(files[i], textarea, images, schedulePreview);
+                addImageFromFile(files[i], textarea, images, schedulePreview, callConfig);
             }
         }
     });
@@ -393,9 +394,160 @@ function closeMarkdownEditor() {
     if (overlay) overlay.remove();
 }
 
+// ========== 公式模板面板 ==========
+
+/**
+ * 显示常用公式模板面板
+ * @param {HTMLTextAreaElement} textarea
+ * @param {HTMLElement} anchorBtn - 触发按钮（用于定位）
+ * @param {function} schedulePreview
+ */
+function showFormulaPanel(textarea, anchorBtn, schedulePreview) {
+    // 关闭已有面板
+    var old = document.querySelector('.md-formula-panel');
+    if (old) { old.remove(); return; }
+
+    var panel = document.createElement('div');
+    panel.className = 'md-formula-panel';
+
+    // 公式模板数据
+    var sections = [
+        {
+            title: '上下标',
+            items: [
+                { code: 'x^{2}', label: '上标' },
+                { code: 'x_{i}', label: '下标' },
+                { code: 'x_{i}^{2}', label: '上下标' },
+            ]
+        },
+        {
+            title: '分数 / 根号',
+            items: [
+                { code: '\\frac{a}{b}', label: '分数' },
+                { code: '\\sqrt{x}', label: '根号' },
+                { code: '\\sqrt[n]{x}', label: 'n次根' },
+            ]
+        },
+        {
+            title: '求和 / 积分',
+            items: [
+                { code: '\\sum_{i=1}^{n}', label: '求和' },
+                { code: '\\int_{a}^{b}', label: '积分' },
+                { code: '\\lim_{x \\to \\infty}', label: '极限' },
+            ]
+        },
+        {
+            title: '括号',
+            items: [
+                { code: '\\left( \\right)', label: '小括号' },
+                { code: '\\left[ \\right]', label: '中括号' },
+                { code: '\\left| \\right|', label: '绝对值' },
+            ]
+        },
+        {
+            title: '化学',
+            items: [
+                { code: 'H_{2}O', label: '下标' },
+                { code: '\\rightleftharpoons', label: '可逆箭头' },
+                { code: '\\rightarrow', label: '箭头' },
+            ]
+        },
+    ];
+
+    var html = '';
+    sections.forEach(function (sec) {
+        html += '<div class="md-formula-section">';
+        html += '<div class="md-formula-section-title">' + sec.title + '</div>';
+        html += '<div class="md-formula-grid">';
+        sec.items.forEach(function (item) {
+            var preview = '';
+            if (window.katex) {
+                try { preview = katex.renderToString(item.code, { displayMode: false, throwOnError: false, trust: true, strict: false }); } catch (e) { preview = item.code; }
+            } else {
+                preview = item.code;
+            }
+            html += '<div class="md-formula-item" data-code="' + item.code.replace(/"/g, '&quot;') + '">' +
+                '<div class="formula-preview">' + preview + '</div>' +
+                '<div class="formula-code">' + item.code + '</div>' +
+                '</div>';
+        });
+        html += '</div></div>';
+    });
+
+    // 希腊字母
+    html += '<div class="md-formula-section">';
+    html += '<div class="md-formula-section-title">希腊字母</div>';
+    html += '<div class="md-formula-greek">';
+    var greekLetters = [
+        { code: '\\alpha', char: 'α' }, { code: '\\beta', char: 'β' }, { code: '\\gamma', char: 'γ' },
+        { code: '\\delta', char: 'δ' }, { code: '\\theta', char: 'θ' }, { code: '\\pi', char: 'π' },
+        { code: '\\sigma', char: 'σ' }, { code: '\\phi', char: 'φ' }, { code: '\\omega', char: 'ω' },
+        { code: '\\lambda', char: 'λ' }, { code: '\\mu', char: 'μ' }, { code: '\\epsilon', char: 'ε' },
+    ];
+    greekLetters.forEach(function (g) {
+        html += '<div class="md-formula-greek-item" data-code="' + g.code + '" title="' + g.code + '">' + g.char + '</div>';
+    });
+    html += '</div></div>';
+
+    panel.innerHTML = html;
+
+    // 定位到按钮下方
+    var btnRect = anchorBtn.getBoundingClientRect();
+    panel.style.position = 'fixed';
+    panel.style.top = (btnRect.bottom + 4) + 'px';
+    panel.style.left = btnRect.left + 'px';
+    panel.style.zIndex = '2147483647';
+
+    document.body.appendChild(panel);
+
+    // 点击模板项插入代码
+    panel.addEventListener('click', function (e) {
+        var item = e.target.closest('[data-code]');
+        if (!item) return;
+        var code = item.getAttribute('data-code');
+        insertFormulaToTextarea(textarea, code);
+        panel.remove();
+        schedulePreview();
+    });
+
+    // 点击外部关闭
+    function onClose(e) {
+        if (!panel.contains(e.target) && e.target !== anchorBtn) {
+            panel.remove();
+            document.removeEventListener('mousedown', onClose);
+        }
+    }
+    setTimeout(function () { document.addEventListener('mousedown', onClose); }, 50);
+}
+
+/**
+ * 将公式代码插入 textarea（包裹在 $...$ 中）
+ */
+function insertFormulaToTextarea(textarea, code) {
+    var start = textarea.selectionStart;
+    var end = textarea.selectionEnd;
+    var selected = textarea.value.substring(start, end);
+
+    // 如果有选中文本，用选中文本替换模板中的占位符
+    var insertion = code;
+    if (selected.trim()) {
+        // 替换常见的占位符
+        insertion = code.replace(/\{x\}/g, '{' + selected + '}')
+                       .replace(/\{a\}/g, '{' + selected + '}')
+                       .replace(/ x /g, ' ' + selected + ' ')
+                       .replace(/^x$/, selected);
+    }
+
+    var wrapped = '$' + insertion + '$';
+    textarea.value = textarea.value.substring(0, start) + wrapped + textarea.value.substring(end);
+    textarea.selectionStart = start + 1;
+    textarea.selectionEnd = start + 1 + insertion.length;
+    textarea.focus();
+}
+
 // ========== 工具栏命令 ==========
 
-function handleToolbarCommand(cmd, textarea, images, fileInput, callConfig, schedulePreview) {
+function handleToolbarCommand(cmd, textarea, images, fileInput, callConfig, schedulePreview, btn) {
     switch (cmd) {
         case 'bold':
             insertMarkdownSyntax(textarea, 'bold');
@@ -424,6 +576,9 @@ function handleToolbarCommand(cmd, textarea, images, fileInput, callConfig, sche
         case 'mathBlock':
             insertMarkdownSyntax(textarea, 'mathBlock');
             schedulePreview();
+            break;
+        case 'formula':
+            showFormulaPanel(textarea, btn, schedulePreview);
             break;
         case 'image':
             fileInput.click();
@@ -504,40 +659,25 @@ function showCropModal(base64, callback) {
 
     var overlay = document.createElement('div');
     overlay.id = 'ai-crop-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:2147483647;display:flex;align-items:center;justify-content:center;';
+    overlay.className = 'ai-crop-overlay';
 
-    var card = document.createElement('div');
-    card.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-width:90vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;font-family:-apple-system,SF Pro Display,Helvetica Neue,sans-serif;';
+    overlay.innerHTML =
+        '<div class="ai-crop-card">' +
+            '<div class="ai-crop-header">' +
+                '<span>裁切图片</span>' +
+                '<button class="ai-crop-close" title="关闭（使用原图）">&times;</button>' +
+            '</div>' +
+            '<div class="ai-crop-body"><canvas id="ai-crop-canvas"></canvas></div>' +
+            '<div class="ai-crop-hint">拖拽鼠标选择裁切区域，或直接点击「使用原图」</div>' +
+            '<div class="ai-crop-footer">' +
+                '<button class="ai-crop-btn ai-crop-btn-skip" id="ai-crop-skip">使用原图</button>' +
+                '<button class="ai-crop-btn ai-crop-btn-confirm" id="ai-crop-confirm">确认裁切</button>' +
+            '</div>' +
+        '</div>';
 
-    // 标题
-    var header = document.createElement('div');
-    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,0.08);';
-    header.innerHTML = '<span style="font-size:15px;font-weight:600;color:#1a1a1a;">裁切图片</span><button id="ai-crop-close" style="width:28px;height:28px;border:none;background:rgba(0,0,0,0.05);border-radius:50%;font-size:18px;cursor:pointer;color:#666;display:flex;align-items:center;justify-content:center;">&times;</button>';
-
-    // Canvas 容器
-    var canvasWrap = document.createElement('div');
-    canvasWrap.style.cssText = 'flex:1;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;min-height:300px;';
-
-    var canvas = document.createElement('canvas');
-    canvas.style.cssText = 'max-width:100%;max-height:60vh;cursor:crosshair;display:block;';
-    canvasWrap.appendChild(canvas);
-
-    // 提示
-    var hint = document.createElement('div');
-    hint.style.cssText = 'text-align:center;font-size:12px;color:#888;padding:0 16px 4px;';
-    hint.textContent = '拖拽鼠标选择裁切区域，或直接点击「使用原图」';
-
-    // 底部按钮
-    var footer = document.createElement('div');
-    footer.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid rgba(0,0,0,0.08);';
-    footer.innerHTML = '<button id="ai-crop-skip" style="padding:7px 20px;border-radius:8px;border:none;font-size:13px;font-weight:500;cursor:pointer;background:rgba(0,0,0,0.05);color:#666;">使用原图</button><button id="ai-crop-confirm" style="padding:7px 20px;border-radius:8px;border:none;font-size:13px;font-weight:500;cursor:pointer;background:#007aff;color:#fff;">确认裁切</button>';
-
-    card.appendChild(header);
-    card.appendChild(canvasWrap);
-    card.appendChild(hint);
-    card.appendChild(footer);
-    overlay.appendChild(card);
     document.body.appendChild(overlay);
+
+    var canvas = document.getElementById('ai-crop-canvas');
 
     // 加载图片
     var img = new Image();
@@ -571,7 +711,7 @@ function showCropModal(base64, callback) {
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 ctx.restore();
                 // 选区边框
-                ctx.strokeStyle = '#007aff';
+                ctx.strokeStyle = '#1d1d1f';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(selRect.x, selRect.y, selRect.w, selRect.h);
             }
@@ -611,18 +751,18 @@ function showCropModal(base64, callback) {
             dragging = false;
         });
 
-        // 关闭
+        // 关闭（使用原图）
         function close() { overlay.remove(); }
-        header.querySelector('#ai-crop-close').onclick = close;
+        overlay.querySelector('.ai-crop-close').onclick = function () { close(); callback(base64); };
 
         // 使用原图
-        footer.querySelector('#ai-crop-skip').onclick = function () {
+        overlay.querySelector('#ai-crop-skip').onclick = function () {
             close();
             callback(base64);
         };
 
         // 确认裁切
-        footer.querySelector('#ai-crop-confirm').onclick = function () {
+        overlay.querySelector('#ai-crop-confirm').onclick = function () {
             if (!selRect) {
                 close();
                 callback(base64);
@@ -650,9 +790,9 @@ function showCropModal(base64, callback) {
 }
 
 /**
- * 从文件添加图片到编辑器（先弹裁切框）
+ * 从文件添加图片到编辑器（先弹选择框：裁切/AI识别/直接插入）
  */
-function addImageFromFile(file, textarea, images, schedulePreview) {
+function addImageFromFile(file, textarea, images, schedulePreview, callConfig) {
     if (!file || file.type.indexOf('image') === -1) return;
 
     var processFn = file.size > 2 * 1024 * 1024
@@ -660,10 +800,195 @@ function addImageFromFile(file, textarea, images, schedulePreview) {
         : function (cb) { fileToBase64(file, cb); };
 
     processFn(function (base64) {
-        showCropModal(base64, function (croppedBase64) {
-            insertImageRef(croppedBase64, textarea, images, schedulePreview);
-        });
+        showImageChoiceModal(base64, callConfig,
+            // 裁切
+            function () {
+                showCropModal(base64, function (croppedBase64) {
+                    insertImageRef(croppedBase64, textarea, images, schedulePreview);
+                });
+            },
+            // AI识别
+            function () {
+                showAIRecognitionModal([base64], images, callConfig, function (processedText) {
+                    var pos = textarea.selectionStart;
+                    textarea.value = textarea.value.substring(0, pos) + '\n' + processedText + '\n' + textarea.value.substring(pos);
+                    schedulePreview();
+                });
+            },
+            // 直接插入
+            function () {
+                insertImageRef(base64, textarea, images, schedulePreview);
+            }
+        );
     });
+}
+
+/**
+ * 显示图片选择弹窗（裁切 / AI识别 / 直接插入）
+ */
+function showImageChoiceModal(base64, callConfig, onCrop, onRecognize, onInsert) {
+    var old = document.querySelector('.ai-img-choice-overlay');
+    if (old) old.remove();
+
+    var overlay = document.createElement('div');
+    overlay.className = 'ai-img-choice-overlay';
+
+    var hasAI = !!(callConfig && callConfig.apiKey);
+
+    overlay.innerHTML =
+        '<div class="ai-img-choice-card">' +
+            '<div class="ai-img-choice-preview">' +
+                '<img src="data:image/png;base64,' + base64 + '" alt="预览">' +
+            '</div>' +
+            '<div class="ai-img-choice-actions">' +
+                '<button class="ai-img-choice-btn" data-action="crop">' +
+                    '<span class="btn-icon">✂️</span>' +
+                    '<div><div class="btn-label">裁切图片</div><div class="btn-desc">拖拽选择区域，裁剪后插入</div></div>' +
+                '</button>' +
+                '<button class="ai-img-choice-btn" data-action="recognize"' + (hasAI ? '' : ' disabled title="请先配置 AI 供应商和 API Key"') + '>' +
+                    '<span class="btn-icon">✨</span>' +
+                    '<div><div class="btn-label">AI 识别</div><div class="btn-desc">识别图片中的文字和公式，转为 Markdown</div></div>' +
+                '</button>' +
+                '<button class="ai-img-choice-btn" data-action="insert">' +
+                    '<span class="btn-icon">📄</span>' +
+                    '<div><div class="btn-label">直接插入</div><div class="btn-desc">不裁切，直接将图片插入编辑器</div></div>' +
+                '</button>' +
+                '<button class="ai-img-choice-cancel" data-action="cancel">取消</button>' +
+            '</div>' +
+        '</div>';
+
+    document.body.appendChild(overlay);
+
+    function close() { overlay.remove(); }
+
+    overlay.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        var action = btn.getAttribute('data-action');
+        close();
+        if (action === 'crop') onCrop();
+        else if (action === 'recognize') onRecognize();
+        else if (action === 'insert') onInsert();
+    });
+
+    // 点击遮罩关闭
+    overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) close();
+    });
+}
+
+/**
+ * 显示 AI 识别结果弹窗（流式渲染 + 确认/取消）
+ * @param {string[]} imageBase64Array - 待识别的图片 base64 数组
+ * @param {string[]} targetImages - 编辑器的图片数组（用于 postProcessRecognition）
+ * @param {object} callConfig - AI 调用配置
+ * @param {function} onConfirm - 确认回调 (processedText) => void
+ */
+function showAIRecognitionModal(imageBase64Array, targetImages, callConfig, onConfirm) {
+    var old = document.querySelector('.ai-recog-overlay');
+    if (old) old.remove();
+
+    var overlay = document.createElement('div');
+    overlay.className = 'ai-recog-overlay';
+
+    var imagesHtml = '';
+    imageBase64Array.forEach(function (b64) {
+        imagesHtml += '<img src="data:image/png;base64,' + b64 + '" alt="待识别图片">';
+    });
+
+    overlay.innerHTML =
+        '<div class="ai-recog-card">' +
+            '<div class="ai-recog-header">' +
+                '<h3>AI 识别</h3>' +
+                '<button class="ai-recog-close">&times;</button>' +
+            '</div>' +
+            '<div class="ai-recog-images">' + imagesHtml + '</div>' +
+            '<div class="ai-recog-body" id="ai-recog-body">' +
+                '<div class="ai-recog-loading"><div class="spinner"></div>正在识别中...</div>' +
+            '</div>' +
+            '<div class="ai-recog-footer">' +
+                '<button class="ai-recog-btn ai-recog-btn-cancel" id="ai-recog-cancel">取消</button>' +
+                '<button class="ai-recog-btn ai-recog-btn-confirm" id="ai-recog-confirm" disabled>确认插入</button>' +
+            '</div>' +
+        '</div>';
+
+    document.body.appendChild(overlay);
+
+    var bodyEl = document.getElementById('ai-recog-body');
+    var confirmBtn = document.getElementById('ai-recog-confirm');
+    var cancelBtn = document.getElementById('ai-recog-cancel');
+    var closeBtn = overlay.querySelector('.ai-recog-close');
+    var finalText = '';
+    var isDone = false;
+
+    function close() { overlay.remove(); }
+
+    closeBtn.onclick = close;
+    cancelBtn.onclick = close;
+
+    confirmBtn.onclick = function () {
+        if (!isDone || !finalText) return;
+        close();
+        onConfirm(finalText);
+    };
+
+    // 调用 AI 识别
+    var recognitionPrompt = buildRecognitionPrompt();
+
+    // 流式渲染节流
+    var _lastRenderTime = 0;
+    var _pendingText = null;
+    var _throttleTimer = null;
+    var THROTTLE_MS = 100;
+
+    function doRender(text) {
+        if (window.__aiMarkdownRenderer) {
+            bodyEl.innerHTML = window.__aiMarkdownRenderer.render(text);
+        } else {
+            bodyEl.textContent = text;
+        }
+        bodyEl.scrollTop = bodyEl.scrollHeight;
+    }
+
+    function throttledRender(text) {
+        var now = Date.now();
+        var elapsed = now - _lastRenderTime;
+        if (elapsed >= THROTTLE_MS) {
+            _lastRenderTime = now;
+            _pendingText = null;
+            if (_throttleTimer) { clearTimeout(_throttleTimer); _throttleTimer = null; }
+            doRender(text);
+        } else {
+            _pendingText = text;
+            if (!_throttleTimer) {
+                _throttleTimer = setTimeout(function () {
+                    _throttleTimer = null;
+                    _lastRenderTime = Date.now();
+                    if (_pendingText !== null) { doRender(_pendingText); _pendingText = null; }
+                }, THROTTLE_MS - elapsed);
+            }
+        }
+    }
+
+    if (typeof callAI === 'function') {
+        callAI(recognitionPrompt, imageBase64Array, callConfig, function (fullText) {
+            var cleaned = fullText.replace(/^```markdown\s*/i, '').replace(/\s*```\s*$/, '');
+            throttledRender(cleaned);
+        }).then(function (fullText) {
+            // 刷新节流期内的最终内容
+            if (_throttleTimer) { clearTimeout(_throttleTimer); _throttleTimer = null; }
+            var cleaned = fullText.replace(/^```markdown\s*/i, '').replace(/\s*```\s*$/, '');
+            finalText = postProcessRecognition(cleaned, imageBase64Array, targetImages);
+            doRender(finalText);
+            isDone = true;
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '确认插入';
+        }).catch(function (err) {
+            bodyEl.innerHTML = '<div style="color:#D93025;padding:20px;">识别失败: ' + (err.message || err) + '</div>';
+        });
+    } else {
+        bodyEl.innerHTML = '<div style="color:#D93025;padding:20px;">AI 功能不可用</div>';
+    }
 }
 
 /**
@@ -728,6 +1053,11 @@ function insertImageRef(base64, textarea, images, schedulePreview) {
  * 启动 AI 识别流程
  */
 function startAIRecognition(textarea, images, callConfig, schedulePreview) {
+    if (!callConfig) {
+        if (typeof showToast === 'function') showToast('请先配置 AI 供应商和 API Key', 'error');
+        return;
+    }
+
     // 创建文件选择
     var input = document.createElement('input');
     input.type = 'file';
@@ -752,13 +1082,25 @@ function startAIRecognition(textarea, images, callConfig, schedulePreview) {
                     compressImage(file, 800, function (b64) {
                         base64Array.push(b64);
                         processed++;
-                        if (processed === total) doAIRecognition(base64Array, textarea, images, callConfig, schedulePreview);
+                        if (processed === total) {
+                            showAIRecognitionModal(base64Array, images, callConfig, function (processedText) {
+                                var pos = textarea.selectionStart;
+                                textarea.value = textarea.value.substring(0, pos) + '\n' + processedText + '\n' + textarea.value.substring(pos);
+                                schedulePreview();
+                            });
+                        }
                     });
                 } else {
                     fileToBase64(file, function (b64) {
                         base64Array.push(b64);
                         processed++;
-                        if (processed === total) doAIRecognition(base64Array, textarea, images, callConfig, schedulePreview);
+                        if (processed === total) {
+                            showAIRecognitionModal(base64Array, images, callConfig, function (processedText) {
+                                var pos = textarea.selectionStart;
+                                textarea.value = textarea.value.substring(0, pos) + '\n' + processedText + '\n' + textarea.value.substring(pos);
+                                schedulePreview();
+                            });
+                        }
                     });
                 }
             })(files[i]);
@@ -825,46 +1167,56 @@ function startAIPolish(textarea, callConfig, schedulePreview) {
     var end = textarea.selectionEnd;
     var selected = textarea.value.substring(start, end);
 
-    // 如果没有选中文本，提示教师选中或输入
+    // 如果没有选中文本，弹出自定义输入框让教师描述
+    function doPolish(inputText) {
+        var polishPrompt = '你是一位数学/科学公式排版专家。请将以下自然语言描述转换为标准的 Markdown 格式（含 LaTeX 公式）。\n\n' +
+            '规则：\n' +
+            '- 数学公式用 LaTeX：行内用 $...$ ，独立公式用 $$...$$\n' +
+            '- 化学式用正确的符号表示\n' +
+            '- 保持原文的语义和结构\n' +
+            '- 只输出转换后的内容，不要添加任何解释或说明\n\n' +
+            '原始描述：\n' + inputText;
+
+        // 标记正在润色
+        var marker = '<!-- AI润色中... -->';
+        if (start !== end) {
+            textarea.value = textarea.value.substring(0, start) + marker + textarea.value.substring(end);
+        } else {
+            textarea.value = textarea.value.substring(0, start) + marker + textarea.value.substring(start);
+        }
+
+        callAI(polishPrompt, [], callConfig, function (fullText) {
+            var cleaned = fullText.replace(/^```(?:markdown)?\s*/i, '').replace(/\s*```\s*$/, '');
+            textarea.value = textarea.value.substring(0, start) + cleaned + textarea.value.substring(start + marker.length);
+            textarea.scrollTop = textarea.scrollHeight;
+            schedulePreview();
+        }).then(function (fullText) {
+            var cleaned = fullText.replace(/^```(?:markdown)?\s*/i, '').replace(/\s*```\s*$/, '');
+            textarea.value = textarea.value.substring(0, start) + cleaned + textarea.value.substring(start + marker.length);
+            textarea.selectionStart = start;
+            textarea.selectionEnd = start + cleaned.length;
+            schedulePreview();
+            if (typeof showToast === 'function') showToast('AI润色完成', 'success');
+        }).catch(function (err) {
+            textarea.value = textarea.value.substring(0, start) + inputText + textarea.value.substring(start + marker.length);
+            if (typeof showToast === 'function') showToast('AI润色失败: ' + (err.message || err), 'error');
+        });
+    }
+
     if (!selected.trim()) {
-        // 弹出输入框让教师描述
-        var desc = prompt('请输入要润色的内容描述（如：2倍根号下g乘d）：');
-        if (!desc || !desc.trim()) return;
-        selected = desc.trim();
-    }
-
-    var polishPrompt = '你是一位数学/科学公式排版专家。请将以下自然语言描述转换为标准的 Markdown 格式（含 LaTeX 公式）。\n\n' +
-        '规则：\n' +
-        '- 数学公式用 LaTeX：行内用 $...$ ，独立公式用 $$...$$\n' +
-        '- 化学式用正确的符号表示\n' +
-        '- 保持原文的语义和结构\n' +
-        '- 只输出转换后的内容，不要添加任何解释或说明\n\n' +
-        '原始描述：\n' + selected;
-
-    // 标记正在润色
-    var marker = '<!-- AI润色中... -->';
-    if (start !== end) {
-        textarea.value = textarea.value.substring(0, start) + marker + textarea.value.substring(end);
+        if (typeof showPromptModal === 'function') {
+            showPromptModal('请输入要润色的内容描述（如：2倍根号下g乘d）：').then(function (desc) {
+                if (!desc || !desc.trim()) return;
+                doPolish(desc.trim());
+            });
+        } else {
+            var desc = prompt('请输入要润色的内容描述（如：2倍根号下g乘d）：');
+            if (!desc || !desc.trim()) return;
+            doPolish(desc.trim());
+        }
     } else {
-        textarea.value = textarea.value.substring(0, start) + marker + textarea.value.substring(start);
+        doPolish(selected);
     }
-
-    callAI(polishPrompt, [], callConfig, function (fullText) {
-        var cleaned = fullText.replace(/^```(?:markdown)?\s*/i, '').replace(/\s*```\s*$/, '');
-        textarea.value = textarea.value.substring(0, start) + cleaned + textarea.value.substring(start + marker.length);
-        textarea.scrollTop = textarea.scrollHeight;
-        schedulePreview();
-    }).then(function (fullText) {
-        var cleaned = fullText.replace(/^```(?:markdown)?\s*/i, '').replace(/\s*```\s*$/, '');
-        textarea.value = textarea.value.substring(0, start) + cleaned + textarea.value.substring(start + marker.length);
-        textarea.selectionStart = start;
-        textarea.selectionEnd = start + cleaned.length;
-        schedulePreview();
-        if (typeof showToast === 'function') showToast('AI润色完成', 'success');
-    }).catch(function (err) {
-        textarea.value = textarea.value.substring(0, start) + selected + textarea.value.substring(start + marker.length);
-        if (typeof showToast === 'function') showToast('AI润色失败: ' + (err.message || err), 'error');
-    });
 }
 
 /**
@@ -973,12 +1325,12 @@ function injectMarkdownStyles() {
         '  transition: border-color 0.2s, box-shadow 0.2s;',
         '}',
         '.md-preview-container:hover {',
-        '  border-color: rgba(0,122,255,0.3);',
-        '  box-shadow: 0 0 0 2px rgba(0,122,255,0.08);',
+        '  border-color: rgba(0,0,0,0.15);',
+        '  box-shadow: 0 0 0 2px rgba(0,0,0,0.04);',
         '}',
         '.md-preview-container .md-placeholder { color: #999; font-style: italic; }',
         '.md-preview-container .md-edit-btn {',
-        '  display: none; pointer-events: none;', /* 纯装饰，点击由容器处理 */
+        '  display: none; pointer-events: none;',
         '}',
         '.md-preview-container:hover .md-edit-btn {',
         '  display: inline-flex;',
@@ -986,7 +1338,7 @@ function injectMarkdownStyles() {
         '  top: 6px; right: 6px;',
         '  padding: 3px 10px;',
         '  font-size: 12px;',
-        '  background: rgba(0,122,255,0.9);',
+        '  background: #1d1d1f;',
         '  color: #fff;',
         '  border: none;',
         '  border-radius: 6px;',
@@ -1055,7 +1407,7 @@ function injectMarkdownStyles() {
         '  display: flex;',
         '  flex-direction: column;',
         '  overflow: hidden;',
-        '  font-family: -apple-system, SF Pro Display, Helvetica Neue, sans-serif;',
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;',
         '}',
 
         /* 标题栏 */
@@ -1074,7 +1426,7 @@ function injectMarkdownStyles() {
         '  cursor: pointer; color: #666;',
         '  display: flex; align-items: center; justify-content: center;',
         '}',
-        '.md-editor-close:hover { background: rgba(255,59,48,0.1); color: #ff3b30; }',
+        '.md-editor-close:hover { background: rgba(0,0,0,0.1); color: #1a1a1a; }',
 
         /* 工具栏 */
         '.md-editor-toolbar {',
@@ -1096,7 +1448,7 @@ function injectMarkdownStyles() {
         '  color: #444;',
         '  transition: background 0.15s;',
         '}',
-        '.md-editor-toolbar button:hover { background: rgba(0,122,255,0.1); color: #007aff; }',
+        '.md-editor-toolbar button:hover { background: rgba(0,0,0,0.06); color: #1a1a1a; }',
         '.md-toolbar-sep {',
         '  width: 1px;',
         '  height: 18px;',
@@ -1179,7 +1531,7 @@ function injectMarkdownStyles() {
         '  padding: 6px 10px;',
         '}',
         '.md-preview-inner blockquote {',
-        '  border-left: 3px solid rgba(0,122,255,0.3);',
+        '  border-left: 3px solid rgba(0,0,0,0.15);',
         '  padding-left: 12px;',
         '  color: #666;',
         '  margin: 8px 0;',
@@ -1206,8 +1558,8 @@ function injectMarkdownStyles() {
         '}',
         '.md-btn-cancel { background: rgba(0,0,0,0.05); color: #666; }',
         '.md-btn-cancel:hover { background: rgba(0,0,0,0.1); }',
-        '.md-btn-confirm { background: #007aff; color: #fff; }',
-        '.md-btn-confirm:hover { background: #0066d6; }',
+        '.md-btn-confirm { background: #1d1d1f; color: #fff; }',
+        '.md-btn-confirm:hover { background: #000; }',
 
         /* KaTeX 公式 fallback */
         '.katex-fallback {',
@@ -1217,6 +1569,203 @@ function injectMarkdownStyles() {
         '  font-family: SF Mono, JetBrains Mono, Consolas, monospace;',
         '  font-size: 0.9em;',
         '}',
+
+        /* ---------- 裁切模态框 ---------- */
+        '.ai-crop-overlay {',
+        '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;',
+        '  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);',
+        '  z-index: 2147483647; display: flex; align-items: center; justify-content: center;',
+        '}',
+        '.ai-crop-card {',
+        '  background: #fff; border-radius: 14px;',
+        '  box-shadow: 0 28px 80px rgba(18,28,45,0.22);',
+        '  max-width: 90vw; max-height: 85vh;',
+        '  display: flex; flex-direction: column; overflow: hidden;',
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;',
+        '}',
+        '.ai-crop-header {',
+        '  display: flex; align-items: center; justify-content: space-between;',
+        '  padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,0.08);',
+        '}',
+        '.ai-crop-header span { font-size: 15px; font-weight: 600; color: #1a1a1a; }',
+        '.ai-crop-close {',
+        '  width: 28px; height: 28px; border: none;',
+        '  background: rgba(0,0,0,0.05); border-radius: 50%;',
+        '  font-size: 18px; cursor: pointer; color: #666;',
+        '  display: flex; align-items: center; justify-content: center;',
+        '}',
+        '.ai-crop-close:hover { background: rgba(0,0,0,0.1); color: #1a1a1a; }',
+        '.ai-crop-body {',
+        '  flex: 1; overflow: auto; padding: 16px;',
+        '  display: flex; align-items: center; justify-content: center; min-height: 300px;',
+        '}',
+        '.ai-crop-body canvas {',
+        '  max-width: 100%; max-height: 60vh; cursor: crosshair; display: block;',
+        '}',
+        '.ai-crop-hint {',
+        '  text-align: center; font-size: 12px; color: #888; padding: 0 16px 4px;',
+        '}',
+        '.ai-crop-footer {',
+        '  display: flex; align-items: center; justify-content: flex-end; gap: 8px;',
+        '  padding: 10px 16px; border-top: 1px solid rgba(0,0,0,0.08);',
+        '}',
+        '.ai-crop-btn {',
+        '  padding: 7px 20px; border-radius: 8px; border: none;',
+        '  font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s;',
+        '}',
+        '.ai-crop-btn-skip { background: rgba(0,0,0,0.05); color: #666; }',
+        '.ai-crop-btn-skip:hover { background: rgba(0,0,0,0.1); }',
+        '.ai-crop-btn-confirm { background: #1d1d1f; color: #fff; }',
+        '.ai-crop-btn-confirm:hover { background: #000; }',
+
+        /* ---------- 图片选择弹窗 ---------- */
+        '.ai-img-choice-overlay {',
+        '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;',
+        '  background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);',
+        '  z-index: 2147483647; display: flex; align-items: center; justify-content: center;',
+        '}',
+        '.ai-img-choice-card {',
+        '  background: #fff; border-radius: 14px;',
+        '  box-shadow: 0 28px 80px rgba(18,28,45,0.22);',
+        '  width: 520px; max-width: 90vw; max-height: 85vh;',
+        '  display: flex; flex-direction: column; overflow: hidden;',
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;',
+        '}',
+        '.ai-img-choice-preview {',
+        '  padding: 16px; display: flex; justify-content: center; align-items: center;',
+        '  background: rgba(0,0,0,0.02); border-bottom: 1px solid rgba(0,0,0,0.06);',
+        '  max-height: 240px; overflow: hidden;',
+        '}',
+        '.ai-img-choice-preview img {',
+        '  max-width: 100%; max-height: 200px; border-radius: 8px; object-fit: contain;',
+        '}',
+        '.ai-img-choice-actions {',
+        '  padding: 16px; display: flex; flex-direction: column; gap: 8px;',
+        '}',
+        '.ai-img-choice-btn {',
+        '  padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1);',
+        '  background: #fff; color: #1a1a1a; font-size: 14px; font-weight: 500;',
+        '  cursor: pointer; transition: all 0.15s; text-align: left;',
+        '  display: flex; align-items: center; gap: 10px;',
+        '}',
+        '.ai-img-choice-btn:hover { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.2); }',
+        '.ai-img-choice-btn .btn-icon { font-size: 18px; width: 24px; text-align: center; }',
+        '.ai-img-choice-btn .btn-label { font-weight: 600; }',
+        '.ai-img-choice-btn .btn-desc { font-size: 12px; color: #888; font-weight: 400; }',
+        '.ai-img-choice-cancel {',
+        '  padding: 8px; border: none; background: none; color: #888;',
+        '  font-size: 13px; cursor: pointer; margin-top: 4px;',
+        '}',
+        '.ai-img-choice-cancel:hover { color: #1a1a1a; }',
+
+        /* ---------- 公式模板面板 ---------- */
+        '.md-formula-panel {',
+        '  position: absolute; top: 100%; left: 0; z-index: 10;',
+        '  background: #fff; border: 1px solid rgba(0,0,0,0.1);',
+        '  border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.12);',
+        '  padding: 12px; width: 380px; max-height: 400px; overflow-y: auto;',
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;',
+        '}',
+        '.md-formula-section { margin-bottom: 12px; }',
+        '.md-formula-section:last-child { margin-bottom: 0; }',
+        '.md-formula-section-title {',
+        '  font-size: 11px; font-weight: 600; color: #888;',
+        '  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;',
+        '}',
+        '.md-formula-grid {',
+        '  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;',
+        '}',
+        '.md-formula-item {',
+        '  padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.06);',
+        '  background: #fff; cursor: pointer; transition: all 0.15s;',
+        '  display: flex; flex-direction: column; align-items: center; gap: 2px;',
+        '}',
+        '.md-formula-item:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.15); }',
+        '.md-formula-item .formula-code {',
+        '  font-family: SF Mono, JetBrains Mono, Consolas, monospace;',
+        '  font-size: 10px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;',
+        '}',
+        '.md-formula-item .formula-preview {',
+        '  font-size: 14px; min-height: 20px; display: flex; align-items: center; justify-content: center;',
+        '}',
+        '.md-formula-greek {',
+        '  display: flex; flex-wrap: wrap; gap: 4px;',
+        '}',
+        '.md-formula-greek-item {',
+        '  padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.06);',
+        '  background: #fff; cursor: pointer; font-size: 16px; transition: all 0.15s;',
+        '  min-width: 32px; text-align: center;',
+        '}',
+        '.md-formula-greek-item:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.15); }',
+
+        /* ---------- AI识别结果弹窗 ---------- */
+        '.ai-recog-overlay {',
+        '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;',
+        '  background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);',
+        '  z-index: 2147483647; display: flex; align-items: center; justify-content: center;',
+        '}',
+        '.ai-recog-card {',
+        '  background: #fff; border-radius: 14px;',
+        '  box-shadow: 0 28px 80px rgba(18,28,45,0.22);',
+        '  width: 680px; max-width: 90vw; max-height: 85vh;',
+        '  display: flex; flex-direction: column; overflow: hidden;',
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;',
+        '}',
+        '.ai-recog-header {',
+        '  display: flex; align-items: center; justify-content: space-between;',
+        '  padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,0.08);',
+        '}',
+        '.ai-recog-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: #1a1a1a; }',
+        '.ai-recog-close {',
+        '  width: 28px; height: 28px; border: none;',
+        '  background: rgba(0,0,0,0.05); border-radius: 50%;',
+        '  font-size: 18px; cursor: pointer; color: #666;',
+        '  display: flex; align-items: center; justify-content: center;',
+        '}',
+        '.ai-recog-close:hover { background: rgba(0,0,0,0.1); color: #1a1a1a; }',
+        '.ai-recog-images {',
+        '  padding: 12px 20px; display: flex; gap: 8px; overflow-x: auto;',
+        '  border-bottom: 1px solid rgba(0,0,0,0.06); background: rgba(0,0,0,0.01);',
+        '}',
+        '.ai-recog-images img {',
+        '  height: 80px; border-radius: 6px; object-fit: contain;',
+        '  border: 1px solid rgba(0,0,0,0.08);',
+        '}',
+        '.ai-recog-body {',
+        '  flex: 1; overflow-y: auto; padding: 16px 20px;',
+        '  min-height: 200px; max-height: 400px;',
+        '  font-size: 14px; line-height: 1.7; color: #1a1a1a;',
+        '}',
+        '.ai-recog-body .katex-display { margin: 8px 0; overflow-x: auto; }',
+        '.ai-recog-body pre { background: rgba(0,0,0,0.04); padding: 8px; border-radius: 6px; overflow-x: auto; }',
+        '.ai-recog-body code { background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 3px; font-size: 12px; }',
+        '.ai-recog-body pre code { background: none; padding: 0; }',
+        '.ai-recog-body table { border-collapse: collapse; margin: 8px 0; }',
+        '.ai-recog-body th, .ai-recog-body td { border: 1px solid rgba(0,0,0,0.1); padding: 4px 8px; }',
+        '.ai-recog-body img { max-width: 100%; max-height: 200px; border-radius: 4px; }',
+        '.ai-recog-loading {',
+        '  display: flex; align-items: center; justify-content: center;',
+        '  padding: 40px; color: #888; font-size: 14px;',
+        '}',
+        '.ai-recog-loading .spinner {',
+        '  width: 20px; height: 20px; border: 2px solid rgba(0,0,0,0.1);',
+        '  border-top-color: #1d1d1f; border-radius: 50%;',
+        '  animation: md-spin 0.8s linear infinite; margin-right: 10px;',
+        '}',
+        '@keyframes md-spin { to { transform: rotate(360deg); } }',
+        '.ai-recog-footer {',
+        '  display: flex; align-items: center; justify-content: flex-end; gap: 8px;',
+        '  padding: 12px 20px; border-top: 1px solid rgba(0,0,0,0.08);',
+        '}',
+        '.ai-recog-btn {',
+        '  padding: 8px 20px; border-radius: 8px; border: none;',
+        '  font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s;',
+        '}',
+        '.ai-recog-btn-cancel { background: rgba(0,0,0,0.05); color: #666; }',
+        '.ai-recog-btn-cancel:hover { background: rgba(0,0,0,0.1); }',
+        '.ai-recog-btn-confirm { background: #1d1d1f; color: #fff; }',
+        '.ai-recog-btn-confirm:hover { background: #000; }',
+        '.ai-recog-btn:disabled { opacity: 0.5; cursor: not-allowed; }',
 
         /* 响应式：窄屏改为上下布局 */
         '@media (max-width: 760px) {',

@@ -484,12 +484,26 @@ function showCorrectionPanel(context) {
         footer.querySelector('#cor-cancel2').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
 
         // 预览区点击 → 打开 Markdown 编辑器
+        // 构建 callConfig（复用 ProviderManager 中已保存的 API Key）
+        var _corCallConfig = null;
+        try {
+            var _corWfId = context?.config?.workflowId || 'fast';
+            var _corWf = typeof WorkflowManager !== 'undefined' ? WorkflowManager.getWorkflow(_corWfId) : null;
+            if (_corWf) {
+                var _corPName = _corWf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
+                var _corMName = _corWf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
+                var _corProv = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_corPName) : null;
+                _corCallConfig = { endpoint: _corProv?.endpoint || '', apiKey: _corProv?.apiKey || '', model: _corMName, reasoningEffort: _corWf.model?.reasoningEffort || '' };
+            }
+        } catch (e) { /* ignore */ }
+
         document.getElementById('cor-answer-preview')?.addEventListener('click', function () {
             if (typeof openMarkdownEditor !== 'function') return;
             openMarkdownEditor({
                 field: 'correction-answer', label: '参考答案',
                 initialText: editedAnswer,
                 initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedAnswerData) : [],
+                callConfig: _corCallConfig,
                 onConfirm: function (newText, newImages) {
                     editedAnswer = newText;
                     editedAnswerData = newImages && newImages.length
@@ -505,6 +519,7 @@ function showCorrectionPanel(context) {
                 field: 'correction-rubric', label: '评分标准',
                 initialText: editedRubric,
                 initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedRubricData) : [],
+                callConfig: _corCallConfig,
                 onConfirm: function (newText, newImages) {
                     editedRubric = newText;
                     editedRubricData = newImages && newImages.length

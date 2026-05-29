@@ -1,5 +1,5 @@
 // ========== 创建配置面板（侧边栏） ==========
-function createSettingsPanel() {
+function createSettingsPanel(options) {
     if (document.getElementById('ai-grading-settings')) return;
     if (document.getElementById('ai-settings-overlay')) return;
 
@@ -1295,8 +1295,10 @@ function createSettingsPanel() {
     loadSettings();
     renderChangelog();
 
-    // 初始化后打开侧边栏
-    requestAnimationFrame(() => openSettingsPanel());
+    // 初始化后打开侧边栏（除非调用方要求延迟打开，如 OOBE 场景）
+    if (!options || !options.deferOpen) {
+        requestAnimationFrame(() => openSettingsPanel());
+    }
 }
 
 function setupSettingsMenuLayout(panel) {
@@ -2839,9 +2841,22 @@ function showOnboardingDialog(forceShow, mode) {
                     if (!field) return;
                     var fieldData = window.__aiMarkdownData[field] || { text: '', images: [], format: 'plain' };
                     if (typeof openMarkdownEditor === 'function') {
+                        // 构建 callConfig（复用 ProviderManager 中已保存的 API Key）
+                        var _callConfig = null;
+                        try {
+                            var _wfId = selectedWorkflow || 'fast';
+                            var _wf = typeof WorkflowManager !== 'undefined' ? WorkflowManager.getWorkflow(_wfId) : null;
+                            if (_wf) {
+                                var _pName = _wf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
+                                var _mName = _wf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
+                                var _prov = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_pName) : null;
+                                _callConfig = { endpoint: _prov?.endpoint || '', apiKey: _prov?.apiKey || '', model: _mName, reasoningEffort: _wf.model?.reasoningEffort || '' };
+                            }
+                        } catch (e) { /* ignore */ }
                         openMarkdownEditor({
                             field: field, label: label,
                             initialText: fieldData.text, initialImages: fieldData.images,
+                            callConfig: _callConfig,
                             onConfirm: function (newText, newImages) {
                                 window.__aiMarkdownData[field] = { text: newText, images: newImages, format: 'markdown' };
                                 if (typeof renderMarkdownPreview === 'function') {
