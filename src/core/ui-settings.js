@@ -2298,7 +2298,7 @@ function showWorkflowEditModal(wf) {
                         <div class="form-group"><label>供应商</label><select id="wf-edit-arb-provider">${providerOptions}</select></div>
                         <div class="form-group"><label>模型</label><select id="wf-edit-arb-model"></select></div>
                         <div class="form-group"><label>思考链深度</label><select id="wf-edit-arb-reasoning">${reasoningEffortOptions}</select></div>
-                        <div class="form-group"><label>分差阈值 (分)</label><input type="number" id="wf-edit-threshold" value="${wf.dualEval?.threshold || 2}" min="1" max="10"></div>
+                        <div class="form-group"><label>分差阈值 (分，设为0则两模型必须完全一致)</label><input type="number" id="wf-edit-threshold" value="${wf.dualEval?.threshold != null ? wf.dualEval.threshold : 2}" min="0" max="10"></div>
                     </div>
                 </div>
             </div>
@@ -2391,7 +2391,7 @@ function showWorkflowEditModal(wf) {
                 enabled: true,
                 secondary: { provider: secProvider.value, model: secModel.value, reasoningEffort: secReasoning.value },
                 arbitration: { provider: arbProvider.value, model: arbModel.value, reasoningEffort: arbReasoning.value },
-                threshold: parseInt(document.getElementById('wf-edit-threshold').value) || 2
+                threshold: (function () { var v = parseInt(document.getElementById('wf-edit-threshold').value); return isNaN(v) ? 2 : Math.max(0, v); })()
             } : null
         };
 

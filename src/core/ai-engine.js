@@ -569,7 +569,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     const dualConfig = workflow.dualEval;
-    const threshold = dualConfig.threshold || 2;
+    const threshold = dualConfig.threshold != null ? dualConfig.threshold : 2;
 
     // 获取主模型和副模型配置
     const primaryConfig = ProviderManager.getCallConfig(

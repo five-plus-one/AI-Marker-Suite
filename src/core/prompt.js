@@ -299,14 +299,14 @@ function parseLegacyResponse(text, maxScore) {
 
 // ---------- 仲裁 Prompt ----------
 function buildArbitrationPrompt(config, resultA, resultB, threshold) {
-    return `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请查看图片后裁定。
+    return `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅学生作答图片后裁定。
 
 ===== 评分分歧 =====
 老师A评分：${resultA.score}分
-老师A评语：${resultA.comment || '无'}
+老师A评分依据：${resultA.comment || '无'}
 
 老师B评分：${resultB.score}分
-老师B评语：${resultB.comment || '无'}
+老师B评分依据：${resultB.comment || '无'}
 
 分差：${Math.abs(resultA.score - resultB.score)}分（阈值：${threshold}分）
 
@@ -316,18 +316,24 @@ function buildArbitrationPrompt(config, resultA, resultB, threshold) {
 【评分标准】${extractFieldText(config.rubric) || '未提供'}
 
 ===== 输出要求 =====
-你必须严格按照以下格式输出：
+请先独立分析学生答案，再对比两位老师的评分，最后给出你的裁定。严格按照以下格式输出：
+
+【答案复述】
+（用自己的话简要概述学生实际写了什么内容，不要遗漏关键步骤或答案）
+
+【独立评分依据】
+（抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）
 
 【仲裁分析】
-（分析两位老师评分差异的原因，逐条说明）
+（对比你的独立判断与两位老师的评分，分析分歧原因：谁的评判更合理？哪里存在误判？）
 
 【最终得分】
-（一个整数，你的裁定分数）
+（一个整数，基于你的独立判断给出最终分数，不必局限于两位老师的分数范围）
 
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
 2. 【最终得分】必须只有一行，只包含一个整数
-3. 你必须在两个分数之间选择，或给出折中分数
+3. 你必须独立审阅学生作答图片，不要被两位老师的分数左右
 4. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留`;
 }
 
