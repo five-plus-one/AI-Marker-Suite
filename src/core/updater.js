@@ -174,7 +174,7 @@ function showChannelSwitchDialog(stableNewer, stableVersion) {
                 </div>
             </div>
         `;
-        document.body.appendChild(overlay);
+        getUIRoot().appendChild(overlay);
         let closed = false;
         const close = result => { if (closed) return; closed = true; overlay.remove(); resolve(result); };
         overlay.querySelector('[data-action="stable"]').onclick = e => {
@@ -351,7 +351,7 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
         <button class="upd-btn-skip" id="upd-btn-skip">跳过此版本</button>
         <div id="upd-channel-area"></div>
     `;
-    document.body.appendChild(dialog);
+    getUIRoot().appendChild(dialog);
 
     dialog.querySelector('#upd-btn-now').addEventListener('click', () => {
         backupConfig(); // 更新前备份配置

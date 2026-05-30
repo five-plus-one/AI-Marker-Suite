@@ -436,7 +436,7 @@ function showAboutPanel() {
         </div>
     `;
 
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     // 绑定关闭事件
     const closeBtn = document.getElementById('about-close');

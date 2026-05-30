@@ -371,7 +371,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             <button id="minimized-cancel-btn" style="background:#fff;color:#344054;border:1px solid #d8dee8;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">取消</button>
         </div>
     `;
-    document.body.appendChild(dialog);
+    getUIRoot().appendChild(dialog);
 
     // Markdown+KaTeX 渲染：所有文本内容区域
     if (window.__aiMarkdownRenderer) {
@@ -554,7 +554,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             dialog.style.transform = 'none';
             dialog.style.left = rect.left + 'px';
             dialog.style.top = rect.top + 'px';
-            document.body.style.userSelect = 'none';
+            getUIRoot().style.userSelect = 'none';
         });
 
         document.addEventListener('mousemove', (e) => {
@@ -572,7 +572,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
         document.addEventListener('mouseup', () => {
             isDragging = false;
-            document.body.style.userSelect = '';
+            getUIRoot().style.userSelect = '';
         });
     }
 

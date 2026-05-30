@@ -82,7 +82,7 @@ function showToast(msg, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast-notification ${type}`;
     toast.innerHTML = `<span style="flex:1;">${msg}</span><button class="toast-close">&times;</button>`;
-    document.body.appendChild(toast);
+    getUIRoot().appendChild(toast);
 
     const closeBtn = toast.querySelector('.toast-close');
     closeBtn.onclick = () => {

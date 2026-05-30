@@ -12,7 +12,7 @@ function createSettingsPanel(options) {
         z-index: 9999; opacity: 0; pointer-events: none;
         transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     `;
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     const panel = document.createElement('div');
     panel.id = 'ai-grading-settings';
@@ -1046,7 +1046,7 @@ function createSettingsPanel(options) {
             <button class="footer-btn" id="btn-check-update">检查更新</button>
         </div>
     `;
-    document.body.appendChild(panel);
+    getUIRoot().appendChild(panel);
     setupSettingsMenuLayout(panel);
 
     // 遮罩层点击关闭
@@ -2309,7 +2309,7 @@ function showWorkflowEditModal(wf) {
             </div>
         </div>
     `;
-    document.body.appendChild(modal);
+    getUIRoot().appendChild(modal);
 
     // 初始化下拉框
     const mainProvider = document.getElementById('wf-edit-provider');
@@ -2989,7 +2989,7 @@ function showOnboardingDialog(forceShow, mode) {
         render();
     }
 
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
     render();
 }
 
@@ -3022,7 +3022,7 @@ function showInsufficientBalanceDialog(isOfficial) {
             </div>
         </div>
     `;
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     overlay.querySelector('#balance-close').onclick = () => overlay.remove();
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
