@@ -335,7 +335,23 @@ const HuiyuejuanAdapter = {
         const score = scores[0];
         if (score === null || score === undefined) return false;
 
-        console.log(`📝 [慧阅卷] 填入分数: ${score}`);
+        // 慧阅卷平台在点击分数按钮后会自动提交
+        // 所以需要延迟到用户确认后再点击分数按钮
+        this._pendingScore = score;
+        console.log(`📝 [慧阅卷] 记录待填入分数: ${score}（等待用户确认后点击）`);
+        return true;
+    },
+
+    // 点击分数按钮（在用户确认后由 submitGrade 调用）
+    _clickScore() {
+        if (this._pendingScore === null || this._pendingScore === undefined) {
+            console.warn('⚠️ [慧阅卷] 没有待填入的分数');
+            return false;
+        }
+
+        const score = this._pendingScore;
+        this._pendingScore = null;
+        console.log(`📝 [慧阅卷] 用户确认，填入分数: ${score}`);
 
         const frameDoc = this._getFrameDoc();
         if (!frameDoc) {
@@ -418,6 +434,9 @@ const HuiyuejuanAdapter = {
 
     submitGrade() {
         console.log('📤 [慧阅卷] 开始提交分数...');
+
+        // 用户确认后才点击分数按钮（慧阅卷点击分数即自动提交）
+        this._clickScore();
 
         const frameDoc = this._getFrameDoc();
         if (!frameDoc) {
