@@ -1,5 +1,77 @@
 // ========== 提示词组装与解析 ==========
 
+// ---------- 字段数据工具函数 ----------
+
+/**
+ * 从字段数据中提取纯文本（兼容旧格式字符串和新格式对象）
+ * @param {string|object} field - 旧格式字符串或 { text, images, format } 对象
+ * @returns {string}
+ */
+function extractFieldText(field) {
+    if (typeof field === 'string') return field;
+    if (field && typeof field === 'object') {
+        var t = field.text;
+        if (typeof t === 'string') return t;
+        // 递归处理：text 本身也可能是对象（双重嵌套）
+        if (t && typeof t === 'object' && typeof t.text === 'string') return t.text;
+        return '';
+    }
+    return '';
+}
+
+/**
+ * 从字段数据中提取图片数组
+ * @param {string|object} field
+ * @returns {string[]}
+ */
+function extractFieldImages(field) {
+    if (field && typeof field === 'object' && Array.isArray(field.images)) return field.images;
+    return [];
+}
+
+/**
+ * 从 config 中收集所有字段的图片（题目/答案/评分标准）
+ * @param {object} config
+ * @returns {string[]}
+ */
+function collectFieldImages(config) {
+    var images = [];
+    var qImg = extractFieldImages(config.question);
+    var aImg = extractFieldImages(config.answer);
+    var rImg = extractFieldImages(config.rubric);
+    // 为每组图片添加标注，便于 AI 区分
+    if (qImg.length) images.push.apply(images, qImg);
+    if (aImg.length) images.push.apply(images, aImg);
+    if (rImg.length) images.push.apply(images, rImg);
+    return images;
+}
+
+/**
+ * 构建图片归属说明（告知 AI 哪些图片属于题目/答案/评分标准）
+ */
+function buildImageAnnotation(config) {
+    var qLen = extractFieldImages(config.question).length;
+    var aLen = extractFieldImages(config.answer).length;
+    var rLen = extractFieldImages(config.rubric).length;
+    if (qLen + aLen + rLen === 0) return '';
+
+    var parts = [];
+    var idx = 1;
+    if (qLen > 0) {
+        parts.push('第' + idx + '-' + (idx + qLen - 1) + '张为题目配图');
+        idx += qLen;
+    }
+    if (aLen > 0) {
+        parts.push('第' + idx + '-' + (idx + aLen - 1) + '张为参考答案配图');
+        idx += aLen;
+    }
+    if (rLen > 0) {
+        parts.push('第' + idx + '-' + (idx + rLen - 1) + '张为评分标准配图');
+        idx += rLen;
+    }
+    return '\n（图片说明：' + parts.join('，') + '）';
+}
+
 // ---------- 勤勉度 Prompt 片段 ----------
 function buildDiligencePromptSection(config) {
     const diligence = config.scoring?.diligence;
@@ -20,12 +92,18 @@ function buildStructuredPrompt(config) {
     const maxScore = config.maxScore || 0;
     const maxScoreText = maxScore > 0 ? `满分${maxScore}分` : '满分未指定，请根据常规满分评判';
 
+    // 兼容新格式对象和旧格式字符串
+    var questionText = extractFieldText(config.question);
+    var answerText = extractFieldText(config.answer);
+    var rubricText = extractFieldText(config.rubric);
+    var imgAnnotation = buildImageAnnotation(config);
+
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
 
 ===== 输入信息 =====`;
-    if (config.question) prompt += `\n【题目】\n${config.question}`;
-    if (config.answer) prompt += `\n【标准答案】\n${config.answer}`;
-    if (config.rubric) prompt += `\n【评分标准】\n${config.rubric}`;
+    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
+    if (answerText) prompt += `\n【标准答案】\n${answerText}`;
+    if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
     prompt += `\n【满分】\n${maxScoreText}`;
 
     prompt += `
@@ -48,25 +126,29 @@ function buildStructuredPrompt(config) {
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记，不要省略任何段落
 2. 【得分】必须只有一行，只包含数字，可以是小数
-3. 不要在输出中使用 ** 加粗标记或其他 markdown 格式
+3. 可以在内容中使用 Markdown 格式（如 **加粗**、列表、$公式$），但【】段落标记必须保留
 4. 如果无法识别学生答案，在【答案复述】写"未能识别"
-5. 严格按照评分标准打分，不要随意给分`;
+5. 严格按照评分标准打分，不要随意给分
+6. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
 
 // ---------- 旧格式兼容 Prompt ----------
 function buildPrompt(config) {
+    var _q = extractFieldText(config.question);
+    var _a = extractFieldText(config.answer);
+    var _r = extractFieldText(config.rubric);
     let prompt = `你是一位严格的阅卷老师，请根据以下信息对学生答案进行评分：\n\n`;
-    if (config.question) prompt += `**题目内容：**\n${config.question}\n\n`;
-    if (config.answer) prompt += `**标准答案：**\n${config.answer}\n\n`;
-    if (config.rubric) prompt += `**评分标准：**\n${config.rubric}\n\n`;
-    prompt += `请仔细查看图片中的学生答案，并按照以下格式返回评分结果（必须严格按此格式）：\n\n学生答案：[OCR识别出的学生答案文字内容]\n分数：[数字]\n评语：[简短评语]\n\n注意：\n1. 先OCR识别图片中的文字，将识别结果写在"学生答案"后\n2. 只返回数字分数，不要带单位\n3. 评语控制在100字以内\n4. 严格按照评分标准打分`;
+    if (_q) prompt += `**题目内容：**\n${_q}\n\n`;
+    if (_a) prompt += `**标准答案：**\n${_a}\n\n`;
+    if (_r) prompt += `**评分标准：**\n${_r}\n\n`;
+    prompt += `请仔细查看图片中的学生答案，并按照以下格式返回评分结果（必须严格按此格式）：\n\n学生答案：[OCR识别出的学生答案文字内容]\n分数：[数字]\n评语：[简短评语]\n\n注意：\n1. 先OCR识别图片中的文字，将识别结果写在"学生答案"后\n2. 只返回数字分数，不要带单位\n3. 评语控制在100字以内\n4. 严格按照评分标准打分\n5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
 
 // ---------- 结构化解析器（新） ----------
 function parseStructuredResponse(text, maxScore) {
-    const clean = text.replace(/\*\*/g, '').replace(/\*/g, '');
+    const clean = text;  // 保留 markdown 格式，不再清除
     const scoreLimit = (maxScore && maxScore > 0) ? maxScore : 999;
 
     // Level 1: 按【】标记分段
@@ -94,10 +176,14 @@ function parseStructuredResponse(text, maxScore) {
     if (rawScore === null) rawScore = extractScore(sections['总分'], maxScore);
     let finalScore = rawScore;
 
-    // Level 4: 分数范围校验
-    if (finalScore !== null && (finalScore < 0 || finalScore > scoreLimit)) {
-        console.warn(`⚠️ [解析] 分数超出范围(0-${scoreLimit}): ${finalScore}`);
-        finalScore = null;
+    // Level 4: 分数范围校验（截断到有效范围，避免因AI给分超出满分导致null）
+    if (finalScore !== null && finalScore < 0) {
+        console.warn(`⚠️ [解析] 分数为负数(${finalScore})，修正为0`);
+        finalScore = 0;
+    }
+    if (finalScore !== null && finalScore > scoreLimit) {
+        console.warn(`⚠️ [解析] 分数超出满分(${finalScore} > ${scoreLimit})，截断为满分`);
+        finalScore = scoreLimit;
     }
 
     // Level 5: 识别答案校验
@@ -124,7 +210,7 @@ function parseStructuredResponse(text, maxScore) {
         rawScore: rawScore,
         scoringBasis: sections['评分依据'] || '',
         calculation: sections['分数计算'] || '',
-        comment: (sections['评分依据'] || '').substring(0, 200),
+        comment: sections['评分依据'] || '',
         diligenceLevel: diligenceLevel,
         diligenceReason: diligenceReason,
         _sections: sections
@@ -135,9 +221,11 @@ function extractScore(text, maxScore) {
     if (!text) return null;
     const match = text.match(/(\d+\.?\d*)/);
     if (match) {
-        const num = parseFloat(match[1]);
+        let num = parseFloat(match[1]);
+        if (num < 0) num = 0;
         const upperLimit = (maxScore && maxScore > 0) ? maxScore : 999;
-        if (num >= 0 && num <= upperLimit) return num;
+        if (num > upperLimit) num = upperLimit;
+        return num;
     }
     return null;
 }
@@ -183,8 +271,11 @@ function parseLegacyResponse(text, maxScore) {
             const line = lines[i].trim();
             const numMatch = line.match(/^(\d+\.?\d*)$/);
             if (numMatch) {
-                const num = parseFloat(numMatch[1]);
-                if (num >= 0 && num <= scoreLimit) { score = num; break; }
+                let num = parseFloat(numMatch[1]);
+                if (num < 0) num = 0;
+                if (num > scoreLimit) num = scoreLimit;
+                score = num;
+                break;
             }
         }
     }
@@ -208,36 +299,42 @@ function parseLegacyResponse(text, maxScore) {
 
 // ---------- 仲裁 Prompt ----------
 function buildArbitrationPrompt(config, resultA, resultB, threshold) {
-    return `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请查看图片后裁定。
+    return `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅学生作答图片后裁定。
 
 ===== 评分分歧 =====
 老师A评分：${resultA.score}分
-老师A评语：${resultA.comment || '无'}
+老师A评分依据：${resultA.comment || '无'}
 
 老师B评分：${resultB.score}分
-老师B评语：${resultB.comment || '无'}
+老师B评分依据：${resultB.comment || '无'}
 
 分差：${Math.abs(resultA.score - resultB.score)}分（阈值：${threshold}分）
 
 ===== 参考信息 =====
-【题目】${config.question || '未提供'}
-【标准答案】${config.answer || '未提供'}
-【评分标准】${config.rubric || '未提供'}
+【题目】${extractFieldText(config.question) || '未提供'}
+【标准答案】${extractFieldText(config.answer) || '未提供'}
+【评分标准】${extractFieldText(config.rubric) || '未提供'}
 
 ===== 输出要求 =====
-你必须严格按照以下格式输出：
+请先独立分析学生答案，再对比两位老师的评分，最后给出你的裁定。严格按照以下格式输出：
+
+【答案复述】
+（用自己的话简要概述学生实际写了什么内容，不要遗漏关键步骤或答案）
+
+【独立评分依据】
+（抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）
 
 【仲裁分析】
-（分析两位老师评分差异的原因，逐条说明）
+（对比你的独立判断与两位老师的评分，分析分歧原因：谁的评判更合理？哪里存在误判？）
 
 【最终得分】
-（一个整数，你的裁定分数）
+（一个整数，基于你的独立判断给出最终分数，不必局限于两位老师的分数范围）
 
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
 2. 【最终得分】必须只有一行，只包含一个整数
-3. 你必须在两个分数之间选择，或给出折中分数
-4. 不要使用 ** 加粗标记`;
+3. 你必须独立审阅学生作答图片，不要被两位老师的分数左右
+4. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留`;
 }
 
 // ---------- 旧格式 Prompt 解析（保留兼容） ----------
@@ -246,7 +343,7 @@ function parseAIResponseText(text) {
 }
 
 function parsePromptModification(text) {
-    const clean = text.replace(/\*\*/g, '');
+    const clean = text;
 
     function extract(fieldNames) {
         for (const name of fieldNames) {
@@ -276,10 +373,13 @@ function parsePromptModification(text) {
 
 // ========== 分小题提示词组装 ==========
 function buildSubQuestionPrompt(config) {
+    var questionText = extractFieldText(config.question);
+    var imgAnnotation = buildImageAnnotation(config);
+
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
 
 ===== 输入信息 =====`;
-    if (config.question) prompt += `\n【题目】\n${config.question}`;
+    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
 
     prompt += `\n【各小题评分要求】\n`;
     for (const sq of config.subQuestions) {
@@ -314,8 +414,9 @@ function buildSubQuestionPrompt(config) {
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
 2. 各小题分数和【得分】必须各只有一行，只包含数字
-3. 不要使用 ** 加粗标记
-4. 各小题分数之和应等于【得分】`;
+3. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
+4. 各小题分数之和应等于【得分】
+5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
 
@@ -339,20 +440,60 @@ function parseSubQuestionResponse(text, config) {
             const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             let score = null;
 
-            // 格式1: "第1题分数：8"
+            // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
+            // 策略1: 精确匹配 label + "分数" 格式（最可靠）
+            // 格式1a: "25(1)分数：8" 或 "第1题分数：8"
             let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-            if (scoreMatch) score = parseFloat(scoreMatch[1]);
+            if (scoreMatch) {
+                score = parseFloat(scoreMatch[1]);
+            }
 
-            // 格式2: "第1题：8分" 或 "第1题: 8"
+            // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
+            // 例如：label="25"，文本="25(1)分数：2"，应该匹配 "25(1)" 而不是 "25"
+            if (score === null) {
+                // 检查文本中是否存在 label 后跟括号数字的模式
+                const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
+                const bracketMatch = clean.match(bracketPattern);
+                if (bracketMatch) {
+                    // 找到了括号格式，使用完整的 label（包括括号）进行匹配
+                    const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                    const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                    // 尝试匹配 "25(1)分数：2"
+                    const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+                    if (fullScoreMatch) {
+                        score = parseFloat(fullScoreMatch[1]);
+                    }
+
+                    // 如果还是没匹配到，尝试匹配 "25(1)：2"
+                    if (score === null) {
+                        const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
+                        if (fullScoreMatch2) {
+                            score = parseFloat(fullScoreMatch2[1]);
+                        }
+                    }
+                }
+            }
+
+            // 策略3: 直接匹配 label + 冒号格式（可能误匹配，所以放在后面）
             if (score === null) {
                 scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
                 if (scoreMatch) score = parseFloat(scoreMatch[1]);
             }
 
-            // 格式3: "第1题 8分"
+            // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
             if (score === null) {
                 scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
                 if (scoreMatch) score = parseFloat(scoreMatch[1]);
+            }
+
+            // 小题分数范围截断
+            if (score !== null) {
+                if (score < 0) score = 0;
+                if (sq.maxScore > 0 && score > sq.maxScore) {
+                    console.warn(`⚠️ [解析] ${sq.label}分数超出满分(${score} > ${sq.maxScore})，截断为满分`);
+                    score = sq.maxScore;
+                }
             }
 
             const commentMatch = clean.match(new RegExp(escapedLabel + '评语[：:]\\s*(.+?)(?=\\n|$)'));
@@ -386,17 +527,55 @@ function parseLegacySubQuestionResponse(text, config) {
         const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         let score = null;
-        let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-        if (scoreMatch) score = parseFloat(scoreMatch[1]);
 
+        // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
+        // 策略1: 精确匹配 label + "分数" 格式（最可靠）
+        let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+        if (scoreMatch) {
+            score = parseFloat(scoreMatch[1]);
+        }
+
+        // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
+        if (score === null) {
+            const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
+            const bracketMatch = clean.match(bracketPattern);
+            if (bracketMatch) {
+                const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
+                if (fullScoreMatch) {
+                    score = parseFloat(fullScoreMatch[1]);
+                }
+
+                if (score === null) {
+                    const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
+                    if (fullScoreMatch2) {
+                        score = parseFloat(fullScoreMatch2[1]);
+                    }
+                }
+            }
+        }
+
+        // 策略3: 直接匹配 label + 冒号格式
         if (score === null) {
             scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
             if (scoreMatch) score = parseFloat(scoreMatch[1]);
         }
 
+        // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
         if (score === null) {
             scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
             if (scoreMatch) score = parseFloat(scoreMatch[1]);
+        }
+
+        // 小题分数范围截断
+        if (score !== null) {
+            if (score < 0) score = 0;
+            if (sq.maxScore > 0 && score > sq.maxScore) {
+                console.warn(`⚠️ [解析] ${sq.label}分数超出满分(${score} > ${sq.maxScore})，截断为满分`);
+                score = sq.maxScore;
+            }
         }
 
         const commentMatch = clean.match(new RegExp(escapedLabel + '评语[：:]\\s*(.+?)(?=\\n|$)'));
@@ -437,6 +616,9 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
 
     const prompt = hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig);
 
+    // 收集题目/答案/评分标准中的内嵌图片
+    const fieldImages = collectFieldImages(config);
+
     // 计算总满分
     const maxScore = PresetManager.getMaxScore();
 
@@ -444,7 +626,7 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
         console.log(`📋 [诊断] 评分单元配置 — 共 ${subQuestions.length} 个: ${subQuestions.map(sq => `${sq.label}(满分${sq.maxScore ?? '未设置'})`).join(', ')}`);
     }
 
-    return callAIWithRetry(prompt, base64DataArray, callConfig, onStreamUpdate)
+    return callAIWithRetry(prompt, base64DataArray, callConfig, onStreamUpdate, fieldImages)
         .then(fullText => {
             console.log('📝 [诊断] AI原始返回内容：\n' + fullText);
 
@@ -452,8 +634,12 @@ function callAIGrading(base64DataArray, config, onStreamUpdate) {
                 ? parseSubQuestionResponse(fullText, callConfig)
                 : parseStructuredResponse(fullText, maxScore);
             console.log(`🧠 [诊断] AI响应解析结果 — 分数: ${parsed.score}, 满分: ${maxScore}, 识别答案长度: ${(parsed.studentAnswer || '').length}字, 原始文本长度: ${fullText.length}字`);
+            if (parsed._sections) {
+                const sectionKeys = Object.keys(parsed._sections);
+                console.log(`📋 [诊断] 解析到 ${sectionKeys.length} 个段落: ${sectionKeys.join(', ')}`);
+            }
             if (parsed.score === null) {
-                console.warn('⚠️ [诊断] 分数解析为 null');
+                console.warn('⚠️ [诊断] 分数解析为 null，AI原始文本前200字: ' + fullText.substring(0, 200));
             }
             return parsed;
         });

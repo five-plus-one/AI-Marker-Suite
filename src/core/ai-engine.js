@@ -378,10 +378,12 @@ const WorkflowManager = {
 WorkflowManager.init();
 
 // ========== 通用 AI 请求函数 ==========
-function callAI(prompt, base64DataArray, config, onStreamUpdate) {
+function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     return new Promise((resolve, reject) => {
         const messageContent = [{ type: "text", text: prompt }];
-        base64DataArray.forEach(base64Data => {
+        // 合并额外图片（来自题目/答案/评分标准）+ 学生答题卡图片
+        var allImages = (extraImages && extraImages.length) ? extraImages.concat(base64DataArray) : base64DataArray;
+        allImages.forEach(base64Data => {
             messageContent.push({ type: "image_url", image_url: { url: `data:image/png;base64,${base64Data}` } });
         });
 
@@ -523,12 +525,12 @@ function callAI(prompt, base64DataArray, config, onStreamUpdate) {
 
 // ========== 带重试的 AI 请求包装 ==========
 // 对瞬时错误（超时/网络/429限流/5xx）自动重试，持久错误直接抛出
-async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, maxRetries = 1) {
+async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxRetries = 1) {
     let lastError = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            return await callAI(prompt, base64DataArray, config, onStreamUpdate);
+            return await callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages);
         } catch (error) {
             lastError = error;
             const msg = error.message || '';
@@ -567,7 +569,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     const dualConfig = workflow.dualEval;
-    const threshold = dualConfig.threshold || 2;
+    const threshold = dualConfig.threshold != null ? dualConfig.threshold : 2;
 
     // 获取主模型和副模型配置
     const primaryConfig = ProviderManager.getCallConfig(

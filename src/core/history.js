@@ -333,6 +333,9 @@ const HistoryManager = {
         const { includeImages = true } = options;
         records = records || this.records;
         const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' };
+        const renderMd = window.__aiMarkdownRenderer
+            ? function (t) { return window.__aiMarkdownRenderer.render(t || ''); }
+            : function (t) { return (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); };
 
         // 加载可导出的图片（仅当前 origin 的 IndexedDB）
         const imageMap = {};
@@ -372,18 +375,18 @@ const HistoryManager = {
                     </div>
                     <div style="margin-top:8px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
                         <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师A 评分：<strong>${d.scoreA !== null ? d.scoreA + '分' : '失败'}</strong></div>
-                        ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;">评分依据：${(d.detailA['评分依据'] || '—').replace(/\n/g, '<br>')}</div>` : ''}
-                        ${d.detailA && d.detailA['分数计算'] ? `<div style="font-size:11px;font-weight:600;">分数计算：${d.detailA['分数计算']}</div>` : ''}
+                        ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(d.detailA['评分依据'] || '—')}</div></div>` : ''}
+                        ${d.detailA && d.detailA['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailA['分数计算'])}</div></div>` : ''}
                     </div>
                     <div style="margin-top:6px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
                         <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师B 评分：<strong>${d.scoreB !== null ? d.scoreB + '分' : '失败'}</strong></div>
-                        ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;">评分依据：${(d.detailB['评分依据'] || '—').replace(/\n/g, '<br>')}</div>` : ''}
-                        ${d.detailB && d.detailB['分数计算'] ? `<div style="font-size:11px;font-weight:600;">分数计算：${d.detailB['分数计算']}</div>` : ''}
+                        ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(d.detailB['评分依据'] || '—')}</div></div>` : ''}
+                        ${d.detailB && d.detailB['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailB['分数计算'])}</div></div>` : ''}
                     </div>
                     ${d.result === 'arbitration' ? `
                     <div style="margin-top:6px;padding:8px 12px;background:rgba(124,58,237,0.04);border-radius:6px;border:1px solid rgba(124,58,237,0.15);">
                         <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:4px;">仲裁结果：<strong>${d.arbScore !== undefined ? d.arbScore + '分' : '—'}</strong></div>
-                        ${d.arbAnalysis ? `<div style="font-size:11px;color:#666;line-height:1.5;">仲裁分析：${d.arbAnalysis.replace(/\n/g, '<br>')}</div>` : ''}
+                        ${d.arbAnalysis ? `<div style="font-size:11px;color:#666;line-height:1.5;"><strong>仲裁分析：</strong><div class="md-content">${renderMd(d.arbAnalysis)}</div></div>` : ''}
                     </div>` : ''}
                 </div>
             ` : '';
@@ -396,8 +399,8 @@ const HistoryManager = {
                     ${correctedRow}
                     ${dualHtml}
                     <div style="font-size:13px;color:#4a4a4a;margin:8px 0;line-height:1.6;">
-                        <div><strong>识别答案：</strong>${(r.studentAnswer || '未能识别').replace(/\n/g, '<br>')}</div>
-                        <div style="margin-top:4px;"><strong>AI评语：</strong>${(r.aiComment || '无').replace(/\n/g, '<br>')}</div>
+                        <div><strong>识别答案：</strong><div class="md-content">${renderMd(r.studentAnswer || '未能识别')}</div></div>
+                        <div style="margin-top:4px;"><strong>AI评语：</strong><div class="md-content">${renderMd(r.aiComment || '无')}</div></div>
                     </div>
                     ${images ? `<div style="margin-top:8px;">${images}</div>` : ''}
                 </div>
@@ -407,10 +410,20 @@ const HistoryManager = {
         const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><title>评阅历史</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; color: #1d1d1f; }
     h1 { font-size: 20px; margin-bottom: 4px; }
     .meta { color: #86868b; font-size: 13px; margin-bottom: 24px; }
+    .md-content { display: inline; }
+    .md-content p { margin: 0 0 6px; }
+    .md-content ul, .md-content ol { margin: 4px 0; padding-left: 20px; }
+    .md-content code { background: rgba(0,0,0,0.04); padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+    .md-content pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    .md-content pre code { background: none; padding: 0; }
+    .md-content .katex { font-size: 1.05em; }
+    .md-content table { border-collapse: collapse; margin: 8px 0; }
+    .md-content th, .md-content td { border: 1px solid rgba(0,0,0,0.1); padding: 4px 8px; }
 </style></head>
 <body>
     <h1>评阅历史</h1>
@@ -501,7 +514,7 @@ function showHistoryPanel() {
 
     const overlay = document.createElement('div');
     overlay.id = 'ai-history-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);backdrop-filter:blur(6px);z-index:1000000;';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);backdrop-filter:blur(6px);z-index:2147483647;';
     document.body.appendChild(overlay);
 
     const panel = document.createElement('div');
@@ -510,7 +523,7 @@ function showHistoryPanel() {
         <style>
             #ai-history-panel {
                 position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                z-index: 1000001; width: 920px; max-width: calc(100vw - 32px); height: min(760px, calc(100vh - 48px));
+                z-index: 2147483647; width: 920px; max-width: calc(100vw - 32px); height: min(760px, calc(100vh - 48px));
                 background: #f7f8fa !important;
                 border: 1px solid rgba(18,28,45,0.12); border-radius: 16px;
                 box-shadow: 0 28px 80px rgba(18,28,45,0.24), 0 2px 8px rgba(18,28,45,0.08);
@@ -1196,7 +1209,7 @@ function showHistoryDetail(record) {
 
     const drawerOverlay = document.createElement('div');
     drawerOverlay.id = 'ai-history-detail';
-    drawerOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.2);z-index:1000002;opacity:0;transition:opacity 0.25s;';
+    drawerOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.2);z-index:2147483647;opacity:0;transition:opacity 0.25s;';
 
     const drawer = document.createElement('div');
     drawer.style.cssText = `
@@ -1204,7 +1217,7 @@ function showHistoryDetail(record) {
         background:rgba(255,255,255,0.96);backdrop-filter:blur(32px) saturate(180%);
         border-left:1px solid rgba(0,0,0,0.06);
         box-shadow:-8px 0 40px rgba(0,0,0,0.08);
-        z-index:1000003;display:flex;flex-direction:column;
+        z-index:2147483647;display:flex;flex-direction:column;
         font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",sans-serif;
         transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.16,1,0.3,1);
         overflow:hidden;
@@ -1234,7 +1247,7 @@ function showHistoryDetail(record) {
                         <span style="font-size:13px;color:#1d1d1f;font-weight:500;">${sq.label}</span>
                         <span style="font-size:14px;font-weight:600;">${sq.score !== null ? sq.score : '—'}<span style="font-size:11px;color:#86868b;font-weight:normal;">/${sq.maxScore}</span></span>
                     </div>
-                    ${sq.comment ? `<div style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
+                    ${sq.comment ? `<div class="hist-md-content" style="font-size:12px;color:#666;padding:0 12px 2px;">${sq.comment}</div>` : ''}
                     `).join('')}
                 </div>
             </div>` : ''}
@@ -1281,12 +1294,12 @@ function showHistoryDetail(record) {
                     ${record.dualEval.detailA ? `
                     <div style="margin-bottom:6px;">
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                        <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailA['评分依据'] || '—'}</div>
+                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailA['评分依据'] || '—'}</div>
                     </div>` : ''}
                     ${record.dualEval.detailA && record.dualEval.detailA['分数计算'] ? `
                     <div>
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
-                        <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${record.dualEval.detailA['分数计算']}</div>
+                        <div class="hist-md-content" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${record.dualEval.detailA['分数计算']}</div>
                     </div>` : ''}
                 </div>
                 <div style="padding:10px 14px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);margin-bottom:10px;">
@@ -1298,12 +1311,12 @@ function showHistoryDetail(record) {
                     ${record.dualEval.detailB ? `
                     <div style="margin-bottom:6px;">
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                        <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailB['评分依据'] || '—'}</div>
+                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailB['评分依据'] || '—'}</div>
                     </div>` : ''}
                     ${record.dualEval.detailB && record.dualEval.detailB['分数计算'] ? `
                     <div>
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">分数计算</div>
-                        <div style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${record.dualEval.detailB['分数计算']}</div>
+                        <div class="hist-md-content" style="font-size:12px;font-weight:600;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.04);">${record.dualEval.detailB['分数计算']}</div>
                     </div>` : ''}
                 </div>
                 ${record.dualEval.result === 'arbitration' ? `
@@ -1316,18 +1329,26 @@ function showHistoryDetail(record) {
                     ${record.dualEval.arbAnalysis ? `
                     <div>
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">仲裁分析</div>
-                        <div style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.arbAnalysis}</div>
+                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.arbAnalysis}</div>
                     </div>` : ''}
                 </div>` : ''}
             </div>` : ''}
-            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.studentAnswer || '未能识别'}</div></div>
-            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.aiComment || '无'}</div></div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.studentAnswer || '未能识别'}</div></div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.aiComment || '无'}</div></div>
             <div id="detail-images-container"><div style="color:#aaa;font-size:12px;">加载图片中...</div></div>
         </div>
     `;
 
     document.body.appendChild(drawerOverlay);
     document.body.appendChild(drawer);
+
+    // Markdown+KaTeX 渲染
+    if (window.__aiMarkdownRenderer) {
+        drawer.querySelectorAll('.hist-md-content').forEach(function (el) {
+            var raw = el.textContent;
+            if (raw) el.innerHTML = window.__aiMarkdownRenderer.render(raw);
+        });
+    }
 
     // 动画入场
     requestAnimationFrame(() => {

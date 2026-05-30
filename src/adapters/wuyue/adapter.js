@@ -48,28 +48,24 @@ const WuyueAdapter = {
         // 等待图片加载
         await new Promise(r => setTimeout(r, 1000));
 
-        // 方法1: 获取当前显示的 AnswerSheet 类型图片（不在 hideBox 中）
-        const activeImage = document.querySelector(WUYUE_SELECTORS.ANSWER_IMAGE);
-        if (activeImage && activeImage.src) {
-            console.log(`🖼️ [诊断] 找到当前显示的答题卡图片: ${activeImage.src.substring(0, 60)}...`);
-            return [activeImage.src];
-        }
-
-        // 方法2: 获取当前显示的 outBox 中的所有图片（包括 PaperScan）
+        // 获取当前可见的 outBox（不含 hideBox）
         const activeBox = document.querySelector('.outBox:not(.hideBox)');
         if (activeBox) {
-            const img = activeBox.querySelector('img');
-            if (img && img.src) {
-                console.log(`🖼️ [诊断] 找到当前显示的图片: ${img.src.substring(0, 60)}...`);
-                return [img.src];
+            // 获取该 outBox 内的所有 AnswerSheet 图片（通常是2张：题目区+答题区）
+            const imgs = activeBox.querySelectorAll('img[src*="AnswerSheet"]');
+            if (imgs.length > 0) {
+                const urls = Array.from(imgs).map(img => img.src).filter(src => src);
+                console.log(`🖼️ [诊断] 找到当前答卷的 ${urls.length} 张答题卡图片`);
+                urls.forEach((url, i) => console.log(`  📷 图片${i + 1}: ${url.substring(0, 80)}...`));
+                return urls;
             }
         }
 
-        // 方法3: 只获取第一个 AnswerSheet 图片（排除 hideBox 中的）
-        const firstAnswerSheet = document.querySelector('.outBox:not(.hideBox) img[src*="AnswerSheet"], .outBox:not(.hideBox) img[src*="PaperScan"]');
-        if (firstAnswerSheet && firstAnswerSheet.src) {
-            console.log(`🖼️ [诊断] 找到第一个答题卡图片: ${firstAnswerSheet.src.substring(0, 60)}...`);
-            return [firstAnswerSheet.src];
+        // 兜底：获取任意一张图片
+        const fallback = document.querySelector('.outBox img[src*="AnswerSheet"]');
+        if (fallback && fallback.src) {
+            console.log(`🖼️ [诊断] 兜底: 找到答题卡图片: ${fallback.src.substring(0, 60)}...`);
+            return [fallback.src];
         }
 
         console.warn('⚠️ [诊断] 未找到答题卡图片');
@@ -177,9 +173,13 @@ const WuyueAdapter = {
                 const numEl = item.querySelector('.num');
                 const inputEl = item.querySelector('.el-input__inner');
                 if (inputEl) {
-                    const maxScore = numEl ? numEl.textContent.trim() : '';
-                    const label = `第${i + 1}题`;
-                    inputs.push({ element: inputEl, label, index: i, maxScore: parseInt(maxScore) || 0 });
+                    // 从 placeholder 提取满分（如 "满分7分" → 7）
+                    const placeholder = inputEl.placeholder || '';
+                    const maxScoreMatch = placeholder.match(/满分(\d+)分/);
+                    const maxScore = maxScoreMatch ? parseInt(maxScoreMatch[1]) : 0;
+                    // 从 .num 提取题号标签（如 "16(456)"）
+                    const label = numEl ? numEl.textContent.trim() : `第${i + 1}题`;
+                    inputs.push({ element: inputEl, label, index: i, maxScore });
                 }
             });
         } else {
@@ -222,9 +222,13 @@ const WuyueAdapter = {
             computeItems.forEach((item, i) => {
                 const numEl = item.querySelector('.num');
                 const inputEl = item.querySelector('.el-input__inner');
-                if (inputEl && numEl) {
-                    const maxScore = parseInt(numEl.textContent.trim()) || 0;
-                    const label = `第${i + 1}题`;
+                if (inputEl) {
+                    // 从 placeholder 提取满分
+                    const placeholder = inputEl.placeholder || '';
+                    const maxScoreMatch = placeholder.match(/满分(\d+)分/);
+                    const maxScore = maxScoreMatch ? parseInt(maxScoreMatch[1]) : 0;
+                    // 从 .num 提取题号标签
+                    const label = numEl ? numEl.textContent.trim() : `第${i + 1}题`;
                     subs.push({ label, element: inputEl, index: i, maxScore });
                 }
             });

@@ -13,6 +13,7 @@ const GUANGDA2_SELECTORS = {
     // .dfBox .scores li 是实际分数选项（如 "0", "1", "2"）
     // .bzBox .scores li 是范围指示器（如 "0~2"），应排除
     SCORE_ITEM: '.dfBox .scores li.f-csp',
+    SCORE_CONTAINER: '.score-wrap .score',  // 每个小题的容器（多小题模式）
     SCORE_ITEM_ACTIVE: '.dfBox .scores li.f-csp.activeB',  // 当前选中的分数
     SCORE_ITEM_CLICKABLE: '.dfBox .scores li.f-csp',
 

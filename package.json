@@ -1,13 +1,15 @@
 {
   "name": "zhixue-ai-marking",
   "version": "1.21.3",
-  "description": "智学网AI自动打分助手 - Tampermonkey 用户脚本",
+  "description": "AI批改助手 - 基于多模态AI的在线阅卷自动批改工具",
   "scripts": {
     "build": "node build.js"
   },
   "author": "5plus1",
   "license": "MIT",
   "devDependencies": {
+    "katex": "^0.17.0",
+    "marked": "^18.0.4",
     "terser": "^5.46.2"
   }
 }

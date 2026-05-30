@@ -53,6 +53,7 @@ function showStreamPanel() {
         document.body.appendChild(panel);
 
         panel.querySelector('#stream-copy-btn').onclick = () => {
+            // 复制纯文本（从 textContent 取，避免复制 HTML 标签）
             const text = document.getElementById('ai-stream-content')?.textContent || '';
             navigator.clipboard.writeText(text).then(() => {
                 const btn = panel.querySelector('#stream-copy-btn');
@@ -66,15 +67,59 @@ function showStreamPanel() {
     panel.querySelector('#ai-stream-content').textContent = '正在感知和组装上下文...';
 }
 
-function updateStreamPanel(text) {
-    const content = document.getElementById('ai-stream-content');
-    if (content) {
+// 流式输出节流：避免每个 token 都触发完整 Markdown + KaTeX 重渲染
+var _streamThrottleTimer = null;
+var _streamLastRenderTime = 0;
+var _streamPendingText = null;
+var STREAM_THROTTLE_MS = 100;
+
+function _doRenderStream(text) {
+    var content = document.getElementById('ai-stream-content');
+    if (!content) return;
+    if (window.__aiMarkdownRenderer) {
+        content.innerHTML = window.__aiMarkdownRenderer.render(text);
+    } else {
         content.textContent = text;
-        content.scrollTop = content.scrollHeight;
+    }
+    content.scrollTop = content.scrollHeight;
+}
+
+function updateStreamPanel(text) {
+    var now = Date.now();
+    var elapsed = now - _streamLastRenderTime;
+
+    if (elapsed >= STREAM_THROTTLE_MS) {
+        // 距上次渲染已超过节流间隔，立即渲染
+        _streamLastRenderTime = now;
+        _streamPendingText = null;
+        if (_streamThrottleTimer) { clearTimeout(_streamThrottleTimer); _streamThrottleTimer = null; }
+        _doRenderStream(text);
+    } else {
+        // 节流期内，暂存最新文本，安排延迟渲染（确保最后一帧不丢失）
+        _streamPendingText = text;
+        if (!_streamThrottleTimer) {
+            _streamThrottleTimer = setTimeout(function () {
+                _streamThrottleTimer = null;
+                _streamLastRenderTime = Date.now();
+                if (_streamPendingText !== null) {
+                    _doRenderStream(_streamPendingText);
+                    _streamPendingText = null;
+                }
+            }, STREAM_THROTTLE_MS - elapsed);
+        }
     }
 }
 
 function hideStreamPanel() {
+    // 隐藏前刷新节流期内未渲染的最终内容
+    if (_streamThrottleTimer) {
+        clearTimeout(_streamThrottleTimer);
+        _streamThrottleTimer = null;
+    }
+    if (_streamPendingText !== null) {
+        _doRenderStream(_streamPendingText);
+        _streamPendingText = null;
+    }
     const panel = document.getElementById('ai-stream-panel');
     if (panel) {
         panel.classList.remove('show');

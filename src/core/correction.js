@@ -5,7 +5,7 @@ function showCorrectionPanel(context) {
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
     overlay.id = 'correction-panel';
-    overlay.style.zIndex = '999998';
+    overlay.style.setProperty('z-index', '2147483647', 'important');
 
     const imagesHtml = (context.base64DataArray || []).map(b64 =>
         `<img src="data:image/png;base64,${b64}" style="width:100%;border-radius:10px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">`
@@ -277,6 +277,10 @@ function showCorrectionPanel(context) {
     let currentStep = 1;
     let feedback = null;
     let analysisResult = null;
+    let editedAnswer = '';
+    let editedRubric = '';
+    let editedAnswerData = null;  // 完整字段数据（可能是 string 或 {text, images, format}）
+    let editedRubricData = null;
 
     function updateStepsBar() {
         const bar = document.getElementById('cor-steps-bar');
@@ -389,6 +393,14 @@ function showCorrectionPanel(context) {
         `;
         footer.className = 'cor-footer';
 
+        // Markdown 渲染：识别答案和小题评语
+        if (window.__aiMarkdownRenderer) {
+            body.querySelectorAll('.cor-answer-block').forEach(function (el) {
+                var raw = el.textContent;
+                if (raw) el.innerHTML = window.__aiMarkdownRenderer.render(raw);
+            });
+        }
+
         // 分小题模式下自动计算总分
         if (hasSubScores) {
             const subInputs = body.querySelectorAll('.cor-sub-score-input');
@@ -402,6 +414,11 @@ function showCorrectionPanel(context) {
             };
             subInputs.forEach(inp => inp.addEventListener('input', updateTotal));
         }
+
+        // 阻止数字输入框的 Enter 键触发表单提交
+        body.querySelectorAll('input[type="number"]').forEach(inp => {
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+        });
 
         footer.querySelector('#cor-cancel').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
         footer.querySelector('#cor-next').onclick = e => {
@@ -450,11 +467,11 @@ function showCorrectionPanel(context) {
                 <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:10px;">建议修改</div>
                 <div style="margin-bottom:10px;">
                     <label class="cor-field-label">参考答案</label>
-                    <textarea id="cor-new-answer" class="cor-input cor-textarea"></textarea>
+                    <div class="cor-preview-box" id="cor-answer-preview" style="position:relative;min-height:48px;padding:9px 12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);border-radius:8px;font-size:13px;line-height:1.6;color:#1a1a1a;cursor:pointer;word-break:break-word;" title="点击编辑"></div>
                 </div>
                 <div style="margin-bottom:10px;">
                     <label class="cor-field-label">评分标准</label>
-                    <textarea id="cor-new-rubric" class="cor-input cor-textarea"></textarea>
+                    <div class="cor-preview-box" id="cor-rubric-preview" style="position:relative;min-height:48px;padding:9px 12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);border-radius:8px;font-size:13px;line-height:1.6;color:#1a1a1a;cursor:pointer;word-break:break-word;" title="点击编辑"></div>
                 </div>
             </div>
         `;
@@ -466,14 +483,106 @@ function showCorrectionPanel(context) {
 
         footer.querySelector('#cor-cancel2').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
 
+        // 预览区点击 → 打开 Markdown 编辑器
+        // 构建 callConfig（复用 ProviderManager 中已保存的 API Key）
+        var _corCallConfig = null;
+        try {
+            var _corWfId = context?.config?.workflowId || 'fast';
+            var _corWf = typeof WorkflowManager !== 'undefined' ? WorkflowManager.getWorkflow(_corWfId) : null;
+            if (_corWf) {
+                var _corPName = _corWf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
+                var _corMName = _corWf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
+                var _corProv = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_corPName) : null;
+                _corCallConfig = { endpoint: _corProv?.endpoint || '', apiKey: _corProv?.apiKey || '', model: _corMName, reasoningEffort: _corWf.model?.reasoningEffort || '' };
+            }
+        } catch (e) { /* ignore */ }
+
+        document.getElementById('cor-answer-preview')?.addEventListener('click', function () {
+            if (typeof openMarkdownEditor !== 'function') return;
+            openMarkdownEditor({
+                field: 'correction-answer', label: '参考答案',
+                initialText: editedAnswer,
+                initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedAnswerData) : [],
+                callConfig: _corCallConfig,
+                onConfirm: function (newText, newImages) {
+                    editedAnswer = newText;
+                    editedAnswerData = newImages && newImages.length
+                        ? { text: newText, images: newImages, format: 'markdown' }
+                        : newText;
+                    corRenderPreview('cor-answer-preview', newText);
+                }
+            });
+        });
+        document.getElementById('cor-rubric-preview')?.addEventListener('click', function () {
+            if (typeof openMarkdownEditor !== 'function') return;
+            openMarkdownEditor({
+                field: 'correction-rubric', label: '评分标准',
+                initialText: editedRubric,
+                initialImages: typeof extractFieldImages === 'function' ? extractFieldImages(editedRubricData) : [],
+                callConfig: _corCallConfig,
+                onConfirm: function (newText, newImages) {
+                    editedRubric = newText;
+                    editedRubricData = newImages && newImages.length
+                        ? { text: newText, images: newImages, format: 'markdown' }
+                        : newText;
+                    corRenderPreview('cor-rubric-preview', newText);
+                }
+            });
+        });
+
         startAnalysis();
+    }
+
+    function corRenderPreview(elId, text) {
+        var el = document.getElementById(elId);
+        if (!el) return;
+        if (window.__aiMarkdownRenderer) {
+            el.innerHTML = window.__aiMarkdownRenderer.render(text || '');
+        } else {
+            el.textContent = text || '';
+        }
     }
 
     async function startAnalysis() {
         const streamEl = document.getElementById('cor-analysis-stream');
+        // 流式渲染节流（与 ui-stream.js 同理）
+        var _corThrottleTimer = null;
+        var _corLastRenderTime = 0;
+        var _corPendingText = null;
+        var COR_THROTTLE_MS = 100;
+        function _doCorRender(text) {
+            if (!streamEl) return;
+            if (window.__aiMarkdownRenderer) {
+                streamEl.innerHTML = window.__aiMarkdownRenderer.render(text);
+            } else {
+                streamEl.textContent = text;
+            }
+        }
+        function throttledCorRender(text) {
+            var now = Date.now();
+            var elapsed = now - _corLastRenderTime;
+            if (elapsed >= COR_THROTTLE_MS) {
+                _corLastRenderTime = now;
+                _corPendingText = null;
+                if (_corThrottleTimer) { clearTimeout(_corThrottleTimer); _corThrottleTimer = null; }
+                _doCorRender(text);
+            } else {
+                _corPendingText = text;
+                if (!_corThrottleTimer) {
+                    _corThrottleTimer = setTimeout(function () {
+                        _corThrottleTimer = null;
+                        _corLastRenderTime = Date.now();
+                        if (_corPendingText !== null) {
+                            _doCorRender(_corPendingText);
+                            _corPendingText = null;
+                        }
+                    }, COR_THROTTLE_MS - elapsed);
+                }
+            }
+        }
         try {
             const rawText = await analyzePromptModification(context, feedback, streamed => {
-                if (streamEl) streamEl.textContent = streamed;
+                throttledCorRender(streamed);
             });
             analysisResult = parsePromptModification(rawText);
 
@@ -484,19 +593,31 @@ function showCorrectionPanel(context) {
             const editSection = document.getElementById('cor-edit-section');
             if (editSection) editSection.style.display = 'block';
 
-            const answerEl = document.getElementById('cor-new-answer');
-            if (answerEl) answerEl.value = analysisResult.answer !== '不变' ? analysisResult.answer : (context.config.answer || '');
-            const rubricEl = document.getElementById('cor-new-rubric');
-            if (rubricEl) rubricEl.value = analysisResult.rubric !== '不变' ? analysisResult.rubric : (context.config.rubric || '');
+            if (analysisResult.answer !== '不变') {
+                editedAnswer = analysisResult.answer;
+                editedAnswerData = analysisResult.answer;
+            } else {
+                editedAnswer = extractFieldText(context.config.answer);
+                editedAnswerData = context.config.answer;  // 保留完整对象（含图片）
+            }
+            if (analysisResult.rubric !== '不变') {
+                editedRubric = analysisResult.rubric;
+                editedRubricData = analysisResult.rubric;
+            } else {
+                editedRubric = extractFieldText(context.config.rubric);
+                editedRubricData = context.config.rubric;
+            }
+            corRenderPreview('cor-answer-preview', editedAnswer);
+            corRenderPreview('cor-rubric-preview', editedRubric);
 
             const confirmBtn = document.getElementById('cor-confirm-score');
             if (confirmBtn) {
                 confirmBtn.style.display = '';
                 confirmBtn.onclick = e => {
                     e.stopPropagation();
-                    const newAnswer = document.getElementById('cor-new-answer')?.value;
-                    const newRubric = document.getElementById('cor-new-rubric')?.value;
-                    console.log(`📝 [纠错] 确认提交 — 教师分数: ${feedback.teacherScore}, 新答案长度: ${(newAnswer||'').length}, 新标准长度: ${(newRubric||'').length}`);
+                    const newAnswer = editedAnswerData;
+                    const newRubric = editedRubricData;
+                    console.log(`📝 [纠错] 确认提交 — 教师分数: ${feedback.teacherScore}, 新答案长度: ${(extractFieldText(newAnswer)||'').length}, 新标准长度: ${(extractFieldText(newRubric)||'').length}`);
 
                     // 对教师分数应用取整规则
                     const scoringConfig = PresetManager.getCurrentConfig().scoring || { roundStep: 1, roundMethod: 'round' };
