@@ -118,6 +118,49 @@ async function startAutoGrading() {
 
         if (window.aiGradingState.isPaused) throw new Error('用户暂停');
 
+        // ===== 空白答题卡检测 =====
+        const blankConfig = presetConfig.blankDetection;
+        if (blankConfig && blankConfig.enabled) {
+            const refRatios = BlankDetector.loadReference();
+            if (refRatios) {
+                try {
+                    const currentRatios = await BlankDetector.calcBatchRatios(base64DataArray);
+                    const result = BlankDetector.isBlankSheet(currentRatios, refRatios, blankConfig.threshold);
+                    if (result.isBlank) {
+                        console.log('⏭️ [空白检测] 检测到空白答题卡，自动跳过');
+                        window.aiGradingState.blankDetection.blankCount++;
+                        showToast(`⏭️ 空白答题卡已跳过（第${window.aiGradingState.blankDetection.blankCount}张）`);
+
+                        // 填入 0 分
+                        const scoringConfig = presetConfig.scoring || {};
+                        const maxScore = PresetManager.getMaxScore();
+                        if (adapter) {
+                            const units = scoringConfig.units || [];
+                            if (adapter.fillScores && units.length > 0) {
+                                adapter.fillScores(units.map(() => 0));
+                            } else if (adapter.fillScores) {
+                                adapter.fillScores([0]);
+                            }
+                        }
+
+                        // 显示提交对话框
+                        const zeroSubScores = (scoringConfig.units || []).map(u => ({
+                            label: u.label, score: 0, maxScore: u.maxScore
+                        }));
+                        showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
+                            isBlankCard: true
+                        });
+                        return;
+                    } else {
+                        console.log(`🔍 [空白检测] 非空白卡 — ${result.reason}`);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ [空白检测] 检测失败，继续正常批改:', e);
+                }
+            }
+        }
+        // ===== 空白检测结束 =====
+
         const gradeBtnEl = document.querySelector('.ai-grade-btn');
         if (gradeBtnEl && window.aiGradingState.gradingMode !== 'unattended') {
             gradeBtnEl.textContent = '⏳ AI分析中...';

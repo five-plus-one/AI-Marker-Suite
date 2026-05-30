@@ -12,5 +12,9 @@ window.aiGradingState = {
         targetCount: 0,        // 目标批阅份数
         currentCount: 0,       // 当前已批阅份数
         limitExempt: false,    // 用户主动选择继续批阅时为 true，跳过自动暂停
+    },
+    // 空白答题卡检测
+    blankDetection: {
+        blankCount: 0,         // 已自动跳过的空白卡数量
     }
 };

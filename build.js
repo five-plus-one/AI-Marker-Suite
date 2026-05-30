@@ -55,6 +55,7 @@ const CORE_MODULES = [
     'ui-settings.js',
     'ui-submit-dialog.js',
     'image.js',
+    'blank-detector.js',  // 空白答题卡检测（需在 main.js 和 ui-settings.js 之前）
     'correction.js',
     'history.js',
     'ui-tools.js',  // 工具页面UI（/tools）
