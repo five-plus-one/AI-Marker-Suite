@@ -359,22 +359,31 @@ const Guangda2Adapter = {
                             // 记住成功的前缀，后续直接使用
                             const baseMatch = candidateUrls[i].match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
                             if (baseMatch) {
-                                const oldBase = _guangda2ImageBase;
                                 _guangda2ImageBase = baseMatch[1];
                                 console.log(`🖼️ [V2] 记住成功的图片前缀: ${_guangda2ImageBase}`);
 
-                                // 更新图片池中所有使用旧前缀的 URL
-                                if (oldBase && oldBase !== _guangda2ImageBase) {
-                                    let updatedCount = 0;
-                                    for (const [key, poolUrl] of Object.entries(_guangda2ImagePool)) {
-                                        if (poolUrl.startsWith(oldBase)) {
-                                            _guangda2ImagePool[key] = poolUrl.replace(oldBase, _guangda2ImageBase);
+                                // 更新图片池中所有使用错误前缀的 URL
+                                const hostname = window.location.hostname;
+                                const mainPort = parseInt(window.location.port) || 80;
+                                const fallbackBases = [
+                                    `http://${hostname}:${mainPort}/gzmark/`,
+                                    `http://${hostname}:${mainPort - 1}/mark/`,
+                                    `http://${hostname}:${mainPort}/mark/`,
+                                ];
+
+                                let updatedCount = 0;
+                                for (const [key, poolUrl] of Object.entries(_guangda2ImagePool)) {
+                                    for (const fallbackBase of fallbackBases) {
+                                        if (poolUrl.startsWith(fallbackBase) && fallbackBase !== _guangda2ImageBase) {
+                                            _guangda2ImagePool[key] = poolUrl.replace(fallbackBase, _guangda2ImageBase);
                                             updatedCount++;
+                                            break;
                                         }
                                     }
-                                    if (updatedCount > 0) {
-                                        console.log(`🔄 [V2] 已更新图片池中 ${updatedCount} 个 URL 的前缀`);
-                                    }
+                                }
+
+                                if (updatedCount > 0) {
+                                    console.log(`🔄 [V2] 已更新图片池中 ${updatedCount} 个 URL 的前缀`);
                                 }
                             }
 
