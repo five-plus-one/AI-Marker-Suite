@@ -19,10 +19,23 @@ let _guangda2ApiBase = '';  // API 基础地址，如 "http://host:port"，从AP
 
     XMLHttpRequest.prototype.open = function(method, url, ...args) {
         this._guangda2Url = url;
+
+        // 拦截 firstUpdateUserInfo 请求，避免自动批改时的"姓名不能为空"错误
+        if (url.includes('firstUpdateUserInfo')) {
+            this._guangda2Blocked = true;
+            console.log('🚫 [V2 API拦截] 标记 firstUpdateUserInfo 请求为阻止');
+        }
+
         return _innerOpen.call(this, method, url, ...args);
     };
 
     XMLHttpRequest.prototype.send = function(...args) {
+        // 如果被标记为阻止，则不实际发送请求
+        if (this._guangda2Blocked) {
+            console.log('🚫 [V2 API拦截] 阻止 firstUpdateUserInfo 请求');
+            return;
+        }
+
         this.addEventListener('load', function() {
             try {
                 const url = this._guangda2Url || '';
