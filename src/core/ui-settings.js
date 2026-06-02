@@ -754,41 +754,6 @@ function createSettingsPanel(options) {
                 <!-- ===== 批改 ===== -->
                 <div class="group-title" id="group-grading">批改</div>
 
-                <!-- 空白答题卡检测 -->
-                <div class="form-section">
-                    <div class="section-header"><h4>空白答题卡检测</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                    <div class="section-body">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="blank-detection-enabled">
-                            <label for="blank-detection-enabled">启用空白卡自动跳过</label>
-                        </div>
-                        <div style="font-size:12px;color:#86868b;margin-top:4px;margin-bottom:12px;">对没有作答内容的答题卡自动判0分并跳过，减少无效批改。</div>
-                        <div id="blank-detection-config-group">
-                            <div class="form-group">
-                                <label>差异阈值</label>
-                                <div style="display:flex;align-items:center;gap:10px;">
-                                    <input type="range" id="blank-threshold" min="0.5" max="5" step="0.5" value="1" style="flex:1;">
-                                    <span id="blank-threshold-value" style="font-size:13px;font-weight:600;min-width:36px;">1%</span>
-                                </div>
-                                <div style="font-size:11px;color:#86868b;margin-top:4px;">当前图与范本黑色像素占比的差异阈值，越小越严格</div>
-                            </div>
-                            <div class="form-group" style="border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:12px;background:rgba(0,0,0,0.01);">
-                                <label style="margin-bottom:8px;">范本管理</label>
-                                <div id="blank-ref-detail" style="font-size:12px;color:#86868b;margin-bottom:10px;">范本状态：未采集</div>
-                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                    <label id="blank-upload-label" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#fff;border:1px solid #d8dee8;border-radius:6px;font-size:12px;cursor:pointer;color:#344054;transition:all 0.2s;">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                                        上传图片采集
-                                        <input type="file" id="blank-upload-input" accept="image/*" multiple style="display:none;">
-                                    </label>
-                                    <button id="blank-clear-ref-btn" style="display:none;padding:6px 12px;background:#fff;border:1px solid #d8dee8;border-radius:6px;font-size:12px;cursor:pointer;color:#D93025;transition:all 0.2s;">清除范本</button>
-                                </div>
-                                <div style="font-size:11px;color:#86868b;margin-top:8px;">上传空白答题卡图片作为范本，或在批改弹窗中点击「标记为空白卡」自动采集</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="form-section">
                     <div class="section-header"><h4>批改上下文</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
@@ -917,6 +882,41 @@ function createSettingsPanel(options) {
                             <div class="form-group">
                                 <label>自定义评估标准（可选）</label>
                                 <textarea id="diligence-criteria" rows="3" placeholder="例如：字数较多(>15字)且书写较为工整&#10;留空则使用默认评估标准"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 空白答题卡检测 -->
+                <div class="form-section">
+                    <div class="section-header"><h4>空白答题卡检测</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="blank-detection-enabled">
+                            <label for="blank-detection-enabled">启用空白卡自动跳过</label>
+                        </div>
+                        <div style="font-size:12px;color:#86868b;margin-top:4px;margin-bottom:12px;">对没有作答内容的答题卡自动判0分并跳过，减少无效批改。</div>
+                        <div id="blank-detection-config-group">
+                            <div class="form-group">
+                                <label>差异阈值</label>
+                                <div style="display:flex;align-items:center;gap:10px;">
+                                    <input type="range" id="blank-threshold" min="0.5" max="5" step="0.5" value="1" style="flex:1;">
+                                    <span id="blank-threshold-value" style="font-size:13px;font-weight:600;min-width:36px;">1%</span>
+                                </div>
+                                <div style="font-size:11px;color:#86868b;margin-top:4px;">当前图与范本黑色像素占比的差异阈值，越小越严格</div>
+                            </div>
+                            <div class="form-group" style="border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:12px;background:rgba(0,0,0,0.01);">
+                                <label style="margin-bottom:8px;">范本管理</label>
+                                <div id="blank-ref-detail" style="font-size:12px;color:#86868b;margin-bottom:10px;">范本状态：未采集</div>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                    <label id="blank-upload-label" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#fff;border:1px solid #d8dee8;border-radius:6px;font-size:12px;cursor:pointer;color:#344054;transition:all 0.2s;">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                        上传图片采集
+                                        <input type="file" id="blank-upload-input" accept="image/*" multiple style="display:none;">
+                                    </label>
+                                    <button id="blank-clear-ref-btn" style="display:none;padding:6px 12px;background:#fff;border:1px solid #d8dee8;border-radius:6px;font-size:12px;cursor:pointer;color:#D93025;transition:all 0.2s;">清除范本</button>
+                                </div>
+                                <div style="font-size:11px;color:#86868b;margin-top:8px;">上传空白答题卡图片作为范本，或在批改弹窗中点击「标记为空白卡」自动采集</div>
                             </div>
                         </div>
                     </div>
@@ -1358,7 +1358,7 @@ function setupSettingsMenuLayout(panel) {
 
     const navItems = [
         { id: 'plan', label: '方案', title: '方案', desc: '选择当前配置方案，并决定是否绑定到当前试题。' },
-        { id: 'grading', label: '批改', title: '批改', desc: '设置运行模式、题目上下文、分数表格和勤勉加分。' },
+        { id: 'grading', label: '批改', title: '批改', desc: '设置运行模式、题目上下文、分数表格、勤勉加分和空白答题卡检测。' },
         { id: 'ai', label: 'AI', title: 'AI', desc: '管理批改工作流、服务供应商、密钥和模型。' },
         { id: 'automation', label: '自动化', title: '自动化', desc: '设置批阅份数限制和自动暂停边界。' },
         { id: 'data', label: '数据', title: '数据', desc: '管理历史、图片保存、配置备份和恢复默认设置。' },
@@ -1408,6 +1408,7 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '批改上下文');
     moveSection('grading', '分数设置');
     moveSection('grading', '勤勉加分');
+    moveSection('grading', '空白答题卡检测');
     moveSection('ai', '批改工作流');
     moveSection('ai', '供应商与模型');
     const apiWarning = configTab.querySelector('#api-key-warning');
