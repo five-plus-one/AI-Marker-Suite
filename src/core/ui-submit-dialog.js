@@ -43,6 +43,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const modeTag = isUnattended ? '<span style="color:#888;font-weight:normal;font-size:12px;margin-left:8px;">[自动模式]</span>'
                    : isTrial ? '<span style="color:#7c3aed;font-weight:normal;font-size:12px;margin-left:8px;">[试改模式]</span>' : '';
     const isBlankCard = extraInfo?.isBlankCard || false;
+    const blankRatios = extraInfo?.blankRatios || null;
     const blankTag = isBlankCard ? '<span style="color:#E67E22;font-weight:normal;font-size:12px;margin-left:8px;">[空白卡]</span>' : '';
 
     const imagesHtml = imageUrls.map(url => `<img src="${url}" style="width: 100%; height: auto; display: block; border-bottom: 2px dashed rgba(0,0,0,0.06); margin-bottom: -2px;">`).join('');
@@ -361,6 +362,29 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${diligence.reason ? `<div style="font-size:12px;color:#666;margin-top:4px;">${diligence.reason}</div>` : ''}
                     </div>
                 </div>` : ''}
+                ${blankRatios ? (() => {
+                    const rows = blankRatios.current.map((c, i) => {
+                        const ref = blankRatios.reference[i];
+                        if (c.skipped || ref === undefined) return '';
+                        const diff = Math.abs(c.ratio - ref);
+                        const diffPct = (diff * 100).toFixed(3);
+                        const thresholdPct = (blankRatios.threshold * 100).toFixed(1);
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;${i > 0 ? 'border-top:1px solid rgba(0,0,0,0.04);' : ''}">
+                            <span style="font-size:12px;color:#666;">图${i + 1}</span>
+                            <span style="font-family:monospace;font-size:12px;">
+                                <span style="color:#172033;">当前 ${(c.ratio * 100).toFixed(3)}%</span>
+                                <span style="color:#aaa;margin:0 4px;">|</span>
+                                <span style="color:#86868b;">范本 ${(ref * 100).toFixed(3)}%</span>
+                                <span style="color:#aaa;margin:0 4px;">|</span>
+                                <span style="color:#34A853;font-weight:600;">差异 ${diffPct}%</span>
+                            </span>
+                        </div>`;
+                    }).join('');
+                    return `<div class="asd-info-block">
+                        <div class="asd-info-label">空白卡检测详情 <span style="font-weight:normal;color:#34A853;">（阈值 ${(blankRatios.threshold * 100).toFixed(1)}%）</span></div>
+                        <div style="padding:10px 14px;background:rgba(52,168,83,0.04);border-radius:8px;border:1px solid rgba(52,168,83,0.12);">${rows}</div>
+                    </div>`;
+                })() : ''}
                 <div class="asd-info-block"><div class="asd-info-label">识别答案</div><div class="asd-info-content">${studentAnswer}</div></div>
                 ${comment ? `<div class="asd-info-block"><div class="asd-info-label">评语</div><div class="asd-info-content" style="max-height:200px;overflow-y:auto;">${comment}</div></div>` : ''}
             </div>

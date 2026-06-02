@@ -148,7 +148,12 @@ async function startAutoGrading() {
                             label: u.label, score: 0, maxScore: u.maxScore
                         }));
                         showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
-                            isBlankCard: true
+                            isBlankCard: true,
+                            blankRatios: {
+                                current: currentRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
+                                reference: refRatios,
+                                threshold: blankConfig.threshold
+                            }
                         });
                         return;
                     } else {
