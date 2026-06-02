@@ -52,8 +52,15 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const pauseBtnHtml = isTrial ? '' : `<button class="asd-cancel-btn" id="pause-cancel-btn">暂停</button>`;
     const confirmLabel = isTrial ? '确认提交' : '立即提交';
     const cancelBtnHtml = `<button class="asd-cancel-btn" id="cancel-submit-btn">取消</button>`;
-    const markBlankBtnHtml = !isUnattended
-        ? `<button class="asd-cancel-btn" id="mark-blank-btn" style="color:#E67E22;border-color:rgba(230,126,34,0.2);">标记为空白卡</button>` : '';
+    // 空白卡相关按钮：自动检测为空白时显示「这不是空白卡」，否则显示「标记为空白卡」
+    let blankBtnHtml = '';
+    if (!isUnattended) {
+        if (isBlankCard) {
+            blankBtnHtml = `<button class="asd-cancel-btn" id="not-blank-btn" style="color:#2166ad;border-color:rgba(33,102,173,0.2);">这不是空白卡</button>`;
+        } else {
+            blankBtnHtml = `<button class="asd-cancel-btn" id="mark-blank-btn" style="color:#E67E22;border-color:rgba(230,126,34,0.2);">标记为空白卡</button>`;
+        }
+    }
 
     // 环形分数显示 — 根据分数计算百分比和颜色
     const maxScore = PresetManager.getMaxScore() || 100;  // UI 显示用，0 时回退 100 避免除零
@@ -362,7 +369,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             ${countdownHtml}
             <div class="asd-buttons">
                 ${cancelBtnHtml}
-                ${markBlankBtnHtml}
+                ${blankBtnHtml}
                 ${correctionBtnHtml}
                 ${pauseBtnHtml}
                 <button class="asd-confirm-btn" id="confirm-submit-btn">${confirmLabel}</button>
@@ -561,6 +568,20 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 if (btn) { btn.textContent = '继续批改'; btn.classList.remove('running', 'unattended', 'trial'); btn.classList.add('paused'); }
                 showToast('⚠️ 未找到提交按钮，请手动提交后点击"继续批改"');
             }
+        });
+    }
+
+    // "这不是空白卡" 按钮 — 撤销空白判定，重新进行 AI 批改
+    const notBlankBtn = dialog.querySelector('#not-blank-btn');
+    if (notBlankBtn) {
+        notBlankBtn.addEventListener('click', () => {
+            if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
+            dialog.remove();
+            showToast('已撤销空白判定，正在重新批改...');
+            // 设置跳过标记，避免下一次检测又判为空白
+            window.aiGradingState.blankDetection.skipOnce = true;
+            window.aiGradingState.errorRetryCount = 0;
+            setTimeout(() => startAutoGrading(), 300);
         });
     }
 

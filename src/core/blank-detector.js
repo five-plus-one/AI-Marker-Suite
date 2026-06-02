@@ -168,12 +168,14 @@ const BlankDetector = {
     // ========== 范本管理 ==========
 
     /**
-     * 保存范本占比到 sessionStorage
+     * 保存范本占比（sessionStorage + GM_setValue 双写）
      * @param {number[]} ratios - 范本占比数组
      */
     saveReference(ratios) {
         try {
-            sessionStorage.setItem(this.STORAGE_KEY, JSON.stringify(ratios));
+            const json = JSON.stringify(ratios);
+            sessionStorage.setItem(this.STORAGE_KEY, json);
+            if (typeof GM_setValue !== 'undefined') GM_setValue(this.STORAGE_KEY, json);
             console.log('📸 [空白检测] 范本已保存:', ratios.map(r => (r * 100).toFixed(3) + '%').join(', '));
         } catch (e) {
             console.warn('⚠️ [空白检测] 范本保存失败:', e);
@@ -181,12 +183,17 @@ const BlankDetector = {
     },
 
     /**
-     * 加载范本占比
+     * 加载范本占比（优先 sessionStorage，回退 GM_setValue）
      * @returns {number[] | null}
      */
     loadReference() {
         try {
-            const data = sessionStorage.getItem(this.STORAGE_KEY);
+            let data = sessionStorage.getItem(this.STORAGE_KEY);
+            if (!data && typeof GM_getValue !== 'undefined') {
+                data = GM_getValue(this.STORAGE_KEY, null);
+                // 从 GM_setValue 恢复到 sessionStorage
+                if (data) sessionStorage.setItem(this.STORAGE_KEY, data);
+            }
             if (data) {
                 const ratios = JSON.parse(data);
                 if (Array.isArray(ratios) && ratios.length > 0) {
@@ -200,10 +207,21 @@ const BlankDetector = {
     },
 
     /**
-     * 清除范本
+     * 获取范本详情（用于设置面板展示）
+     * @returns {{ count: number, ratios: number[] } | null}
+     */
+    getRatiosDetail() {
+        const ratios = this.loadReference();
+        if (!ratios) return null;
+        return { count: ratios.length, ratios };
+    },
+
+    /**
+     * 清除范本（sessionStorage + GM_setValue）
      */
     clearReference() {
         sessionStorage.removeItem(this.STORAGE_KEY);
+        if (typeof GM_setValue !== 'undefined') GM_setValue(this.STORAGE_KEY, null);
         console.log('🗑️ [空白检测] 范本已清除');
     },
 

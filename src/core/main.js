@@ -120,7 +120,7 @@ async function startAutoGrading() {
 
         // ===== 空白答题卡检测 =====
         const blankConfig = presetConfig.blankDetection;
-        if (blankConfig && blankConfig.enabled) {
+        if (blankConfig && blankConfig.enabled && !window.aiGradingState.blankDetection.skipOnce) {
             const refRatios = BlankDetector.loadReference();
             if (refRatios) {
                 try {
@@ -159,6 +159,8 @@ async function startAutoGrading() {
                 }
             }
         }
+        // 重置跳过标记（仅生效一次）
+        window.aiGradingState.blankDetection.skipOnce = false;
         // ===== 空白检测结束 =====
 
         const gradeBtnEl = document.querySelector('.ai-grade-btn');
