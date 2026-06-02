@@ -887,6 +887,34 @@ function createSettingsPanel(options) {
                     </div>
                 </div>
 
+                <!-- 空白答题卡检测 -->
+                <div class="form-section">
+                    <div class="section-header"><h4>空白答题卡检测</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="blank-detection-enabled">
+                            <label for="blank-detection-enabled">启用空白卡自动跳过</label>
+                        </div>
+                        <div style="font-size:12px;color:#86868b;margin-top:4px;margin-bottom:12px;">对没有作答内容的答题卡自动判0分并跳过，减少无效批改。首次使用需在弹窗中点击「标记为空白卡」采集范本。</div>
+                        <div id="blank-detection-config-group">
+                            <div class="form-group">
+                                <label>差异阈值</label>
+                                <div style="display:flex;align-items:center;gap:10px;">
+                                    <input type="range" id="blank-threshold" min="0.5" max="5" step="0.5" value="1" style="flex:1;">
+                                    <span id="blank-threshold-value" style="font-size:13px;font-weight:600;min-width:36px;">1%</span>
+                                </div>
+                                <div style="font-size:11px;color:#86868b;margin-top:4px;">当前图与范本黑色像素占比的差异阈值，越小越严格</div>
+                            </div>
+                            <div class="form-group">
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span id="blank-ref-status" style="font-size:12px;color:#86868b;">范本状态：未采集</span>
+                                    <button id="blank-clear-ref-btn" style="background:none;border:1px solid #d8dee8;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#666;display:none;">清除范本</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ===== 其他 ===== -->
                 <div class="group-title" id="group-other">其他</div>
 
@@ -1604,6 +1632,48 @@ function fillFormFromActivePreset() {
     const criteriaTextarea = document.getElementById('diligence-criteria');
     if (criteriaTextarea) criteriaTextarea.value = diligence.criteria || '';
     if (diligenceConfigGroup) diligenceConfigGroup.style.display = diligence.enabled ? 'block' : 'none';
+
+    // 空白答题卡检测配置
+    const blankDetection = config.blankDetection || { enabled: false, threshold: 0.01 };
+    const blankEnabled = document.getElementById('blank-detection-enabled');
+    const blankConfigGroup = document.getElementById('blank-detection-config-group');
+    if (blankEnabled) {
+        blankEnabled.checked = blankDetection.enabled;
+        blankEnabled.addEventListener('change', () => {
+            if (blankConfigGroup) blankConfigGroup.style.display = blankEnabled.checked ? 'block' : 'none';
+            markUnsavedChanges();
+        });
+    }
+    const blankThreshold = document.getElementById('blank-threshold');
+    const blankThresholdValue = document.getElementById('blank-threshold-value');
+    if (blankThreshold) {
+        const thresholdPct = (blankDetection.threshold || 0.01) * 100;
+        blankThreshold.value = thresholdPct;
+        if (blankThresholdValue) blankThresholdValue.textContent = thresholdPct + '%';
+        blankThreshold.addEventListener('input', () => {
+            if (blankThresholdValue) blankThresholdValue.textContent = blankThreshold.value + '%';
+            markUnsavedChanges();
+        });
+    }
+    // 范本状态显示
+    const blankRefStatus = document.getElementById('blank-ref-status');
+    const blankClearRefBtn = document.getElementById('blank-clear-ref-btn');
+    if (blankRefStatus) {
+        const hasRef = BlankDetector.hasReference();
+        blankRefStatus.textContent = hasRef ? '范本状态：已采集' : '范本状态：未采集';
+        blankRefStatus.style.color = hasRef ? '#34A853' : '#86868b';
+        if (blankClearRefBtn) {
+            blankClearRefBtn.style.display = hasRef ? 'inline-block' : 'none';
+            blankClearRefBtn.addEventListener('click', () => {
+                BlankDetector.clearReference();
+                blankRefStatus.textContent = '范本状态：已清除';
+                blankRefStatus.style.color = '#86868b';
+                blankClearRefBtn.style.display = 'none';
+                showToast('🗑️ 空白卡范本已清除');
+            });
+        }
+    }
+    if (blankConfigGroup) blankConfigGroup.style.display = blankDetection.enabled ? 'block' : 'none';
 
     const gradingMode = config.gradingMode || 'normal';
     const modeRadio = document.querySelector(`input[name="grading-mode"][value="${gradingMode}"]`);
@@ -2465,6 +2535,11 @@ function saveAISettings() {
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
 
+    // 保存空白答题卡检测配置
+    const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
+    const blankThresholdPct = parseFloat(document.getElementById('blank-threshold')?.value) || 1;
+    const blankThreshold = blankThresholdPct / 100;  // 转为小数
+
     // 从 Markdown 数据读取（兼容旧格式）
     var mdData = window.__aiMarkdownData || {};
     var questionData = mdData.question || { text: '', images: [], format: 'plain' };
@@ -2489,6 +2564,10 @@ function saveAISettings() {
                 decayPower: diligenceDecayPower,
                 criteria: diligenceCriteria
             }
+        },
+        blankDetection: {
+            enabled: blankDetectionEnabled,
+            threshold: blankThreshold
         },
         batchConfig: {
             enabled: batchEnabled,

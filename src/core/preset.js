@@ -9,6 +9,7 @@ const PresetManager = {
                 this._migrateGradingMode();
                 this._migrateProvider();
                 this._migrateWorkflow();
+                this._migrateBlankDetection();
             } else {
                 let oldConfigStr = GM_getValue('ai-grading-config');
                 let defaultCfg = oldConfigStr ? JSON.parse(oldConfigStr) : {
@@ -87,6 +88,21 @@ const PresetManager = {
                 }
                 if (cfg.scoring && cfg.scoring.maxScore === undefined) {
                     cfg.scoring.maxScore = 0;  // 0 = 未设置，运行时需要用户配置
+                    changed = true;
+                }
+            } catch (e) {
+                console.warn(`⚠️ Migration failed for preset "${name}":`, e);
+            }
+        }
+        if (changed) this.save();
+    },
+    _migrateBlankDetection() {
+        let changed = false;
+        for (const name in this.data.list) {
+            try {
+                const cfg = this.data.list[name];
+                if (!cfg.blankDetection) {
+                    cfg.blankDetection = { enabled: false, threshold: 0.01 };
                     changed = true;
                 }
             } catch (e) {
