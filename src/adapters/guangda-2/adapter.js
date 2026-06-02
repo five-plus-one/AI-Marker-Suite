@@ -11,6 +11,7 @@
 let _guangda2ImagePool = {};  // 包号 → 完整图片URL 的映射
 let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
 let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmark/"，从页面请求自动捕获
+let _guangda2ApiBase = '';  // API 基础地址，如 "http://host:port"，从API请求自动捕获
 
 {
     const _innerOpen = XMLHttpRequest.prototype.open;
@@ -28,11 +29,22 @@ let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmar
 
                 // 拦截页面自身的图片请求，自动检测图片 URL 前缀
                 // 图片请求 URL 类似: http://host:port/gzmark/res.do?rt=qtpj_kscqk&path=...
+                // 或: http://host:port/mark/res.do?rt=qtpj_kscqk&path=...
                 if (url.includes('qtpj_kscqk') && !_guangda2ImageBase) {
                     const match = url.match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
                     if (match) {
                         _guangda2ImageBase = match[1];
                         console.log(`🖼️ [V2 API拦截] 检测到图片 URL 前缀: ${_guangda2ImageBase}`);
+                    }
+                }
+
+                // 拦截 h5pj API 请求，自动检测 API 基础地址
+                // API 请求 URL 类似: http://host:port/h5pj/getDdb
+                if (url.includes('/h5pj/') && !_guangda2ApiBase) {
+                    const apiMatch = url.match(/^(https?:\/\/[^/]+)/);
+                    if (apiMatch) {
+                        _guangda2ApiBase = apiMatch[1];
+                        console.log(`🔗 [V2 API拦截] 检测到 API 基础地址: ${_guangda2ApiBase}`);
                     }
                 }
 
@@ -106,13 +118,84 @@ function _buildGuangda2ImageUrl(imagePath) {
     const separator = relativePath.includes('?') ? '&' : '?';
     const cacheBuster = `t1=0.${Math.random().toString().substring(2, 12)}`;
 
-    // 优先用捕获到的真实前缀
+    // 优先级1: 使用捕获到的真实前缀（最可靠）
     if (_guangda2ImageBase) {
         return `${_guangda2ImageBase}${relativePath}${separator}${cacheBuster}`;
     }
 
-    // 兜底: 同端口 + /gzmark/（最常见的部署模式）
-    return `http://${hostname}:${mainPort}/gzmark/${relativePath}${separator}${cacheBuster}`;
+    // 优先级2: 智能推断，支持多种部署模式
+    const hostname2 = window.location.hostname;
+    const mainPort2 = parseInt(window.location.port) || 80;
+
+    // 模式1: 同端口 + /gzmark/ (原始模式，如 pj.yixx.cn)
+    // 模式2: 端口-1 + /mark/ (新发现的模式，如 202.104.21.72:40002 → 40001)
+    // 模式3: 同端口 + /mark/
+    const candidates = [
+        `http://${hostname2}:${mainPort2}/gzmark/`,
+        `http://${hostname2}:${mainPort2 - 1}/mark/`,
+        `http://${hostname2}:${mainPort2}/mark/`,
+    ];
+
+    // 如果捕获到了 API 基础地址，尝试使用它构造图片地址
+    if (_guangda2ApiBase) {
+        // API 地址可能是 http://host:port，图片可能在同主机的 /mark/ 或 /gzmark/
+        candidates.unshift(`${_guangda2ApiBase}/mark/`);
+        candidates.unshift(`${_guangda2ApiBase}/gzmark/`);
+    }
+
+    // 使用第一个候选地址（后续可通过异步验证优化）
+    console.log(`🖼️ [V2] 使用图片地址候选: ${candidates[0]}`);
+    return `${candidates[0]}${relativePath}${separator}${cacheBuster}`;
+}
+
+// 获取图片 URL 的所有候选地址（用于重试）
+function _getGuangda2CandidateUrls(imagePath) {
+    const hostname = window.location.hostname;
+    const mainPort = parseInt(window.location.port) || 80;
+
+    // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
+    let relativePath;
+    if (imagePath.startsWith('res.do')) {
+        relativePath = imagePath;
+    } else {
+        relativePath = `res.do?rt=qtpj_kscqk&path=${imagePath}`;
+    }
+
+    // 添加缓存破坏参数
+    const separator = relativePath.includes('?') ? '&' : '?';
+    const cacheBuster = `t1=0.${Math.random().toString().substring(2, 12)}`;
+    const fullRelative = `${relativePath}${separator}${cacheBuster}`;
+
+    const candidates = [];
+
+    // 如果有捕获到的真实前缀，优先使用
+    if (_guangda2ImageBase) {
+        candidates.push(`${_guangda2ImageBase}${fullRelative}`);
+    }
+
+    // 添加多种部署模式的候选地址
+    const bases = [
+        `http://${hostname}:${mainPort}/gzmark/`,
+        `http://${hostname}:${mainPort - 1}/mark/`,
+        `http://${hostname}:${mainPort}/mark/`,
+    ];
+
+    // 如果捕获到了 API 基础地址，添加更多候选
+    if (_guangda2ApiBase) {
+        bases.unshift(`${_guangda2ApiBase}/mark/`);
+        bases.unshift(`${_guangda2ApiBase}/gzmark/`);
+    }
+
+    // 去重并生成完整 URL
+    const uniqueBases = [...new Set(bases)];
+    for (const base of uniqueBases) {
+        const fullUrl = `${base}${fullRelative}`;
+        if (!candidates.includes(fullUrl)) {
+            candidates.push(fullUrl);
+        }
+    }
+
+    return candidates;
 }
 
 // ========== 版本检测 ==========
@@ -253,7 +336,45 @@ const Guangda2Adapter = {
 
     async fetchImageAsBase64(url) {
         // V2 的图片 URL 是完整的 HTTP URL，直接下载
-        return fetchImageAsBase64(url);
+        try {
+            return await fetchImageAsBase64(url);
+        } catch (error) {
+            // 如果是 404 错误，尝试其他候选地址
+            if (error.message && error.message.includes('404')) {
+                console.log(`🔄 [V2] 图片下载 404，尝试其他候选地址...`);
+
+                // 从 URL 中提取 imagePath
+                const pathMatch = url.match(/[?&]path=([^&]+)/);
+                if (pathMatch) {
+                    const imagePath = decodeURIComponent(pathMatch[1]);
+                    const candidateUrls = _getGuangda2CandidateUrls(imagePath);
+
+                    // 尝试其他候选地址（跳过第一个，因为已经失败了）
+                    for (let i = 1; i < candidateUrls.length; i++) {
+                        try {
+                            console.log(`🔄 [V2] 尝试候选地址 ${i}: ${candidateUrls[i].substring(0, 60)}...`);
+                            const result = await fetchImageAsBase64(candidateUrls[i]);
+                            console.log(`✅ [V2] 候选地址 ${i} 成功！`);
+
+                            // 记住成功的前缀，后续直接使用
+                            const baseMatch = candidateUrls[i].match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
+                            if (baseMatch) {
+                                _guangda2ImageBase = baseMatch[1];
+                                console.log(`🖼️ [V2] 记住成功的图片前缀: ${_guangda2ImageBase}`);
+                            }
+
+                            return result;
+                        } catch (e) {
+                            console.log(`❌ [V2] 候选地址 ${i} 失败: ${e.message}`);
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // 所有尝试都失败，抛出原始错误
+            throw error;
+        }
     },
 
     // ========== 分数填入 ==========
