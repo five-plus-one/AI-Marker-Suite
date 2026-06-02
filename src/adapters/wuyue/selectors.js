@@ -6,9 +6,9 @@ const WUYUE_SELECTORS = {
     OUT_BOX: '.outBox',
     OUT_BOX_ACTIVE: '.outBox:not(.hideBox)',
 
-    // 答题卡图片（筛选 AnswerSheet 类型）
-    ANSWER_IMAGE: '.outBox:not(.hideBox) img[src*="AnswerSheet"]',
-    ANSWER_IMAGE_ALL: '.imgSection img[src*="AnswerSheet"]',
+    // 答题卡图片（筛选 PaperScan 类型）
+    ANSWER_IMAGE: '.outBox:not(.hideBox) img[src*="PaperScan"]',
+    ANSWER_IMAGE_ALL: '.imgSection img[src*="PaperScan"]',
 
     // 原卷图片（PaperScan，通常需要忽略）
     PAPER_IMAGE: 'img[src*="PaperScan"]',
@@ -34,7 +34,7 @@ const WUYUE_SELECTORS = {
     ZERO_SCORE_BUTTON: '.computeItem .zero',
 
     // 页面检测
-    PAGE_DETECT_IMAGE: '.outBox img[src*="AnswerSheet"]',
+    PAGE_DETECT_IMAGE: '.outBox img[src*="PaperScan"]',
     PAGE_DETECT_INPUT: '#inputOne',
     PAGE_DETECT_SUBMIT: '.btnSubmit',
 };
