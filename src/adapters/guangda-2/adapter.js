@@ -359,8 +359,23 @@ const Guangda2Adapter = {
                             // 记住成功的前缀，后续直接使用
                             const baseMatch = candidateUrls[i].match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
                             if (baseMatch) {
+                                const oldBase = _guangda2ImageBase;
                                 _guangda2ImageBase = baseMatch[1];
                                 console.log(`🖼️ [V2] 记住成功的图片前缀: ${_guangda2ImageBase}`);
+
+                                // 更新图片池中所有使用旧前缀的 URL
+                                if (oldBase && oldBase !== _guangda2ImageBase) {
+                                    let updatedCount = 0;
+                                    for (const [key, poolUrl] of Object.entries(_guangda2ImagePool)) {
+                                        if (poolUrl.startsWith(oldBase)) {
+                                            _guangda2ImagePool[key] = poolUrl.replace(oldBase, _guangda2ImageBase);
+                                            updatedCount++;
+                                        }
+                                    }
+                                    if (updatedCount > 0) {
+                                        console.log(`🔄 [V2] 已更新图片池中 ${updatedCount} 个 URL 的前缀`);
+                                    }
+                                }
                             }
 
                             return result;
