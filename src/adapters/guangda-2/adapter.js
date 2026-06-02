@@ -385,6 +385,14 @@ const Guangda2Adapter = {
                                 if (updatedCount > 0) {
                                     console.log(`🔄 [V2] 已更新图片池中 ${updatedCount} 个 URL 的前缀`);
                                 }
+
+                                // 更新 currentImageUrls 中对应的 URL（确认面板使用）
+                                const currentUrls = window.aiGradingState.currentImageUrls || [];
+                                const urlIndex = currentUrls.indexOf(url);
+                                if (urlIndex !== -1) {
+                                    currentUrls[urlIndex] = candidateUrls[i];
+                                    console.log(`🔄 [V2] 已更新 currentImageUrls[${urlIndex}]`);
+                                }
                             }
 
                             return result;
