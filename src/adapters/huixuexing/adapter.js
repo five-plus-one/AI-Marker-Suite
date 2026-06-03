@@ -1,6 +1,6 @@
 // ========== 慧学星适配器 ==========
 // www.hxxai.com — jQuery 传统页面，分步骤评分模式
-// 图片使用 OSS 托管（oss.hxxai.com），带裁剪参数
+// 图片使用 OSS 托管（oss.hxxai.com / oss.jkydata.com），带裁剪参数
 // 评分方式：分步骤输入框（readonly）+ 满分/零分按钮
 
 const HuiXuexingAdapter = {
@@ -69,7 +69,16 @@ const HuiXuexingAdapter = {
         // 等待图片加载
         await new Promise(r => setTimeout(r, 1000));
 
-        const imgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
+        // 策略1: 通过 OSS 域名匹配
+        let imgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
+        console.log(`[慧学星] OSS域名匹配找到 ${imgs.length} 张图片`);
+
+        // 策略2: 兜底 - 通过 DOM 结构匹配
+        if (imgs.length === 0) {
+            imgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE_BY_STRUCTURE);
+            console.log(`[慧学星] DOM结构匹配找到 ${imgs.length} 张图片`);
+        }
+
         const urls = [];
 
         imgs.forEach((img, i) => {
