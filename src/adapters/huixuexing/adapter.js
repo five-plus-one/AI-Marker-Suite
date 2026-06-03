@@ -1,6 +1,6 @@
 // ========== 慧学星适配器 ==========
 // www.hxxai.com — jQuery 传统页面，分步骤评分模式
-// 图片使用 OSS 托管（oss.hxxai.com），带裁剪参数
+// 图片使用 OSS 托管（oss.hxxai.com / oss.jkydata.com），带裁剪参数
 // 评分方式：分步骤输入框（readonly）+ 满分/零分按钮
 
 const HuiXuexingAdapter = {
@@ -66,26 +66,67 @@ const HuiXuexingAdapter = {
     async gatherAnswerImages() {
         console.log('[慧学星] 开始获取答题卡图片...');
 
-        // 等待图片加载
-        await new Promise(r => setTimeout(r, 1000));
+        const startTime = Date.now();
+        const maxWait = 8000; // 最长等待 8 秒
+        const pollInterval = 300; // 轮询间隔 300ms
 
-        const imgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
-        const urls = [];
+        while (Date.now() - startTime < maxWait) {
+            // 策略1: 通过 OSS 域名匹配
+            let imgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
 
-        imgs.forEach((img, i) => {
-            if (img.src && img.naturalWidth > 100) {
-                urls.push(img.src);
-                console.log(`[慧学星] 图片${i + 1}: ${img.src.substring(0, 80)}...`);
+            // 策略2: 兜底 - 通过 DOM 结构匹配
+            if (imgs.length === 0) {
+                imgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE_BY_STRUCTURE);
+            }
+
+            if (imgs.length > 0) {
+                // 等待所有图片解码完成
+                const validUrls = [];
+                for (const img of imgs) {
+                    if (!img.src) continue;
+                    try {
+                        // img.decode() 确保图片已完全解码
+                        await img.decode();
+                        validUrls.push(img.src);
+                        console.log(`[慧学星] 图片已解码: ${img.src.substring(0, 80)}...`);
+                    } catch (e) {
+                        // decode 失败（图片加载失败或无效）
+                        console.warn('[慧学星] 图片解码失败:', img.src.substring(0, 50));
+                    }
+                }
+
+                if (validUrls.length > 0) {
+                    console.log(`[慧学星] 找到 ${validUrls.length} 张答题卡图片`);
+                    return validUrls;
+                }
+            }
+
+            // 等待后重试
+            await new Promise(r => setTimeout(r, pollInterval));
+        }
+
+        // 超时兜底：降低要求，使用 naturalWidth > 0 检查
+        console.warn('[慧学星] 轮询超时，尝试降级获取...');
+        let fallbackImgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
+        if (fallbackImgs.length === 0) {
+            fallbackImgs = document.querySelectorAll(HUIXUEXING_SELECTORS.ANSWER_IMAGE_BY_STRUCTURE);
+        }
+
+        const fallbackUrls = [];
+        fallbackImgs.forEach(img => {
+            // 降级条件：只检查 src 存在且 naturalWidth > 0（不要求 > 100）
+            if (img.src && img.naturalWidth > 0) {
+                fallbackUrls.push(img.src);
             }
         });
 
-        if (urls.length === 0) {
+        if (fallbackUrls.length === 0) {
             console.warn('[慧学星] 未找到答题卡图片');
         } else {
-            console.log(`[慧学星] 找到 ${urls.length} 张答题卡图片`);
+            console.log(`[慧学星] 降级获取到 ${fallbackUrls.length} 张答题卡图片`);
         }
 
-        return urls;
+        return fallbackUrls;
     },
 
     async fetchImageAsBase64(url) {

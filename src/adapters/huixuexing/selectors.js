@@ -1,10 +1,12 @@
 // ========== 慧学星 DOM 选择器常量 ==========
 // www.hxxai.com — jQuery 传统页面，分步骤评分模式
-// 图片使用 OSS 托管（oss.hxxai.com），带裁剪参数
+// 图片使用 OSS 托管（oss.hxxai.com / oss.jkydata.com），带裁剪参数
 
 const HUIXUEXING_SELECTORS = {
-    // 答题卡图片（OSS 托管）
-    ANSWER_IMAGE: 'img[src*="oss.hxxai.com"]',
+    // 答题卡图片（OSS 托管，支持多域名）
+    ANSWER_IMAGE: 'img[src*="oss.hxxai.com"], img[src*="oss.jkydata.com"]',
+    // 答题卡图片（DOM 结构兜底，不依赖 OSS 域名）
+    ANSWER_IMAGE_BY_STRUCTURE: '#wrapperPaper .papers-img img',
 
     // 总分输入框（自动汇总各步骤分数，readonly）
     SCORE_INPUT: '#scoreMine',
@@ -42,7 +44,7 @@ const HUIXUEXING_SELECTORS = {
     REGRADE_TEXT_CHECK: '回评',
 
     // 页面检测选择器
-    PAGE_DETECT_IMAGE: 'img[src*="oss.hxxai.com"]',
+    PAGE_DETECT_IMAGE: 'img[src*="oss.hxxai.com"], img[src*="oss.jkydata.com"]',
     PAGE_DETECT_INPUT: '#scoreMine',
     PAGE_DETECT_STEP_INPUT: '#stepScoreInput0',
     PAGE_DETECT_SUBMIT: '.input-group-btn .btn-blue-all',
