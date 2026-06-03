@@ -538,24 +538,23 @@ const Guangda2Adapter = {
         console.log('⏳ [诊断] 光大V2 — 启动弹窗监听器...');
 
         const observer = new MutationObserver(() => {
-            // 优先级1：处理"修改账号信息"弹窗（避免触发退出登录）
+            // 优先级1：隐藏"修改账号信息"弹窗（直接隐藏，不点击按钮）
             const changePwdDialog = document.querySelector('.changePwd-dialog');
             if (changePwdDialog) {
-                const cancelBtn = changePwdDialog.querySelector('.cancel');
-                if (cancelBtn) {
-                    console.log('✅ [诊断] 光大V2 — 检测到"修改账号信息"弹窗，自动点击取消');
-                    cancelBtn.click();
+                const dialogWrap = changePwdDialog.closest('.dialog-wrap');
+                if (dialogWrap) {
+                    console.log('✅ [诊断] 光大V2 — 检测到"修改账号信息"弹窗，直接隐藏');
+                    dialogWrap.style.display = 'none';
                     observer.disconnect();
                     return;
                 }
             }
 
-            // 优先级2：处理"给分详情"弹窗
+            // 优先级2：处理"给分详情"弹窗（这个需要点击确认）
             const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
             if (confirmBtn) {
                 console.log('✅ [诊断] 光大V2 — 检测到给分详情弹窗，自动点击确认');
                 confirmBtn.click();
-                // 不立即 disconnect，等待可能的"修改账号信息"弹窗
             }
         });
 
