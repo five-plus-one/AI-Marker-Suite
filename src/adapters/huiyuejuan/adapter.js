@@ -104,6 +104,9 @@ const HuiyuejuanAdapter = {
     urlPatterns: ['*://web.17yuejuan.cn/*'],
     iconUrl: 'https://web.17yuejuan.cn/favicon.ico',
 
+    // 待填入的分数数组（支持分小题评分）
+    _pendingScores: [],
+
     shouldInitialize() {
         return window.location.hostname.includes('17yuejuan.cn');
     },
@@ -332,26 +335,22 @@ const HuiyuejuanAdapter = {
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
 
-        const score = scores[0];
-        if (score === null || score === undefined) return false;
-
-        // 慧阅卷平台在点击分数按钮后会自动提交
-        // 所以需要延迟到用户确认后再点击分数按钮
-        this._pendingScore = score;
-        console.log(`📝 [慧阅卷] 记录待填入分数: ${score}（等待用户确认后点击）`);
+        // 保存所有小题的分数
+        this._pendingScores = scores.filter(s => s !== null && s !== undefined);
+        console.log(`📝 [慧阅卷] 记录待填入分数: [${this._pendingScores.join(', ')}]（等待用户确认后点击）`);
         return true;
     },
 
     // 点击分数按钮（在用户确认后由 submitGrade 调用）
     _clickScore() {
-        if (this._pendingScore === null || this._pendingScore === undefined) {
+        if (!this._pendingScores || this._pendingScores.length === 0) {
             console.warn('⚠️ [慧阅卷] 没有待填入的分数');
             return false;
         }
 
-        const score = this._pendingScore;
-        this._pendingScore = null;
-        console.log(`📝 [慧阅卷] 用户确认，填入分数: ${score}`);
+        const scores = [...this._pendingScores];
+        this._pendingScores = [];
+        console.log(`📝 [慧阅卷] 用户确认，填入分数: [${scores.join(', ')}]`);
 
         const frameDoc = this._getFrameDoc();
         if (!frameDoc) {
@@ -359,67 +358,86 @@ const HuiyuejuanAdapter = {
             return false;
         }
 
-        // 获取当前满分
-        const maxScore = this._getMaxScore();
+        // 获取所有小题面板
+        const panels = frameDoc.querySelectorAll(HUIYUEJUAN_SELECTORS.SCORE_PANEL_CONTAINER);
 
-        // 方法1: 使用满分/零分快捷按钮
-        if (score === 0) {
-            const zeroBtn = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.ZERO_SCORE_BUTTON);
-            if (zeroBtn) {
-                zeroBtn.click();
-                console.log('✅ [慧阅卷] 已点击"零分"按钮');
-                return true;
-            }
-        }
-        if (maxScore > 0 && score === maxScore) {
-            const fullBtn = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.FULL_SCORE_BUTTON);
-            if (fullBtn) {
-                fullBtn.click();
-                console.log('✅ [慧阅卷] 已点击"满分"按钮');
-                return true;
-            }
+        if (panels.length === 0) {
+            console.warn('⚠️ [慧阅卷] 未找到小题面板');
+            return false;
         }
 
-        // 方法2: 点击分数按钮
-        const panel = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL_CONTAINER);
-        if (panel) {
+        // 为每个小题填入对应的分数
+        let successCount = 0;
+        for (let i = 0; i < Math.min(panels.length, scores.length); i++) {
+            const score = scores[i];
+            const panel = panels[i];
+
+            if (score === null || score === undefined) continue;
+
+            // 获取该小题的满分
+            const titleEl = panel.querySelector('.ui-exam-teacher-correct-score-panel-title');
+            const titleText = titleEl ? titleEl.textContent : '';
+            const maxMatch = titleText.match(/(\d+)分/);
+            const maxScore = maxMatch ? parseInt(maxMatch[1]) : 0;
+
+            // 策略1: 使用满分/零分快捷按钮
+            if (score === 0) {
+                const zeroBtn = panel.querySelector(HUIYUEJUAN_SELECTORS.ZERO_SCORE_BUTTON);
+                if (zeroBtn) {
+                    zeroBtn.click();
+                    console.log(`✅ [慧阅卷] 第${i+1}小题: 已点击"零分"按钮`);
+                    successCount++;
+                    continue;
+                }
+            }
+            if (maxScore > 0 && score === maxScore) {
+                const fullBtn = panel.querySelector(HUIYUEJUAN_SELECTORS.FULL_SCORE_BUTTON);
+                if (fullBtn) {
+                    fullBtn.click();
+                    console.log(`✅ [慧阅卷] 第${i+1}小题: 已点击"满分"按钮`);
+                    successCount++;
+                    continue;
+                }
+            }
+
+            // 策略2: 点击分数按钮
             const scoreBtns = panel.querySelectorAll('.ui-input-number-target[ng-repeat]');
+            let clicked = false;
             for (const btn of scoreBtns) {
                 const text = btn.textContent.trim();
-                // 匹配 "+N" 格式
                 const btnScore = text.startsWith('+') ? parseInt(text.slice(1)) : parseInt(text);
                 if (btnScore === score) {
                     btn.click();
-                    console.log(`✅ [慧阅卷] 已点击分数按钮: ${text}`);
-                    return true;
+                    console.log(`✅ [慧阅卷] 第${i+1}小题: 已点击分数按钮 ${text}`);
+                    clicked = true;
+                    successCount++;
+                    break;
                 }
+            }
+            if (clicked) continue;
+
+            // 策略3: 使用自定义分值输入框
+            const customInput = panel.querySelector(HUIYUEJUAN_SELECTORS.CUSTOM_SCORE_INPUT);
+            if (customInput) {
+                const frameWin = this._getFrameWindow();
+                const InputProto = frameWin ? frameWin.HTMLInputElement.prototype : window.HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(InputProto, 'value').set;
+                setter.call(customInput, String(score));
+                customInput.dispatchEvent(new Event('input', { bubbles: true }));
+                customInput.dispatchEvent(new Event('change', { bubbles: true }));
+                customInput.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'Enter', keyCode: 13, which: 13, bubbles: true
+                }));
+                customInput.dispatchEvent(new KeyboardEvent('keyup', {
+                    key: 'Enter', keyCode: 13, which: 13, bubbles: true
+                }));
+                console.log(`✅ [慧阅卷] 第${i+1}小题: 已通过自定义输入框填入分数 ${score}`);
+                successCount++;
             }
         }
 
-        // 方法3: 使用自定义分值输入框
-        const customInput = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.CUSTOM_SCORE_INPUT);
-        if (customInput) {
-            console.log(`📝 [慧阅卷] 使用自定义分值输入框: ${score}`);
-            // 注意：需要使用 frame 窗口的 HTMLInputElement 原型
-            const frameWin = this._getFrameWindow();
-            const InputProto = frameWin ? frameWin.HTMLInputElement.prototype : window.HTMLInputElement.prototype;
-            const setter = Object.getOwnPropertyDescriptor(InputProto, 'value').set;
-            setter.call(customInput, String(score));
-            customInput.dispatchEvent(new Event('input', { bubbles: true }));
-            customInput.dispatchEvent(new Event('change', { bubbles: true }));
-            // 触发 AngularJS 的 ng-keydown enter 事件
-            customInput.dispatchEvent(new KeyboardEvent('keydown', {
-                key: 'Enter', keyCode: 13, which: 13, bubbles: true
-            }));
-            customInput.dispatchEvent(new KeyboardEvent('keyup', {
-                key: 'Enter', keyCode: 13, which: 13, bubbles: true
-            }));
-            console.log(`✅ [慧阅卷] 已通过自定义输入框填入分数: ${score}`);
-            return true;
-        }
-
-        console.warn(`⚠️ [慧阅卷] 无法填入分数 ${score}`);
-        return false;
+        console.log(`📝 [慧阅卷] 分数填入完成: ${successCount}/${scores.length} 个小题成功`);
+        return successCount > 0;
     },
 
     // 获取 frame 的 window 对象
