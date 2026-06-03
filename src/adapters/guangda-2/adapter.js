@@ -520,82 +520,55 @@ const Guangda2Adapter = {
     },
 
     // ========== 提交 ==========
-    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理"给分详情"弹窗
+    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理弹窗
     async submitGrade() {
         console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
         // 点击分数选项（触发给分详情弹窗）
         this._clickScore();
 
-        // 处理"给分详情"二次确认弹窗
-        this._handleConfirmDialog();
-
-        // 自动关闭"修改账号信息"弹窗
-        this._autoCloseChangePwdDialog();
+        // 启动弹窗监听器（同时处理"给分详情"和"修改账号信息"弹窗）
+        this._startDialogWatcher();
 
         return true;
     },
 
-    // 处理"给分详情"二次确认弹窗
-    _handleConfirmDialog() {
-        console.log('⏳ [诊断] 光大V2 — 等待给分详情弹窗...');
+    // 弹窗监听器：同时处理"给分详情"和"修改账号信息"弹窗
+    _startDialogWatcher() {
+        console.log('⏳ [诊断] 光大V2 — 启动弹窗监听器...');
 
-        // 立即检查一次（排除"修改账号信息"弹窗）
-        const immediateBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
-        if (immediateBtn) {
-            console.log('✅ [诊断] 光大V2 — 立即找到给分详情弹窗，自动点击确认');
-            immediateBtn.click();
-            return;
-        }
-
-        // 等待弹窗出现并自动点击确认
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-            checkCount++;
-
-            // 查找"确认"按钮（排除"修改账号信息"弹窗）
-            const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
-            if (confirmBtn) {
-                console.log('✅ [诊断] 光大V2 — 找到给分详情弹窗，自动点击确认');
-                confirmBtn.click();
-                clearInterval(checkInterval);
-                return;
-            }
-
-            // 超时（最多等2秒）
-            if (checkCount >= 10) {
-                clearInterval(checkInterval);
-                console.log('⚠️ [诊断] 光大V2 — 未检测到给分详情弹窗（可能未启用）');
-            }
-        }, 200);
-    },
-
-    // 自动关闭"修改账号信息"弹窗
-    _autoCloseChangePwdDialog() {
-        console.log('⏳ [诊断] 光大V2 — 检测并关闭"修改账号信息"弹窗...');
-
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-            checkCount++;
-
-            // 查找"修改账号信息"弹窗
+        const observer = new MutationObserver(() => {
+            // 优先级1：处理"修改账号信息"弹窗（避免触发退出登录）
             const changePwdDialog = document.querySelector('.changePwd-dialog');
             if (changePwdDialog) {
-                // 查找取消按钮并点击
                 const cancelBtn = changePwdDialog.querySelector('.cancel');
                 if (cancelBtn) {
-                    console.log('✅ [诊断] 光大V2 — 找到"修改账号信息"弹窗，自动点击取消');
+                    console.log('✅ [诊断] 光大V2 — 检测到"修改账号信息"弹窗，自动点击取消');
                     cancelBtn.click();
-                    clearInterval(checkInterval);
+                    observer.disconnect();
                     return;
                 }
             }
 
-            // 超时（最多等2秒）
-            if (checkCount >= 10) {
-                clearInterval(checkInterval);
+            // 优先级2：处理"给分详情"弹窗
+            const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
+            if (confirmBtn) {
+                console.log('✅ [诊断] 光大V2 — 检测到给分详情弹窗，自动点击确认');
+                confirmBtn.click();
+                // 不立即 disconnect，等待可能的"修改账号信息"弹窗
             }
-        }, 200);
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // 超时保护（5秒后停止监听）
+        setTimeout(() => {
+            observer.disconnect();
+            console.log('⚠️ [诊断] 光大V2 — 弹窗监听器超时');
+        }, 5000);
     },
 
     // ========== 等待下一份试卷 ==========
