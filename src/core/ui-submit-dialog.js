@@ -43,6 +43,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const modeTag = isUnattended ? '<span style="color:#888;font-weight:normal;font-size:12px;margin-left:8px;">[自动模式]</span>'
                    : isTrial ? '<span style="color:#7c3aed;font-weight:normal;font-size:12px;margin-left:8px;">[试改模式]</span>' : '';
     const isBlankCard = extraInfo?.isBlankCard || false;
+    const blankRatios = extraInfo?.blankRatios || null;
     const blankTag = isBlankCard ? '<span style="color:#E67E22;font-weight:normal;font-size:12px;margin-left:8px;">[空白卡]</span>' : '';
 
     const imagesHtml = imageUrls.map(url => `<img src="${url}" style="width: 100%; height: auto; display: block; border-bottom: 2px dashed rgba(0,0,0,0.06); margin-bottom: -2px;">`).join('');
@@ -52,8 +53,15 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const pauseBtnHtml = isTrial ? '' : `<button class="asd-cancel-btn" id="pause-cancel-btn">暂停</button>`;
     const confirmLabel = isTrial ? '确认提交' : '立即提交';
     const cancelBtnHtml = `<button class="asd-cancel-btn" id="cancel-submit-btn">取消</button>`;
-    const markBlankBtnHtml = !isUnattended
-        ? `<button class="asd-cancel-btn" id="mark-blank-btn" style="color:#E67E22;border-color:rgba(230,126,34,0.2);">标记为空白卡</button>` : '';
+    // 空白卡相关按钮：自动检测为空白时显示「这不是空白卡」，否则显示「标记为空白卡」
+    let blankBtnHtml = '';
+    if (!isUnattended) {
+        if (isBlankCard) {
+            blankBtnHtml = `<button class="asd-cancel-btn" id="not-blank-btn" style="color:#2166ad;border-color:rgba(33,102,173,0.2);">这不是空白卡</button>`;
+        } else {
+            blankBtnHtml = `<button class="asd-cancel-btn" id="mark-blank-btn" style="color:#E67E22;border-color:rgba(230,126,34,0.2);">标记为空白卡</button>`;
+        }
+    }
 
     // 环形分数显示 — 根据分数计算百分比和颜色
     const maxScore = PresetManager.getMaxScore() || 100;  // UI 显示用，0 时回退 100 避免除零
@@ -354,6 +362,29 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${diligence.reason ? `<div style="font-size:12px;color:#666;margin-top:4px;">${diligence.reason}</div>` : ''}
                     </div>
                 </div>` : ''}
+                ${blankRatios ? (() => {
+                    const rows = blankRatios.current.map((c, i) => {
+                        const ref = blankRatios.reference[i];
+                        if (c.skipped || ref === undefined) return '';
+                        const diff = Math.abs(c.ratio - ref);
+                        const diffPct = (diff * 100).toFixed(3);
+                        const thresholdPct = (blankRatios.threshold * 100).toFixed(1);
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;${i > 0 ? 'border-top:1px solid rgba(0,0,0,0.04);' : ''}">
+                            <span style="font-size:12px;color:#666;">图${i + 1}</span>
+                            <span style="font-family:monospace;font-size:12px;">
+                                <span style="color:#172033;">当前 ${(c.ratio * 100).toFixed(3)}%</span>
+                                <span style="color:#aaa;margin:0 4px;">|</span>
+                                <span style="color:#86868b;">范本 ${(ref * 100).toFixed(3)}%</span>
+                                <span style="color:#aaa;margin:0 4px;">|</span>
+                                <span style="color:#34A853;font-weight:600;">差异 ${diffPct}%</span>
+                            </span>
+                        </div>`;
+                    }).join('');
+                    return `<div class="asd-info-block">
+                        <div class="asd-info-label">空白卡检测详情 <span style="font-weight:normal;color:#34A853;">（阈值 ${(blankRatios.threshold * 100).toFixed(1)}%）</span></div>
+                        <div style="padding:10px 14px;background:rgba(52,168,83,0.04);border-radius:8px;border:1px solid rgba(52,168,83,0.12);">${rows}</div>
+                    </div>`;
+                })() : ''}
                 <div class="asd-info-block"><div class="asd-info-label">识别答案</div><div class="asd-info-content">${studentAnswer}</div></div>
                 ${comment ? `<div class="asd-info-block"><div class="asd-info-label">评语</div><div class="asd-info-content" style="max-height:200px;overflow-y:auto;">${comment}</div></div>` : ''}
             </div>
@@ -362,7 +393,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             ${countdownHtml}
             <div class="asd-buttons">
                 ${cancelBtnHtml}
-                ${markBlankBtnHtml}
+                ${blankBtnHtml}
                 ${correctionBtnHtml}
                 ${pauseBtnHtml}
                 <button class="asd-confirm-btn" id="confirm-submit-btn">${confirmLabel}</button>
@@ -561,6 +592,20 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 if (btn) { btn.textContent = '继续批改'; btn.classList.remove('running', 'unattended', 'trial'); btn.classList.add('paused'); }
                 showToast('⚠️ 未找到提交按钮，请手动提交后点击"继续批改"');
             }
+        });
+    }
+
+    // "这不是空白卡" 按钮 — 撤销空白判定，重新进行 AI 批改
+    const notBlankBtn = dialog.querySelector('#not-blank-btn');
+    if (notBlankBtn) {
+        notBlankBtn.addEventListener('click', () => {
+            if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
+            dialog.remove();
+            showToast('已撤销空白判定，正在重新批改...');
+            // 设置跳过标记，避免下一次检测又判为空白
+            window.aiGradingState.blankDetection.skipOnce = true;
+            window.aiGradingState.errorRetryCount = 0;
+            setTimeout(() => startAutoGrading(), 300);
         });
     }
 

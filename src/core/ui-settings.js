@@ -895,7 +895,7 @@ function createSettingsPanel(options) {
                             <input type="checkbox" id="blank-detection-enabled">
                             <label for="blank-detection-enabled">启用空白卡自动跳过</label>
                         </div>
-                        <div style="font-size:12px;color:#86868b;margin-top:4px;margin-bottom:12px;">对没有作答内容的答题卡自动判0分并跳过，减少无效批改。首次使用需在弹窗中点击「标记为空白卡」采集范本。</div>
+                        <div style="font-size:12px;color:#86868b;margin-top:4px;margin-bottom:12px;">对没有作答内容的答题卡自动判0分并跳过，减少无效批改。</div>
                         <div id="blank-detection-config-group">
                             <div class="form-group">
                                 <label>差异阈值</label>
@@ -905,11 +905,18 @@ function createSettingsPanel(options) {
                                 </div>
                                 <div style="font-size:11px;color:#86868b;margin-top:4px;">当前图与范本黑色像素占比的差异阈值，越小越严格</div>
                             </div>
-                            <div class="form-group">
-                                <div style="display:flex;align-items:center;gap:8px;">
-                                    <span id="blank-ref-status" style="font-size:12px;color:#86868b;">范本状态：未采集</span>
-                                    <button id="blank-clear-ref-btn" style="background:none;border:1px solid #d8dee8;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#666;display:none;">清除范本</button>
+                            <div class="form-group" style="border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:12px;background:rgba(0,0,0,0.01);">
+                                <label style="margin-bottom:8px;">范本管理</label>
+                                <div id="blank-ref-detail" style="font-size:12px;color:#86868b;margin-bottom:10px;">范本状态：未采集</div>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                    <label id="blank-upload-label" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#fff;border:1px solid #d8dee8;border-radius:6px;font-size:12px;cursor:pointer;color:#344054;transition:all 0.2s;">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                        上传图片采集
+                                        <input type="file" id="blank-upload-input" accept="image/*" multiple style="display:none;">
+                                    </label>
+                                    <button id="blank-clear-ref-btn" style="display:none;padding:6px 12px;background:#fff;border:1px solid #d8dee8;border-radius:6px;font-size:12px;cursor:pointer;color:#D93025;transition:all 0.2s;">清除范本</button>
                                 </div>
+                                <div style="font-size:11px;color:#86868b;margin-top:8px;">上传空白答题卡图片作为范本，或在批改弹窗中点击「标记为空白卡」自动采集</div>
                             </div>
                         </div>
                     </div>
@@ -1351,7 +1358,7 @@ function setupSettingsMenuLayout(panel) {
 
     const navItems = [
         { id: 'plan', label: '方案', title: '方案', desc: '选择当前配置方案，并决定是否绑定到当前试题。' },
-        { id: 'grading', label: '批改', title: '批改', desc: '设置运行模式、题目上下文、分数表格和勤勉加分。' },
+        { id: 'grading', label: '批改', title: '批改', desc: '设置运行模式、题目上下文、分数表格、勤勉加分和空白答题卡检测。' },
         { id: 'ai', label: 'AI', title: 'AI', desc: '管理批改工作流、服务供应商、密钥和模型。' },
         { id: 'automation', label: '自动化', title: '自动化', desc: '设置批阅份数限制和自动暂停边界。' },
         { id: 'data', label: '数据', title: '数据', desc: '管理历史、图片保存、配置备份和恢复默认设置。' },
@@ -1401,6 +1408,7 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '批改上下文');
     moveSection('grading', '分数设置');
     moveSection('grading', '勤勉加分');
+    moveSection('grading', '空白答题卡检测');
     moveSection('ai', '批改工作流');
     moveSection('ai', '供应商与模型');
     const apiWarning = configTab.querySelector('#api-key-warning');
@@ -1655,23 +1663,70 @@ function fillFormFromActivePreset() {
             markUnsavedChanges();
         });
     }
-    // 范本状态显示
-    const blankRefStatus = document.getElementById('blank-ref-status');
-    const blankClearRefBtn = document.getElementById('blank-clear-ref-btn');
-    if (blankRefStatus) {
-        const hasRef = BlankDetector.hasReference();
-        blankRefStatus.textContent = hasRef ? '范本状态：已采集' : '范本状态：未采集';
-        blankRefStatus.style.color = hasRef ? '#34A853' : '#86868b';
-        if (blankClearRefBtn) {
-            blankClearRefBtn.style.display = hasRef ? 'inline-block' : 'none';
-            blankClearRefBtn.addEventListener('click', () => {
-                BlankDetector.clearReference();
-                blankRefStatus.textContent = '范本状态：已清除';
-                blankRefStatus.style.color = '#86868b';
-                blankClearRefBtn.style.display = 'none';
-                showToast('🗑️ 空白卡范本已清除');
-            });
+    // 范本详情显示与管理
+    function refreshBlankRefDetail() {
+        const detail = BlankDetector.getRatiosDetail();
+        const refDetail = document.getElementById('blank-ref-detail');
+        const clearBtn = document.getElementById('blank-clear-ref-btn');
+        if (refDetail) {
+            if (detail) {
+                const ratioText = detail.ratios.map((r, i) => `图${i + 1}=${(r * 100).toFixed(3)}%`).join('，');
+                refDetail.innerHTML = `<span style="color:#34A853;font-weight:600;">已采集 ${detail.count} 张图</span><br><span style="font-family:monospace;">${ratioText}</span>`;
+                if (clearBtn) clearBtn.style.display = 'inline-block';
+            } else {
+                refDetail.textContent = '范本状态：未采集';
+                refDetail.style.color = '#86868b';
+                if (clearBtn) clearBtn.style.display = 'none';
+            }
         }
+    }
+    refreshBlankRefDetail();
+    const blankClearRefBtn = document.getElementById('blank-clear-ref-btn');
+    if (blankClearRefBtn) {
+        blankClearRefBtn.addEventListener('click', () => {
+            BlankDetector.clearReference();
+            refreshBlankRefDetail();
+            showToast('空白卡范本已清除');
+        });
+    }
+    // 文件上传采集范本
+    const blankUploadInput = document.getElementById('blank-upload-input');
+    if (blankUploadInput) {
+        blankUploadInput.addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files || files.length === 0) return;
+            const base64Arr = [];
+            for (const file of files) {
+                const base64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const result = reader.result;
+                        // 去掉 data:image/xxx;base64, 前缀
+                        const base64Data = result.split(',')[1];
+                        resolve(base64Data);
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+                base64Arr.push(base64);
+            }
+            try {
+                showToast('正在分析上传的图片...');
+                const ratios = await BlankDetector.calcBatchRatios(base64Arr);
+                const validRatios = ratios.filter(r => !r.skipped).map(r => r.ratio);
+                if (validRatios.length > 0) {
+                    BlankDetector.saveReference(validRatios);
+                    refreshBlankRefDetail();
+                    showToast(`范本已采集（${validRatios.length}张图）`);
+                } else {
+                    showToast('图片分析失败，请检查图片是否有效');
+                }
+            } catch (err) {
+                console.warn('上传采集失败:', err);
+                showToast('采集失败: ' + err.message);
+            }
+            e.target.value = ''; // 重置 input 允许重复上传同一文件
+        });
     }
     if (blankConfigGroup) blankConfigGroup.style.display = blankDetection.enabled ? 'block' : 'none';
 

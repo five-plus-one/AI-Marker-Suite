@@ -68,15 +68,17 @@ let _guangda2ApiBase = '';  // API 基础地址，如 "http://host:port"，从AP
                     const vKs = response?.result?.vKs;
 
                     if (vKs && vKs.length > 0) {
+                        // 清空旧数据，只保留当前批次
+                        _guangda2ImagePool = {};
+
                         vKs.forEach(paper => {
                             const bh = paper?.bh || '';
-                            const ddh = paper?.ddh || '';
                             // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
                             const imagePath = paper?.imageData?.imageUrlPath_all || paper?.imageUrlPath_all || '';
 
                             if (bh && imagePath) {
-                                // 兼容: 新版 mh 字段 vs 旧版 bh-ddh
-                                const key = paper?.mh || (ddh ? `${bh}-${ddh}` : bh);
+                                // 只用 bh 作为 key（界面包号格式为 bh-序号，bh 是稳定的）
+                                const key = bh;
                                 const fullUrl = _buildGuangda2ImageUrl(imagePath);
                                 _guangda2ImagePool[key] = fullUrl;
                                 console.log(`🖼️ [V2 API拦截] 包号 ${key} → ${fullUrl.substring(0, 60)}...`);
@@ -84,7 +86,7 @@ let _guangda2ApiBase = '';  // API 基础地址，如 "http://host:port"，从AP
                         });
 
                         const poolSize = Object.keys(_guangda2ImagePool).length;
-                        console.log(`🎯 [V2 API拦截] 更新图片池，共 ${poolSize} 份试卷`);
+                        console.log(`🎯 [V2 API拦截] 更新图片池，共 ${poolSize} 份试卷（已清空旧数据）`);
                     }
                 }
 
@@ -329,21 +331,19 @@ const Guangda2Adapter = {
     },
 
     _getImageUrlsFromPool() {
-        // 获取当前包号（界面上显示的格式，如 "161-1"）
+        // 获取当前包号（界面上显示的格式，如 "420-1"）
         const currentPkg = this._getCurrentPackage();
 
-        if (currentPkg && _guangda2ImagePool[currentPkg]) {
-            console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${currentPkg} 的图片`);
-            return [_guangda2ImagePool[currentPkg]];
+        // 提取 bh（前半部分，如 "420"）
+        const bh = currentPkg ? currentPkg.split('-')[0] : '';
+
+        if (bh && _guangda2ImagePool[bh]) {
+            console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${bh} 的图片`);
+            return [_guangda2ImagePool[bh]];
         }
 
-        // 备用方案：返回第一张图片
-        const urls = Object.values(_guangda2ImagePool).filter(u => u && u.length > 0);
-        if (urls.length > 0) {
-            console.log(`🖼️ [诊断] 光大V2 从图片池找到 ${urls.length} 张图片（备用）`);
-            return [urls[0]];
-        }
-
+        // 如果没有找到，返回空数组（避免使用旧数据）
+        console.log(`⚠️ [诊断] 光大V2 未在图片池找到包号 ${bh} 的图片`);
         return [];
     },
 
@@ -520,51 +520,54 @@ const Guangda2Adapter = {
     },
 
     // ========== 提交 ==========
-    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理"给分详情"弹窗
+    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理弹窗
     async submitGrade() {
         console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
         // 点击分数选项（触发给分详情弹窗）
         this._clickScore();
 
-        // 处理"给分详情"二次确认弹窗
-        this._handleConfirmDialog();
+        // 启动弹窗监听器（同时处理"给分详情"和"修改账号信息"弹窗）
+        this._startDialogWatcher();
 
         return true;
     },
 
-    // 处理"给分详情"二次确认弹窗
-    _handleConfirmDialog() {
-        console.log('⏳ [诊断] 光大V2 — 等待给分详情弹窗...');
+    // 弹窗监听器：同时处理"给分详情"和"修改账号信息"弹窗
+    _startDialogWatcher() {
+        console.log('⏳ [诊断] 光大V2 — 启动弹窗监听器...');
 
-        // 立即检查一次
-        const immediateBtn = document.querySelector('.dialog-btns .sure');
-        if (immediateBtn) {
-            console.log('✅ [诊断] 光大V2 — 立即找到给分详情弹窗，自动点击确认');
-            immediateBtn.click();
-            return;
-        }
+        const observer = new MutationObserver(() => {
+            // 优先级1：隐藏"修改账号信息"弹窗（直接隐藏，不点击按钮）
+            const changePwdDialog = document.querySelector('.changePwd-dialog');
+            if (changePwdDialog) {
+                const dialogWrap = changePwdDialog.closest('.dialog-wrap');
+                if (dialogWrap) {
+                    console.log('✅ [诊断] 光大V2 — 检测到"修改账号信息"弹窗，直接隐藏');
+                    dialogWrap.style.display = 'none';
+                    observer.disconnect();
+                    return;
+                }
+            }
 
-        // 等待弹窗出现并自动点击确认
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-            checkCount++;
-
-            // 查找"确认"按钮（在 dialog-btns 容器中）
-            const confirmBtn = document.querySelector('.dialog-btns .sure');
+            // 优先级2：处理"给分详情"弹窗（这个需要点击确认）
+            const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
             if (confirmBtn) {
-                console.log('✅ [诊断] 光大V2 — 找到给分详情弹窗，自动点击确认');
+                console.log('✅ [诊断] 光大V2 — 检测到给分详情弹窗，自动点击确认');
                 confirmBtn.click();
-                clearInterval(checkInterval);
-                return;
             }
+        });
 
-            // 超时（最多等2秒）
-            if (checkCount >= 10) {
-                clearInterval(checkInterval);
-                console.log('⚠️ [诊断] 光大V2 — 未检测到给分详情弹窗（可能未启用）');
-            }
-        }, 200);
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // 超时保护（5秒后停止监听）
+        setTimeout(() => {
+            observer.disconnect();
+            console.log('⚠️ [诊断] 光大V2 — 弹窗监听器超时');
+        }, 5000);
     },
 
     // ========== 等待下一份试卷 ==========
