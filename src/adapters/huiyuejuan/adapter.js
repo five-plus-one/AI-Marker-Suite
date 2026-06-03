@@ -270,7 +270,8 @@ const HuiyuejuanAdapter = {
 
         if (panels.length > 0) {
             panels.forEach((panel, i) => {
-                const titleEl = panel.querySelector('.ui-exam-teacher-correct-score-panel-title');
+                // 只获取 .flex-col 子元素的文本，避免包含"得分：未评分"
+                const titleEl = panel.querySelector('.ui-exam-teacher-correct-score-panel-title .flex-col');
                 let label = titleEl ? titleEl.textContent.trim().replace(/\s+/g, ' ') : `第${i + 1}题`;
 
                 // 解析满分（如 "16、(6分)"）
