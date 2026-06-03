@@ -530,6 +530,9 @@ const Guangda2Adapter = {
         // 处理"给分详情"二次确认弹窗
         this._handleConfirmDialog();
 
+        // 自动关闭"修改账号信息"弹窗
+        this._autoCloseChangePwdDialog();
+
         return true;
     },
 
@@ -537,8 +540,8 @@ const Guangda2Adapter = {
     _handleConfirmDialog() {
         console.log('⏳ [诊断] 光大V2 — 等待给分详情弹窗...');
 
-        // 立即检查一次
-        const immediateBtn = document.querySelector('.dialog-btns .sure');
+        // 立即检查一次（排除"修改账号信息"弹窗）
+        const immediateBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
         if (immediateBtn) {
             console.log('✅ [诊断] 光大V2 — 立即找到给分详情弹窗，自动点击确认');
             immediateBtn.click();
@@ -550,8 +553,8 @@ const Guangda2Adapter = {
         const checkInterval = setInterval(() => {
             checkCount++;
 
-            // 查找"确认"按钮（在 dialog-btns 容器中）
-            const confirmBtn = document.querySelector('.dialog-btns .sure');
+            // 查找"确认"按钮（排除"修改账号信息"弹窗）
+            const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
             if (confirmBtn) {
                 console.log('✅ [诊断] 光大V2 — 找到给分详情弹窗，自动点击确认');
                 confirmBtn.click();
@@ -563,6 +566,34 @@ const Guangda2Adapter = {
             if (checkCount >= 10) {
                 clearInterval(checkInterval);
                 console.log('⚠️ [诊断] 光大V2 — 未检测到给分详情弹窗（可能未启用）');
+            }
+        }, 200);
+    },
+
+    // 自动关闭"修改账号信息"弹窗
+    _autoCloseChangePwdDialog() {
+        console.log('⏳ [诊断] 光大V2 — 检测并关闭"修改账号信息"弹窗...');
+
+        let checkCount = 0;
+        const checkInterval = setInterval(() => {
+            checkCount++;
+
+            // 查找"修改账号信息"弹窗
+            const changePwdDialog = document.querySelector('.changePwd-dialog');
+            if (changePwdDialog) {
+                // 查找取消按钮并点击
+                const cancelBtn = changePwdDialog.querySelector('.cancel');
+                if (cancelBtn) {
+                    console.log('✅ [诊断] 光大V2 — 找到"修改账号信息"弹窗，自动点击取消');
+                    cancelBtn.click();
+                    clearInterval(checkInterval);
+                    return;
+                }
+            }
+
+            // 超时（最多等2秒）
+            if (checkCount >= 10) {
+                clearInterval(checkInterval);
             }
         }, 200);
     },
