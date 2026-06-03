@@ -25,11 +25,30 @@ const YuejiaoxiangyunAdapter = {
     async detectMarkingPage() {
         const url = window.location.href;
 
-        // 批量批改模式：提示用户切换
+        // 批量批改模式：显示弹窗引导切换
         if (url.includes(YUEJIAOXIANGYUN_SELECTORS.BATCH_URL_PATTERN)) {
             console.log('[粤教翔云] 检测到批量批改模式，暂不支持');
-            if (typeof showToast === 'function') {
-                showToast('⚠️ 粤教翔云批量批改模式暂不支持，请切换到题组批改模式');
+            if (typeof ensureModalStyles === 'function') {
+                ensureModalStyles();
+                const overlay = document.createElement('div');
+                overlay.className = 'ai-modal-overlay';
+                overlay.innerHTML = `
+                    <div class="ai-modal-card">
+                        <div class="ai-modal-body">
+                            <div style="font-size:20px;font-weight:bold;margin-bottom:12px;">⚠️ 暂不支持批量批改模式</div>
+                            <div>请切换到「题组批改」模式使用 AI 批改助手</div>
+                        </div>
+                        <div class="ai-modal-footer">
+                            <button class="ai-modal-btn-cancel">关闭（手动批改）</button>
+                            <button class="ai-modal-btn-confirm">切换（自动跳转）</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+                overlay.querySelector('.ai-modal-btn-cancel').onclick = () => overlay.remove();
+                overlay.querySelector('.ai-modal-btn-confirm').onclick = () => {
+                    window.location.href = url.replace(/QuickScore/gi, 'quick');
+                };
             }
             return false;
         }
