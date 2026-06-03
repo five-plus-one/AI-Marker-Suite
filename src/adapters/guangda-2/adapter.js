@@ -68,15 +68,17 @@ let _guangda2ApiBase = '';  // API 基础地址，如 "http://host:port"，从AP
                     const vKs = response?.result?.vKs;
 
                     if (vKs && vKs.length > 0) {
+                        // 清空旧数据，只保留当前批次
+                        _guangda2ImagePool = {};
+
                         vKs.forEach(paper => {
                             const bh = paper?.bh || '';
-                            const ddh = paper?.ddh || '';
                             // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
                             const imagePath = paper?.imageData?.imageUrlPath_all || paper?.imageUrlPath_all || '';
 
                             if (bh && imagePath) {
-                                // 兼容: 新版 mh 字段 vs 旧版 bh-ddh
-                                const key = paper?.mh || (ddh ? `${bh}-${ddh}` : bh);
+                                // 只用 bh 作为 key（界面包号格式为 bh-序号，bh 是稳定的）
+                                const key = bh;
                                 const fullUrl = _buildGuangda2ImageUrl(imagePath);
                                 _guangda2ImagePool[key] = fullUrl;
                                 console.log(`🖼️ [V2 API拦截] 包号 ${key} → ${fullUrl.substring(0, 60)}...`);
@@ -84,7 +86,7 @@ let _guangda2ApiBase = '';  // API 基础地址，如 "http://host:port"，从AP
                         });
 
                         const poolSize = Object.keys(_guangda2ImagePool).length;
-                        console.log(`🎯 [V2 API拦截] 更新图片池，共 ${poolSize} 份试卷`);
+                        console.log(`🎯 [V2 API拦截] 更新图片池，共 ${poolSize} 份试卷（已清空旧数据）`);
                     }
                 }
 
@@ -329,21 +331,19 @@ const Guangda2Adapter = {
     },
 
     _getImageUrlsFromPool() {
-        // 获取当前包号（界面上显示的格式，如 "161-1"）
+        // 获取当前包号（界面上显示的格式，如 "420-1"）
         const currentPkg = this._getCurrentPackage();
 
-        if (currentPkg && _guangda2ImagePool[currentPkg]) {
-            console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${currentPkg} 的图片`);
-            return [_guangda2ImagePool[currentPkg]];
+        // 提取 bh（前半部分，如 "420"）
+        const bh = currentPkg ? currentPkg.split('-')[0] : '';
+
+        if (bh && _guangda2ImagePool[bh]) {
+            console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${bh} 的图片`);
+            return [_guangda2ImagePool[bh]];
         }
 
-        // 备用方案：返回第一张图片
-        const urls = Object.values(_guangda2ImagePool).filter(u => u && u.length > 0);
-        if (urls.length > 0) {
-            console.log(`🖼️ [诊断] 光大V2 从图片池找到 ${urls.length} 张图片（备用）`);
-            return [urls[0]];
-        }
-
+        // 如果没有找到，返回空数组（避免使用旧数据）
+        console.log(`⚠️ [诊断] 光大V2 未在图片池找到包号 ${bh} 的图片`);
         return [];
     },
 
