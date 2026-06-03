@@ -90,7 +90,39 @@ const YuejiaoxiangyunAdapter = {
     },
 
     async fetchImageAsBase64(url) {
-        return fetchImageAsBase64(url);
+        // 腾讯云 COS 需要正确的 Referer 头，使用 GM_xmlhttpRequest 自定义请求
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: url,
+                responseType: 'arraybuffer',
+                headers: {
+                    'Referer': window.location.href,
+                },
+                timeout: 30000,
+                onload: function(response) {
+                    if (response.status >= 200 && response.status < 300) {
+                        try {
+                            const arrayBuffer = response.response;
+                            if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+                                throw new Error('下载的图片数据为空');
+                            }
+                            let binary = '';
+                            const bytes = new Uint8Array(arrayBuffer);
+                            const len = bytes.byteLength;
+                            for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+                            resolve(window.btoa(binary));
+                        } catch (e) {
+                            reject(new Error('图片转换失败: ' + e.message));
+                        }
+                    } else {
+                        reject(new Error(`图片下载失败，状态码: ${response.status}`));
+                    }
+                },
+                onerror: () => reject(new Error('图片下载跨域请求被拒绝或网络断开')),
+                ontimeout: () => reject(new Error('图片下载超时')),
+            });
+        });
     },
 
     getScoreInputs() {
