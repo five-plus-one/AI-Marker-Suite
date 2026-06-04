@@ -71,34 +71,76 @@ const HaofenshuyizeAdapter = {
         });
     },
 
-    getScoreInputs() {
-        const inputs = [];
-        const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
-        if (scoreInput) {
-            inputs.push({ element: scoreInput, label: '总分', index: 0 });
-        }
-        return inputs;
+    /**
+     * 从 .scoreitem 按钮中提取满分值
+     * 按钮文本格式: " 0", " 1", ..., " 8"
+     */
+    _getMaxScore() {
+        const buttons = document.querySelectorAll(HAOFENSHUYIZE_SELECTORS.SCORE_ITEM_BUTTONS);
+        let maxScore = 0;
+        buttons.forEach(btn => {
+            const val = parseInt(btn.textContent.trim());
+            if (!isNaN(val) && val > maxScore) maxScore = val;
+        });
+        return maxScore;
     },
 
+    /**
+     * 查找匹配目标分数的 .scoreitem 按钮
+     */
+    _findScoreButton(targetScore) {
+        const buttons = document.querySelectorAll(HAOFENSHUYIZE_SELECTORS.SCORE_ITEM_BUTTONS);
+        for (const btn of buttons) {
+            const btnScore = parseInt(btn.textContent.trim());
+            if (btnScore === targetScore) return btn;
+        }
+        return null;
+    },
+
+    getScoreInputs() {
+        const maxScore = this._getMaxScore();
+        const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
+        if (scoreInput) {
+            return [{ element: scoreInput, label: '总分', index: 0, maxScore }];
+        }
+        return [];
+    },
+
+    /**
+     * 通过点击 .scoreitem 按钮填入分数
+     * 注意：该平台的分数输入框是 readonly 的，只能通过点击按钮设置分数
+     */
     fillScores(scores) {
-        const inputs = this.getScoreInputs();
-        if (inputs.length === 0) {
-            console.warn('⚠️ [诊断] 好分数书仪泽 — 未找到分数输入框');
-            return false;
+        const score = scores[0]; // 单题模式
+        if (score === null || score === undefined) return false;
+
+        const btn = this._findScoreButton(score);
+        if (btn) {
+            btn.click();
+            console.log(`✅ [诊断] 好分数书仪泽 — 点击分数按钮: ${score}`);
+            return true;
         }
-        const setter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-            setter.call(inputs[i].element, scores[i]);
-            inputs[i].element.dispatchEvent(new Event('input', { bubbles: true }));
-            inputs[i].element.dispatchEvent(new Event('change', { bubbles: true }));
-            inputs[i].element.dispatchEvent(new Event('blur', { bubbles: true }));
-            successCount++;
-            console.log(`✅ [诊断] 好分数书仪泽 — ${inputs[i].label} 分数 ${scores[i]} 已填入`);
+
+        // 兜底：如果没有精确匹配的按钮，尝试用满分/零分按钮
+        if (score === this._getMaxScore()) {
+            const fullBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.FULL_SCORE_BUTTON);
+            if (fullBtn) {
+                fullBtn.click();
+                console.log(`✅ [诊断] 好分数书仪泽 — 点击满分按钮`);
+                return true;
+            }
         }
-        return successCount > 0;
+        if (score === 0) {
+            const zeroBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.ZERO_SCORE_BUTTON);
+            if (zeroBtn) {
+                zeroBtn.click();
+                console.log(`✅ [诊断] 好分数书仪泽 — 点击零分按钮`);
+                return true;
+            }
+        }
+
+        console.warn(`⚠️ [诊断] 好分数书仪泽 — 未找到分数 ${score} 对应的按钮`);
+        return false;
     },
 
     // 旧接口兼容
@@ -169,7 +211,14 @@ const HaofenshuyizeAdapter = {
     },
 
     detectSubQuestions() {
-        // 该平台目前只观察到单个总分输入框，暂不支持分小题
+        const maxScore = this._getMaxScore();
+        const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
+        if (scoreInput && maxScore > 0) {
+            // 从题目标题提取题号
+            const titleEl = document.querySelector(HAOFENSHUYIZE_SELECTORS.QUESTION_TITLE);
+            const label = titleEl ? titleEl.textContent.trim() : '总分';
+            return [{ label, element: scoreInput, index: 0, maxScore }];
+        }
         return [];
     }
 };
