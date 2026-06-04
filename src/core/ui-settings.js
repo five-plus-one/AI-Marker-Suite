@@ -1671,7 +1671,10 @@ function fillFormFromActivePreset() {
         if (refDetail) {
             if (detail) {
                 const ratioText = detail.ratios.map((r, i) => `图${i + 1}=${(r * 100).toFixed(3)}%`).join('，');
-                refDetail.innerHTML = `<span style="color:#34A853;font-weight:600;">已采集 ${detail.count} 张图</span><br><span style="font-family:monospace;">${ratioText}</span>`;
+                const thresholdText = detail.thresholds
+                    ? `<br><span style="font-family:monospace;font-size:11px;color:#666;">阈值: ${detail.thresholds.map(t => `图${detail.thresholds.indexOf(t)+1}=${t}`).join('，')}</span>`
+                    : '<br><span style="font-size:11px;color:#999;">（旧范本，使用自适应阈值）</span>';
+                refDetail.innerHTML = `<span style="color:#34A853;font-weight:600;">已采集 ${detail.count} 张图</span><br><span style="font-family:monospace;">${ratioText}</span>${thresholdText}`;
                 if (clearBtn) clearBtn.style.display = 'inline-block';
             } else {
                 refDetail.textContent = '范本状态：未采集';
@@ -1713,11 +1716,11 @@ function fillFormFromActivePreset() {
             try {
                 showToast('正在分析上传的图片...');
                 const ratios = await BlankDetector.calcBatchRatios(base64Arr);
-                const validRatios = ratios.filter(r => !r.skipped).map(r => r.ratio);
-                if (validRatios.length > 0) {
-                    BlankDetector.saveReference(validRatios);
+                const validResults = ratios.filter(r => !r.skipped);
+                if (validResults.length > 0) {
+                    BlankDetector.saveReference(validResults.map(r => r.ratio), validResults.map(r => r.threshold));
                     refreshBlankRefDetail();
-                    showToast(`范本已采集（${validRatios.length}张图）`);
+                    showToast(`范本已采集（${validResults.length}张图）`);
                 } else {
                     showToast('图片分析失败，请检查图片是否有效');
                 }
