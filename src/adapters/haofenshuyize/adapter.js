@@ -81,18 +81,6 @@ const HaofenshuyizeAdapter = {
         return maxScore;
     },
 
-    /**
-     * 查找匹配目标分数的 .scoreitem 按钮
-     */
-    _findScoreButton(targetScore) {
-        const buttons = document.querySelectorAll(HAOFENSHUYIZE_SELECTORS.SCORE_ITEM_BUTTONS);
-        for (const btn of buttons) {
-            const btnScore = parseInt(btn.textContent.trim());
-            if (btnScore === targetScore) return btn;
-        }
-        return null;
-    },
-
     getScoreInputs() {
         const maxScore = this._getMaxScore();
         const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
@@ -102,48 +90,22 @@ const HaofenshuyizeAdapter = {
         return [];
     },
 
-    /**
-     * 填入分数：按钮点击 + 原生 value setter 双重保障
-     * 1. 点击 .scoreitem 按钮 — 触发 Vue 事件处理器更新内部状态
-     * 2. 原生 setter 设置 input value — 确保 DOM 值正确（绕过 readonly）
-     * 3. dispatch input/change/blur — 触发 Vue v-model 更新
-     */
     fillScores(scores) {
-        const score = scores[0]; // 单题模式
-        if (score === null || score === undefined) return false;
-
-        // 步骤1：点击 .scoreitem 按钮（触发 Vue 事件处理）
-        const btn = this._findScoreButton(score);
-        if (btn) {
-            btn.click();
-            console.log(`✅ [诊断] 云阅卷(好分数) — 点击分数按钮: ${score}`);
-        } else {
-            // 兜底：满分/零分快捷按钮
-            if (score === this._getMaxScore()) {
-                const fullBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.FULL_SCORE_BUTTON);
-                if (fullBtn) fullBtn.click();
-            } else if (score === 0) {
-                const zeroBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.ZERO_SCORE_BUTTON);
-                if (zeroBtn) zeroBtn.click();
-            }
+        const inputs = this.getScoreInputs();
+        if (inputs.length === 0) return false;
+        const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value').set;
+        let successCount = 0;
+        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
+            if (scores[i] === null || scores[i] === undefined) continue;
+            setter.call(inputs[i].element, scores[i]);
+            inputs[i].element.dispatchEvent(new Event('input', { bubbles: true }));
+            inputs[i].element.dispatchEvent(new Event('change', { bubbles: true }));
+            inputs[i].element.dispatchEvent(new Event('blur', { bubbles: true }));
+            successCount++;
+            console.log(`✅ [诊断] 云阅卷(好分数) — ${inputs[i].label} 分数 ${scores[i]} 已填入`);
         }
-
-        // 步骤2：原生 value setter 直接设置 input 值 + 触发事件
-        // 确保平台通过任何方式检测 input 值时都能读到正确分数
-        const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
-        if (scoreInput) {
-            const setter = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value').set;
-            setter.call(scoreInput, score);
-            scoreInput.dispatchEvent(new Event('input', { bubbles: true }));
-            scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
-            scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log(`✅ [诊断] 云阅卷(好分数) — 分数 ${score} 已填入 (setter)`);
-            return true;
-        }
-
-        console.warn('⚠️ [诊断] 云阅卷(好分数) — 未找到分数输入框');
-        return false;
+        return successCount > 0;
     },
 
     // 旧接口兼容
