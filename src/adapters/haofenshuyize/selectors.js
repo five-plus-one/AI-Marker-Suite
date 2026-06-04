@@ -1,4 +1,4 @@
-// ========== 好分数书仪泽 DOM 选择器常量 ==========
+// ========== 云阅卷(好分数) DOM 选择器常量 ==========
 // haofenshuyize.com — Vue 3 + Element Plus
 
 const HAOFENSHUYIZE_SELECTORS = {

@@ -1,9 +1,9 @@
-// ========== 好分数书仪泽适配器 ==========
+// ========== 云阅卷(好分数)适配器 ==========
 // haofenshuyize.com — Vue 3 + Element Plus
-// 与好分数(yue.haofenshu.com)是不同平台
+// 与云阅卷(yunyuejuan.net)是不同平台
 
 const HaofenshuyizeAdapter = {
-    name: '好分数书仪泽',
+    name: '云阅卷(好分数)',
     id: 'haofenshuyize',
     urlPatterns: ['https://haofenshuyize.com/*'],
     iconUrl: '',
@@ -13,7 +13,7 @@ const HaofenshuyizeAdapter = {
     },
 
     async detectMarkingPage() {
-        console.log('🔎 [诊断] 好分数书仪泽 — 开始检测批改页面...');
+        console.log('🔎 [诊断] 云阅卷(好分数) — 开始检测批改页面...');
         try {
             const hasImage = document.querySelector(HAOFENSHUYIZE_SELECTORS.PAGE_DETECT_IMAGE);
             const hasInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.PAGE_DETECT_INPUT);
@@ -29,15 +29,11 @@ const HaofenshuyizeAdapter = {
 
     getTaskIdentifier() {
         // URL 格式: #/marking/grading?questionId=1114509&thisType=2&...
+        // 只用 questionId + hash 路径，不包含图片 URL（图片含学生特定哈希，每份答卷不同）
         const hash = window.location.hash || '';
         const questionMatch = hash.match(/questionId=(\d+)/);
         const questionId = questionMatch ? questionMatch[1] : '';
-
-        // 加上当前图片 src 以区分同一题的不同答卷
-        const img = document.querySelector(HAOFENSHUYIZE_SELECTORS.ANSWER_IMAGE);
-        const imgSrc = img ? img.src.split('?')[0] : ''; // 去掉查询参数
-
-        return `haofenshuyize_${questionId}_${imgSrc}`;
+        return `haofenshuyize_${questionId}_${hash.split('?')[0]}`;
     },
 
     async gatherAnswerImages() {
@@ -48,7 +44,7 @@ const HaofenshuyizeAdapter = {
                 urls.push(img.src);
             }
         });
-        console.log(`🖼️ [诊断] 好分数书仪泽 — 找到 ${urls.length} 张图片`);
+        console.log(`🖼️ [诊断] 云阅卷(好分数) — 找到 ${urls.length} 张图片`);
         return urls;
     },
 
@@ -117,7 +113,7 @@ const HaofenshuyizeAdapter = {
         const btn = this._findScoreButton(score);
         if (btn) {
             btn.click();
-            console.log(`✅ [诊断] 好分数书仪泽 — 点击分数按钮: ${score}`);
+            console.log(`✅ [诊断] 云阅卷(好分数) — 点击分数按钮: ${score}`);
             return true;
         }
 
@@ -126,7 +122,7 @@ const HaofenshuyizeAdapter = {
             const fullBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.FULL_SCORE_BUTTON);
             if (fullBtn) {
                 fullBtn.click();
-                console.log(`✅ [诊断] 好分数书仪泽 — 点击满分按钮`);
+                console.log(`✅ [诊断] 云阅卷(好分数) — 点击满分按钮`);
                 return true;
             }
         }
@@ -134,12 +130,12 @@ const HaofenshuyizeAdapter = {
             const zeroBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.ZERO_SCORE_BUTTON);
             if (zeroBtn) {
                 zeroBtn.click();
-                console.log(`✅ [诊断] 好分数书仪泽 — 点击零分按钮`);
+                console.log(`✅ [诊断] 云阅卷(好分数) — 点击零分按钮`);
                 return true;
             }
         }
 
-        console.warn(`⚠️ [诊断] 好分数书仪泽 — 未找到分数 ${score} 对应的按钮`);
+        console.warn(`⚠️ [诊断] 云阅卷(好分数) — 未找到分数 ${score} 对应的按钮`);
         return false;
     },
 
@@ -152,7 +148,7 @@ const HaofenshuyizeAdapter = {
     submitGrade() {
         const submitBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.SUBMIT_BUTTON);
         if (submitBtn) {
-            console.log('✅ [诊断] 好分数书仪泽 — 点击提交按钮');
+            console.log('✅ [诊断] 云阅卷(好分数) — 点击提交按钮');
             submitBtn.click();
             return true;
         }
@@ -163,11 +159,11 @@ const HaofenshuyizeAdapter = {
             return span && span.textContent.trim() === HAOFENSHUYIZE_SELECTORS.SUBMIT_BUTTON_TEXT;
         });
         if (btn) {
-            console.log('✅ [诊断] 好分数书仪泽 — 通过文本找到提交按钮');
+            console.log('✅ [诊断] 云阅卷(好分数) — 通过文本找到提交按钮');
             btn.click();
             return true;
         }
-        console.warn('⚠️ [诊断] 好分数书仪泽 — 未找到提交按钮');
+        console.warn('⚠️ [诊断] 云阅卷(好分数) — 未找到提交按钮');
         return false;
     },
 
@@ -182,7 +178,7 @@ const HaofenshuyizeAdapter = {
                 // 检测图片变化
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);
-                    console.log('✅ 好分数书仪泽 — 新试卷已加载（图片变化）');
+                    console.log('✅ 云阅卷(好分数) — 新试卷已加载（图片变化）');
                     resolve(true);
                     return;
                 }
@@ -192,14 +188,14 @@ const HaofenshuyizeAdapter = {
                 const inputCleared = scoreInput && (scoreInput.value === '' || scoreInput.value === '0');
                 if (inputCleared && checkTimes > 3) {
                     clearInterval(timer);
-                    console.log('✅ 好分数书仪泽 — 新试卷已加载（输入框清空）');
+                    console.log('✅ 云阅卷(好分数) — 新试卷已加载（输入框清空）');
                     resolve(true);
                     return;
                 }
 
                 if (checkTimes > 50) {
                     clearInterval(timer);
-                    console.warn('⚠️ 好分数书仪泽 — 等待下一份试卷超时');
+                    console.warn('⚠️ 云阅卷(好分数) — 等待下一份试卷超时');
                     resolve(false);
                 }
             }, 200);
