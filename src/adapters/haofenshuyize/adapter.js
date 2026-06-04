@@ -103,39 +103,46 @@ const HaofenshuyizeAdapter = {
     },
 
     /**
-     * 通过点击 .scoreitem 按钮填入分数
-     * 注意：该平台的分数输入框是 readonly 的，只能通过点击按钮设置分数
+     * 填入分数：按钮点击 + 原生 value setter 双重保障
+     * 1. 点击 .scoreitem 按钮 — 触发 Vue 事件处理器更新内部状态
+     * 2. 原生 setter 设置 input value — 确保 DOM 值正确（绕过 readonly）
+     * 3. dispatch input/change/blur — 触发 Vue v-model 更新
      */
     fillScores(scores) {
         const score = scores[0]; // 单题模式
         if (score === null || score === undefined) return false;
 
+        // 步骤1：点击 .scoreitem 按钮（触发 Vue 事件处理）
         const btn = this._findScoreButton(score);
         if (btn) {
             btn.click();
             console.log(`✅ [诊断] 云阅卷(好分数) — 点击分数按钮: ${score}`);
+        } else {
+            // 兜底：满分/零分快捷按钮
+            if (score === this._getMaxScore()) {
+                const fullBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.FULL_SCORE_BUTTON);
+                if (fullBtn) fullBtn.click();
+            } else if (score === 0) {
+                const zeroBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.ZERO_SCORE_BUTTON);
+                if (zeroBtn) zeroBtn.click();
+            }
+        }
+
+        // 步骤2：原生 value setter 直接设置 input 值 + 触发事件
+        // 确保平台通过任何方式检测 input 值时都能读到正确分数
+        const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
+        if (scoreInput) {
+            const setter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value').set;
+            setter.call(scoreInput, score);
+            scoreInput.dispatchEvent(new Event('input', { bubbles: true }));
+            scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
+            scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
+            console.log(`✅ [诊断] 云阅卷(好分数) — 分数 ${score} 已填入 (setter)`);
             return true;
         }
 
-        // 兜底：如果没有精确匹配的按钮，尝试用满分/零分按钮
-        if (score === this._getMaxScore()) {
-            const fullBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.FULL_SCORE_BUTTON);
-            if (fullBtn) {
-                fullBtn.click();
-                console.log(`✅ [诊断] 云阅卷(好分数) — 点击满分按钮`);
-                return true;
-            }
-        }
-        if (score === 0) {
-            const zeroBtn = document.querySelector(HAOFENSHUYIZE_SELECTORS.ZERO_SCORE_BUTTON);
-            if (zeroBtn) {
-                zeroBtn.click();
-                console.log(`✅ [诊断] 云阅卷(好分数) — 点击零分按钮`);
-                return true;
-            }
-        }
-
-        console.warn(`⚠️ [诊断] 云阅卷(好分数) — 未找到分数 ${score} 对应的按钮`);
+        console.warn('⚠️ [诊断] 云阅卷(好分数) — 未找到分数输入框');
         return false;
     },
 
