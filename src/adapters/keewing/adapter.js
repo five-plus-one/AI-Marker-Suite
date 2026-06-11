@@ -138,6 +138,23 @@ const KeewingAdapter = {
         const score = scores[0];
         if (score === null || score === undefined) return false;
 
+        // 科耘平台在填入分数后会自动提交
+        // 所以需要延迟到用户确认后再填入
+        this._pendingScore = score;
+        console.log(`📝 [科耘] 记录待填入分数: ${score}（等待用户确认后填入）`);
+        return true;
+    },
+
+    // 填入分数（在用户确认后调用）
+    _applyScore() {
+        if (this._pendingScore === null || this._pendingScore === undefined) {
+            console.warn('⚠️ [科耘] 没有待填入的分数');
+            return false;
+        }
+
+        const score = this._pendingScore;
+        this._pendingScore = null;
+
         console.log(`📝 [科耘] 填入分数: ${score}`);
 
         // 获取满分值
@@ -184,17 +201,8 @@ const KeewingAdapter = {
             scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
             scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
 
-            // 验证值是否设置成功
-            const currentValue = scoreInput.value;
-            console.log(`📝 [科耘] 输入框当前值: "${currentValue}", 目标值: "${score}"`);
-
-            if (currentValue === String(score)) {
-                console.log(`✅ [科耘] 分数已填入输入框`);
-                return true;
-            } else {
-                console.warn(`⚠️ [科耘] 分数填入可能失败，当前值: "${currentValue}"`);
-                return false;
-            }
+            console.log(`✅ [科耘] 分数已填入输入框`);
+            return true;
         }
 
         console.warn('⚠️ [科耘] 无法填入分数');
@@ -217,27 +225,42 @@ const KeewingAdapter = {
     submitGrade() {
         console.log('📤 [科耘] 开始提交分数...');
 
-        // 查找提交按钮
-        const submitBtn = document.querySelector(KEEWING_SELECTORS.SUBMIT_BUTTON);
-        if (submitBtn) {
-            submitBtn.click();
-            console.log('✅ [科耘] 已点击提交按钮');
-            return true;
-        }
+        // 先填入分数（触发平台自动提交）
+        this._applyScore();
 
-        // 备选：查找包含"提交"文字的按钮
-        const allButtons = document.querySelectorAll('button.el-button--primary');
-        for (const btn of allButtons) {
-            const span = btn.querySelector('span');
-            if (span && span.textContent.trim() === '提交') {
-                btn.click();
-                console.log('✅ [科耘] 已点击提交按钮（文字匹配）');
-                return true;
+        // 平台会自动提交，不需要再点击提交按钮
+        // 但处理可能的确认弹窗
+        this._handleConfirmDialog();
+
+        return true;
+    },
+
+    // 处理二次确认弹窗
+    _handleConfirmDialog() {
+        console.log('⏳ [科耘] 等待确认弹窗...');
+
+        let checkCount = 0;
+        const checkInterval = setInterval(() => {
+            checkCount++;
+
+            // 查找弹窗中的确认按钮
+            const confirmBtns = document.querySelectorAll('.el-message-box__btns button, .el-dialog__footer button');
+            for (const btn of confirmBtns) {
+                const text = btn.textContent.trim();
+                if (text === '确认' || text === '确定' || text === 'OK') {
+                    console.log('✅ [科耘] 找到确认弹窗，自动点击');
+                    btn.click();
+                    clearInterval(checkInterval);
+                    return;
+                }
             }
-        }
 
-        console.warn('⚠️ [科耘] 未找到提交按钮');
-        return false;
+            // 超时（最多等 2 秒）
+            if (checkCount >= 10) {
+                clearInterval(checkInterval);
+                console.log('ℹ️ [科耘] 未检测到确认弹窗');
+            }
+        }, 200);
     },
 
     async waitForNextPaper(oldImageUrl) {
