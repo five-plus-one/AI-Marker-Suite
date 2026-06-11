@@ -108,11 +108,13 @@ const BUILD_CONFIGS = [
             'adapters/yuejiaoxiangyun/adapter.js',
             'adapters/haofenshuyize/selectors.js',
             'adapters/haofenshuyize/adapter.js',
+            'adapters/keewing/selectors.js',
+            'adapters/keewing/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'https://aimarking.five-plus-one.com/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、鑫考、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)等平台。自动识别答案、智能评分、自动提交！',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、华翰云、光大阅卷、云阅卷、新教育、鑫考、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘等平台。自动识别答案、智能评分、自动提交！',
             author: '5plus1',
             match: [
                 'https://www.zhixue.com/*',
@@ -138,6 +140,7 @@ const BUILD_CONFIGS = [
                 '*://www.hxxai.com/*',
                 '*://rrtcp.gdedu.gov.cn/*',
                 'https://haofenshuyize.com/*',
+                '*://kaoshi.keewing.com/*',
             ],
             include: [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
@@ -163,6 +166,7 @@ const BUILD_CONFIGS = [
                 'oss.17yuejuan.cn',
                 'zhengwuyun-1304451002.cos.ap-guangzhou.myqcloud.com',
                 'pj-sdlc.cn-bj.ufileos.com',
+                'kyasource.keewing.com',
                 '*',
             ],
             runAt: 'document-idle',
