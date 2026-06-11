@@ -355,13 +355,19 @@ const KeewingAdapter = {
     onPageLoad() {
         console.log('🚀 [科耘] 页面加载完成，执行初始化...');
 
-        // 确保"自动提交"未勾选（避免意外提交）
-        const autoSubmitCheckbox = document.querySelector(KEEWING_SELECTORS.AUTO_SUBMIT_CHECKBOX);
-        if (autoSubmitCheckbox && autoSubmitCheckbox.checked) {
-            const label = autoSubmitCheckbox.closest('label.el-checkbox');
-            if (label) {
-                label.click();
-                console.log('📝 [科耘] 已取消"自动提交"勾选');
+        // 取消勾选"打分键盘"（避免键盘输入被平台捕获导致自动填入分数）
+        const keyboardCheckbox = document.querySelector('.el-checkbox__label');
+        if (keyboardCheckbox) {
+            const labels = document.querySelectorAll('.el-checkbox__label');
+            for (const label of labels) {
+                if (label.textContent.trim().includes('打分键盘')) {
+                    const checkbox = label.closest('label.el-checkbox');
+                    if (checkbox && checkbox.classList.contains('is-checked')) {
+                        checkbox.click();
+                        console.log('📝 [科耘] 已取消"打分键盘"勾选');
+                    }
+                    break;
+                }
             }
         }
     },
