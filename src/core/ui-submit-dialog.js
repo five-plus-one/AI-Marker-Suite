@@ -523,7 +523,8 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             if (!BlankDetector.hasReference() && base64Arr.length > 0) {
                 try {
                     const ratios = await BlankDetector.calcBatchRatios(base64Arr);
-                    BlankDetector.saveReference(ratios.map(r => r.ratio));
+                    const validResults = ratios.filter(r => !r.skipped);
+                    BlankDetector.saveReference(validResults.map(r => r.ratio), validResults.map(r => r.threshold));
                     showToast('📸 空白答题卡范本已采集');
                 } catch (e) {
                     console.warn('⚠️ 范本采集失败:', e);

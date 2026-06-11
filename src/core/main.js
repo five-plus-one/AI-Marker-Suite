@@ -120,12 +120,14 @@ async function startAutoGrading() {
 
         // ===== 空白答题卡检测 =====
         const blankConfig = presetConfig.blankDetection;
+        let blankDetectionResult = null; // 缓存检测结果，避免重复计算
         if (blankConfig && blankConfig.enabled && !window.aiGradingState.blankDetection.skipOnce) {
-            const refRatios = BlankDetector.loadReference();
-            if (refRatios) {
+            const refData = BlankDetector.loadReference();
+            if (refData) {
                 try {
-                    const currentRatios = await BlankDetector.calcBatchRatios(base64DataArray);
-                    const result = BlankDetector.isBlankSheet(currentRatios, refRatios, blankConfig.threshold);
+                    const currentRatios = await BlankDetector.calcBatchRatios(base64DataArray, refData.thresholds);
+                    blankDetectionResult = { currentRatios, refData }; // 缓存
+                    const result = BlankDetector.isBlankSheet(currentRatios, refData, blankConfig.threshold);
                     if (result.isBlank) {
                         console.log('⏭️ [空白检测] 检测到空白答题卡，自动跳过');
                         window.aiGradingState.blankDetection.blankCount++;
@@ -151,7 +153,7 @@ async function startAutoGrading() {
                             isBlankCard: true,
                             blankRatios: {
                                 current: currentRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
-                                reference: refRatios,
+                                reference: refData.ratios,
                                 threshold: blankConfig.threshold
                             }
                         });
@@ -237,20 +239,29 @@ async function startAutoGrading() {
                 }
             }
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
-            // 如果开启了空白卡检测且有范本，附带当前图的占比数据
+            // 如果开启了空白卡检测且有范本，附带当前图的占比数据（复用之前缓存的结果）
             let blankRatiosData = null;
             if (blankConfig && blankConfig.enabled) {
-                const refForDialog = BlankDetector.loadReference();
-                if (refForDialog) {
-                    try {
-                        const curRatios = await BlankDetector.calcBatchRatios(base64DataArray);
+                try {
+                    // 优先复用缓存的检测结果
+                    if (blankDetectionResult) {
                         blankRatiosData = {
-                            current: curRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
-                            reference: refForDialog,
+                            current: blankDetectionResult.currentRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
+                            reference: blankDetectionResult.refData.ratios,
                             threshold: blankConfig.threshold
                         };
-                    } catch (e) { /* 静默失败，不影响主流程 */ }
-                }
+                    } else {
+                        const refForDialog = BlankDetector.loadReference();
+                        if (refForDialog) {
+                            const curRatios = await BlankDetector.calcBatchRatios(base64DataArray, refForDialog.thresholds);
+                            blankRatiosData = {
+                                current: curRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
+                                reference: refForDialog.ratios,
+                                threshold: blankConfig.threshold
+                            };
+                        }
+                    }
+                } catch (e) { /* 静默失败，不影响主流程 */ }
             }
             showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
                 scoringDetails: result._sections || null,

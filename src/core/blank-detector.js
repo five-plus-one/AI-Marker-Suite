@@ -93,9 +93,10 @@ const BlankDetector = {
     /**
      * 计算图片的黑色像素占比
      * @param {string} base64 - 不含 data: 前缀的 base64 数据
+     * @param {number} [fixedThreshold] - 使用外部指定的阈值（来自范本），不传则自适应计算
      * @returns {Promise<{ratio: number, threshold: number, totalPixels: number, minPixels: number}>}
      */
-    async calcBlackPixelRatio(base64) {
+    async calcBlackPixelRatio(base64, fixedThreshold) {
         const { imageData, width, height } = await this.loadImageData(base64);
         const totalPixels = width * height;
 
@@ -105,12 +106,12 @@ const BlankDetector = {
         }
 
         const gray = this.toGrayscale(imageData);
-        const threshold = this.otsuThreshold(gray);
+        const threshold = fixedThreshold !== undefined ? fixedThreshold : this.otsuThreshold(gray);
 
-        // 统计黑色像素（灰度值 < 阈值）
+        // 统计黑色像素（灰度值 <= 阈值）
         let blackPixels = 0;
         for (let i = 0; i < gray.length; i++) {
-            if (gray[i] < threshold) blackPixels++;
+            if (gray[i] <= threshold) blackPixels++;
         }
 
         const ratio = blackPixels / totalPixels;
@@ -120,13 +121,15 @@ const BlankDetector = {
     /**
      * 批量计算多张图片的黑色像素占比
      * @param {string[]} base64Array - base64 数据数组
+     * @param {number[]} [referenceThresholds] - 范本各图的 Otsu 阈值，传入后使用相同阈值计算
      * @returns {Promise<Array<{ratio: number, threshold: number, skipped?: boolean}>>}
      */
-    async calcBatchRatios(base64Array) {
+    async calcBatchRatios(base64Array, referenceThresholds) {
         const results = [];
-        for (const base64 of base64Array) {
+        for (let i = 0; i < base64Array.length; i++) {
+            const fixedThreshold = referenceThresholds ? referenceThresholds[i] : undefined;
             try {
-                results.push(await this.calcBlackPixelRatio(base64));
+                results.push(await this.calcBlackPixelRatio(base64Array[i], fixedThreshold));
             } catch (e) {
                 console.warn('⚠️ [空白检测] 图片处理失败:', e.message);
                 results.push({ ratio: 0, threshold: 0, totalPixels: 0, minPixels: 0, skipped: true });
@@ -138,28 +141,38 @@ const BlankDetector = {
     /**
      * 判断是否为空白答题卡
      * @param {Array<{ratio: number, skipped?: boolean}>} currentRatios - 当前图片的占比结果
-     * @param {number[]} referenceRatios - 范本占比数组
+     * @param {number[]|{ratios: number[], thresholds: number[]}} referenceData - 范本数据（兼容旧格式）
      * @param {number} threshold - 差异阈值（默认 0.01 = 1%）
      * @returns {{isBlank: boolean, reason: string}}
      */
-    isBlankSheet(currentRatios, referenceRatios, threshold = 0.01) {
+    isBlankSheet(currentRatios, referenceData, threshold = 0.01) {
+        // 兼容旧格式（纯数组）和新格式（含阈值的对象）
+        const referenceRatios = Array.isArray(referenceData) ? referenceData : referenceData.ratios;
+
         // 图片数量不匹配
         if (currentRatios.length !== referenceRatios.length) {
             return { isBlank: false, reason: `图片数量不匹配（当前${currentRatios.length}张，范本${referenceRatios.length}张），请重新采集范本` };
         }
 
         // 逐张对比
+        let allSkipped = true;
         for (let i = 0; i < currentRatios.length; i++) {
             const current = currentRatios[i];
             const ref = referenceRatios[i];
 
             // 跳过的图片不影响判定
             if (current.skipped) continue;
+            allSkipped = false;
 
             const diff = Math.abs(current.ratio - ref);
             if (diff > threshold) {
                 return { isBlank: false, reason: `第${i + 1}张图黑色占比差异 ${(diff * 100).toFixed(2)}% > ${(threshold * 100).toFixed(1)}%` };
             }
+        }
+
+        // 全部图片都跳过了，无法判定为空白
+        if (allSkipped) {
+            return { isBlank: false, reason: '所有图片均加载失败，无法判定' };
         }
 
         return { isBlank: true, reason: '所有图片黑色占比均在阈值范围内' };
@@ -168,23 +181,27 @@ const BlankDetector = {
     // ========== 范本管理 ==========
 
     /**
-     * 保存范本占比（sessionStorage + GM_setValue 双写）
+     * 保存范本占比和阈值（sessionStorage + GM_setValue 双写）
      * @param {number[]} ratios - 范本占比数组
+     * @param {number[]} [thresholds] - 范本各图的 Otsu 阈值数组
      */
-    saveReference(ratios) {
+    saveReference(ratios, thresholds) {
         try {
-            const json = JSON.stringify(ratios);
+            const data = thresholds ? { ratios, thresholds } : ratios;
+            const json = JSON.stringify(data);
             sessionStorage.setItem(this.STORAGE_KEY, json);
             if (typeof GM_setValue !== 'undefined') GM_setValue(this.STORAGE_KEY, json);
-            console.log('📸 [空白检测] 范本已保存:', ratios.map(r => (r * 100).toFixed(3) + '%').join(', '));
+            console.log('📸 [空白检测] 范本已保存:', ratios.map(r => (r * 100).toFixed(3) + '%').join(', '),
+                thresholds ? '| 阈值: ' + thresholds.join(', ') : '');
         } catch (e) {
             console.warn('⚠️ [空白检测] 范本保存失败:', e);
         }
     },
 
     /**
-     * 加载范本占比（优先 sessionStorage，回退 GM_setValue）
-     * @returns {number[] | null}
+     * 加载范本数据（优先 sessionStorage，回退 GM_setValue）
+     * 兼容旧格式（纯数组）和新格式（{ratios, thresholds}）
+     * @returns {{ ratios: number[], thresholds: number[] | null } | null}
      */
     loadReference() {
         try {
@@ -195,9 +212,14 @@ const BlankDetector = {
                 if (data) sessionStorage.setItem(this.STORAGE_KEY, data);
             }
             if (data) {
-                const ratios = JSON.parse(data);
-                if (Array.isArray(ratios) && ratios.length > 0) {
-                    return ratios;
+                const parsed = JSON.parse(data);
+                // 新格式: { ratios: number[], thresholds: number[] }
+                if (parsed && Array.isArray(parsed.ratios) && parsed.ratios.length > 0) {
+                    return { ratios: parsed.ratios, thresholds: parsed.thresholds || null };
+                }
+                // 旧格式兼容: 纯数组
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return { ratios: parsed, thresholds: null };
                 }
             }
         } catch (e) {
@@ -208,12 +230,12 @@ const BlankDetector = {
 
     /**
      * 获取范本详情（用于设置面板展示）
-     * @returns {{ count: number, ratios: number[] } | null}
+     * @returns {{ count: number, ratios: number[], thresholds: number[] | null } | null}
      */
     getRatiosDetail() {
-        const ratios = this.loadReference();
-        if (!ratios) return null;
-        return { count: ratios.length, ratios };
+        const ref = this.loadReference();
+        if (!ref) return null;
+        return { count: ref.ratios.length, ratios: ref.ratios, thresholds: ref.thresholds };
     },
 
     /**
