@@ -157,6 +157,9 @@ const KeewingAdapter = {
 
         console.log(`📝 [科耘] 填入分数: ${score}`);
 
+        // 确保"自动提交"已勾选
+        this._ensureAutoSubmit();
+
         // 获取满分值
         const maxScore = this._getCurrentMaxScore();
 
@@ -261,6 +264,18 @@ const KeewingAdapter = {
                 console.log('ℹ️ [科耘] 未检测到确认弹窗');
             }
         }, 200);
+    },
+
+    // 确保"自动提交"已勾选
+    _ensureAutoSubmit() {
+        const checkbox = document.querySelector('.submit-auto .el-checkbox__original');
+        if (checkbox && !checkbox.checked) {
+            const label = checkbox.closest('label.el-checkbox');
+            if (label) {
+                label.click();
+                console.log('✅ [科耘] 已勾选"自动提交"');
+            }
+        }
     },
 
     async waitForNextPaper(oldImageUrl) {
