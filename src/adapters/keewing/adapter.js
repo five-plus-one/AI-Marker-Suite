@@ -65,36 +65,35 @@ const KeewingAdapter = {
         // 等待 SVG 渲染完成
         await new Promise(r => setTimeout(r, 500));
 
-        const images = document.querySelectorAll(KEEWING_SELECTORS.SVG_IMAGE);
         const urls = [];
 
-        images.forEach(img => {
-            // SVG <image> 标签使用 xlink:href 或 href 属性
-            let url = img.getAttribute('xlink:href') || img.getAttribute('href') || img.getAttribute('src');
-
+        // 优先从 SVG <image> 标签获取带裁切参数的图片
+        const svgImages = document.querySelectorAll(KEEWING_SELECTORS.SVG_IMAGE);
+        svgImages.forEach(img => {
+            const url = img.getAttribute('xlink:href') || img.getAttribute('href') || img.getAttribute('src');
             if (url && url.startsWith('http')) {
-                // 移除 OSS 裁切参数，获取完整图片
-                url = this._removeOssCropParams(url);
-                urls.push(url);
+                // 只保留带裁切参数的 URL（当前题目区域）
+                if (url.includes('x-oss-process=image/crop')) {
+                    urls.push(url);
+                }
             }
         });
+
+        // 如果没有找到带裁切参数的图片，回退到普通 img 标签
+        if (urls.length === 0) {
+            const container = document.querySelector(KEEWING_SELECTORS.IMAGE_CONTAINER);
+            if (container) {
+                const img = container.querySelector('img');
+                if (img && img.src && img.src.startsWith('http')) {
+                    urls.push(img.src);
+                }
+            }
+        }
 
         // 去重
         const uniqueUrls = [...new Set(urls)];
         console.log(`🖼️ [科耘] 找到答题卡图片: ${uniqueUrls.length} 张`);
         return uniqueUrls;
-    },
-
-    // 移除 OSS 裁切参数（如 ?x-oss-process=image/crop,x_117,y_1079,w_663,h_210）
-    _removeOssCropParams(url) {
-        try {
-            const urlObj = new URL(url);
-            urlObj.searchParams.delete('x-oss-process');
-            return urlObj.toString();
-        } catch (e) {
-            // URL 解析失败，尝试简单字符串处理
-            return url.split('?')[0];
-        }
     },
 
     async fetchImageAsBase64(url) {
@@ -167,13 +166,35 @@ const KeewingAdapter = {
         // 使用输入框填入分数
         const scoreInput = document.querySelector(KEEWING_SELECTORS.SCORE_INPUT);
         if (scoreInput) {
+            // 尝试通过 Vue 实例设置值
+            const vueInstance = scoreInput.__vue__ || scoreInput.closest('[data-v-]')?.__vue__;
+            if (vueInstance) {
+                console.log(`📝 [科耘] 通过 Vue 实例设置分数`);
+                vueInstance.value = String(score);
+                vueInstance.$emit?.('input', String(score));
+                vueInstance.$emit?.('change', String(score));
+            }
+
+            // 使用原生方式设置值（兼容非 Vue 场景）
             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
             setter.call(scoreInput, score);
-            scoreInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // 触发完整的事件链，确保 Vue 响应式更新
+            scoreInput.dispatchEvent(new InputEvent('input', { bubbles: true, data: String(score) }));
             scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
             scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log(`✅ [科耘] 分数已填入输入框`);
-            return true;
+
+            // 验证值是否设置成功
+            const currentValue = scoreInput.value;
+            console.log(`📝 [科耘] 输入框当前值: "${currentValue}", 目标值: "${score}"`);
+
+            if (currentValue === String(score)) {
+                console.log(`✅ [科耘] 分数已填入输入框`);
+                return true;
+            } else {
+                console.warn(`⚠️ [科耘] 分数填入可能失败，当前值: "${currentValue}"`);
+                return false;
+            }
         }
 
         console.warn('⚠️ [科耘] 无法填入分数');
