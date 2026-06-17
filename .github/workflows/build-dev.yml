@@ -97,6 +97,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           source: "dist/ai_marker.user.js,dist/manifest.json"
           target: /tmp/deploy-script-dev/
+          debug: true
 
       - name: Move to target and set permissions
         uses: appleboy/ssh-action@v1.0.3
