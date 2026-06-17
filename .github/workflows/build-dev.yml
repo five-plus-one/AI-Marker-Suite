@@ -107,7 +107,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             # 部署目录（dev 渠道）
-            DEPLOY_DIR=/opt/1panel/apps/openresty/openresty/www/sites/auto-update.aimarking.five-plus-one.com/index/ota/dev
+            DEPLOY_DIR=/opt/1panel/www/sites/aimarker-suite-ota/index/ota/dev
             OWNER=$(stat -c '%U:%G' "$(dirname "$DEPLOY_DIR")")
 
             # 确保目录存在
