@@ -125,7 +125,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             # 部署目录
-            DEPLOY_DIR=/opt/1panel/apps/openresty/openresty/www/sites/auto-update.aimarking.five-plus-one.com/index/ota
+            DEPLOY_DIR=/opt/1panel/www/sites/aimarker-suite-ota/index/ota
             OWNER=$(stat -c '%U:%G' "$DEPLOY_DIR")
 
             # 部署 ai_marker.user.js
