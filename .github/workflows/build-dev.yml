@@ -88,47 +88,42 @@ jobs:
           name: script-dist-dev
           path: dist
 
-      - name: Upload to temp directory
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          source: "dist/ai_marker.user.js,dist/manifest.json"
-          target: /tmp/deploy-script-dev/
-          debug: true
+      - name: Read script content
+        id: read-script
+        run: echo "content=$(cat dist/ai_marker.user.js | base64 -w0)" >> $GITHUB_OUTPUT
 
-      - name: Move to target and set permissions
+      - name: Read manifest content
+        id: read-manifest
+        run: echo "content=$(cat dist/manifest.json | base64 -w0)" >> $GITHUB_OUTPUT
+
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
           script: |
             # 部署目录（dev 渠道）
             DEPLOY_DIR=/opt/1panel/www/sites/aimarker-suite-ota/index/ota/dev
-            OWNER=$(stat -c '%U:%G' "$(dirname "$DEPLOY_DIR")")
 
             # 确保目录存在
             sudo mkdir -p $DEPLOY_DIR
 
-            # 部署 ai_marker.user.js
-            sudo rm -f $DEPLOY_DIR/ai_marker.user.js
-            sudo cp /tmp/deploy-script-dev/dist/ai_marker.user.js $DEPLOY_DIR/
+            # 获取目录所有者
+            OWNER=$(stat -c '%U:%G' "$(dirname "$DEPLOY_DIR")")
+
+            # 写入 ai_marker.user.js
+            echo '${{ steps.read-script.outputs.content }}' | base64 -d | sudo tee $DEPLOY_DIR/ai_marker.user.js > /dev/null
             sudo chown $OWNER $DEPLOY_DIR/ai_marker.user.js
             sudo chmod 644 $DEPLOY_DIR/ai_marker.user.js
 
-            # 部署 manifest.json
-            sudo rm -f $DEPLOY_DIR/manifest.json
-            sudo cp /tmp/deploy-script-dev/dist/manifest.json $DEPLOY_DIR/
+            # 写入 manifest.json
+            echo '${{ steps.read-manifest.outputs.content }}' | base64 -d | sudo tee $DEPLOY_DIR/manifest.json > /dev/null
             sudo chown $OWNER $DEPLOY_DIR/manifest.json
             sudo chmod 644 $DEPLOY_DIR/manifest.json
 
-            # 清理临时文件
-            rm -rf /tmp/deploy-script-dev
-
             # 验证部署
-            echo "✅ Dev 渠道部署完成，文件列表："
+            echo "Dev 渠道部署完成，文件列表："
             ls -la $DEPLOY_DIR/
