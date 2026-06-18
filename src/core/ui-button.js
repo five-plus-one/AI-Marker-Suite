@@ -1,3 +1,13 @@
+// ========== UI 挂载点辅助函数 ==========
+// 在 <frameset> 文档中，document.body 是 <frameset> 元素，不会渲染非 frame 子元素。
+// 此时改用 document.documentElement (<html>) 作为挂载点。
+function getUIRoot() {
+    if (document.body && document.body.tagName === 'FRAMESET') {
+        return document.documentElement;
+    }
+    return document.body;
+}
+
 // ========== 创建主按钮 ==========
 function createMainButton() {
     if (document.querySelector('.ai-grade-btn')) return;
@@ -74,7 +84,7 @@ function createMainButton() {
         .ai-history-btn svg, .ai-settings-btn svg { width: 20px !important; height: 20px !important; color: #444 !important; }
     `;
     document.head.appendChild(style);
-    document.body.appendChild(btn);
+    getUIRoot().appendChild(btn);
 
     const histBtn = document.createElement('button');
     histBtn.className = 'ai-history-btn';
@@ -86,7 +96,7 @@ function createMainButton() {
     settingsBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>';
     settingsBtn.title = '批改配置';
     histBtn.onclick = () => showHistoryPanel();
-    document.body.appendChild(histBtn);
+    getUIRoot().appendChild(histBtn);
 
     settingsBtn.onclick = () => {
         const panel = document.getElementById('ai-grading-settings');
@@ -96,7 +106,7 @@ function createMainButton() {
             openSettingsPanel();
         }
     };
-    document.body.appendChild(settingsBtn);
+    getUIRoot().appendChild(settingsBtn);
 }
 
 // ========== 仅历史按钮（非阅卷页面） ==========
@@ -141,7 +151,7 @@ function createHistoryOnlyButton() {
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/><path d="M3 12h1"/><path d="M20 12h1"/><path d="M12 3v1"/><path d="M12 20v1"/></svg>';
     btn.title = '评阅历史';
     btn.onclick = () => showHistoryPanel();
-    document.body.appendChild(btn);
+    getUIRoot().appendChild(btn);
 }
 
 // ========== 未保存状态管理 ==========
@@ -223,7 +233,7 @@ function renderBatchProgress() {
         // 创建进度条容器
         container = document.createElement('div');
         container.id = 'ai-batch-progress';
-        document.body.appendChild(container);
+        getUIRoot().appendChild(container);
 
         // 注入样式
         const style = document.createElement('style');

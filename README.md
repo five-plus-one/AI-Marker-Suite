@@ -93,6 +93,18 @@
 
 ---
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=five-plus-one%2FAI-Marker-Suite&type=date&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=five-plus-one/AI-Marker-Suite&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=five-plus-one/AI-Marker-Suite&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=five-plus-one/AI-Marker-Suite&type=date&legend=top-left" />
+ </picture>
+</a>
+
+---
+
 ## 常见问题
 
 **Q: 识别不准怎么办？**

@@ -11,6 +11,7 @@
 let _guangda2ImagePool = {};  // 包号 → 完整图片URL 的映射
 let _guangda2LastResponse = null;  // 最近一次 getDdb 响应
 let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmark/"，从页面请求自动捕获
+let _guangda2ApiBase = '';  // API 基础地址，如 "http://host:port"，从API请求自动捕获
 
 {
     const _innerOpen = XMLHttpRequest.prototype.open;
@@ -18,21 +19,45 @@ let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmar
 
     XMLHttpRequest.prototype.open = function(method, url, ...args) {
         this._guangda2Url = url;
+
+        // 拦截 firstUpdateUserInfo 请求，避免自动批改时的"姓名不能为空"错误
+        if (url.includes('firstUpdateUserInfo')) {
+            this._guangda2Blocked = true;
+            console.log('🚫 [V2 API拦截] 标记 firstUpdateUserInfo 请求为阻止');
+        }
+
         return _innerOpen.call(this, method, url, ...args);
     };
 
     XMLHttpRequest.prototype.send = function(...args) {
+        // 如果被标记为阻止，则不实际发送请求
+        if (this._guangda2Blocked) {
+            console.log('🚫 [V2 API拦截] 阻止 firstUpdateUserInfo 请求');
+            return;
+        }
+
         this.addEventListener('load', function() {
             try {
                 const url = this._guangda2Url || '';
 
                 // 拦截页面自身的图片请求，自动检测图片 URL 前缀
                 // 图片请求 URL 类似: http://host:port/gzmark/res.do?rt=qtpj_kscqk&path=...
+                // 或: http://host:port/mark/res.do?rt=qtpj_kscqk&path=...
                 if (url.includes('qtpj_kscqk') && !_guangda2ImageBase) {
                     const match = url.match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
                     if (match) {
                         _guangda2ImageBase = match[1];
                         console.log(`🖼️ [V2 API拦截] 检测到图片 URL 前缀: ${_guangda2ImageBase}`);
+                    }
+                }
+
+                // 拦截 h5pj API 请求，自动检测 API 基础地址
+                // API 请求 URL 类似: http://host:port/h5pj/getDdb
+                if (url.includes('/h5pj/') && !_guangda2ApiBase) {
+                    const apiMatch = url.match(/^(https?:\/\/[^/]+)/);
+                    if (apiMatch) {
+                        _guangda2ApiBase = apiMatch[1];
+                        console.log(`🔗 [V2 API拦截] 检测到 API 基础地址: ${_guangda2ApiBase}`);
                     }
                 }
 
@@ -43,15 +68,17 @@ let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmar
                     const vKs = response?.result?.vKs;
 
                     if (vKs && vKs.length > 0) {
+                        // 清空旧数据，只保留当前批次
+                        _guangda2ImagePool = {};
+
                         vKs.forEach(paper => {
                             const bh = paper?.bh || '';
-                            const ddh = paper?.ddh || '';
                             // 兼容: 新版 imageData.imageUrlPath_all vs 旧版 paper.imageUrlPath_all
                             const imagePath = paper?.imageData?.imageUrlPath_all || paper?.imageUrlPath_all || '';
 
                             if (bh && imagePath) {
-                                // 兼容: 新版 mh 字段 vs 旧版 bh-ddh
-                                const key = paper?.mh || (ddh ? `${bh}-${ddh}` : bh);
+                                // 只用 bh 作为 key（界面包号格式为 bh-序号，bh 是稳定的）
+                                const key = bh;
                                 const fullUrl = _buildGuangda2ImageUrl(imagePath);
                                 _guangda2ImagePool[key] = fullUrl;
                                 console.log(`🖼️ [V2 API拦截] 包号 ${key} → ${fullUrl.substring(0, 60)}...`);
@@ -59,7 +86,7 @@ let _guangda2ImageBase = '';  // 图片 URL 前缀，如 "http://host:port/gzmar
                         });
 
                         const poolSize = Object.keys(_guangda2ImagePool).length;
-                        console.log(`🎯 [V2 API拦截] 更新图片池，共 ${poolSize} 份试卷`);
+                        console.log(`🎯 [V2 API拦截] 更新图片池，共 ${poolSize} 份试卷（已清空旧数据）`);
                     }
                 }
 
@@ -106,13 +133,84 @@ function _buildGuangda2ImageUrl(imagePath) {
     const separator = relativePath.includes('?') ? '&' : '?';
     const cacheBuster = `t1=0.${Math.random().toString().substring(2, 12)}`;
 
-    // 优先用捕获到的真实前缀
+    // 优先级1: 使用捕获到的真实前缀（最可靠）
     if (_guangda2ImageBase) {
         return `${_guangda2ImageBase}${relativePath}${separator}${cacheBuster}`;
     }
 
-    // 兜底: 同端口 + /gzmark/（最常见的部署模式）
-    return `http://${hostname}:${mainPort}/gzmark/${relativePath}${separator}${cacheBuster}`;
+    // 优先级2: 智能推断，支持多种部署模式
+    const hostname2 = window.location.hostname;
+    const mainPort2 = parseInt(window.location.port) || 80;
+
+    // 模式1: 同端口 + /gzmark/ (原始模式，如 pj.yixx.cn)
+    // 模式2: 端口-1 + /mark/ (新发现的模式，如 202.104.21.72:40002 → 40001)
+    // 模式3: 同端口 + /mark/
+    const candidates = [
+        `http://${hostname2}:${mainPort2}/gzmark/`,
+        `http://${hostname2}:${mainPort2 - 1}/mark/`,
+        `http://${hostname2}:${mainPort2}/mark/`,
+    ];
+
+    // 如果捕获到了 API 基础地址，尝试使用它构造图片地址
+    if (_guangda2ApiBase) {
+        // API 地址可能是 http://host:port，图片可能在同主机的 /mark/ 或 /gzmark/
+        candidates.unshift(`${_guangda2ApiBase}/mark/`);
+        candidates.unshift(`${_guangda2ApiBase}/gzmark/`);
+    }
+
+    // 使用第一个候选地址（后续可通过异步验证优化）
+    console.log(`🖼️ [V2] 使用图片地址候选: ${candidates[0]}`);
+    return `${candidates[0]}${relativePath}${separator}${cacheBuster}`;
+}
+
+// 获取图片 URL 的所有候选地址（用于重试）
+function _getGuangda2CandidateUrls(imagePath) {
+    const hostname = window.location.hostname;
+    const mainPort = parseInt(window.location.port) || 80;
+
+    // 兼容: 新版已是完整相对路径 vs 旧版仅路径参数
+    let relativePath;
+    if (imagePath.startsWith('res.do')) {
+        relativePath = imagePath;
+    } else {
+        relativePath = `res.do?rt=qtpj_kscqk&path=${imagePath}`;
+    }
+
+    // 添加缓存破坏参数
+    const separator = relativePath.includes('?') ? '&' : '?';
+    const cacheBuster = `t1=0.${Math.random().toString().substring(2, 12)}`;
+    const fullRelative = `${relativePath}${separator}${cacheBuster}`;
+
+    const candidates = [];
+
+    // 如果有捕获到的真实前缀，优先使用
+    if (_guangda2ImageBase) {
+        candidates.push(`${_guangda2ImageBase}${fullRelative}`);
+    }
+
+    // 添加多种部署模式的候选地址
+    const bases = [
+        `http://${hostname}:${mainPort}/gzmark/`,
+        `http://${hostname}:${mainPort - 1}/mark/`,
+        `http://${hostname}:${mainPort}/mark/`,
+    ];
+
+    // 如果捕获到了 API 基础地址，添加更多候选
+    if (_guangda2ApiBase) {
+        bases.unshift(`${_guangda2ApiBase}/mark/`);
+        bases.unshift(`${_guangda2ApiBase}/gzmark/`);
+    }
+
+    // 去重并生成完整 URL
+    const uniqueBases = [...new Set(bases)];
+    for (const base of uniqueBases) {
+        const fullUrl = `${base}${fullRelative}`;
+        if (!candidates.includes(fullUrl)) {
+            candidates.push(fullUrl);
+        }
+    }
+
+    return candidates;
 }
 
 // ========== 版本检测 ==========
@@ -233,27 +331,95 @@ const Guangda2Adapter = {
     },
 
     _getImageUrlsFromPool() {
-        // 获取当前包号（界面上显示的格式，如 "161-1"）
+        // 获取当前包号（界面上显示的格式，如 "420-1"）
         const currentPkg = this._getCurrentPackage();
 
-        if (currentPkg && _guangda2ImagePool[currentPkg]) {
-            console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${currentPkg} 的图片`);
-            return [_guangda2ImagePool[currentPkg]];
+        // 提取 bh（前半部分，如 "420"）
+        const bh = currentPkg ? currentPkg.split('-')[0] : '';
+
+        if (bh && _guangda2ImagePool[bh]) {
+            console.log(`🖼️ [诊断] 光大V2 从图片池找到包号 ${bh} 的图片`);
+            return [_guangda2ImagePool[bh]];
         }
 
-        // 备用方案：返回第一张图片
-        const urls = Object.values(_guangda2ImagePool).filter(u => u && u.length > 0);
-        if (urls.length > 0) {
-            console.log(`🖼️ [诊断] 光大V2 从图片池找到 ${urls.length} 张图片（备用）`);
-            return [urls[0]];
-        }
-
+        // 如果没有找到，返回空数组（避免使用旧数据）
+        console.log(`⚠️ [诊断] 光大V2 未在图片池找到包号 ${bh} 的图片`);
         return [];
     },
 
     async fetchImageAsBase64(url) {
         // V2 的图片 URL 是完整的 HTTP URL，直接下载
-        return fetchImageAsBase64(url);
+        try {
+            return await fetchImageAsBase64(url);
+        } catch (error) {
+            // 如果是 404 错误，尝试其他候选地址
+            if (error.message && error.message.includes('404')) {
+                console.log(`🔄 [V2] 图片下载 404，尝试其他候选地址...`);
+
+                // 从 URL 中提取 imagePath
+                const pathMatch = url.match(/[?&]path=([^&]+)/);
+                if (pathMatch) {
+                    const imagePath = decodeURIComponent(pathMatch[1]);
+                    const candidateUrls = _getGuangda2CandidateUrls(imagePath);
+
+                    // 尝试其他候选地址（跳过第一个，因为已经失败了）
+                    for (let i = 1; i < candidateUrls.length; i++) {
+                        try {
+                            console.log(`🔄 [V2] 尝试候选地址 ${i}: ${candidateUrls[i].substring(0, 60)}...`);
+                            const result = await fetchImageAsBase64(candidateUrls[i]);
+                            console.log(`✅ [V2] 候选地址 ${i} 成功！`);
+
+                            // 记住成功的前缀，后续直接使用
+                            const baseMatch = candidateUrls[i].match(/^(https?:\/\/[^/]+\/[^/]+\/)/);
+                            if (baseMatch) {
+                                _guangda2ImageBase = baseMatch[1];
+                                console.log(`🖼️ [V2] 记住成功的图片前缀: ${_guangda2ImageBase}`);
+
+                                // 更新图片池中所有使用错误前缀的 URL
+                                const hostname = window.location.hostname;
+                                const mainPort = parseInt(window.location.port) || 80;
+                                const fallbackBases = [
+                                    `http://${hostname}:${mainPort}/gzmark/`,
+                                    `http://${hostname}:${mainPort - 1}/mark/`,
+                                    `http://${hostname}:${mainPort}/mark/`,
+                                ];
+
+                                let updatedCount = 0;
+                                for (const [key, poolUrl] of Object.entries(_guangda2ImagePool)) {
+                                    for (const fallbackBase of fallbackBases) {
+                                        if (poolUrl.startsWith(fallbackBase) && fallbackBase !== _guangda2ImageBase) {
+                                            _guangda2ImagePool[key] = poolUrl.replace(fallbackBase, _guangda2ImageBase);
+                                            updatedCount++;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if (updatedCount > 0) {
+                                    console.log(`🔄 [V2] 已更新图片池中 ${updatedCount} 个 URL 的前缀`);
+                                }
+
+                                // 更新 currentImageUrls 中对应的 URL（确认面板使用）
+                                const currentUrls = window.aiGradingState.currentImageUrls || [];
+                                const urlIndex = currentUrls.indexOf(url);
+                                if (urlIndex !== -1) {
+                                    currentUrls[urlIndex] = candidateUrls[i];
+                                    console.log(`🔄 [V2] 已更新 currentImageUrls[${urlIndex}]`);
+                                }
+                            }
+
+                            return result;
+                        } catch (e) {
+                            console.log(`❌ [V2] 候选地址 ${i} 失败: ${e.message}`);
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // 所有尝试都失败，抛出原始错误
+            throw error;
+        }
     },
 
     // ========== 分数填入 ==========
@@ -354,51 +520,54 @@ const Guangda2Adapter = {
     },
 
     // ========== 提交 ==========
-    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理"给分详情"弹窗
+    // V2 版本的工作流：用户确认 → 点击分数选项 → 处理弹窗
     async submitGrade() {
         console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
         // 点击分数选项（触发给分详情弹窗）
         this._clickScore();
 
-        // 处理"给分详情"二次确认弹窗
-        this._handleConfirmDialog();
+        // 启动弹窗监听器（同时处理"给分详情"和"修改账号信息"弹窗）
+        this._startDialogWatcher();
 
         return true;
     },
 
-    // 处理"给分详情"二次确认弹窗
-    _handleConfirmDialog() {
-        console.log('⏳ [诊断] 光大V2 — 等待给分详情弹窗...');
+    // 弹窗监听器：同时处理"给分详情"和"修改账号信息"弹窗
+    _startDialogWatcher() {
+        console.log('⏳ [诊断] 光大V2 — 启动弹窗监听器...');
 
-        // 立即检查一次
-        const immediateBtn = document.querySelector('.dialog-btns .sure');
-        if (immediateBtn) {
-            console.log('✅ [诊断] 光大V2 — 立即找到给分详情弹窗，自动点击确认');
-            immediateBtn.click();
-            return;
-        }
+        const observer = new MutationObserver(() => {
+            // 优先级1：隐藏"修改账号信息"弹窗（直接隐藏，不点击按钮）
+            const changePwdDialog = document.querySelector('.changePwd-dialog');
+            if (changePwdDialog) {
+                const dialogWrap = changePwdDialog.closest('.dialog-wrap');
+                if (dialogWrap) {
+                    console.log('✅ [诊断] 光大V2 — 检测到"修改账号信息"弹窗，直接隐藏');
+                    dialogWrap.style.display = 'none';
+                    observer.disconnect();
+                    return;
+                }
+            }
 
-        // 等待弹窗出现并自动点击确认
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-            checkCount++;
-
-            // 查找"确认"按钮（在 dialog-btns 容器中）
-            const confirmBtn = document.querySelector('.dialog-btns .sure');
+            // 优先级2：处理"给分详情"弹窗（这个需要点击确认）
+            const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
             if (confirmBtn) {
-                console.log('✅ [诊断] 光大V2 — 找到给分详情弹窗，自动点击确认');
+                console.log('✅ [诊断] 光大V2 — 检测到给分详情弹窗，自动点击确认');
                 confirmBtn.click();
-                clearInterval(checkInterval);
-                return;
             }
+        });
 
-            // 超时（最多等2秒）
-            if (checkCount >= 10) {
-                clearInterval(checkInterval);
-                console.log('⚠️ [诊断] 光大V2 — 未检测到给分详情弹窗（可能未启用）');
-            }
-        }, 200);
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // 超时保护（5秒后停止监听）
+        setTimeout(() => {
+            observer.disconnect();
+            console.log('⚠️ [诊断] 光大V2 — 弹窗监听器超时');
+        }, 5000);
     },
 
     // ========== 等待下一份试卷 ==========

@@ -50,7 +50,7 @@ function showStreamPanel() {
             </div>
             <div id="ai-stream-content">正在感知和组装上下文...</div>
         `;
-        document.body.appendChild(panel);
+        getUIRoot().appendChild(panel);
 
         panel.querySelector('#stream-copy-btn').onclick = () => {
             // 复制纯文本（从 textContent 取，避免复制 HTML 标签）

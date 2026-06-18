@@ -247,7 +247,7 @@ function openMarkdownEditor(options) {
     container.appendChild(body);
     container.appendChild(footer);
     overlay.appendChild(container);
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     // 隐藏的文件输入
     const fileInput = document.createElement('input');
@@ -498,7 +498,7 @@ function showFormulaPanel(textarea, anchorBtn, schedulePreview) {
     panel.style.left = btnRect.left + 'px';
     panel.style.zIndex = '2147483647';
 
-    document.body.appendChild(panel);
+    getUIRoot().appendChild(panel);
 
     // 点击模板项插入代码
     panel.addEventListener('click', function (e) {
@@ -675,7 +675,7 @@ function showCropModal(base64, callback) {
             '</div>' +
         '</div>';
 
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     var canvas = document.getElementById('ai-crop-canvas');
 
@@ -857,7 +857,7 @@ function showImageChoiceModal(base64, callConfig, onCrop, onRecognize, onInsert)
             '</div>' +
         '</div>';
 
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     function close() { overlay.remove(); }
 
@@ -912,7 +912,7 @@ function showAIRecognitionModal(imageBase64Array, targetImages, callConfig, onCo
             '</div>' +
         '</div>';
 
-    document.body.appendChild(overlay);
+    getUIRoot().appendChild(overlay);
 
     var bodyEl = document.getElementById('ai-recog-body');
     var confirmBtn = document.getElementById('ai-recog-confirm');
@@ -1064,7 +1064,7 @@ function startAIRecognition(textarea, images, callConfig, schedulePreview) {
     input.accept = 'image/*';
     input.multiple = true;
     input.style.display = 'none';
-    document.body.appendChild(input);
+    getUIRoot().appendChild(input);
 
     input.addEventListener('change', function () {
         var files = input.files;

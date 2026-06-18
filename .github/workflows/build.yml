@@ -106,15 +106,13 @@ jobs:
           name: script-dist
           path: dist
 
-      - name: Upload to temp directory
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          source: "dist/ai_marker.user.js,dist/manifest.json"
-          target: /tmp/deploy-script/
+      - name: Upload dist via tar+ssh
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          tar czf - -C dist . | ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "rm -rf /tmp/deploy-script && mkdir -p /tmp/deploy-script && tar xzf - -C /tmp/deploy-script"
 
       - name: Move to target and set permissions
         uses: appleboy/ssh-action@v1.0.3
@@ -125,18 +123,18 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             # 部署目录
-            DEPLOY_DIR=/opt/1panel/apps/openresty/openresty/www/sites/auto-update.aimarking.five-plus-one.com/index/ota
+            DEPLOY_DIR=/opt/1panel/www/sites/aimarker-suite-ota/index/ota
             OWNER=$(stat -c '%U:%G' "$DEPLOY_DIR")
 
             # 部署 ai_marker.user.js
             sudo rm -f $DEPLOY_DIR/ai_marker.user.js
-            sudo cp /tmp/deploy-script/dist/ai_marker.user.js $DEPLOY_DIR/
+            sudo cp /tmp/deploy-script/ai_marker.user.js $DEPLOY_DIR/
             sudo chown $OWNER $DEPLOY_DIR/ai_marker.user.js
             sudo chmod 644 $DEPLOY_DIR/ai_marker.user.js
 
             # 部署 manifest.json（轻量级更新检查文件）
             sudo rm -f $DEPLOY_DIR/manifest.json
-            sudo cp /tmp/deploy-script/dist/manifest.json $DEPLOY_DIR/
+            sudo cp /tmp/deploy-script/manifest.json $DEPLOY_DIR/
             sudo chown $OWNER $DEPLOY_DIR/manifest.json
             sudo chmod 644 $DEPLOY_DIR/manifest.json
 

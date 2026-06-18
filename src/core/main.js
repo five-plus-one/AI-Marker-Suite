@@ -118,6 +118,58 @@ async function startAutoGrading() {
 
         if (window.aiGradingState.isPaused) throw new Error('用户暂停');
 
+        // ===== 空白答题卡检测 =====
+        const blankConfig = presetConfig.blankDetection;
+        let blankDetectionResult = null; // 缓存检测结果，避免重复计算
+        if (blankConfig && blankConfig.enabled && !window.aiGradingState.blankDetection.skipOnce) {
+            const refData = BlankDetector.loadReference();
+            if (refData) {
+                try {
+                    const currentRatios = await BlankDetector.calcBatchRatios(base64DataArray, refData.thresholds);
+                    blankDetectionResult = { currentRatios, refData }; // 缓存
+                    const result = BlankDetector.isBlankSheet(currentRatios, refData, blankConfig.threshold);
+                    if (result.isBlank) {
+                        console.log('⏭️ [空白检测] 检测到空白答题卡，自动跳过');
+                        window.aiGradingState.blankDetection.blankCount++;
+                        showToast(`⏭️ 空白答题卡已跳过（第${window.aiGradingState.blankDetection.blankCount}张）`);
+
+                        // 填入 0 分
+                        const scoringConfig = presetConfig.scoring || {};
+                        const maxScore = PresetManager.getMaxScore();
+                        if (adapter) {
+                            const units = scoringConfig.units || [];
+                            if (adapter.fillScores && units.length > 0) {
+                                adapter.fillScores(units.map(() => 0));
+                            } else if (adapter.fillScores) {
+                                adapter.fillScores([0]);
+                            }
+                        }
+
+                        // 显示提交对话框
+                        const zeroSubScores = (scoringConfig.units || []).map(u => ({
+                            label: u.label, score: 0, maxScore: u.maxScore
+                        }));
+                        showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
+                            isBlankCard: true,
+                            blankRatios: {
+                                current: currentRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
+                                reference: refData.ratios,
+                                threshold: blankConfig.threshold
+                            }
+                        });
+                        return;
+                    } else {
+                        console.log(`🔍 [空白检测] 非空白卡 — ${result.reason}`);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ [空白检测] 检测失败，继续正常批改:', e);
+                }
+            }
+        }
+        // 重置跳过标记（仅生效一次）
+        window.aiGradingState.blankDetection.skipOnce = false;
+        // ===== 空白检测结束 =====
+
         const gradeBtnEl = document.querySelector('.ai-grade-btn');
         if (gradeBtnEl && window.aiGradingState.gradingMode !== 'unattended') {
             gradeBtnEl.textContent = '⏳ AI分析中...';
@@ -187,6 +239,30 @@ async function startAutoGrading() {
                 }
             }
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
+            // 如果开启了空白卡检测且有范本，附带当前图的占比数据（复用之前缓存的结果）
+            let blankRatiosData = null;
+            if (blankConfig && blankConfig.enabled) {
+                try {
+                    // 优先复用缓存的检测结果
+                    if (blankDetectionResult) {
+                        blankRatiosData = {
+                            current: blankDetectionResult.currentRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
+                            reference: blankDetectionResult.refData.ratios,
+                            threshold: blankConfig.threshold
+                        };
+                    } else {
+                        const refForDialog = BlankDetector.loadReference();
+                        if (refForDialog) {
+                            const curRatios = await BlankDetector.calcBatchRatios(base64DataArray, refForDialog.thresholds);
+                            blankRatiosData = {
+                                current: curRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
+                                reference: refForDialog.ratios,
+                                threshold: blankConfig.threshold
+                            };
+                        }
+                    }
+                } catch (e) { /* 静默失败，不影响主流程 */ }
+            }
             showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
                 scoringDetails: result._sections || null,
                 dualEval: result.dualEval || null,
@@ -197,7 +273,8 @@ async function startAutoGrading() {
                     bonus: roundedBonus,
                     decayFactor: breakdown.decayFactor,
                     accuracyScore: breakdown.accuracyScore
-                }
+                },
+                blankRatios: blankRatiosData
             });
         } else {
             // 分数解析失败（"未能识别"），自动重试

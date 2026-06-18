@@ -42,6 +42,9 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const headerLabel = isTrial ? '试改确认' : '批改完成';
     const modeTag = isUnattended ? '<span style="color:#888;font-weight:normal;font-size:12px;margin-left:8px;">[自动模式]</span>'
                    : isTrial ? '<span style="color:#7c3aed;font-weight:normal;font-size:12px;margin-left:8px;">[试改模式]</span>' : '';
+    const isBlankCard = extraInfo?.isBlankCard || false;
+    const blankRatios = extraInfo?.blankRatios || null;
+    const blankTag = isBlankCard ? '<span style="color:#E67E22;font-weight:normal;font-size:12px;margin-left:8px;">[空白卡]</span>' : '';
 
     const imagesHtml = imageUrls.map(url => `<img src="${url}" style="width: 100%; height: auto; display: block; border-bottom: 2px dashed rgba(0,0,0,0.06); margin-bottom: -2px;">`).join('');
 
@@ -50,6 +53,15 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const pauseBtnHtml = isTrial ? '' : `<button class="asd-cancel-btn" id="pause-cancel-btn">暂停</button>`;
     const confirmLabel = isTrial ? '确认提交' : '立即提交';
     const cancelBtnHtml = `<button class="asd-cancel-btn" id="cancel-submit-btn">取消</button>`;
+    // 空白卡相关按钮：自动检测为空白时显示「这不是空白卡」，否则显示「标记为空白卡」
+    let blankBtnHtml = '';
+    if (!isUnattended) {
+        if (isBlankCard) {
+            blankBtnHtml = `<button class="asd-cancel-btn" id="not-blank-btn" style="color:#2166ad;border-color:rgba(33,102,173,0.2);">这不是空白卡</button>`;
+        } else {
+            blankBtnHtml = `<button class="asd-cancel-btn" id="mark-blank-btn" style="color:#E67E22;border-color:rgba(230,126,34,0.2);">标记为空白卡</button>`;
+        }
+    }
 
     // 环形分数显示 — 根据分数计算百分比和颜色
     const maxScore = PresetManager.getMaxScore() || 100;  // UI 显示用，0 时回退 100 避免除零
@@ -210,7 +222,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         </style>
         <div class="asd-overlay"></div>
         <div class="asd-header" id="asd-drag-handle" style="cursor:move;">
-            <span>${headerLabel} ${modeTag}</span>
+            <span>${headerLabel} ${modeTag}${blankTag}</span>
             <div style="display:flex;gap:6px;margin-left:auto;">
                 <button id="minimize-btn" style="background:none;border:1px solid #d8dee8;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;color:#666;display:flex;align-items:center;justify-content:center;" title="最小化">—</button>
             </div>
@@ -350,6 +362,29 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${diligence.reason ? `<div style="font-size:12px;color:#666;margin-top:4px;">${diligence.reason}</div>` : ''}
                     </div>
                 </div>` : ''}
+                ${blankRatios ? (() => {
+                    const rows = blankRatios.current.map((c, i) => {
+                        const ref = blankRatios.reference[i];
+                        if (c.skipped || ref === undefined) return '';
+                        const diff = Math.abs(c.ratio - ref);
+                        const diffPct = (diff * 100).toFixed(3);
+                        const thresholdPct = (blankRatios.threshold * 100).toFixed(1);
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;${i > 0 ? 'border-top:1px solid rgba(0,0,0,0.04);' : ''}">
+                            <span style="font-size:12px;color:#666;">图${i + 1}</span>
+                            <span style="font-family:monospace;font-size:12px;">
+                                <span style="color:#172033;">当前 ${(c.ratio * 100).toFixed(3)}%</span>
+                                <span style="color:#aaa;margin:0 4px;">|</span>
+                                <span style="color:#86868b;">范本 ${(ref * 100).toFixed(3)}%</span>
+                                <span style="color:#aaa;margin:0 4px;">|</span>
+                                <span style="color:#34A853;font-weight:600;">差异 ${diffPct}%</span>
+                            </span>
+                        </div>`;
+                    }).join('');
+                    return `<div class="asd-info-block">
+                        <div class="asd-info-label">空白卡检测详情 <span style="font-weight:normal;color:#34A853;">（阈值 ${(blankRatios.threshold * 100).toFixed(1)}%）</span></div>
+                        <div style="padding:10px 14px;background:rgba(52,168,83,0.04);border-radius:8px;border:1px solid rgba(52,168,83,0.12);">${rows}</div>
+                    </div>`;
+                })() : ''}
                 <div class="asd-info-block"><div class="asd-info-label">识别答案</div><div class="asd-info-content">${studentAnswer}</div></div>
                 ${comment ? `<div class="asd-info-block"><div class="asd-info-label">评语</div><div class="asd-info-content" style="max-height:200px;overflow-y:auto;">${comment}</div></div>` : ''}
             </div>
@@ -358,6 +393,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             ${countdownHtml}
             <div class="asd-buttons">
                 ${cancelBtnHtml}
+                ${blankBtnHtml}
                 ${correctionBtnHtml}
                 ${pauseBtnHtml}
                 <button class="asd-confirm-btn" id="confirm-submit-btn">${confirmLabel}</button>
@@ -366,12 +402,12 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         <!-- 最小化后的浮动条 -->
         <div id="asd-minimized-bar" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:2147483647; background:#fff; border:1px solid #e1e6ef; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); padding:10px 20px; display:none; align-items:center; gap:12px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;">
             <span style="font-size:18px;font-weight:700;color:${scoreColor};">${score}分</span>
-            <span style="font-size:12px;color:#86868b;">${headerLabel}</span>
+            <span style="font-size:12px;color:#86868b;">${headerLabel}${isBlankCard ? ' [空白卡]' : ''}</span>
             <button id="restore-btn" style="background:#172033;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">恢复</button>
             <button id="minimized-cancel-btn" style="background:#fff;color:#344054;border:1px solid #d8dee8;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">取消</button>
         </div>
     `;
-    document.body.appendChild(dialog);
+    getUIRoot().appendChild(dialog);
 
     // Markdown+KaTeX 渲染：所有文本内容区域
     if (window.__aiMarkdownRenderer) {
@@ -475,6 +511,105 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         showToast('已取消本次批改');
     });
 
+    // "标记为空白卡" 按钮 — 采集范本 + 填0分 + 提交
+    const markBlankBtn = dialog.querySelector('#mark-blank-btn');
+    if (markBlankBtn) {
+        markBlankBtn.addEventListener('click', async () => {
+            if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
+            dialog.remove();
+
+            // 采集范本（如果没有的话）
+            const base64Arr = window.aiGradingState.currentBase64DataArray || [];
+            if (!BlankDetector.hasReference() && base64Arr.length > 0) {
+                try {
+                    const ratios = await BlankDetector.calcBatchRatios(base64Arr);
+                    const validResults = ratios.filter(r => !r.skipped);
+                    BlankDetector.saveReference(validResults.map(r => r.ratio), validResults.map(r => r.threshold));
+                    showToast('📸 空白答题卡范本已采集');
+                } catch (e) {
+                    console.warn('⚠️ 范本采集失败:', e);
+                }
+            }
+
+            // 填入 0 分
+            const config = PresetManager.getCurrentConfig();
+            const adapter = window.__AI_MARKER_ADAPTER__;
+            if (adapter) {
+                const units = config.scoring?.units || [];
+                if (adapter.fillScores && units.length > 0) {
+                    adapter.fillScores(units.map(() => 0));
+                } else if (adapter.fillScores) {
+                    adapter.fillScores([0]);
+                }
+            }
+
+            // 更新批阅份数
+            if (typeof updateBatchProgress === 'function') updateBatchProgress();
+
+            // 保存历史记录
+            try {
+                HistoryManager.add({
+                    presetName: PresetManager.data.active,
+                    gradingMode: mode,
+                    imageUrls, studentAnswer: '空白答题卡',
+                    aiScore: 0, aiComment: '空白答题卡，手动标记',
+                    finalScore: 0, isCorrected: false, correctionReason: '',
+                    imageBase64s: base64Arr,
+                    subScores: (config.scoring?.units || []).map(u => ({ label: u.label, score: 0, maxScore: u.maxScore })),
+                    dualEval: null, diligenceLevel: 0, diligenceBonus: 0, diligenceReason: ''
+                });
+            } catch (e) {
+                console.error('⚠️ 历史记录保存失败:', e);
+            }
+
+            // 提交并进入下一份
+            const submitted = adapter && adapter.submitGrade ? await adapter.submitGrade() : false;
+            if (submitted) {
+                window.aiGradingState.blankDetection.blankCount++;
+                showToast(`⏭️ 空白卡已标记提交（第${window.aiGradingState.blankDetection.blankCount}张）`);
+                if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+                    const oldImgUrl = window.aiGradingState.currentImageUrls[0];
+                    if (adapter && adapter.waitForNextPaper) {
+                        adapter.waitForNextPaper(oldImgUrl).then(hasNext => {
+                            if (hasNext) setTimeout(startAutoGrading, 500);
+                            else {
+                                window.aiGradingState.isRunning = false;
+                                window.aiGradingState.isPaused = true;
+                                const btn = document.querySelector('.ai-grade-btn');
+                                if (btn) { btn.textContent = '继续批改'; btn.classList.remove('running', 'unattended', 'trial'); btn.classList.add('paused'); }
+                                showToast('⚠️ 下一份试卷加载超时，已暂停');
+                            }
+                        });
+                    } else {
+                        setTimeout(startAutoGrading, 500);
+                    }
+                } else {
+                    window.aiGradingState.isRunning = false;
+                }
+            } else {
+                window.aiGradingState.isRunning = false;
+                window.aiGradingState.isPaused = true;
+                const btn = document.querySelector('.ai-grade-btn');
+                if (btn) { btn.textContent = '继续批改'; btn.classList.remove('running', 'unattended', 'trial'); btn.classList.add('paused'); }
+                showToast('⚠️ 未找到提交按钮，请手动提交后点击"继续批改"');
+            }
+        });
+    }
+
+    // "这不是空白卡" 按钮 — 撤销空白判定，重新进行 AI 批改
+    const notBlankBtn = dialog.querySelector('#not-blank-btn');
+    if (notBlankBtn) {
+        notBlankBtn.addEventListener('click', () => {
+            if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
+            dialog.remove();
+            showToast('已撤销空白判定，正在重新批改...');
+            // 设置跳过标记，避免下一次检测又判为空白
+            window.aiGradingState.blankDetection.skipOnce = true;
+            window.aiGradingState.errorRetryCount = 0;
+            setTimeout(() => startAutoGrading(), 300);
+        });
+    }
+
     // 最小化/恢复
     const minimizedBar = dialog.querySelector('#asd-minimized-bar');
     const overlay = dialog.querySelector('.asd-overlay');
@@ -554,7 +689,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             dialog.style.transform = 'none';
             dialog.style.left = rect.left + 'px';
             dialog.style.top = rect.top + 'px';
-            document.body.style.userSelect = 'none';
+            getUIRoot().style.userSelect = 'none';
         });
 
         document.addEventListener('mousemove', (e) => {
@@ -572,7 +707,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
         document.addEventListener('mouseup', () => {
             isDragging = false;
-            document.body.style.userSelect = '';
+            getUIRoot().style.userSelect = '';
         });
     }
 

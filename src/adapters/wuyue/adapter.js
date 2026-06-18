@@ -49,10 +49,10 @@ const WuyueAdapter = {
         await new Promise(r => setTimeout(r, 1000));
 
         // 获取当前可见的 outBox（不含 hideBox）
-        const activeBox = document.querySelector('.outBox:not(.hideBox)');
+        const activeBox = document.querySelector(WUYUE_SELECTORS.OUT_BOX_ACTIVE);
         if (activeBox) {
-            // 获取该 outBox 内的所有 AnswerSheet 图片（通常是2张：题目区+答题区）
-            const imgs = activeBox.querySelectorAll('img[src*="AnswerSheet"]');
+            // 获取该 outBox 内的所有答题卡图片（通常是2张：题目区+答题区）
+            const imgs = activeBox.querySelectorAll('.imgSection img');
             if (imgs.length > 0) {
                 const urls = Array.from(imgs).map(img => img.src).filter(src => src);
                 console.log(`🖼️ [诊断] 找到当前答卷的 ${urls.length} 张答题卡图片`);
@@ -62,7 +62,7 @@ const WuyueAdapter = {
         }
 
         // 兜底：获取任意一张图片
-        const fallback = document.querySelector('.outBox img[src*="AnswerSheet"]');
+        const fallback = document.querySelector(WUYUE_SELECTORS.ANSWER_IMAGE_ALL);
         if (fallback && fallback.src) {
             console.log(`🖼️ [诊断] 兜底: 找到答题卡图片: ${fallback.src.substring(0, 60)}...`);
             return [fallback.src];

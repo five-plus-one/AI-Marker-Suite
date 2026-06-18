@@ -88,15 +88,13 @@ jobs:
           name: script-dist-preview
           path: dist
 
-      - name: Upload to temp directory
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          source: "dist/ai_marker.user.js,dist/manifest.json"
-          target: /tmp/deploy-script-preview/
+      - name: Upload dist via tar+ssh
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          tar czf - -C dist . | ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "rm -rf /tmp/deploy-script-preview && mkdir -p /tmp/deploy-script-preview && tar xzf - -C /tmp/deploy-script-preview"
 
       - name: Move to target and set permissions
         uses: appleboy/ssh-action@v1.0.3
@@ -107,7 +105,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             # 部署目录（preview 渠道）
-            DEPLOY_DIR=/opt/1panel/apps/openresty/openresty/www/sites/auto-update.aimarking.five-plus-one.com/index/ota/preview
+            DEPLOY_DIR=/opt/1panel/www/sites/aimarker-suite-ota/index/ota/preview
             OWNER=$(stat -c '%U:%G' "$(dirname "$DEPLOY_DIR")")
 
             # 确保目录存在
@@ -115,13 +113,13 @@ jobs:
 
             # 部署 ai_marker.user.js
             sudo rm -f $DEPLOY_DIR/ai_marker.user.js
-            sudo cp /tmp/deploy-script-preview/dist/ai_marker.user.js $DEPLOY_DIR/
+            sudo cp /tmp/deploy-script-preview/ai_marker.user.js $DEPLOY_DIR/
             sudo chown $OWNER $DEPLOY_DIR/ai_marker.user.js
             sudo chmod 644 $DEPLOY_DIR/ai_marker.user.js
 
             # 部署 manifest.json
             sudo rm -f $DEPLOY_DIR/manifest.json
-            sudo cp /tmp/deploy-script-preview/dist/manifest.json $DEPLOY_DIR/
+            sudo cp /tmp/deploy-script-preview/manifest.json $DEPLOY_DIR/
             sudo chown $OWNER $DEPLOY_DIR/manifest.json
             sudo chmod 644 $DEPLOY_DIR/manifest.json
 
