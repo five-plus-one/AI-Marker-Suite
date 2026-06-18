@@ -113,13 +113,13 @@ jobs:
 
             # 部署 ai_marker.user.js
             sudo rm -f $DEPLOY_DIR/ai_marker.user.js
-            sudo cp /tmp/deploy-script-preview/dist/ai_marker.user.js $DEPLOY_DIR/
+            sudo cp /tmp/deploy-script-preview/ai_marker.user.js $DEPLOY_DIR/
             sudo chown $OWNER $DEPLOY_DIR/ai_marker.user.js
             sudo chmod 644 $DEPLOY_DIR/ai_marker.user.js
 
             # 部署 manifest.json
             sudo rm -f $DEPLOY_DIR/manifest.json
-            sudo cp /tmp/deploy-script-preview/dist/manifest.json $DEPLOY_DIR/
+            sudo cp /tmp/deploy-script-preview/manifest.json $DEPLOY_DIR/
             sudo chown $OWNER $DEPLOY_DIR/manifest.json
             sudo chmod 644 $DEPLOY_DIR/manifest.json
 
