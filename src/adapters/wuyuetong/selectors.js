@@ -43,6 +43,11 @@ const WUYUETONG_SELECTORS = {
     // 主容器
     MAIN_CONTAINER: '#markPanel',
 
+    // 0分确认弹窗
+    ZERO_MODAL: '#zeroCheckModal',
+    ZERO_MODAL_OK: '#btn_0_ok',
+    ZERO_MODAL_CANCEL: '#btn_0_cancel',
+
     // 隐藏字段
     HIDDEN_MARK_PIC: '#hdMarkPic',
     HIDDEN_MARK_TAG: '#hdMarkTag',

@@ -160,22 +160,23 @@ const WuyuetongAdapter = {
     },
 
     submitGrade() {
-        // 检查 0 分确认状态
-        const zeroConfirm = document.querySelector(WUYUETONG_SELECTORS.ZERO_CONFIRM_CHECKBOX);
-        if (zeroConfirm && !zeroConfirm.checked) {
-            // 如果有分数为 0 且未勾选 0 分确认，可能需要处理
-            const inputs = this.getScoreInputs();
-            const hasZero = inputs.some(input => input.element.value === '0');
-            if (hasZero) {
-                console.log('[威科姆] 检测到 0 分，尝试勾选 0 分确认');
-                zeroConfirm.click();
-            }
-        }
-
         const btn = document.querySelector(WUYUETONG_SELECTORS.SUBMIT_BUTTON);
         if (btn) {
             btn.click();
             console.log('[威科姆] 点击提交按钮');
+
+            // 处理0分确认弹窗（异步检测，不阻塞主流程）
+            setTimeout(() => {
+                const zeroModal = document.querySelector('#zeroCheckModal');
+                if (zeroModal && zeroModal.style.display === 'block') {
+                    const okBtn = document.querySelector('#btn_0_ok');
+                    if (okBtn) {
+                        console.log('[威科姆] 检测到0分确认弹窗，自动点击确定');
+                        okBtn.click();
+                    }
+                }
+            }, 200);
+
             return true;
         }
 
