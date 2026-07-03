@@ -281,6 +281,7 @@ function showCorrectionPanel(context) {
     let editedRubric = '';
     let editedAnswerData = null;  // 完整字段数据（可能是 string 或 {text, images, format}）
     let editedRubricData = null;
+    let editedReasonData = '';  // 评分理由（Markdown 文本）
 
     function updateStepsBar() {
         const bar = document.getElementById('cor-steps-bar');
@@ -359,7 +360,9 @@ function showCorrectionPanel(context) {
                     </div>
                     <div style="margin-top:10px;">
                         <label class="cor-field-label">评分理由（全局）</label>
-                        <textarea id="cor-teacher-reason" class="cor-input cor-textarea" placeholder="解释为什么应该是这个分数..."></textarea>
+                        <div id="cor-reason-preview" style="position:relative;min-height:48px;padding:9px 12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);border-radius:8px;font-size:13px;line-height:1.6;color:#1a1a1a;cursor:pointer;word-break:break-word;" title="点击编辑 Markdown">
+                            <span style="color:#999;font-style:italic;">点击此处输入评分理由（支持 Markdown 和公式）...</span>
+                        </div>
                     </div>
                 </div>
             `;
@@ -373,7 +376,9 @@ function showCorrectionPanel(context) {
                     </div>
                     <div>
                         <label class="cor-field-label">评分理由</label>
-                        <textarea id="cor-teacher-reason" class="cor-input cor-textarea" placeholder="解释为什么应该是这个分数..."></textarea>
+                        <div id="cor-reason-preview" style="position:relative;min-height:48px;padding:9px 12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);border-radius:8px;font-size:13px;line-height:1.6;color:#1a1a1a;cursor:pointer;word-break:break-word;" title="点击编辑 Markdown">
+                            <span style="color:#999;font-style:italic;">点击此处输入评分理由（支持 Markdown 和公式）...</span>
+                        </div>
                     </div>
                 </div>
             `;
@@ -420,10 +425,45 @@ function showCorrectionPanel(context) {
             inp.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
         });
 
+        // 构建 callConfig（复用 ProviderManager 中已保存的 API Key）
+        var _step1CallConfig = null;
+        try {
+            var _step1WfId = context?.config?.workflowId || 'fast';
+            var _step1Wf = typeof WorkflowManager !== 'undefined' ? WorkflowManager.getWorkflow(_step1WfId) : null;
+            if (_step1Wf) {
+                var _step1PName = _step1Wf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
+                var _step1MName = _step1Wf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
+                var _step1Prov = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_step1PName) : null;
+                _step1CallConfig = { endpoint: _step1Prov?.endpoint || '', apiKey: _step1Prov?.apiKey || '', model: _step1MName, reasoningEffort: _step1Wf.model?.reasoningEffort || '' };
+            }
+        } catch (e) { /* ignore */ }
+
+        // 评分理由预览区 → 打开 Markdown 编辑器
+        var _corReasonPreview = body.querySelector('#cor-reason-preview');
+        if (_corReasonPreview) {
+            _corReasonPreview.onclick = function () {
+                if (typeof openMarkdownEditor !== 'function') return;
+                openMarkdownEditor({
+                    field: 'correction-reason', label: '评分理由',
+                    initialText: editedReasonData || '',
+                    initialImages: [],
+                    callConfig: _step1CallConfig,
+                    onConfirm: function (newText) {
+                        editedReasonData = newText || '';
+                        corRenderPreview('cor-reason-preview', newText);
+                    }
+                });
+            };
+            // 初始渲染预览（如果有内容）
+            if (editedReasonData) {
+                corRenderPreview('cor-reason-preview', editedReasonData);
+            }
+        }
+
         footer.querySelector('#cor-cancel').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
         footer.querySelector('#cor-next').onclick = e => {
             e.stopPropagation();
-            const reasonVal = body.querySelector('#cor-teacher-reason').value.trim();
+            const reasonVal = editedReasonData || '';
 
             if (hasSubScores) {
                 const subInputs = body.querySelectorAll('.cor-sub-score-input');
