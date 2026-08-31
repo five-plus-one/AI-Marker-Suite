@@ -15,6 +15,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 版本守门：stable 发布前必须已升版本号，否则阻止部署
+  version-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Verify version bumped before stable deploy
+        run: |
+          CONFIG_VERSION=$(node -e "const s=require('fs').readFileSync('src/core/config.js','utf8'); console.log(s.match(/VERSION\s*:\s*'([^']+)'/)[1])")
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            echo "仓库尚无 tag，跳过检查"
+            exit 0
+          fi
+          TAG_VERSION="${LATEST_TAG#v}"
+          echo "config.js VERSION: $CONFIG_VERSION / 最新 tag: $LATEST_TAG"
+          OLDER=$(printf '%s\n%s\n' "$CONFIG_VERSION" "$TAG_VERSION" | sort -V | head -1)
+          if [ "$OLDER" != "$TAG_VERSION" ]; then
+            echo "::error::config.js VERSION ($CONFIG_VERSION) 未高于最新 tag ($TAG_VERSION)。同版本号无法触发用户端更新，请先在 config.js 升版本号再发布 stable。"
+            exit 1
+          fi
+          echo "✅ 版本号检查通过"
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -88,7 +114,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    needs: build
+    needs: [version-guard, build]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
@@ -97,7 +123,7 @@ jobs:
 
   # 部署到云服务器
   deploy-server:
-    needs: build
+    needs: [version-guard, build]
     runs-on: ubuntu-latest
     steps:
       - name: Download script

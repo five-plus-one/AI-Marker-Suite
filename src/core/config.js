@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.9.0',
+    VERSION: '1.21.10.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,11 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.10': [
+            '【新平台】新增威科姆（悦卷通）平台适配，支持多小题评分、OSS 图片和键盘/鼠标/步骤三种打分模式',
+            '【新功能】新增评分理由编辑功能及预览区，支持 Markdown 格式',
+            '【修复】修复七天网络新域名（qt7.cn）无法弹出 AI 阅卷窗口的问题',
+        ],
         '1.21.9': [
             '【新平台】新增科耘阅卷平台适配，支持 SVG 图片渲染和 Element UI 组件',
             '【新平台】新增慧学星平台适配，支持 OSS 图片托管和分步骤评分模式',

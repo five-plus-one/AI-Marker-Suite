@@ -1,6 +1,6 @@
 {
   "name": "zhixue-ai-marking",
-  "version": "1.21.3",
+  "version": "1.21.10.0",
   "description": "AI批改助手 - 基于多模态AI的在线阅卷自动批改工具",
   "scripts": {
     "build": "node build.js"
