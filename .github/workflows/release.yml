@@ -1,0 +1,74 @@
+name: Release
+
+# 推送 v* tag 时自动创建 GitHub Release
+# 用法：git tag v1.21.10.0 && git push origin v1.21.10.0
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 守门 1：tag 必须与 config.js 的 VERSION 一致
+      - name: Verify tag matches config.js VERSION
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CONFIG_VERSION=$(node -e "const s=require('fs').readFileSync('src/core/config.js','utf8'); console.log(s.match(/VERSION\s*:\s*'([^']+)'/)[1])")
+          echo "tag 版本: $TAG_VERSION / config.js VERSION: $CONFIG_VERSION"
+          if [ "$TAG_VERSION" != "$CONFIG_VERSION" ]; then
+            echo "::error::tag ($TAG_VERSION) 与 config.js VERSION ($CONFIG_VERSION) 不一致，请修正后重新打 tag"
+            exit 1
+          fi
+
+      - name: Build (stable channel)
+        run: npm run build -- --channel=stable
+
+      # 守门 2：构建产物版本必须与 tag 一致
+      - name: Verify built manifest version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          BUILT_VERSION=$(node -p "require('./dist/manifest.json').version")
+          echo "构建产物版本: $BUILT_VERSION"
+          if [ "$BUILT_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::构建产物版本 ($BUILT_VERSION) 与 tag ($TAG_VERSION) 不一致"
+            exit 1
+          fi
+
+      # 从 manifest.json 提取当前版本的更新日志作为 Release 说明
+      - name: Generate release notes
+        run: |
+          node -e "
+            const m = require('./dist/manifest.json');
+            const keys = Object.keys(m.changelog).sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
+            const items = m.changelog[keys[0]] || [];
+            const body = ['## 更新内容', '', ...items.map(i => '- ' + i)].join('\n');
+            require('fs').writeFileSync('RELEASE_NOTES.md', body);
+          "
+          cat RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md \
+            dist/ai_marker.user.js
