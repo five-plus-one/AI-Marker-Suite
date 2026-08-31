@@ -125,6 +125,7 @@ const BUILD_CONFIGS = [
                 '*://*.7net.cc/*',
                 '*://yj5.7net.cc/*',
                 '*://*.qt7.net/*',
+                '*://*.qt7.cn/*',
                 '*://*.haofenshu.com/*',
                 '*://*.wylkyj.com/*',
                 '*://*.yunyuejuan.net/*',
