@@ -112,6 +112,8 @@ const BUILD_CONFIGS = [
             'adapters/keewing/adapter.js',
             'adapters/wuyuetong/selectors.js',
             'adapters/wuyuetong/adapter.js',
+            'adapters/c30/selectors.js',
+            'adapters/c30/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
@@ -145,6 +147,7 @@ const BUILD_CONFIGS = [
                 'https://haofenshuyize.com/*',
                 '*://kaoshi.keewing.com/*',
                 '*://wyna.onlyets.com/*',
+                '*://zy.iclass30.com/*',
             ],
             include: [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
