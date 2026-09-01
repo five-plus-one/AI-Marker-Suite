@@ -129,7 +129,7 @@ function collectChangelogHTML(remoteVersion, remoteChangelog) {
     const changelog = remoteChangelog;
     if (!changelog || typeof changelog !== 'object') return '';
     const versions = Object.keys(changelog)
-        .filter(v => compareVersions(v, SCRIPT_CONFIG.VERSION) > 0 && compareVersions(v, remoteVersion) <= 0)
+        .filter(v => compareVersions(v, SCRIPT_CONFIG.VERSION) > 0 && compareVersions(v, remoteVersion.split('-')[0]) <= 0)
         .sort((a, b) => compareVersions(b, a)); // 降序
     if (!versions.length) return '';
     return versions.map(v => {
