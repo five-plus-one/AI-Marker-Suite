@@ -76,15 +76,16 @@
             xhr.addEventListener('readystatechange', function() {
                 if (xhr.readyState !== 4) return;
                 try {
-                    // 优先用 responseText（原始 JSON 字符串）
-                    if (xhr.responseText) {
-                        const data = JSON.parse(xhr.responseText);
-                        tryHandleStudentList(data);
+                    // 平台 responseType='json'，xhr.response 已是解析后的对象
+                    if (xhr.response && typeof xhr.response === 'object') {
+                        tryHandleStudentList(xhr.response);
+                    } else if (xhr.responseText) {
+                        tryHandleStudentList(JSON.parse(xhr.responseText));
                     }
                 } catch (e) {
                     console.warn('⚠️ [C30-XHR] 解析失败:', e.message,
                         'responseType:', xhr.responseType,
-                        'status:', xhr.status);
+                        'response:', typeof xhr.response);
                 }
             });
         }
