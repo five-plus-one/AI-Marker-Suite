@@ -284,23 +284,10 @@ const C30Adapter = {
     // ===== 图片获取 =====
     async gatherAnswerImages() {
         console.log('🖼️ [C30] 获取答题卡图片...');
-        const state = this._state;
 
-        // 等待 API 数据
-        if (!state.latestImageUrl) {
-            console.log('⏳ [C30] 等待 API 数据...');
-            await Promise.race([
-                new Promise(r => { state.onStudentListReady = r; }),
-                new Promise(r => setTimeout(r, 8000)),
-            ]);
-        }
+        // 等待 Canvas 渲染
+        await new Promise(r => setTimeout(r, 500));
 
-        if (state.latestImageUrl) {
-            console.log(`🖼️ [C30] 使用 API URL (GM_xmlhttpRequest 下载)`);
-            return [state.latestImageUrl];
-        }
-
-        // Canvas 导出（兜底）
         const canvas = document.querySelector(C30_SELECTORS.ANSWER_CANVAS);
         if (canvas) {
             try {
@@ -310,7 +297,7 @@ const C30Adapter = {
                     return [d];
                 }
             } catch (e) {
-                console.warn('⚠️ [C30] Canvas CORS 失败');
+                console.warn('⚠️ [C30] Canvas 导出失败:', e.message);
             }
         }
 
