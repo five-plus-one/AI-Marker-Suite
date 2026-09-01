@@ -25,12 +25,17 @@ feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ main
 - 版本号唯一来源：`src/core/config.js` 的 `SCRIPT_CONFIG.VERSION`，4 段式（如 `1.21.10.0`）
 - `package.json` 的 version 手动保持一致（不参与构建，仅防误导）
 - dev / preview 渠道构建时自动追加 `-dev.N` / `-preview.N` 后缀，无需手动处理
-- 每次合入 main 前必须升版本号——同版本号无法触发用户端更新检查（Actions 里的 version-guard 会强制拦截）
+
+**4 段语义**（第 3 段 = 稳定版批次号，第 4 段 = 灰度批次号）：
+- 功能批进 dev 时：第 4 段 +1（`1.21.10.0 → 1.21.10.1`），CHANGELOG 新增对应 key（如 `'1.21.10.1': [...]`），第 3 段不动
+- stable 发布时：第 3 段 +1、第 4 段归零（`1.21.10.2 → 1.21.11.0`），灰度 key 汇总为正式 key（如 `'1.21.11'`）并删除灰度 key
+- 同版本号无法触发用户端更新检查（Actions 里的 version-guard 会强制拦截）
+
 - 新版本条目写入 `SCRIPT_CONFIG.CHANGELOG`，条目格式：`【新平台】/【新功能】/【优化】/【修复】/【文档】+ 一句话描述`
 
 ## 发布清单（stable 发版）
 
-1. dev 上：升 `VERSION` + 写 `CHANGELOG` 新条目
+1. dev 上：从灰度 CHANGELOG key（第 4 段 > 0）汇总正式条目，升 VERSION（第 3 段 +1、第 4 段归零），删除灰度 key，写正式 CHANGELOG key，跑构建验证
 2. PR dev→preview，merge commit 合并 → 自动发预览渠道
 3. 验证 preview 渠道 manifest 已更新
 4. PR preview→main，merge commit 合并 → 自动发稳定渠道（GitHub Pages 安装页同步更新）

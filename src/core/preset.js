@@ -226,3 +226,5 @@ const PresetManager = {
 // 更新后配置恢复检测（必须在 init 之前调用）
 if (typeof restoreConfigIfMissing === 'function') restoreConfigIfMissing();
 PresetManager.init();
+// 暴露到 window，供适配器在 onPageLoad 中访问（适配器代码先于核心模块加载）
+window.PresetManager = PresetManager;
