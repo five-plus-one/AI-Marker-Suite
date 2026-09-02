@@ -1,12 +1,12 @@
 {
   "name": "zhixue-ai-marking",
-  "version": "1.21.10.0",
+  "version": "1.21.11.0",
   "description": "AI批改助手 - 基于多模态AI的在线阅卷自动批改工具",
   "scripts": {
     "build": "node build.js"
   },
   "author": "5plus1",
-  "license": "MIT",
+  "license": "GPL-3.0",
   "devDependencies": {
     "katex": "^0.17.0",
     "marked": "^18.0.4",
