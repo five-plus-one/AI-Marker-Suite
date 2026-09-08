@@ -52,14 +52,81 @@ jobs:
             exit 1
           fi
 
-      # 从 manifest.json 提取当前版本的更新日志作为 Release 说明
+      # 从 manifest.json 提取当前版本的更新日志，按分类生成 Release 说明
       - name: Generate release notes
         run: |
           node -e "
             const m = require('./dist/manifest.json');
             const keys = Object.keys(m.changelog).sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
-            const items = m.changelog[keys[0]] || [];
-            const body = ['## 更新内容', '', ...items.map(i => '- ' + i)].join('\n');
+            const version = keys[0] || '${GITHUB_REF_NAME#v}';
+            const items = m.changelog[version] || [];
+
+            // 分类
+            const categories = [
+              { tag: '新平台', emoji: '🆕', label: '新平台' },
+              { tag: '新功能', emoji: '✨', label: '新功能' },
+              { tag: '优化',   emoji: '⚡', label: '优化' },
+              { tag: '修复',   emoji: '🔧', label: '修复' },
+              { tag: '文档',   emoji: '📝', label: '文档' },
+            ];
+
+            const grouped = {};
+            const other = [];
+            items.forEach(item => {
+              const match = item.match(/^【(.+?)】(.+)/);
+              if (match) {
+                const tag = match[1];
+                const text = match[2].trim();
+                (grouped[tag] = grouped[tag] || []).push(text);
+              } else {
+                other.push(item);
+              }
+            });
+
+            const sections = categories
+              .filter(c => grouped[c.tag]?.length)
+              .map(c => [
+                '### ' + c.emoji + ' ' + c.label,
+                ...grouped[c.tag].map(i => '- ' + i),
+              ].join('\n'));
+
+            if (other.length) {
+              sections.push('### 📌 其他\n' + other.map(i => '- ' + i).join('\n'));
+            }
+
+            const body = [
+              '<div align=\"center\">',
+              '',
+              '# 🚀 AI 批改助手 v' + version,
+              '',
+              '**[📖 文档站](https://aimarking.five-plus-one.com/)** · ',
+              '**[⚡ 一键安装（稳定版）](https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js)** · ',
+              '**[🔮 一键安装（预览版）](https://auto-update.aimarking.five-plus-one.com/ota/preview/ai_marker.user.js)**',
+              '',
+              '确保您已安装 [Tampermonkey](https://www.tampermonkey.net/) 扩展',
+              '',
+              '</div>',
+              '',
+              '---',
+              '',
+              '## 📋 更新内容',
+              '',
+              sections.join('\n\n'),
+              '',
+              '---',
+              '',
+              '| 链接 | 说明 |',
+              '|------|------|',
+              '| [📖 文档站](https://aimarking.five-plus-one.com/) | 完整使用文档与平台说明 |',
+              '| [📝 完整更新日志](https://aimarking.five-plus-one.com/changelog) | 所有版本更新记录 |',
+              '| [⚡ 稳定版安装](https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js) | 推荐，经过充分测试 |',
+              '| [🔮 预览版安装](https://auto-update.aimarking.five-plus-one.com/ota/preview/ai_marker.user.js) | 功能较新，提前体验 |',
+              '',
+              '---',
+              '',
+              '**推荐浏览器**: Microsoft Edge + Tampermonkey',
+            ].join('\n');
+
             require('fs').writeFileSync('RELEASE_NOTES.md', body);
           "
           cat RELEASE_NOTES.md
