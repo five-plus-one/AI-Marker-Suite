@@ -37,7 +37,7 @@ const SCRIPT_CONFIG = {
     DEFAULT_ENDPOINT: 'https://api.ai.five-plus-one.com/v1/chat/completions',
 
     /** 默认模型 */
-    DEFAULT_MODEL: 'mimo-v2.5',
+    DEFAULT_MODEL: 'aimarker-fast',
 
     /**
      * 版本更新日志（用于构建 manifest.json）
