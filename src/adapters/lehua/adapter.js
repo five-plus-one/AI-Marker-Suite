@@ -155,30 +155,54 @@ const LehuaAdapter = {
     },
 
     // 点击分数按钮（在用户确认后调用）
+    // 注意：满分按钮文本为 "15 满" 这类形式，不能只用字符串全等匹配
     _clickScore() {
         if (this._pendingScore === null || this._pendingScore === undefined) {
             console.warn('⚠️ [诊断] 乐华阅卷 — 没有待填入的分数');
             return false;
         }
 
-        const score = this._pendingScore;
+        const rawScore = this._pendingScore;
         this._pendingScore = null;
+        const score = Number(rawScore);
 
-        // 点击评分按钮
         const scoreBtns = document.querySelectorAll(LEHUA_SELECTORS.SCORE_BUTTON);
         if (scoreBtns.length > 0) {
+            let exactBtn = null;
+            let numBtn = null;
+            let fullBtn = null;
+            let maxNum = null;
+
             for (const btn of scoreBtns) {
+                if (btn.classList.contains('is-full')) fullBtn = btn;
+
                 const text = btn.textContent.trim();
-                if (text === String(score)) {
-                    btn.click();
-                    console.log(`✅ [诊断] 乐华阅卷 — 已点击分数按钮: ${score}`);
-                    return true;
+                if (text === String(rawScore) || text === String(score)) {
+                    if (!exactBtn) exactBtn = btn;
+                }
+
+                const num = parseInt(text, 10);
+                if (!isNaN(num)) {
+                    if (maxNum === null || num > maxNum) maxNum = num;
+                    if (num === score && !numBtn) numBtn = btn;
                 }
             }
-            console.warn(`⚠️ [诊断] 乐华阅卷 — 未找到分数 ${score} 对应的按钮`);
+
+            // 优先精确文本，再数值解析，最后满分按钮兜底
+            const target = exactBtn
+                || numBtn
+                || (fullBtn && maxNum !== null && score === maxNum ? fullBtn : null);
+
+            if (target) {
+                target.click();
+                console.log(`✅ [诊断] 乐华阅卷 — 已点击分数按钮: ${target.textContent.trim()} (目标分: ${rawScore})`);
+                return true;
+            }
+
+            console.warn(`⚠️ [诊断] 乐华阅卷 — 未找到分数 ${rawScore} 对应的按钮`);
         }
 
-        // 备用：使用输入框
+        // 备用：使用输入框（平台通常需点击分数格子才会自动提交，此路径可能无法跳卷）
         const scoreInput = document.querySelector(LEHUA_SELECTORS.SCORE_INPUT);
         if (scoreInput) {
             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -186,7 +210,7 @@ const LehuaAdapter = {
             scoreInput.dispatchEvent(new Event('input', { bubbles: true }));
             scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
             scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log(`✅ [诊断] 乐华阅卷 — 分数已填入输入框`);
+            console.log(`✅ [诊断] 乐华阅卷 — 分数已填入输入框（备用路径）`);
             return true;
         }
 

@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.11.0',
+    VERSION: '1.21.11.1',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.11.1': [
+            '【修复】修复乐华阅卷满分按钮无法命中导致不自动跳下一张的问题：分数匹配改为数值解析，并兼容带「满」标记的按钮',
+        ],
         '1.21.11': [
             '【新平台】新增C30教育云（大数据精准教学系统）平台适配，支持 Canvas 答题卡渲染和 Vue + Element UI 组件交互',
             '【优化】页面加载时自动检测满分值并写入配置，无需手动设置',

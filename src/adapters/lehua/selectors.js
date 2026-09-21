@@ -9,9 +9,11 @@ const LEHUA_SELECTORS = {
     SCORE_BUTTON: '.score-btn',
     SCORE_BUTTON_ACTIVE: '.score-btn.active, .score-btn.selected',
     SCORE_BUTTON_ZERO: '.score-btn.is-zero',
+    // 满分按钮（文本含「满」，如 "15 满"，不能按纯数字全等匹配）
+    SCORE_BUTTON_FULL: '.score-btn.is-full',
 
-    // 分数输入框（备用）
-    SCORE_INPUT: '.score-input',
+    // 分数输入框（备用；须限定 input，避免命中 el-input-number 的 DIV）
+    SCORE_INPUT: 'input.score-input',
 
     // 提交按钮
     SUBMIT_BUTTON_PRIMARY: 'button.el-button--primary',
