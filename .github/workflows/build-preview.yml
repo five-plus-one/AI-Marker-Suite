@@ -238,7 +238,7 @@ jobs:
               '',
               '---',
               '',
-              '> 本 Release 会在每次推送 `preview` 分支后自动覆盖更新，始终代表最新预览构建。',
+              '> 本 Release 会在每次推送 preview 分支后自动覆盖更新，始终代表最新预览构建。',
               '> 稳定版请前往 [Releases](https://github.com/five-plus-one/AI-Marker-Suite/releases) 查看非 Pre-release 版本。',
               '',
               '**推荐浏览器**: Microsoft Edge + Tampermonkey',
