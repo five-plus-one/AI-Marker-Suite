@@ -129,3 +129,139 @@ jobs:
             # 验证部署
             echo "✅ Preview 渠道部署完成，文件列表："
             ls -la $DEPLOY_DIR/
+
+  # 自动创建/更新 GitHub 预发布（固定 preview-latest，每次覆盖为最新预览构建）
+  # 标签不用 "preview" 是为了避开同名分支，避免本地 git 检出歧义
+  release-preview:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download script
+        uses: actions/download-artifact@v4
+        with:
+          name: script-dist-preview
+          path: dist
+
+      - name: Generate preview release notes
+        run: |
+          node -e "
+            const m = require('./dist/manifest.json');
+            const keys = Object.keys(m.changelog);
+            const cmp = (a, b) => {
+              const pa = a.split('.').map(n => parseInt(n, 10) || 0);
+              const pb = b.split('.').map(n => parseInt(n, 10) || 0);
+              const len = Math.max(pa.length, pb.length);
+              for (let i = 0; i < len; i++) {
+                const d = (pa[i] || 0) - (pb[i] || 0);
+                if (d) return d;
+              }
+              return 0;
+            };
+            keys.sort((a, b) => cmp(b, a));
+            // 正式 key（三段式）中的最新值 = 上个稳定版
+            const officialKeys = keys.filter(k => k.split('.').length === 3);
+            const lastStable = officialKeys[0] || '0.0.0';
+            // 只要上个稳定版之后的灰度条目（四段式且第 4 段 > 0），过滤历史遗留 key
+            const grayKeys = keys.filter(k => {
+              const parts = k.split('.');
+              return parts.length === 4 && parseInt(parts[3], 10) > 0 && cmp(k, lastStable) > 0;
+            });
+            const selectedKeys = grayKeys.length ? grayKeys : (keys[0] ? [keys[0]] : []);
+            const items = selectedKeys.flatMap(k => m.changelog[k] || []);
+
+            const categories = [
+              { tag: '新平台', emoji: '🆕', label: '新平台' },
+              { tag: '新功能', emoji: '✨', label: '新功能' },
+              { tag: '优化',   emoji: '⚡', label: '优化' },
+              { tag: '修复',   emoji: '🔧', label: '修复' },
+              { tag: '文档',   emoji: '📝', label: '文档' },
+            ];
+
+            const grouped = {};
+            const other = [];
+            items.forEach(item => {
+              const match = item.match(/^【(.+?)】(.+)/);
+              if (match) {
+                const tag = match[1];
+                const text = match[2].trim();
+                (grouped[tag] = grouped[tag] || []).push(text);
+              } else {
+                other.push(item);
+              }
+            });
+
+            const sections = categories
+              .filter(c => grouped[c.tag]?.length)
+              .map(c => [
+                '### ' + c.emoji + ' ' + c.label,
+                ...grouped[c.tag].map(i => '- ' + i),
+              ].join('\n'));
+
+            if (other.length) {
+              sections.push('### 📌 其他\n' + other.map(i => '- ' + i).join('\n'));
+            }
+            if (!sections.length) {
+              sections.push('_本次预览构建无独立 changelog 条目，内容与上一版本一致或仅包含构建号变更。_');
+            }
+
+            const version = m.version;
+            const body = [
+              '<div align=\"center\">',
+              '',
+              '# 🔮 AI 批改助手 Preview v' + version,
+              '',
+              '**⚠️ 预览版** — 功能较新，可能不稳定，请优先在测试环境使用',
+              '',
+              '**[📖 文档站](https://aimarking.five-plus-one.com/)** · ',
+              '**[🔮 一键安装（预览版）](https://auto-update.aimarking.five-plus-one.com/ota/preview/ai_marker.user.js)**',
+              '',
+              '确保您已安装 [Tampermonkey](https://www.tampermonkey.net/) 扩展',
+              '',
+              '</div>',
+              '',
+              '---',
+              '',
+              '## 📋 相对稳定版的更新内容',
+              '',
+              sections.join('\n\n'),
+              '',
+              '---',
+              '',
+              '| 链接 | 说明 |',
+              '|------|------|',
+              '| [🔮 预览版安装](https://auto-update.aimarking.five-plus-one.com/ota/preview/ai_marker.user.js) | 本预览渠道自动更新地址 |',
+              '| [⚡ 稳定版安装](https://auto-update.aimarking.five-plus-one.com/ota/ai_marker.user.js) | 推荐日常使用 |',
+              '| [📖 文档站](https://aimarking.five-plus-one.com/) | 完整使用文档与平台说明 |',
+              '| [📝 完整更新日志](https://aimarking.five-plus-one.com/changelog) | 所有版本更新记录 |',
+              '',
+              '---',
+              '',
+              '> 本 Release 会在每次推送 `preview` 分支后自动覆盖更新，始终代表最新预览构建。',
+              '> 稳定版请前往 [Releases](https://github.com/five-plus-one/AI-Marker-Suite/releases) 查看非 Pre-release 版本。',
+              '',
+              '**推荐浏览器**: Microsoft Edge + Tampermonkey',
+            ].join('\n');
+
+            require('fs').writeFileSync('RELEASE_NOTES.md', body);
+            console.log('version:', version);
+          "
+          cat RELEASE_NOTES.md
+
+      - name: Create or update preview prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VERSION=$(node -p "require('./dist/manifest.json').version")
+          TITLE="Preview v${VERSION}"
+          # 浮动预发布：每次删除重建，保证 tag 始终指向最新构建，下载 URL 保持稳定
+          gh release delete preview-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create preview-latest dist/ai_marker.user.js \
+            --prerelease \
+            --latest=false \
+            --target "$GITHUB_SHA" \
+            --title "$TITLE" \
+            --notes-file RELEASE_NOTES.md
+          echo "✅ 预发布已更新: preview-latest ($TITLE)"
