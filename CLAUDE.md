@@ -36,8 +36,8 @@ feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ main
 ## 发布清单（stable 发版）
 
 1. dev 上：从灰度 CHANGELOG key（第 4 段 > 0）汇总正式条目，升 VERSION（第 3 段 +1、第 4 段归零），删除灰度 key，写正式 CHANGELOG key，跑构建验证
-2. PR dev→preview，merge commit 合并 → 自动发预览渠道
-3. 验证 preview 渠道 manifest 已更新
+2. PR dev→preview，merge commit 合并 → 自动发预览渠道，并自动创建/更新 GitHub 预发布 `preview-latest`（tag，避免与 preview 分支同名）
+3. 验证 preview 渠道 manifest 已更新，以及 GitHub Pre-release 已刷新
 4. PR preview→main，merge commit 合并 → 自动发稳定渠道（GitHub Pages 安装页同步更新）
 5. 打 tag 并推送：`git tag v1.21.10.0 && git push origin v1.21.10.0` → Actions 自动创建 GitHub Release（release.yml，含更新说明和脚本附件）
 6. 如有新平台：文档站仓库 AI-Marker-Suite-Docs 新增平台页、更新 platform index 和 config.ts 侧边栏/SEO
