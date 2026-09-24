@@ -1,0 +1,62 @@
+name: 新平台适配请求
+description: 请求支持新的阅卷平台
+title: "[新平台] "
+labels: ["new-platform"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        如果你希望 AI 批改助手支持新的阅卷平台，请填写以下信息。
+        **如果能提供测试账号，适配速度会快很多！** 欢迎[联系作者](https://r-l.ink/contact)私下沟通账号事宜。
+
+  - type: input
+    id: platform-name
+    attributes:
+      label: 平台名称
+      placeholder: "例如：某某阅卷系统"
+    validations:
+      required: true
+
+  - type: input
+    id: platform-url
+    attributes:
+      label: 平台网址
+      description: 如果是内网系统，请说明大概的地址形式（如"内网 IP:端口"），不要提交真实的内网 IP
+      placeholder: "https://example.com 或 内网 IP 部署"
+    validations:
+      required: true
+
+  - type: textarea
+    id: tech-stack
+    attributes:
+      label: 页面技术栈（如能提供）
+      description: 如果了解，请描述页面使用的框架（Vue/jQuery/Angular 等）、答题卡渲染方式（img/Canvas/SVG）、分数输入方式（输入框/点击选择）
+      placeholder: |
+        框架：
+        答题卡渲染：
+        分数输入：
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 页面截图（可选）
+      description: 阅卷页面截图（请遮挡学生信息、姓名、考号等隐私内容）或截图链接
+      placeholder: "可粘贴图片链接，或说明截图稍后通过联系方式发送"
+
+  - type: dropdown
+    id: test-account
+    attributes:
+      label: 能否提供测试账号？
+      options:
+        - 可以，我会通过联系方式私下提供
+        - 不方便提供
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我确认提交内容不包含真实学生姓名、考号、答题卡内容等隐私信息
+          required: true

@@ -1,0 +1,43 @@
+name: 功能建议
+description: 提出新功能或改进建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎提出功能建议！请描述清楚你的使用场景和需求。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的问题 / 想要改进的场景
+      description: 请描述在什么场景下遇到什么问题，或者为什么需要这个功能
+      placeholder: "例如：批改作文时……"
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的解决方案
+      description: 描述你希望脚本如何工作
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 其他备选方案（可选）
+      description: 你是否考虑过其他解决办法？
+
+  - type: dropdown
+    id: importance
+    attributes:
+      label: 这个功能对你有多重要？
+      options:
+        - 很高，严重影响我的使用
+        - 中等，能让效率更高
+        - 一般，锦上添花
+    validations:
+      required: true

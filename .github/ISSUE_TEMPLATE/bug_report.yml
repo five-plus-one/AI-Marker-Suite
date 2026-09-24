@@ -1,0 +1,88 @@
+name: 问题反馈
+description: 报告 Bug 或反馈使用问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填写完整信息，方便快速定位问题。
+        提交前请先搜索是否已有相同问题。
+
+  - type: input
+    id: script-version
+    attributes:
+      label: 脚本版本号
+      description: 在设置面板顶部或油猴菜单中查看，例如 1.21.11.3
+      placeholder: "1.21.11.3"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: 阅卷平台
+      description: 例如 智学网、七天网络、AMEQP 等
+      placeholder: "智学网"
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器及版本
+      description: 例如 Edge 120.0.2210.61
+      placeholder: "Edge 120.0.2210.61"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 使用的批改模式
+      options:
+        - 普通模式
+        - 试改模式
+        - 无人值守模式
+        - 双评模式
+        - 不确定 / 不适用
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么问题？
+      description: 请描述问题现象，以及你期望的行为
+      placeholder: |
+        问题现象：
+        期望行为：
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量列出能复现该问题的操作步骤
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 出现……
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 控制台诊断日志
+      description: 按 F12 打开控制台，复制带 [诊断] 标记的日志（可截图后粘贴图片链接，或直接粘贴文字）。请勿粘贴包含学生信息、答题卡内容的日志。
+      render: shell
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我确认提交内容不包含真实学生姓名、考号、答题卡图片等隐私信息
+          required: true
