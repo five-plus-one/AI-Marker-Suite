@@ -1,24 +1,24 @@
 # AI-Marker-Suite (Core) 开发约定
 
-油猴脚本主体仓库。push 到 dev / preview / main 会通过 GitHub Actions 自动构建并部署到对应 OTA 渠道，**push main 等于向全体用户发布稳定版**。
+油猴脚本主体仓库。push 到 dev / preview / stable 会通过 GitHub Actions 自动构建并部署到对应 OTA 渠道，**push stable 等于向全体用户发布稳定版**。
 
 ## 分支流向（必须遵守）
 
 ```
-feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ main
+feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ stable
                 开发版渠道    预览版渠道    稳定版渠道
 ```
 
 - **dev**：唯一开发入口。所有功能分支和外部贡献 PR 的目标分支都是 dev
 - **preview**：dev 测试稳定后经 PR 合入，供预览版用户灰度验证
-- **main**：preview 稳定后经 PR 合入。合并 = 发布稳定版，合并前必须升版本号
+- **stable**：preview 稳定后经 PR 合入。合并 = 发布稳定版，合并前必须升版本号
 
 规则：
 
-1. 分支同步 PR（dev→preview、preview→main）一律用 **Create a merge commit**，保持三条分支族谱连通。禁止 squash（会切断历史，导致后续 PR 出现大量"幽灵提交"）
-2. main 有分支保护，禁止直接 push，一律走 PR
-3. 外部贡献者的 PR 若误指 main：改 base 为 dev（gh pr edit N --base dev），不要直接合并
-4. 紧急热修复例外：从 main 切 hotfix 分支 → PR 到 main → 合并发布后，立刻把修复 cherry-pick 回 dev 和 preview
+1. 分支同步 PR（dev→preview、preview→stable）一律用 **Create a merge commit**，保持三条分支族谱连通。禁止 squash（会切断历史，导致后续 PR 出现大量"幽灵提交"）
+2. stable 有分支保护，禁止直接 push，一律走 PR
+3. 外部贡献者的 PR 若误指 stable：改 base 为 dev（gh pr edit N --base dev），不要直接合并
+4. 紧急热修复例外：从 stable 切 hotfix 分支 → PR 到 stable → 合并发布后，立刻把修复 cherry-pick 回 dev 和 preview
 
 ## 版本规则
 
@@ -38,7 +38,7 @@ feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ main
 1. dev 上：从灰度 CHANGELOG key（第 4 段 > 0）汇总正式条目，升 VERSION（第 3 段 +1、第 4 段归零），删除灰度 key，写正式 CHANGELOG key，跑构建验证
 2. PR dev→preview，merge commit 合并 → 自动发预览渠道，并自动创建/更新 GitHub 预发布 `preview-latest`（tag，避免与 preview 分支同名）
 3. 验证 preview 渠道 manifest 已更新，以及 GitHub Pre-release 已刷新
-4. PR preview→main，merge commit 合并 → 自动发稳定渠道（GitHub Pages 安装页同步更新）
+4. PR preview→stable，merge commit 合并 → 自动发稳定渠道（GitHub Pages 安装页同步更新）
 5. 打 tag 并推送：`git tag v1.21.10.0 && git push origin v1.21.10.0` → Actions 自动创建 GitHub Release（release.yml，含更新说明和脚本附件）
 6. 如有新平台：文档站仓库 AI-Marker-Suite-Docs 新增平台页、更新 platform index 和 config.ts 侧边栏/SEO
 
