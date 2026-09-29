@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.12.1',
+    VERSION: '1.21.12.2',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,7 @@ const SCRIPT_CONFIG = {
     CHANGELOG: {
         '1.21.12.1': [
             '【新平台】新增阅小二 (haoyuejuan.com) 平台适配，与五岳阅卷同构，支持 OSS 裁剪答题卡、分小题评分和回评模式识别',
+            '【修复】补全脚本头 @match 与 @description 中的阅小二平台入口',
         ],
         '1.21.12': [
             '【新平台】新增AMEQP网上评卷平台适配，支持内网裸IP部署、题块裁剪图取完整图、多评分单元和jQuery+EasyUI组件交互',
