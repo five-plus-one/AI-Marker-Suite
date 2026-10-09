@@ -67,7 +67,7 @@ jobs:
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           remote="$SSH_USERNAME@$SSH_HOST"
           scp -i ~/.ssh/deploy_key -P "$SSH_PORT" "$ARTIFACT_DIR/dist/ai_marker.user.js" "$remote:/tmp/aimarker-pr-$PR_NUMBER-$RUN_ID.user.js"
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$remote" "set -eu; target=/opt/1panel/www/sites/aimarker-suite-ota/index/ota/dev/prtest; sudo mkdir -p \"\$target\"; owner=\$(stat -c '%U:%G' /opt/1panel/www/sites/aimarker-suite-ota/index/ota/dev); sudo install -m 644 -o \"\${owner%%:*}\" -g \"\${owner#*:}\" /tmp/aimarker-pr-$PR_NUMBER-$RUN_ID.user.js \"\$target/$PR_NUMBER.user.js\"; rm -f /tmp/aimarker-pr-$PR_NUMBER-$RUN_ID.user.js"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$remote" "set -eu; target=/opt/1panel/www/sites/aimarker-suite-ota/index/ota/dev/prtest; sudo mkdir -p \"\$target\"; owner=\$(stat -c '%U:%G' /opt/1panel/www/sites/aimarker-suite-ota/index/ota/dev); sudo cp /tmp/aimarker-pr-$PR_NUMBER-$RUN_ID.user.js \"\$target/$PR_NUMBER.user.js\"; sudo chown \"\$owner\" \"\$target/$PR_NUMBER.user.js\"; sudo chmod 644 \"\$target/$PR_NUMBER.user.js\"; rm -f /tmp/aimarker-pr-$PR_NUMBER-$RUN_ID.user.js"
       - name: Comment installation link
         uses: actions/github-script@v7
         env:
