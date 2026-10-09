@@ -312,6 +312,69 @@ function showCorrectionPanel(context) {
         else if (currentStep === 2) renderStep2(title, body, footer);
     }
 
+    // ---------- 收集教师反馈（step1 → step2 或直接确认共用） ----------
+    // 返回 feedback 对象，校验不通过时显示提示并返回 null
+    function collectFeedback(body) {
+        const reasonVal = editedReasonData || '';
+        const hasSub = context.subScores && context.subScores.length > 0;
+        if (hasSub) {
+            const subInputs = body.querySelectorAll('.cor-sub-score-input');
+            const subScoreCorrections = [];
+            let hasAnyInput = false;
+            subInputs.forEach((inp, i) => {
+                const sq = context.subScores[i];
+                const val = inp.value;
+                let teacherScore = val !== '' && val !== null ? parseFloat(val) : null;
+                if (teacherScore !== null) hasAnyInput = true;
+                if (teacherScore === null) teacherScore = sq.score;
+                subScoreCorrections.push({
+                    id: sq.id, label: sq.label || '第(' + (i+1) + ')题',
+                    aiScore: sq.score, teacherScore, maxScore: sq.maxScore
+                });
+            });
+            if (!hasAnyInput && !reasonVal) { showAlertModal('请至少输入一个小题的正确得分或填写纠错理由'); return null; }
+            const autoTotal = subScoreCorrections.reduce((s, c) => s + (c.teacherScore || 0), 0);
+            const manualTotalEl = body.querySelector('#cor-teacher-score');
+            const manualTotal = manualTotalEl && manualTotalEl.value !== '' ? parseFloat(manualTotalEl.value) : null;
+            const teacherScore = manualTotal !== null ? manualTotal : autoTotal;
+            savedSubScoreValues = {};
+            subInputs.forEach((inp, i) => { if (inp.value !== '') savedSubScoreValues[i] = inp.value; });
+            savedManualTotal = manualTotalEl ? manualTotalEl.value : '';
+            savedReasonText = reasonVal;
+            return { teacherScore, teacherReason: reasonVal || '未说明理由', subScoreCorrections };
+        }
+        const scoreVal = body.querySelector('#cor-teacher-score').value;
+        const hasScore = scoreVal !== '' && scoreVal !== null;
+        if (!hasScore && !reasonVal) { showAlertModal('请输入正确得分或填写纠错理由'); return null; }
+        savedManualTotal = scoreVal;
+        savedReasonText = reasonVal;
+        return { teacherScore: hasScore ? parseFloat(scoreVal) : context.score, teacherReason: reasonVal || '未说明理由' };
+    }
+
+    // ---------- 确认得分并退出（仅修改分数 / 应用修改共用） ----------
+    function confirmScore(fb, newAnswer, newRubric) {
+        const scoringConfig = PresetManager.getCurrentConfig().scoring || { roundStep: 1, roundMethod: 'round' };
+        const roundedTeacherScore = ScoreCalculator.round(fb.teacherScore, scoringConfig);
+        let correctedSubScores = context.subScores;
+        if (fb.subScoreCorrections && context.subScores) {
+            correctedSubScores = context.subScores.map((sq, i) => {
+                const t = fb.subScoreCorrections[i]?.teacherScore;
+                return { ...sq, score: t != null ? ScoreCalculator.round(t, scoringConfig) : sq.score };
+            });
+        }
+        const correctionInfo = {
+            isCorrected: true,
+            correctionReason: fb.subScoreCorrections
+                ? `教师纠正：AI${context.score}分→正确${roundedTeacherScore}分。各小题：${fb.subScoreCorrections.map(c => `${c.label} AI${c.aiScore}→${c.teacherScore}`).join('；')}。${fb.teacherReason}`
+                : `教师纠正：AI${context.score}分→正确${roundedTeacherScore}分。${fb.teacherReason}`,
+            newAnswer: newAnswer || null,
+            newRubric: newRubric || null,
+            correctedSubScores
+        };
+        cleanup();
+        if (context.onAccept) context.onAccept(roundedTeacherScore, correctionInfo);
+    }
+
     function renderStep1(title, body, footer) {
         title.textContent = '分数纠错';
         const hasSubScores = context.subScores && context.subScores.length > 0;
@@ -398,6 +461,7 @@ function showCorrectionPanel(context) {
         `;
         footer.innerHTML = `
             <button class="ai-modal-btn-cancel" id="cor-cancel">取消</button>
+            <button class="ai-modal-btn-cancel" id="cor-skip-analysis" style="margin-left:auto;margin-right:8px;">仅修改分数</button>
             <button class="ai-modal-btn-confirm" id="cor-next">下一步分析</button>
         `;
         footer.className = 'cor-footer';
@@ -473,53 +537,19 @@ function showCorrectionPanel(context) {
         }
 
         footer.querySelector('#cor-cancel').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
+        // 仅修改分数：跳过提示词优化，直接确认
+        footer.querySelector('#cor-skip-analysis').onclick = e => {
+            e.stopPropagation();
+            const fb = collectFeedback(body);
+            if (!fb) return;
+            confirmScore(fb, null, null);
+        };
+        // 下一步分析：进入提示词优化
         footer.querySelector('#cor-next').onclick = e => {
             e.stopPropagation();
-            const reasonVal = editedReasonData || '';
-
-            if (hasSubScores) {
-                const subInputs = body.querySelectorAll('.cor-sub-score-input');
-                const subScoreCorrections = [];
-                let hasAnyInput = false;
-                subInputs.forEach((inp, i) => {
-                    const sq = context.subScores[i];
-                    const val = inp.value;
-                    let teacherScore = val !== '' && val !== null ? parseFloat(val) : null;
-                    if (teacherScore !== null) hasAnyInput = true;
-                    // 未填写时使用 AI 原始分，而非默认 0
-                    if (teacherScore === null) teacherScore = sq.score;
-                    subScoreCorrections.push({
-                        id: sq.id, label: sq.label || '第(' + (i+1) + ')题',
-                        aiScore: sq.score, teacherScore, maxScore: sq.maxScore
-                    });
-                });
-                if (!hasAnyInput && !reasonVal) { showAlertModal('请至少输入一个小题的正确得分或填写纠错理由'); return; }
-
-                // 计算总分：优先用手动覆盖，否则用各小题求和（未填的小题已回退到 AI 原始分）
-                const autoTotal = subScoreCorrections.reduce((s, c) => s + (c.teacherScore || 0), 0);
-                const manualTotalEl = body.querySelector('#cor-teacher-score');
-                const manualTotal = manualTotalEl && manualTotalEl.value !== '' ? parseFloat(manualTotalEl.value) : null;
-                const teacherScore = manualTotal !== null ? manualTotal : autoTotal;
-
-                // 保存表单状态（从 step2 返回时恢复）
-                savedSubScoreValues = {};
-                subInputs.forEach((inp, i) => { if (inp.value !== '') savedSubScoreValues[i] = inp.value; });
-                savedManualTotal = manualTotalEl ? manualTotalEl.value : '';
-                savedReasonText = reasonVal;
-
-                feedback = { teacherScore, teacherReason: reasonVal || '未说明理由', subScoreCorrections };
-            } else {
-                const scoreVal = body.querySelector('#cor-teacher-score').value;
-                const hasScore = scoreVal !== '' && scoreVal !== null;
-                if (!hasScore && !reasonVal) { showAlertModal('请输入正确得分或填写纠错理由'); return; }
-                // 保存表单状态（从 step2 返回时恢复）
-                savedManualTotal = scoreVal;
-                savedReasonText = reasonVal;
-                feedback = {
-                    teacherScore: hasScore ? parseFloat(scoreVal) : context.score,
-                    teacherReason: reasonVal || '未说明理由'
-                };
-            }
+            const fb = collectFeedback(body);
+            if (!fb) return;
+            feedback = fb;
             currentStep = 2;
             render();
         };
@@ -687,34 +717,8 @@ function showCorrectionPanel(context) {
                 confirmBtn.style.display = '';
                 confirmBtn.onclick = e => {
                     e.stopPropagation();
-                    const newAnswer = editedAnswerData;
-                    const newRubric = editedRubricData;
-                    console.log(`📝 [纠错] 确认提交 — 教师分数: ${feedback.teacherScore}, 新答案长度: ${(extractFieldText(newAnswer)||'').length}, 新标准长度: ${(extractFieldText(newRubric)||'').length}`);
-
-                    // 对教师分数应用取整规则
-                    const scoringConfig = PresetManager.getCurrentConfig().scoring || { roundStep: 1, roundMethod: 'round' };
-                    const roundedTeacherScore = ScoreCalculator.round(feedback.teacherScore, scoringConfig);
-
-                    // 构造校正后的 subScores（也应用取整）
-                    let correctedSubScores = context.subScores;
-                    if (feedback.subScoreCorrections && context.subScores) {
-                        correctedSubScores = context.subScores.map((sq, i) => {
-                            const teacherSubScore = feedback.subScoreCorrections[i]?.teacherScore;
-                            const roundedSubScore = teacherSubScore != null ? ScoreCalculator.round(teacherSubScore, scoringConfig) : sq.score;
-                            return { ...sq, score: roundedSubScore };
-                        });
-                    }
-
-                    const correctionInfo = {
-                        isCorrected: true,
-                        correctionReason: feedback.subScoreCorrections
-                            ? `教师纠正：AI${context.score}分→正确${roundedTeacherScore}分。各小题：${feedback.subScoreCorrections.map(c => `${c.label} AI${c.aiScore}→${c.teacherScore}`).join('；')}。${feedback.teacherReason}`
-                            : `教师纠正：AI${context.score}分→正确${roundedTeacherScore}分。${feedback.teacherReason}`,
-                        newAnswer, newRubric,
-                        correctedSubScores
-                    };
-                    cleanup();
-                    if (context.onAccept) context.onAccept(roundedTeacherScore, correctionInfo);
+                    console.log(`📝 [纠错] 确认提交 — 教师分数: ${feedback.teacherScore}, 新答案长度: ${(extractFieldText(editedAnswerData)||'').length}, 新标准长度: ${(extractFieldText(editedRubricData)||'').length}`);
+                    confirmScore(feedback, editedAnswerData, editedRubricData);
                 };
             }
         } catch (err) {
