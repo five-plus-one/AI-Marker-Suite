@@ -282,6 +282,10 @@ function showCorrectionPanel(context) {
     let editedAnswerData = null;  // 完整字段数据（可能是 string 或 {text, images, format}）
     let editedRubricData = null;
     let editedReasonData = '';  // 评分理由（Markdown 文本）
+    // step1 表单状态（从 step2 返回时恢复）
+    let savedSubScoreValues = {};  // { index: value }
+    let savedManualTotal = '';
+    let savedReasonText = '';
 
     function updateStepsBar() {
         const bar = document.getElementById('cor-steps-bar');
@@ -347,7 +351,7 @@ function showCorrectionPanel(context) {
                     ${context.subScores.map((sq, i) => `
                     <div style="margin-bottom:10px;">
                         <label class="cor-field-label">${sq.label || '第(' + (i+1) + ')题'} <span style="color:#86868b;font-weight:normal;">(满分 ${sq.maxScore || '—'})</span></label>
-                        <input class="cor-input cor-sub-score-input" data-index="${i}" type="number" min="0" max="${sq.maxScore || ''}" style="width:120px;" placeholder="${sq.score !== null ? sq.score : ''}" value="">
+                        <input class="cor-input cor-sub-score-input" data-index="${i}" type="number" min="0" max="${sq.maxScore || ''}" style="width:120px;" placeholder="${sq.score !== null ? sq.score : ''}" value="${savedSubScoreValues[i] !== undefined ? savedSubScoreValues[i] : ''}">
                     </div>
                     `).join('')}
                     <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.04);">
@@ -356,7 +360,7 @@ function showCorrectionPanel(context) {
                             <span id="cor-sub-total" style="font-size:16px;font-weight:700;color:#1d1d1f;">—</span>
                             <span style="font-size:11px;color:#aaa;">（自动计算各小题之和，也可手动覆盖）</span>
                         </div>
-                        <input id="cor-teacher-score" class="cor-input" type="number" style="width:120px;display:none;" placeholder="手动覆盖总分">
+                        <input id="cor-teacher-score" class="cor-input" type="number" style="width:120px;display:none;" placeholder="手动覆盖总分" value="${savedManualTotal || ''}">
                     </div>
                     <div style="margin-top:10px;">
                         <label class="cor-field-label">评分理由（全局）</label>
@@ -372,7 +376,7 @@ function showCorrectionPanel(context) {
                     <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:12px;">教师反馈</div>
                     <div style="margin-bottom:12px;">
                         <label class="cor-field-label">正确得分</label>
-                        <input id="cor-teacher-score" class="cor-input" type="number" style="width:120px;" placeholder="分数">
+                        <input id="cor-teacher-score" class="cor-input" type="number" style="width:120px;" placeholder="分数" value="${savedManualTotal || ''}">
                     </div>
                     <div>
                         <label class="cor-field-label">评分理由</label>
@@ -418,6 +422,7 @@ function showCorrectionPanel(context) {
                 if (totalEl) totalEl.textContent = allEmpty ? '—' : sum;
             };
             subInputs.forEach(inp => inp.addEventListener('input', updateTotal));
+            updateTotal();  // 初始渲染时立即计算（恢复保存值时刷新总分）
         }
 
         // 阻止数字输入框的 Enter 键触发表单提交
@@ -472,26 +477,41 @@ function showCorrectionPanel(context) {
                 subInputs.forEach((inp, i) => {
                     const sq = context.subScores[i];
                     const val = inp.value;
-                    const teacherScore = val !== '' && val !== null ? parseFloat(val) : null;
+                    let teacherScore = val !== '' && val !== null ? parseFloat(val) : null;
                     if (teacherScore !== null) hasAnyInput = true;
+                    // 未填写时使用 AI 原始分，而非默认 0
+                    if (teacherScore === null) teacherScore = sq.score;
                     subScoreCorrections.push({
                         id: sq.id, label: sq.label || '第(' + (i+1) + ')题',
                         aiScore: sq.score, teacherScore, maxScore: sq.maxScore
                     });
                 });
-                if (!hasAnyInput) { showAlertModal('请至少输入一个小题的正确得分'); return; }
+                if (!hasAnyInput && !reasonVal) { showAlertModal('请至少输入一个小题的正确得分或填写纠错理由'); return; }
 
-                // 计算总分：优先用自动求和，手动覆盖为空时自动求和
+                // 计算总分：优先用手动覆盖，否则用各小题求和（未填的小题已回退到 AI 原始分）
                 const autoTotal = subScoreCorrections.reduce((s, c) => s + (c.teacherScore || 0), 0);
                 const manualTotalEl = body.querySelector('#cor-teacher-score');
                 const manualTotal = manualTotalEl && manualTotalEl.value !== '' ? parseFloat(manualTotalEl.value) : null;
                 const teacherScore = manualTotal !== null ? manualTotal : autoTotal;
 
+                // 保存表单状态（从 step2 返回时恢复）
+                savedSubScoreValues = {};
+                subInputs.forEach((inp, i) => { if (inp.value !== '') savedSubScoreValues[i] = inp.value; });
+                savedManualTotal = manualTotalEl ? manualTotalEl.value : '';
+                savedReasonText = reasonVal;
+
                 feedback = { teacherScore, teacherReason: reasonVal || '未说明理由', subScoreCorrections };
             } else {
                 const scoreVal = body.querySelector('#cor-teacher-score').value;
-                if (!scoreVal && scoreVal !== 0) { showAlertModal('请输入正确得分'); return; }
-                feedback = { teacherScore: parseFloat(scoreVal), teacherReason: reasonVal || '未说明理由' };
+                const hasScore = scoreVal !== '' && scoreVal !== null;
+                if (!hasScore && !reasonVal) { showAlertModal('请输入正确得分或填写纠错理由'); return; }
+                // 保存表单状态（从 step2 返回时恢复）
+                savedManualTotal = scoreVal;
+                savedReasonText = reasonVal;
+                feedback = {
+                    teacherScore: hasScore ? parseFloat(scoreVal) : context.score,
+                    teacherReason: reasonVal || '未说明理由'
+                };
             }
             currentStep = 2;
             render();
@@ -516,12 +536,17 @@ function showCorrectionPanel(context) {
             </div>
         `;
         footer.innerHTML = `
-            <button class="ai-modal-btn-cancel" id="cor-cancel2">取消</button>
+            <button class="ai-modal-btn-cancel" id="cor-cancel2">返回修改</button>
             <button class="ai-modal-btn-confirm" id="cor-confirm-score" style="display:none;">应用修改并确认得分</button>
         `;
         footer.className = 'cor-footer';
 
-        footer.querySelector('#cor-cancel2').onclick = e => { e.stopPropagation(); cleanup(); if (context.onCancel) context.onCancel(); };
+        // 返回上一步（保留编辑状态），而非退出弹窗
+        footer.querySelector('#cor-cancel2').onclick = e => {
+            e.stopPropagation();
+            currentStep = 1;
+            render();
+        };
 
         // 预览区点击 → 打开 Markdown 编辑器
         // 构建 callConfig（复用 ProviderManager 中已保存的 API Key）
@@ -686,7 +711,20 @@ function showCorrectionPanel(context) {
                 };
             }
         } catch (err) {
-            if (streamEl) streamEl.textContent = '分析失败：' + err.message;
+            if (streamEl) {
+                streamEl.innerHTML = `<div style="color:#D93025;margin-bottom:10px;">分析失败：${err.message}</div>
+                    <button class="ai-modal-btn-confirm" id="cor-retry-analysis" style="margin-right:8px;">重试分析</button>
+                    <button class="ai-modal-btn-cancel" id="cor-back-step1">返回修改</button>`;
+                streamEl.querySelector('#cor-retry-analysis').onclick = e => {
+                    e.stopPropagation();
+                    render();  // 重新派发到 renderStep2 → startAnalysis
+                };
+                streamEl.querySelector('#cor-back-step1').onclick = e => {
+                    e.stopPropagation();
+                    currentStep = 1;
+                    render();
+                };
+            }
         }
     }
 

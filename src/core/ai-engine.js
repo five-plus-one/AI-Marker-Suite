@@ -474,6 +474,11 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                         const errObj = JSON.parse(responseText);
                         if (errObj.error?.message) errorMsg = errObj.error.message;
                     } catch (e) {}
+                    // 清理 HTML 错误页（如 openresty 504），只保留有意义的文案
+                    if (/<html|<!doctype/i.test(errorMsg)) {
+                        const titleMatch = errorMsg.match(/<title>([^<]+)<\/title>/i);
+                        errorMsg = titleMatch ? titleMatch[1].trim() : `HTTP ${res.status}`;
+                    }
                     console.error(`❌ [诊断] API返回错误: ${res.status} — ${errorMsg}`);
 
                     // 检测余额不足
@@ -590,7 +595,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
     let maxTokens = config.outputLimitEnabled === false || policy?.useProviderDefault
         ? null : (Number.isSafeInteger(configuredLimit) && configuredLimit > 0 ? configuredLimit : 2048);
     let upgraded = false;
-    let serverRetried = false;
+    let serverRetried = 0;
     for (let attempt = 0; attempt < 3; attempt++) {
         if (window.aiGradingState.abortController?.signal.aborted) throw new Error('用户主动暂停');
         if (budget.remaining <= 0) throw new Error('AI请求次数已达到上限');
@@ -606,9 +611,13 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 if (onStreamUpdate) onStreamUpdate('回答较长，正在继续分析…');
                 continue;
             }
-            if ((error.status === 429 || error.status >= 500) && !serverRetried && attempt < 2) {
-                serverRetried = true;
-                await new Promise(resolve => setTimeout(resolve, error.status === 429 ? 5000 : 2000));
+            // 5xx/429 可重试：最多2次，递增延迟（504等瞬态错误常需更长恢复窗口）
+            const isServerError = error.status === 429 || (error.status >= 500 && error.status < 600);
+            if (isServerError && serverRetried < 2 && attempt < 2) {
+                serverRetried++;
+                const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
+                console.warn(`⚠️ [callAI] 服务端错误 ${error.status}，${delay}ms 后重试（第${serverRetried}次）`);
+                await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
             }
             throw error;
