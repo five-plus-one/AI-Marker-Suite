@@ -260,13 +260,40 @@ const WorkflowManager = {
                     wf.model.reasoningEffort = defaultWf.model.reasoningEffort || '';
                     changed = true;
                 }
-                // 仅在版本升级时重置模型和双评配置
+                // 仅在版本升级时补充缺失字段，不覆盖用户已修改的配置
                 if (shouldMigrateDefaults) {
-                    if (wf.model.provider !== defaultWf.model.provider || wf.model.model !== defaultWf.model.model) {
-                        wf.model = defaultWf.model;
-                        changed = true;
+                    // 模型配置：仅补充缺失字段，不整体替换（用户可自定义 provider/model）
+                    if (wf.model && defaultWf.model) {
+                        for (const k of Object.keys(defaultWf.model)) {
+                            if (wf.model[k] === undefined) {
+                                wf.model[k] = defaultWf.model[k];
+                                changed = true;
+                            }
+                        }
                     }
-                    if (defaultWf.dualEval && JSON.stringify(wf.dualEval) !== JSON.stringify(defaultWf.dualEval)) {
+                    // 双评配置：仅补充新增字段，不覆盖用户已修改的值（如 threshold）
+                    if (defaultWf.dualEval && wf.dualEval) {
+                        for (const key of Object.keys(defaultWf.dualEval)) {
+                            if (wf.dualEval[key] === undefined) {
+                                wf.dualEval[key] = defaultWf.dualEval[key];
+                                changed = true;
+                            }
+                        }
+                        // secondary/arbitration 子对象：只填缺失字段，不整体替换
+                        for (const subKey of ['secondary', 'arbitration']) {
+                            if (defaultWf.dualEval[subKey] && wf.dualEval[subKey]) {
+                                for (const k of Object.keys(defaultWf.dualEval[subKey])) {
+                                    if (wf.dualEval[subKey][k] === undefined) {
+                                        wf.dualEval[subKey][k] = defaultWf.dualEval[subKey][k];
+                                        changed = true;
+                                    }
+                                }
+                            } else if (defaultWf.dualEval[subKey] && !wf.dualEval[subKey]) {
+                                wf.dualEval[subKey] = defaultWf.dualEval[subKey];
+                                changed = true;
+                            }
+                        }
+                    } else if (defaultWf.dualEval && !wf.dualEval) {
                         wf.dualEval = defaultWf.dualEval;
                         changed = true;
                     }

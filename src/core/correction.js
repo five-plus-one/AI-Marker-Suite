@@ -415,11 +415,18 @@ function showCorrectionPanel(context) {
             const subInputs = body.querySelectorAll('.cor-sub-score-input');
             const totalEl = body.querySelector('#cor-sub-total');
             const updateTotal = () => {
-                let sum = 0, allEmpty = true;
-                subInputs.forEach(inp => {
-                    if (inp.value !== '' && inp.value !== null) { sum += parseFloat(inp.value); allEmpty = false; }
+                let sum = 0, anyFilled = false;
+                subInputs.forEach((inp, i) => {
+                    const sq = context.subScores[i];
+                    if (inp.value !== '' && inp.value !== null) {
+                        sum += parseFloat(inp.value);
+                        anyFilled = true;
+                    } else {
+                        // 未填写的使用 AI 原始分，而非 0
+                        sum += (sq && sq.score != null) ? sq.score : 0;
+                    }
                 });
-                if (totalEl) totalEl.textContent = allEmpty ? '—' : sum;
+                if (totalEl) totalEl.textContent = anyFilled ? sum : '—';
             };
             subInputs.forEach(inp => inp.addEventListener('input', updateTotal));
             updateTotal();  // 初始渲染时立即计算（恢复保存值时刷新总分）

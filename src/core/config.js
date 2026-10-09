@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.14.2',
+    VERSION: '1.21.14.3',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.14.3': [
+            '【修复】工作流双评配置（分差阈值等）在版本升级时被覆盖为默认值，现只补缺失字段保留用户自定义值',
+            '【修复】教师反馈小题分留空时总分实时计算未回退到 AI 原始分',
+        ],
         '1.21.14.2': [
             '【修复】增强 AI 请求5xx错误重试（最多2次、递增延迟），HTML 错误页不再原样显示',
             '【修复】提示词分析失败后新增「重试分析」按钮，无需重走整个流程',
