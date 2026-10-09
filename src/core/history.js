@@ -317,7 +317,7 @@ const HistoryManager = {
                 d?.scoreA ?? '', esc(d?.detailA?.['评分依据'] ?? ''), esc(d?.detailA?.['分数计算'] ?? ''),
                 d?.scoreB ?? '', esc(d?.detailB?.['评分依据'] ?? ''), esc(d?.detailB?.['分数计算'] ?? ''),
                 d?.diff ?? '',
-                d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'fallback-a' ? '使用A' : d?.result === 'fallback-b' ? '使用B' : '',
+                d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'average-fallback' ? '取平均' : '',
                 d?.arbScore ?? '', esc(d?.arbAnalysis ?? '')
             ].join(',');
         }).join('\n');
@@ -370,7 +370,7 @@ const HistoryManager = {
                     <div style="display:flex;gap:20px;font-size:12px;margin-bottom:6px;">
                         <span>分差: <strong style="color:${(d.diff || 0) > 2 ? '#D93025' : '#1d1d1f'};">${d.diff !== null ? d.diff + '分' : '—'}</strong></span>
                         <span>判定: <strong style="color:${d.result === 'consensus' ? '#34A853' : d.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
-                            d.result === 'consensus' ? '✓ 共识' : d.result === 'arbitration' ? '⚠ 仲裁' : d.result === 'fallback-a' ? '使用老师A' : d.result === 'fallback-b' ? '使用老师B' : d.result
+                            d.result === 'consensus' ? '✓ 共识' : d.result === 'arbitration' ? '⚠ 仲裁' : d.result === 'average-fallback' ? '取平均' : d.result
                         }</strong></span>
                     </div>
                     <div style="margin-top:8px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
@@ -1280,8 +1280,7 @@ function showHistoryDetail(record) {
                         <span style="font-size:12px;font-weight:500;color:${record.dualEval.result === 'consensus' ? '#34A853' : record.dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
                             record.dualEval.result === 'consensus' ? '✓ 共识' :
                             record.dualEval.result === 'arbitration' ? '⚠ 三评仲裁' :
-                            record.dualEval.result === 'fallback-a' ? '使用老师A' :
-                            record.dualEval.result === 'fallback-b' ? '使用老师B' : record.dualEval.result
+                            record.dualEval.result === 'average-fallback' ? '取平均' : record.dualEval.result
                         }</span>
                     </div>
                 </div>

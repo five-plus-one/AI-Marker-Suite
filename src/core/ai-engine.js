@@ -800,20 +800,63 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
 
     const arbPrompt = buildArbitrationPrompt(config, detailA, detailB, threshold);
     const arbResult = await callAIWithRetry(arbPrompt, base64DataArray, { ...config, ...arbConfig }, onStreamUpdate);
-    const arbParsed = parseStructuredResponse(arbResult);
 
-    console.log(`✅ [三评] 仲裁结果: ${arbParsed.score}`);
+    // 多小题模式下用小题解析器，单题模式用结构化解析器
+    const arbUnits = config.scoring?.units || [];
+    const arbHasSub = arbUnits.length > 1 && detailA?.subScores && detailA.subScores.length > 0;
+    let arbParsed;
+    if (arbHasSub) {
+        const arbSubQuestions = detailA.subScores.map(sq => ({ id: sq.id, label: sq.label, maxScore: sq.maxScore }));
+        arbParsed = parseSubQuestionResponse(arbResult, { ...config, subQuestions: arbSubQuestions });
+    } else {
+        arbParsed = parseStructuredResponse(arbResult);
+    }
+
+    console.log(`✅ [三评] 仲裁结果: ${arbParsed.score}${arbHasSub ? '（多小题）' : ''}`);
     // 仲裁模型不评估勤勉度，取 A/B 平均
     const arbDiligenceLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
+
+    // 小题分兜底：仲裁漏给部分小题分时，用 A/B 合并结果补齐
+    let arbSubScores = arbParsed.subScores || null;
+    if (arbHasSub) {
+        const fallbackSubScores = mergeDualSubScores(detailA, detailB);
+        if (!arbSubScores && fallbackSubScores) {
+            arbSubScores = fallbackSubScores;
+            console.warn('⚠️ [三评] 仲裁未返回小题分，使用 A/B 合并结果兜底');
+        } else if (arbSubScores && fallbackSubScores) {
+            arbSubScores = arbSubScores.map((sq, i) => {
+                if ((sq.score === null || sq.score === undefined) && fallbackSubScores[i]) {
+                    console.warn(`⚠️ [三评] 仲裁缺少 ${sq.label} 小题分，使用 A/B 合并结果兜底`);
+                    return { ...sq, score: fallbackSubScores[i].score, comment: fallbackSubScores[i].comment || sq.comment };
+                }
+                return sq;
+            });
+        }
+    }
+
+    // 总分与小题之和一致性校准（以小题之和为准，与共识路径规则一致）
+    let arbFinalScore = arbParsed.score;
+    if (arbSubScores && arbSubScores.length > 0) {
+        const arbSubSum = arbSubScores.reduce((s, u) => s + (u.score || 0), 0);
+        const arbAllScored = arbSubScores.every(u => u.score !== null && u.score !== undefined);
+        if (arbAllScored && Math.abs(arbSubSum - arbFinalScore) > 0.01) {
+            console.warn(`⚠️ [三评] 仲裁小题之和(${arbSubSum})与仲裁总分(${arbFinalScore})不一致，以小题之和为准`);
+            arbFinalScore = arbSubSum;
+        }
+    }
+
     return {
         ...arbParsed,
+        score: arbFinalScore,
+        rawScore: arbFinalScore,
+        subScores: arbSubScores,
         studentAnswer: detailA?.studentAnswer || detailB?.studentAnswer || arbParsed.studentAnswer || '未能识别',
         diligenceLevel: arbDiligenceLevel,
         diligenceReason: detailA?.diligenceReason || '',
         dualEval: {
             scoreA, scoreB, diff,
             result: 'arbitration',
-            arbScore: arbParsed.score,
+            arbScore: arbFinalScore,
             arbAnalysis: arbParsed._sections?.['仲裁分析'] || '',
             detailA: detailA?._sections || null,
             detailB: detailB?._sections || null,

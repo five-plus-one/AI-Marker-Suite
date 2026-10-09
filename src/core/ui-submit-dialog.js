@@ -298,8 +298,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             <span style="font-size:12px;font-weight:500;color:${dualEval.result === 'consensus' ? '#34A853' : dualEval.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
                                 dualEval.result === 'consensus' ? '✓ 共识' :
                                 dualEval.result === 'arbitration' ? '⚠ 三评仲裁' :
-                                dualEval.result === 'fallback-a' ? '使用老师A' :
-                                dualEval.result === 'fallback-b' ? '使用老师B' : dualEval.result
+                                dualEval.result === 'average-fallback' ? '取平均分' : dualEval.result
                             }</span>
                         </div>
                     </div>

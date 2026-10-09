@@ -703,7 +703,7 @@ function analyzePromptModification(context, feedback, onStreamUpdate) {
     const configForPrompt = hasSubScores
         ? { ...context.config, subQuestions: (context.config.scoring?.units || []).map((u, i) => ({ id: String.fromCharCode(97 + i), label: u.label, maxScore: u.maxScore })) }
         : context.config;
-    const originalPrompt = hasSubScores ? buildSubQuestionPrompt(configForPrompt) : buildPrompt(configForPrompt);
+    const originalPrompt = hasSubScores ? buildSubQuestionPrompt(configForPrompt) : buildStructuredPrompt(configForPrompt);
 
     let scoreComparison = '';
     if (hasSubScores && feedback.subScoreCorrections) {
