@@ -373,8 +373,10 @@ function generateHeader(config, version) {
     const h = config.header;
     const channelUrl = CHANNEL_URLS[CHANNEL] || CHANNEL_URLS.stable;
     const lines = ['// ==UserScript=='];
-    lines.push(`// @name         ${h.name}${CHANNEL === 'prtest' ? ` (PR #${PR_NUMBER} 临时测试版)` : ''}`);
-    lines.push(`// @namespace    ${CHANNEL === 'prtest' ? `https://aimarking.five-plus-one.com/prtest/${PR_NUMBER}` : (h.namespace || 'https://aimarking.five-plus-one.com/')}`);
+    // prtest 与主脚本同 name+namespace：Tampermonkey 以 name+namespace 组合识别脚本身份，
+    // 统一后 PR 临时测试版安装时替换正式版，避免两个脚本双开（#144）
+    lines.push(`// @name         ${h.name}`);
+    lines.push(`// @namespace    ${h.namespace || 'https://aimarking.five-plus-one.com/'}`);
     lines.push(`// @version      ${version}`);
     lines.push(`// @description  ${h.description}`);
     lines.push(`// @author       ${h.author || '5plus1'}`);

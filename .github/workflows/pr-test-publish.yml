@@ -77,7 +77,40 @@ jobs:
           script: |
             const pr = Number(process.env.PR_NUMBER);
             const marker = '<!-- ai-marker-prtest -->';
-            const body = `${marker}\n临时测试版已构建完成。\n\n[点击快速安装脚本](${process.env.INSTALL_URL})\n\n此版本仅供当前 PR 临时测试。请使用 Tampermonkey 安装，测试时暂停其他 AI 批改助手脚本；PR 关闭后链接将失效。`;
+            const runId = context.payload.workflow_run.id;
+            const sha = (context.payload.workflow_run.head_sha || '').slice(0, 7);
+            const version = `0.0.${pr}-prtest.${runId}`;
+            const { data: prData } = await github.rest.pulls.get({ ...context.repo, pull_number: pr });
+            const commits = await github.paginate(github.rest.pulls.listCommits, { ...context.repo, pull_number: pr, per_page: 100 });
+            const commitLines = commits.slice(0, 20).map(c => `- ${c.commit.message.split('\n')[0]}`);
+            if (commits.length > 20) commitLines.push(`- …另有 ${commits.length - 20} 个提交`);
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
+            const body = [
+              marker,
+              '## 🧪 PR 临时测试版',
+              '',
+              `**[⚡ 点击快速安装脚本](${process.env.INSTALL_URL})**`,
+              '',
+              '> ⚠️ **仅供临时测试使用。** 安装后将**替换**当前的 AI 批改助手（不会双开）。测试完成后重装正式版即可恢复。',
+              '',
+              '### 📋 本次变更',
+              `> ${prData.title}`,
+              '',
+              ...(commitLines.length ? commitLines : ['- （无提交记录）']),
+              '',
+              '### ℹ️ 构建信息',
+              '| 项目 | 值 |',
+              '|------|-----|',
+              `| PR | [#${pr}](${prData.html_url}) |`,
+              `| 版本 | \`${version}\` |`,
+              `| 构建 | [Actions run](${runUrl}) |`,
+              `| 提交 | \`${sha}\` |`,
+              '',
+              '---',
+              '',
+              '此版本**仅供临时测试使用**，PR 关闭后链接失效。',
+              '**推荐浏览器**: Microsoft Edge + Tampermonkey',
+            ].join('\n');
             const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pr, per_page: 100 });
             const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
             if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
