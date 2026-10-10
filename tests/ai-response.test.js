@@ -17,7 +17,7 @@ function setup(responses, cfg) {
         GM_xmlhttpRequest(options) {
             requests.push(JSON.parse(options.data));
             const response = responses.shift();
-            // 超出预置次数的请求按网络错误收尾，避免 undefined 挂起测试进程
+            // 超出预置次数的请求按网络错误收尾，避免 undefined 挂起测试进程（PR 富评论验证）
             if (!response) {
                 queueMicrotask(() => options.onerror && options.onerror());
                 return { abort() {} };
