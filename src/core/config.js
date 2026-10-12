@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.14.7',
+    VERSION: '1.21.14.8',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.14.8': [
+            '【修复】九科星批改错位：分数总是提交到下一份试卷，原因是切卷检测误把输入框清空当切卷信号，现只以图片变化为准并校验图片已加载',
+        ],
         '1.21.14.7': [
             '【新平台】新增南昊AI教学提分平台 (nhcisc.com) 适配，支持 showimage 答题图取图、满分 placeholder 提取、clearNoNum 分数归一化和换卷检测',
         ],
