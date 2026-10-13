@@ -960,6 +960,12 @@ function createSettingsPanel(options) {
                             <button class="footer-btn" id="btn-import-config" style="flex:1;">导入配置</button>
                         </div>
                         <input type="file" id="import-config-file" accept=".json" style="display:none;">
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <button class="footer-btn" id="btn-export-preset" style="flex:1;">导出此方案</button>
+                            <button class="footer-btn" id="btn-import-preset" style="flex:1;">导入方案</button>
+                        </div>
+                        <input type="file" id="import-preset-file" accept=".json" style="display:none;">
+                        <div style="font-size:11px;color:#86868b;margin-top:4px;">「此方案」导出单个配置（含题目/答案/评分标准及插入的图片）；「导入方案」新增合并，不影响其他方案</div>
                         <div style="margin-top:10px;">
                             <button class="footer-btn danger" id="btn-reset-config" style="width:100%;">恢复默认设置</button>
                         </div>
@@ -1242,6 +1248,62 @@ function createSettingsPanel(options) {
             if (err) showToast('导入失败：' + (err.message || '文件格式错误'));
         }
         fileInput.value = '';
+    };
+
+    // ===== 单方案导出/导入（含题目/答案/评分标准的插入图片）=====
+    panel.querySelector('#btn-export-preset').onclick = () => {
+        const presetName = PresetManager.data.active;
+        const preset = PresetManager.data.list[presetName];
+        if (!preset) { showToast('未找到当前方案'); return; }
+        // 单方案自包含 JSON：question/answer/rubric 含 images[]（base64），完整携带
+        const exportData = {
+            type: 'ai-marker-preset',
+            version: SCRIPT_CONFIG.VERSION,
+            timestamp: new Date().toISOString(),
+            name: presetName,
+            preset: preset
+        };
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ts = new Date().toISOString().slice(0, 10);
+        const safeName = String(presetName).replace(/[\\/:*?"<>|]/g, '_');
+        a.download = `ai-marker-preset_${safeName}_${ts}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`方案「${presetName}」已导出（含图片）`);
+    };
+
+    const presetFileInput = panel.querySelector('#import-preset-file');
+    panel.querySelector('#btn-import-preset').onclick = () => presetFileInput.click();
+    presetFileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (data.type !== 'ai-marker-preset' || !data.name || !data.preset) {
+                throw new Error('不是有效的单方案配置文件');
+            }
+            const importName = String(data.name).trim();
+            if (!importName) throw new Error('方案名称为空');
+            const exists = !!PresetManager.data.list[importName];
+            if (exists) {
+                const ok = await showConfirmModal(`方案「${importName}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
+                if (!ok) { presetFileInput.value = ''; return; }
+            }
+            // 合并导入：只写入该方案，不影响其他方案/供应商/工作流
+            PresetManager.data.list[importName] = data.preset;
+            PresetManager.data.active = importName;
+            PresetManager.save();
+            renderPresetDropdown();
+            fillFormFromActivePreset();
+            showToast(`方案「${importName}」导入成功${exists ? '（已覆盖）' : ''}`);
+        } catch (err) {
+            if (err) showToast('导入失败：' + (err.message || '文件格式错误'));
+        }
+        presetFileInput.value = '';
     };
 
     // 恢复默认设置
