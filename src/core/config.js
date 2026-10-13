@@ -46,6 +46,8 @@ const SCRIPT_CONFIG = {
     CHANGELOG: {
         '1.21.15.1': [
             '【新平台】新增鑫考校园 (xinkao-campus) 平台适配，支持 data-score 属性满分提取、inputkey 键盘确认提交、subId+teaCode 任务标识和 token 换卷检测',
+            '【新功能】历史记录支持导出「改卷材料包 ZIP」（改卷记录与答题卡图片），供本地 AI 生成改卷总结（#151）',
+            '【新功能】配置支持导出/导入单个方案（含插入图片）（#166）',
         ],
         '1.21.15': [
             '【新平台】新增南昊AI教学提分平台 (nhcisc.com) 适配，支持 showimage 答题图取图、满分 placeholder 提取、clearNoNum 分数归一化和换卷检测',
