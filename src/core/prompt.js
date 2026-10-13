@@ -87,9 +87,29 @@ function buildDiligencePromptSection(config) {
 注意：学生答案字数不超过15字或未作答时，必须给等级1`;
 }
 
+// ---------- 通用约束片段（所有评分 Prompt 共用） ----------
+// startNum: 起始编号，避免各 Prompt 手动拼编号出错
+function buildCommonConstraints(startNum) {
+    const n = startNum || 5;
+    return `${n}. 如果无法识别学生答案，在【答案复述】写"未能识别"
+${n + 1}. 严格按照评分标准打分，不要随意给分
+${n + 2}. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
+}
+
+// ---------- 取总满分（units 优先，回退 scoring.maxScore） ----------
+function resolveMaxScore(config) {
+    // 优先从 scoring.units 计算
+    const units = config.scoring?.units;
+    if (units && units.length > 0) {
+        return units.reduce((sum, u) => sum + (u.maxScore || 0), 0);
+    }
+    // 回退 scoring.maxScore 或顶层 maxScore（兼容旧字段）
+    return config.scoring?.maxScore || config.maxScore || 0;
+}
+
 // ---------- 结构化评分 Prompt（新） ----------
 function buildStructuredPrompt(config) {
-    const maxScore = config.maxScore || 0;
+    const maxScore = resolveMaxScore(config);
     const maxScoreText = maxScore > 0 ? `满分${maxScore}分` : '满分未指定，请根据常规满分评判';
 
     // 兼容新格式对象和旧格式字符串
@@ -102,7 +122,7 @@ function buildStructuredPrompt(config) {
 
 ===== 输入信息 =====`;
     if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
-    if (answerText) prompt += `\n【标准答案】\n${answerText}`;
+    if (answerText) prompt += `\n【参考答案】\n${answerText}`;
     if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
     prompt += `\n【满分】\n${maxScoreText}`;
 
@@ -127,9 +147,7 @@ function buildStructuredPrompt(config) {
 1. 必须使用【】作为段落标记，不要省略任何段落
 2. 【得分】必须只有一行，只包含数字，可以是小数
 3. 可以在内容中使用 Markdown 格式（如 **加粗**、列表、$公式$），但【】段落标记必须保留
-4. 如果无法识别学生答案，在【答案复述】写"未能识别"
-5. 严格按照评分标准打分，不要随意给分
-6. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
+${buildCommonConstraints(4)}`;
     return prompt;
 }
 
@@ -307,42 +325,96 @@ function parseLegacyResponse(text, maxScore) {
 
 // ---------- 仲裁 Prompt ----------
 function buildArbitrationPrompt(config, resultA, resultB, threshold) {
-    return `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅学生作答图片后裁定。
+    var questionText = extractFieldText(config.question);
+    var answerText = extractFieldText(config.answer);
+    var rubricText = extractFieldText(config.rubric);
+    var imgAnnotation = buildImageAnnotation(config);
+    var maxScore = resolveMaxScore(config);
+    var maxScoreText = maxScore > 0 ? `满分${maxScore}分` : '满分未指定，请根据常规满分评判';
+
+    // 多小题判定
+    const units = config.scoring?.units || [];
+    const subQuestions = (units.length > 1 && resultA?.subScores && resultA.subScores.length > 0)
+        ? resultA.subScores
+        : [];
+    const hasSub = subQuestions.length > 0;
+
+    let prompt = `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅学生作答图片后裁定。
 
 ===== 评分分歧 =====
 老师A评分：${resultA.score}分
-老师A评分依据：${resultA.comment || '无'}
+老师A评分依据：${resultA.comment || resultA.scoringBasis || '无'}
+${resultA.calculation ? `老师A分数计算：${resultA.calculation}` : ''}
 
 老师B评分：${resultB.score}分
-老师B评分依据：${resultB.comment || '无'}
+老师B评分依据：${resultB.comment || resultB.scoringBasis || '无'}
+${resultB.calculation ? `老师B分数计算：${resultB.calculation}` : ''}
 
-分差：${Math.abs(resultA.score - resultB.score)}分（阈值：${threshold}分）
+分差：${Math.abs(resultA.score - resultB.score)}分（阈值：${threshold}分）`;
 
-===== 参考信息 =====
-【题目】${extractFieldText(config.question) || '未提供'}
-【标准答案】${extractFieldText(config.answer) || '未提供'}
-【评分标准】${extractFieldText(config.rubric) || '未提供'}
+    // 多小题：展示 A/B 的逐小题分供仲裁模型参考
+    if (hasSub) {
+        prompt += `\n\n老师A各小题得分：`;
+        for (const sq of resultA.subScores) {
+            prompt += `\n${sq.label}：${sq.score ?? '—'}分 / 满分${sq.maxScore || '?'}分${sq.comment ? `（${sq.comment}）` : ''}`;
+        }
+        if (resultB?.subScores && resultB.subScores.length === resultA.subScores.length) {
+            prompt += `\n\n老师B各小题得分：`;
+            for (const sq of resultB.subScores) {
+                prompt += `\n${sq.label}：${sq.score ?? '—'}分 / 满分${sq.maxScore || '?'}分${sq.comment ? `（${sq.comment}）` : ''}`;
+            }
+        }
+    }
 
+    prompt += `
+
+===== 参考信息 =====`;
+    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
+    if (answerText) prompt += `\n【参考答案】\n${answerText}`;
+    if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
+    prompt += `\n【满分】\n${maxScoreText}`;
+
+    if (hasSub) {
+        prompt += `\n【各小题评分要求】\n`;
+        for (const sq of subQuestions) {
+            prompt += `\n### ${sq.label}（满分${sq.maxScore || '?'}分）\n`;
+        }
+    }
+
+    prompt += `
 ===== 输出要求 =====
 请先独立分析学生答案，再对比两位老师的评分，最后给出你的裁定。严格按照以下格式输出：
 
 【答案复述】
 （用自己的话简要概述学生实际写了什么内容，不要遗漏关键步骤或答案）
 
-【独立评分依据】
-（抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）
+【评分依据】
+（抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）`;
+
+    if (hasSub) {
+        for (const sq of subQuestions) {
+            prompt += `\n\n${sq.label}分数：（一个整数）`;
+        }
+    }
+
+    prompt += `
+
+【分数计算】
+${hasSub ? '（写出各小题计算公式，各小题分数之和应等于总分）' : '（写出计算公式，如：1+2+0+2=5）'}
+
+【最终得分】
+${hasSub ? '（各小题分数之和，一个数字）' : '（一个整数，基于你的独立判断给出最终分数，不必局限于两位老师的分数范围）'}
 
 【仲裁分析】
 （对比你的独立判断与两位老师的评分，分析分歧原因：谁的评判更合理？哪里存在误判？）
 
-【最终得分】
-（一个整数，基于你的独立判断给出最终分数，不必局限于两位老师的分数范围）
-
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
-2. 【最终得分】必须只有一行，只包含一个整数
+2. 【最终得分】必须只有一行，只包含${hasSub ? '数字' : '一个整数'}
 3. 你必须独立审阅学生作答图片，不要被两位老师的分数左右
-4. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留`;
+4. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
+${buildCommonConstraints(5)}`;
+    return prompt;
 }
 
 // ---------- 旧格式 Prompt 解析（保留兼容） ----------
@@ -385,6 +457,7 @@ function buildSubQuestionPrompt(config) {
     var answerText = extractFieldText(config.answer);
     var rubricText = extractFieldText(config.rubric);
     var imgAnnotation = buildImageAnnotation(config);
+    var totalMaxScore = resolveMaxScore(config);
 
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
 
@@ -393,6 +466,7 @@ function buildSubQuestionPrompt(config) {
     // 顶层参考答案/评分标准（多小题共用；评分单元本身不携带答案/标准字段）
     if (answerText) prompt += `\n【参考答案】\n${answerText}`;
     if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
+    if (totalMaxScore > 0) prompt += `\n【满分】\n满分${totalMaxScore}分`;
 
     prompt += `\n【各小题评分要求】\n`;
     for (const sq of config.subQuestions) {
@@ -405,7 +479,7 @@ function buildSubQuestionPrompt(config) {
 
     prompt += `
 ===== 输出要求 =====
-你必须严格按照以下格式输出：
+你必须严格按照以下格式输出，不得添加任何额外内容：
 
 【答案复述】
 （逐条列出学生答案要点，每条一行，用序号标注）
@@ -429,7 +503,7 @@ function buildSubQuestionPrompt(config) {
 2. 各小题分数和【得分】必须各只有一行，只包含数字
 3. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
 4. 各小题分数之和应等于【得分】
-5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
+${buildCommonConstraints(5)}`;
     return prompt;
 }
 
@@ -438,7 +512,7 @@ function parseSubQuestionResponse(text, config) {
     // 计算总满分
     const maxScore = config.subQuestions
         ? config.subQuestions.reduce((sum, sq) => sum + (sq.maxScore || 0), 0)
-        : (config.maxScore || 0);
+        : resolveMaxScore(config);
     // 先尝试结构化解析
     const structured = parseStructuredResponse(text, maxScore);
 

@@ -16,9 +16,11 @@ feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ stab
 规则：
 
 1. 分支同步 PR（dev→preview、preview→stable）一律用 **Create a merge commit**，保持三条分支族谱连通。禁止 squash（会切断历史，导致后续 PR 出现大量"幽灵提交"）
-2. stable 有分支保护，禁止直接 push，一律走 PR
-3. 外部贡献者的 PR 若误指 stable：改 base 为 dev（gh pr edit N --base dev），不要直接合并
-4. 紧急热修复例外：从 stable 切 hotfix 分支 → PR 到 stable → 合并发布后，立刻把修复 cherry-pick 回 dev 和 preview
+2. **合并进入 preview 前必须经用户明确确认**，不得自动合并。即使改动已验证、PR 已建好，也要停下等确认
+3. 合并进入 stable（发布稳定版）同样必须经用户明确确认
+4. stable 有分支保护，禁止直接 push，一律走 PR
+5. 外部贡献者的 PR 若误指 stable：改 base 为 dev（gh pr edit N --base dev），不要直接合并
+6. 紧急热修复例外：从 stable 切 hotfix 分支 → PR 到 stable → 合并发布后，立刻把修复 cherry-pick 回 dev 和 preview
 
 ## 版本规则
 
@@ -51,3 +53,25 @@ npm run build -- --channel=dev
 ```
 
 产物在 `dist/`（已 gitignore）。config.js 解析失败或适配器缺失时构建会直接报错。
+
+## Bug 修复 / 功能开发 / 平台适配流程（必须遵守）
+
+遇到 bug、新需求、新平台适配时，严格按以下顺序执行：
+
+1. **分析**：定位根因 / 确认方案，给出结论
+2. **提 Issue**：描述问题、根因、修复方向。bug 用 `[Bug]` 前缀，新功能/平台用 `[Feature]` 前缀
+3. **实施**：创建 `fix/issue号-简述` 或 `feat/issue号-简述` 分支，动手改代码
+4. **提 PR**：PR 正文用 `Closes #N` 关联 issue，写清问题/修复/校验
+5. **验证**：构建通过后提交，合并后走发布链
+
+不要跳过 issue 直接改代码。即使问题很小，也要有 issue 留痕。
+
+### Issue / PR 描述规格
+
+问题描述必须足够详细，让没参与讨论的人能看懂。包含：
+
+- **使用场景**：什么题型/什么情况下遇到
+- **当前行为**：具体操作路径和现象（含示例数据）
+- **期望行为**：改完后应该怎样
+- **影响后果**：为什么要修
+- **涉及文件**：关键代码位置

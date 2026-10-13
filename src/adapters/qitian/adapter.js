@@ -126,7 +126,7 @@ const QitianAdapter = {
                     clearInterval(timer);
                     console.log('✅ 七天网络 — 新试卷已加载');
                     resolve(true);
-                } else if (checkTimes > 50) {
+                } else if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
                     clearInterval(timer);
                     console.warn('⚠️ 七天网络 — 等待下一份试卷超时');
                     resolve(false);

@@ -1152,6 +1152,8 @@ function createSettingsPanel(options) {
                         }
                         // 触发批改上下文提示更新
                         if (typeof updateGroupHints === 'function') updateGroupHints();
+                        // 标记未保存，避免直接开始批改时跳过保存提示
+                        if (typeof markUnsavedChanges === 'function') markUnsavedChanges();
                     },
                 });
             }
@@ -1527,6 +1529,8 @@ function openSettingsPanel() {
         overlay.style.pointerEvents = 'auto';
         overlay.style.opacity = '1';
     }
+    // 按钮簇让位：按面板实际宽度计算，避免遮挡面板控件
+    dockFloatingButtons();
 }
 
 function closeSettingsPanel() {
@@ -1534,6 +1538,8 @@ function closeSettingsPanel() {
     const overlay = document.getElementById('ai-settings-overlay');
     if (panel) panel.classList.remove('open');
     if (overlay) { overlay.style.opacity = '0'; overlay.style.pointerEvents = 'none'; }
+    // 按钮簇归位
+    undockFloatingButtons();
     // 等动画结束后隐藏
     setTimeout(() => { if (panel && !panel.classList.contains('open')) panel.style.display = 'none'; }, 350);
 }
@@ -1583,6 +1589,8 @@ function fillFormFromActivePreset() {
         renderMarkdownPreview('answer', aData);
         renderMarkdownPreview('rubric', rData);
     }
+    // 重置校验状态：清除上一配置残留的错误高亮（showErrors:false 只清不高亮）
+    if (typeof validateRequiredFields === 'function') validateRequiredFields({ showErrors: false });
 
     // 供应商下拉（仅用于管理供应商配置，默认选中 5plus1官方）
     renderProviderDropdown();
@@ -2105,12 +2113,20 @@ async function handleNewPreset() {
         showAlertModal("该方案名称已存在！");
         return;
     }
-    PresetManager.data.list[name] = { ...PresetManager.getCurrentConfig() };
+    // 新建空白配置（不复制当前配置，避免新配置继承旧内容导致预览/数据混淆）
+    PresetManager.data.list[name] = {
+        question: { text: '', images: [], format: 'markdown' },
+        answer: { text: '', images: [], format: 'markdown' },
+        rubric: { text: '', images: [], format: 'markdown' },
+        workflowId: PresetManager.getCurrentConfig().workflowId || 'fast',
+        gradingMode: PresetManager.getCurrentConfig().gradingMode || 'normal',
+        scoring: { roundStep: 1, roundMethod: 'round' }
+    };
     PresetManager.data.active = name;
     PresetManager.save();
     renderPresetDropdown();
     fillFormFromActivePreset();
-    showToast(`新方案「${name}」创建成功`);
+    showToast(`新方案「${name}」创建成功（空白配置，请填写参考答案和评卷标准）`);
 }
 
 async function handleDeletePreset() {
@@ -2890,15 +2906,15 @@ function showOnboardingDialog(forceShow, mode) {
             '</p>' +
             '<div class="form-group">' +
             '<label>题目内容</label>' +
-            '<div class="md-preview-container ob-md-field" id="question-preview" data-field="question"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="question" data-label="题目内容">编辑</button></div>' +
+            '<div class="md-preview-container ob-md-field" data-field="question"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="question" data-label="题目内容">编辑</button></div>' +
             '</div>' +
             '<div class="form-group">' +
             '<label>参考答案</label>' +
-            '<div class="md-preview-container ob-md-field" id="answer-preview" data-field="answer"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="answer" data-label="参考答案">编辑</button></div>' +
+            '<div class="md-preview-container ob-md-field" data-field="answer"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="answer" data-label="参考答案">编辑</button></div>' +
             '</div>' +
             '<div class="form-group">' +
             '<label>评分标准</label>' +
-            '<div class="md-preview-container ob-md-field" id="rubric-preview" data-field="rubric"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="rubric" data-label="评分标准">编辑</button></div>' +
+            '<div class="md-preview-container ob-md-field" data-field="rubric"><div class="md-preview-content"></div><button class="md-edit-btn" data-field="rubric" data-label="评分标准">编辑</button></div>' +
             '</div>' +
             unitsHtml;
     }

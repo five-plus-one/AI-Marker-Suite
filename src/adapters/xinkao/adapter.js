@@ -177,7 +177,7 @@ const XinkaoAdapter = {
                 } else if (inputCleared && checkTimes > 3) {
                     clearInterval(timer);
                     resolve(true);
-                } else if (checkTimes > 50) {
+                } else if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
                     clearInterval(timer);
                     resolve(false);
                 }

@@ -56,6 +56,7 @@ const JiukexingAdapter = {
             const imgs = document.querySelectorAll(JIUKEXING_SELECTORS.ANSWER_IMAGE);
             if (imgs.length > 0) {
                 const urls = Array.from(imgs)
+                    .filter(img => img.complete && img.naturalWidth > 0) // 跳过未加载完成的图片
                     .map(img => img.src)
                     .filter(src => src && !src.startsWith('data:image/svg')); // 过滤 loading 占位图
 
@@ -171,21 +172,18 @@ const JiukexingAdapter = {
         const startTime = Date.now();
 
         while (Date.now() - startTime < timeout) {
-            // 检查图片是否变化
-            const newImages = await this.gatherAnswerImages();
-            if (newImages.length > 0) {
-                const newUrl = newImages[0];
+            // 只以图片 URL 变化为切卷信号（输入框清空是平台提交动作的一部分，不是切卷标志）
+            const imgs = document.querySelectorAll(JIUKEXING_SELECTORS.ANSWER_IMAGE);
+            for (const img of imgs) {
+                const newUrl = img.src;
+                if (!newUrl || newUrl.startsWith('data:image/svg')) continue;
                 if (oldImageUrl && newUrl !== oldImageUrl) {
-                    console.log('[九科星] 检测到图片变化');
-                    return true;
+                    // 确认新图已加载完成，避免拿到半加载的图
+                    if (img.complete && img.naturalWidth > 0) {
+                        console.log('[九科星] 检测到图片变化');
+                        return true;
+                    }
                 }
-            }
-
-            // 检查分数输入框是否已清空
-            const firstInput = document.querySelector(JIUKEXING_SELECTORS.SCORE_INPUT);
-            if (firstInput && (firstInput.value === '' || firstInput.value === '0')) {
-                console.log('[九科星] 检测到输入框已清空');
-                return true;
             }
 
             await new Promise(r => setTimeout(r, interval));

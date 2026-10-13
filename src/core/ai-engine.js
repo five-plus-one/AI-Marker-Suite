@@ -260,13 +260,40 @@ const WorkflowManager = {
                     wf.model.reasoningEffort = defaultWf.model.reasoningEffort || '';
                     changed = true;
                 }
-                // 仅在版本升级时重置模型和双评配置
+                // 仅在版本升级时补充缺失字段，不覆盖用户已修改的配置
                 if (shouldMigrateDefaults) {
-                    if (wf.model.provider !== defaultWf.model.provider || wf.model.model !== defaultWf.model.model) {
-                        wf.model = defaultWf.model;
-                        changed = true;
+                    // 模型配置：仅补充缺失字段，不整体替换（用户可自定义 provider/model）
+                    if (wf.model && defaultWf.model) {
+                        for (const k of Object.keys(defaultWf.model)) {
+                            if (wf.model[k] === undefined) {
+                                wf.model[k] = defaultWf.model[k];
+                                changed = true;
+                            }
+                        }
                     }
-                    if (defaultWf.dualEval && JSON.stringify(wf.dualEval) !== JSON.stringify(defaultWf.dualEval)) {
+                    // 双评配置：仅补充新增字段，不覆盖用户已修改的值（如 threshold）
+                    if (defaultWf.dualEval && wf.dualEval) {
+                        for (const key of Object.keys(defaultWf.dualEval)) {
+                            if (wf.dualEval[key] === undefined) {
+                                wf.dualEval[key] = defaultWf.dualEval[key];
+                                changed = true;
+                            }
+                        }
+                        // secondary/arbitration 子对象：只填缺失字段，不整体替换
+                        for (const subKey of ['secondary', 'arbitration']) {
+                            if (defaultWf.dualEval[subKey] && wf.dualEval[subKey]) {
+                                for (const k of Object.keys(defaultWf.dualEval[subKey])) {
+                                    if (wf.dualEval[subKey][k] === undefined) {
+                                        wf.dualEval[subKey][k] = defaultWf.dualEval[subKey][k];
+                                        changed = true;
+                                    }
+                                }
+                            } else if (defaultWf.dualEval[subKey] && !wf.dualEval[subKey]) {
+                                wf.dualEval[subKey] = defaultWf.dualEval[subKey];
+                                changed = true;
+                            }
+                        }
+                    } else if (defaultWf.dualEval && !wf.dualEval) {
                         wf.dualEval = defaultWf.dualEval;
                         changed = true;
                     }
@@ -474,6 +501,11 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                         const errObj = JSON.parse(responseText);
                         if (errObj.error?.message) errorMsg = errObj.error.message;
                     } catch (e) {}
+                    // 清理 HTML 错误页（如 openresty 504），只保留有意义的文案
+                    if (/<html|<!doctype/i.test(errorMsg)) {
+                        const titleMatch = errorMsg.match(/<title>([^<]+)<\/title>/i);
+                        errorMsg = titleMatch ? titleMatch[1].trim() : `HTTP ${res.status}`;
+                    }
                     console.error(`❌ [诊断] API返回错误: ${res.status} — ${errorMsg}`);
 
                     // 检测余额不足
@@ -590,7 +622,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
     let maxTokens = config.outputLimitEnabled === false || policy?.useProviderDefault
         ? null : (Number.isSafeInteger(configuredLimit) && configuredLimit > 0 ? configuredLimit : 2048);
     let upgraded = false;
-    let serverRetried = false;
+    let serverRetried = 0;
     for (let attempt = 0; attempt < 3; attempt++) {
         if (window.aiGradingState.abortController?.signal.aborted) throw new Error('用户主动暂停');
         if (budget.remaining <= 0) throw new Error('AI请求次数已达到上限');
@@ -606,9 +638,13 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 if (onStreamUpdate) onStreamUpdate('回答较长，正在继续分析…');
                 continue;
             }
-            if ((error.status === 429 || error.status >= 500) && !serverRetried && attempt < 2) {
-                serverRetried = true;
-                await new Promise(resolve => setTimeout(resolve, error.status === 429 ? 5000 : 2000));
+            // 5xx/429 可重试：最多2次，递增延迟（504等瞬态错误常需更长恢复窗口）
+            const isServerError = error.status === 429 || (error.status >= 500 && error.status < 600);
+            if (isServerError && serverRetried < 2 && attempt < 2) {
+                serverRetried++;
+                const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
+                console.warn(`⚠️ [callAI] 服务端错误 ${error.status}，${delay}ms 后重试（第${serverRetried}次）`);
+                await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
             }
             throw error;
@@ -800,20 +836,63 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
 
     const arbPrompt = buildArbitrationPrompt(config, detailA, detailB, threshold);
     const arbResult = await callAIWithRetry(arbPrompt, base64DataArray, { ...config, ...arbConfig }, onStreamUpdate);
-    const arbParsed = parseStructuredResponse(arbResult);
 
-    console.log(`✅ [三评] 仲裁结果: ${arbParsed.score}`);
+    // 多小题模式下用小题解析器，单题模式用结构化解析器
+    const arbUnits = config.scoring?.units || [];
+    const arbHasSub = arbUnits.length > 1 && detailA?.subScores && detailA.subScores.length > 0;
+    let arbParsed;
+    if (arbHasSub) {
+        const arbSubQuestions = detailA.subScores.map(sq => ({ id: sq.id, label: sq.label, maxScore: sq.maxScore }));
+        arbParsed = parseSubQuestionResponse(arbResult, { ...config, subQuestions: arbSubQuestions });
+    } else {
+        arbParsed = parseStructuredResponse(arbResult);
+    }
+
+    console.log(`✅ [三评] 仲裁结果: ${arbParsed.score}${arbHasSub ? '（多小题）' : ''}`);
     // 仲裁模型不评估勤勉度，取 A/B 平均
     const arbDiligenceLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
+
+    // 小题分兜底：仲裁漏给部分小题分时，用 A/B 合并结果补齐
+    let arbSubScores = arbParsed.subScores || null;
+    if (arbHasSub) {
+        const fallbackSubScores = mergeDualSubScores(detailA, detailB);
+        if (!arbSubScores && fallbackSubScores) {
+            arbSubScores = fallbackSubScores;
+            console.warn('⚠️ [三评] 仲裁未返回小题分，使用 A/B 合并结果兜底');
+        } else if (arbSubScores && fallbackSubScores) {
+            arbSubScores = arbSubScores.map((sq, i) => {
+                if ((sq.score === null || sq.score === undefined) && fallbackSubScores[i]) {
+                    console.warn(`⚠️ [三评] 仲裁缺少 ${sq.label} 小题分，使用 A/B 合并结果兜底`);
+                    return { ...sq, score: fallbackSubScores[i].score, comment: fallbackSubScores[i].comment || sq.comment };
+                }
+                return sq;
+            });
+        }
+    }
+
+    // 总分与小题之和一致性校准（以小题之和为准，与共识路径规则一致）
+    let arbFinalScore = arbParsed.score;
+    if (arbSubScores && arbSubScores.length > 0) {
+        const arbSubSum = arbSubScores.reduce((s, u) => s + (u.score || 0), 0);
+        const arbAllScored = arbSubScores.every(u => u.score !== null && u.score !== undefined);
+        if (arbAllScored && Math.abs(arbSubSum - arbFinalScore) > 0.01) {
+            console.warn(`⚠️ [三评] 仲裁小题之和(${arbSubSum})与仲裁总分(${arbFinalScore})不一致，以小题之和为准`);
+            arbFinalScore = arbSubSum;
+        }
+    }
+
     return {
         ...arbParsed,
+        score: arbFinalScore,
+        rawScore: arbFinalScore,
+        subScores: arbSubScores,
         studentAnswer: detailA?.studentAnswer || detailB?.studentAnswer || arbParsed.studentAnswer || '未能识别',
         diligenceLevel: arbDiligenceLevel,
         diligenceReason: detailA?.diligenceReason || '',
         dualEval: {
             scoreA, scoreB, diff,
             result: 'arbitration',
-            arbScore: arbParsed.score,
+            arbScore: arbFinalScore,
             arbAnalysis: arbParsed._sections?.['仲裁分析'] || '',
             detailA: detailA?._sections || null,
             detailB: detailB?._sections || null,
