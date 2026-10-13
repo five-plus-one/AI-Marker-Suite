@@ -1265,8 +1265,10 @@ function buildRecognitionPrompt() {
  * @param {string} fieldName - 字段名
  * @param {object} fieldData - { text, images, format }
  */
-function renderMarkdownPreview(fieldName, fieldData) {
-    var previewEl = document.querySelector('#' + fieldName + '-preview .md-preview-content');
+function renderMarkdownPreview(fieldName, fieldData, rootScope) {
+    // 作用域限定：优先在指定容器内查找，再回退到设置面板，避免命中同名 ID 的其他层
+    var root = rootScope || document.getElementById('ai-grading-settings') || document;
+    var previewEl = root.querySelector('#' + fieldName + '-preview .md-preview-content');
     if (!previewEl) return;
 
     if (!fieldData || !fieldData.text) {
