@@ -8,6 +8,39 @@ function getUIRoot() {
     return document.body;
 }
 
+// ========== 浮动按钮让位（设置面板打开时避免遮挡） ==========
+// 直接按面板实际宽度计算让位距离并写内联样式，比 CSS 类匹配更可靠
+function dockFloatingButtons() {
+    const panel = document.getElementById('ai-grading-settings');
+    const panelWidth = (panel && panel.offsetWidth) ? panel.offsetWidth : 440;
+    const gap = 40;
+    const offset = panelWidth + gap;
+    const btns = document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn');
+    btns.forEach(b => {
+        b.style.setProperty('right', offset + 'px', 'important');
+        b.style.setProperty('transition', 'right 0.3s cubic-bezier(0.16,1,0.3,1)', 'important');
+    });
+    const progress = document.getElementById('ai-batch-progress');
+    if (progress) {
+        // 进度条居中改为让开面板区域
+        progress.style.setProperty('transform', 'translateX(-50%) translateX(-' + Math.round(panelWidth / 2) + 'px)', 'important');
+        progress.style.setProperty('transition', 'transform 0.3s cubic-bezier(0.16,1,0.3,1)', 'important');
+    }
+}
+
+function undockFloatingButtons() {
+    const btns = document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn');
+    btns.forEach(b => {
+        b.style.removeProperty('right');
+        b.style.removeProperty('transition');
+    });
+    const progress = document.getElementById('ai-batch-progress');
+    if (progress) {
+        progress.style.removeProperty('transform');
+        progress.style.removeProperty('transition');
+    }
+}
+
 // ========== 创建主按钮 ==========
 function createMainButton() {
     if (document.querySelector('.ai-grade-btn')) return;
@@ -29,18 +62,6 @@ function createMainButton() {
             visibility: visible !important;
             display: flex !important;
             opacity: 1 !important;
-        }
-
-        /* 设置面板打开时按钮簇让位到面板左侧，避免遮挡面板（面板宽 440px） */
-        html.ai-settings-open .ai-grade-btn,
-        html.ai-settings-open .ai-history-btn,
-        html.ai-settings-open .ai-settings-btn {
-            right: 480px !important;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
-        }
-        html.ai-settings-open #ai-batch-progress {
-            left: calc(50% - 220px) !important;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
         }
 
         .ai-grade-btn {
