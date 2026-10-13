@@ -62,6 +62,7 @@ const CORE_MODULES = [
     'image.js',
     'blank-detector.js',  // 空白答题卡检测（需在 main.js 和 ui-settings.js 之前）
     'correction.js',
+    'zip.js',              // 极简 ZIP 打包（导出材料包用，需在 history.js 之前）
     'history.js',
     'ui-tools.js',  // 工具页面UI（/tools）
     'updater.js',
@@ -99,6 +100,8 @@ const BUILD_CONFIGS = [
             'adapters/xinkao/adapter.js',
             'adapters/xinkao-2/selectors.js',
             'adapters/xinkao-2/adapter.js',
+            'adapters/xinkao-campus/selectors.js',
+            'adapters/xinkao-campus/adapter.js',
             'adapters/runjian/selectors.js',
             'adapters/runjian/adapter.js',
             'adapters/xueba54/selectors.js',
@@ -137,7 +140,7 @@ const BUILD_CONFIGS = [
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'https://aimarking.five-plus-one.com/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊等平台。自动识别答案、智能评分、自动提交！',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊等平台。自动识别答案、智能评分、自动提交！',
             author: '5plus1',
             match: [
                 'https://www.zhixue.com/*',
