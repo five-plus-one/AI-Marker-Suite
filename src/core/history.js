@@ -773,6 +773,7 @@ function showHistoryPanel() {
                 <span style="color:#aaa;font-size:12px;">~</span>
                 <input type="date" id="hist-filter-end" title="结束日期">
                 <select id="hist-filter-preset"><option value="">全部方案</option></select>
+                <select id="hist-filter-status" title="标记状态"><option value="">全部状态</option><option value="marked">仅已标记·待回评</option><option value="submitted">仅未标记</option></select>
                 <div id="hist-filter-images-wrap" style="display:none;"><select id="hist-filter-images"><option value="">全部图片</option><option value="local">有图可导出</option><option value="remote">有图·无法导出</option><option value="none">无图</option></select></div>
                 <button class="primary" id="hist-filter-apply">筛选</button>
                 <button id="hist-filter-reset">重置</button>
@@ -797,6 +798,10 @@ function showHistoryPanel() {
     function getFilteredRecords() {
         return HistoryManager.records.filter(r => {
             if (filterState.presetName && r.presetName !== filterState.presetName) return false;
+            if (filterState.markStatus) {
+                const st = r.status || 'submitted';
+                if (st !== filterState.markStatus) return false;
+            }
             if (filterState.startDate) {
                 if (r.timestamp < new Date(filterState.startDate).getTime()) return false;
             }
@@ -836,6 +841,7 @@ function showHistoryPanel() {
         filterState.startDate = document.getElementById('hist-filter-start').value;
         filterState.endDate = document.getElementById('hist-filter-end').value;
         filterState.presetName = presetSelect.value;
+        filterState.markStatus = document.getElementById('hist-filter-status').value;
         filterState.imageStatus = document.getElementById('hist-filter-images').value;
         currentFilteredRecords = getFilteredRecords();
         paginationState.page = 1;
@@ -843,10 +849,11 @@ function showHistoryPanel() {
         renderList(currentFilteredRecords);
     };
     document.getElementById('hist-filter-reset').onclick = () => {
-        filterState = { startDate: '', endDate: '', presetName: '', imageStatus: '' };
+        filterState = { startDate: '', endDate: '', presetName: '', markStatus: '', imageStatus: '' };
         document.getElementById('hist-filter-start').value = '';
         document.getElementById('hist-filter-end').value = '';
         presetSelect.value = '';
+        document.getElementById('hist-filter-status').value = '';
         document.getElementById('hist-filter-images').value = '';
         currentFilteredRecords = HistoryManager.records;
         paginationState.page = 1;
