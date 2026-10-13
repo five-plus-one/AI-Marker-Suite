@@ -18,6 +18,21 @@ function fillScore(score, comment, subScores) {
     showAutoSubmitDialog(score, comment, subScores);
 }
 
+// 等待下一份试卷（带自动重试）
+// 平台加载下一份常有瞬态失败（Promise 报错后稍后才加载出来），超时不直接暂停，自动重试几轮
+async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3) {
+    for (let round = 1; round <= maxRounds; round++) {
+        const hasNext = await adapter.waitForNextPaper(oldImgUrl);
+        if (hasNext) return true;
+        if (round < maxRounds) {
+            console.warn(`⚠️ 第${round}次等待下一份试卷超时，自动重试中（${round}/${maxRounds - 1}）...`);
+            showToast(`⚠️ 平台加载下一份试卷缓慢，自动重试中（${round}/${maxRounds - 1}）…`);
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    }
+    return false;
+}
+
 function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const oldDialog = document.getElementById('auto-submit-dialog');
     if (oldDialog) oldDialog.remove();
@@ -584,7 +599,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
                     const oldImgUrl = window.aiGradingState.currentImageUrls[0];
                     if (adapter && adapter.waitForNextPaper) {
-                        adapter.waitForNextPaper(oldImgUrl).then(hasNext => {
+                        waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
                             if (hasNext) setTimeout(startAutoGrading, 500);
                             else {
                                 window.aiGradingState.isRunning = false;
@@ -764,7 +779,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 const oldImgUrl = window.aiGradingState.currentImageUrls[0];
 
                 if (adapter && adapter.waitForNextPaper) {
-                    adapter.waitForNextPaper(oldImgUrl).then(hasNext => {
+                    waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
                         if (hasNext) {
                             console.log('继续批改...');
                             setTimeout(startAutoGrading, 500);
