@@ -31,6 +31,18 @@ function createMainButton() {
             opacity: 1 !important;
         }
 
+        /* 设置面板打开时按钮簇让位到面板左侧，避免遮挡面板（面板宽 440px） */
+        html.ai-settings-open .ai-grade-btn,
+        html.ai-settings-open .ai-history-btn,
+        html.ai-settings-open .ai-settings-btn {
+            right: 480px !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        html.ai-settings-open #ai-batch-progress {
+            left: calc(50% - 220px) !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+
         .ai-grade-btn {
             bottom: 40px !important; right: 40px !important;
             padding: 14px 32px !important;
