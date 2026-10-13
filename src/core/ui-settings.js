@@ -1527,8 +1527,8 @@ function openSettingsPanel() {
         overlay.style.pointerEvents = 'auto';
         overlay.style.opacity = '1';
     }
-    // 按钮簇让位：避免浮动按钮遮挡面板
-    document.documentElement.classList.add('ai-settings-open');
+    // 按钮簇让位：按面板实际宽度计算，避免遮挡面板控件
+    dockFloatingButtons();
 }
 
 function closeSettingsPanel() {
@@ -1537,7 +1537,7 @@ function closeSettingsPanel() {
     if (panel) panel.classList.remove('open');
     if (overlay) { overlay.style.opacity = '0'; overlay.style.pointerEvents = 'none'; }
     // 按钮簇归位
-    document.documentElement.classList.remove('ai-settings-open');
+    undockFloatingButtons();
     // 等动画结束后隐藏
     setTimeout(() => { if (panel && !panel.classList.contains('open')) panel.style.display = 'none'; }, 350);
 }

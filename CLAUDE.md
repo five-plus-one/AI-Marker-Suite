@@ -16,9 +16,11 @@ feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ stab
 规则：
 
 1. 分支同步 PR（dev→preview、preview→stable）一律用 **Create a merge commit**，保持三条分支族谱连通。禁止 squash（会切断历史，导致后续 PR 出现大量"幽灵提交"）
-2. stable 有分支保护，禁止直接 push，一律走 PR
-3. 外部贡献者的 PR 若误指 stable：改 base 为 dev（gh pr edit N --base dev），不要直接合并
-4. 紧急热修复例外：从 stable 切 hotfix 分支 → PR 到 stable → 合并发布后，立刻把修复 cherry-pick 回 dev 和 preview
+2. **合并进入 preview 前必须经用户明确确认**，不得自动合并。即使改动已验证、PR 已建好，也要停下等确认
+3. 合并进入 stable（发布稳定版）同样必须经用户明确确认
+4. stable 有分支保护，禁止直接 push，一律走 PR
+5. 外部贡献者的 PR 若误指 stable：改 base 为 dev（gh pr edit N --base dev），不要直接合并
+6. 紧急热修复例外：从 stable 切 hotfix 分支 → PR 到 stable → 合并发布后，立刻把修复 cherry-pick 回 dev 和 preview
 
 ## 版本规则
 
