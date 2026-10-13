@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.15.2',
+    VERSION: '1.21.15.3',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.15.3': [
+            '【优化】设置面板「方案」「批改」页新增方案快捷导入导出，数据页保留全量配置备份（#179）',
+        ],
         '1.21.15.2': [
             '【优化】材料包ZIP 导出支持有图/无图切换与图片状态标签，与 HTML 导出行为对齐（#178）',
         ],
