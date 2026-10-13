@@ -263,7 +263,7 @@ const Xueba54Adapter = {
 
     async waitForNextPaper(oldImageUrl) {
         let checkTimes = 0;
-        const maxChecks = 50;
+        const maxChecks = 125;  // 25秒（125 × 200ms），对齐其他适配器
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
