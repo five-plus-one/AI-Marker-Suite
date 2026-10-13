@@ -162,7 +162,7 @@ const HaofenshuyizeAdapter = {
                     return;
                 }
 
-                if (checkTimes > 50) {
+                if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
                     clearInterval(timer);
                     console.warn('⚠️ 云阅卷(好分数) — 等待下一份试卷超时');
                     resolve(false);

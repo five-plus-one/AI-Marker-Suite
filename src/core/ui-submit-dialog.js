@@ -18,6 +18,30 @@ function fillScore(score, comment, subScores) {
     showAutoSubmitDialog(score, comment, subScores);
 }
 
+// 等待下一份试卷（带自动重试）
+// 平台加载下一份常有瞬态失败（Promise 报错后稍后才加载出来），超时不直接暂停，自动重试几轮
+async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3) {
+    for (let round = 1; round <= maxRounds; round++) {
+        // 用户已停止/暂停则立即退出，避免长时间等待后误重启批改
+        if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return true;
+        let hasNext = false;
+        try {
+            hasNext = await adapter.waitForNextPaper(oldImgUrl);
+        } catch (e) {
+            console.warn('⚠️ 等待下一份试卷异常，将重试:', e);
+        }
+        if (hasNext) return true;
+        // 长等待期间状态可能已变，再次检查
+        if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return true;
+        if (round < maxRounds) {
+            console.warn(`⚠️ 第${round}次等待下一份试卷超时，自动重试中（${round}/${maxRounds - 1}）...`);
+            showToast(`⚠️ 平台加载下一份试卷缓慢，自动重试中（${round}/${maxRounds - 1}）…`);
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    }
+    return false;
+}
+
 function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const oldDialog = document.getElementById('auto-submit-dialog');
     if (oldDialog) oldDialog.remove();
@@ -584,9 +608,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
                     const oldImgUrl = window.aiGradingState.currentImageUrls[0];
                     if (adapter && adapter.waitForNextPaper) {
-                        adapter.waitForNextPaper(oldImgUrl).then(hasNext => {
-                            if (hasNext) setTimeout(startAutoGrading, 500);
-                            else {
+                        waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
+                            if (hasNext && window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+                                setTimeout(startAutoGrading, 500);
+                            } else if (!hasNext) {
                                 window.aiGradingState.isRunning = false;
                                 window.aiGradingState.isPaused = true;
                                 const btn = document.querySelector('.ai-grade-btn');
@@ -764,11 +789,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 const oldImgUrl = window.aiGradingState.currentImageUrls[0];
 
                 if (adapter && adapter.waitForNextPaper) {
-                    adapter.waitForNextPaper(oldImgUrl).then(hasNext => {
-                        if (hasNext) {
+                    waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
+                        if (hasNext && window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
                             console.log('继续批改...');
                             setTimeout(startAutoGrading, 500);
-                        } else {
+                        } else if (!hasNext) {
                             // 不停止，改为暂停让用户决定
                             console.warn('⚠️ 加载下一份试卷超时，暂停批改');
                             window.aiGradingState.isRunning = false;
