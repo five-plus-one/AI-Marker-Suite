@@ -62,6 +62,7 @@ const CORE_MODULES = [
     'image.js',
     'blank-detector.js',  // 空白答题卡检测（需在 main.js 和 ui-settings.js 之前）
     'correction.js',
+    'zip.js',              // 极简 ZIP 打包（导出材料包用，需在 history.js 之前）
     'history.js',
     'ui-tools.js',  // 工具页面UI（/tools）
     'updater.js',
