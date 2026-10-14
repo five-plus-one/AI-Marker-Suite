@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.15.1',
+    VERSION: '1.21.15.6',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,21 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.15.6': [
+            '【修复】酷鱼网分数确认弹窗未自动点击确定：选择器改用 key="ok"，填分后和提交后均自动确认（#186）',
+        ],
+        '1.21.15.5': [
+            '【修复】设置面板初始化报 handleExportPreset is not defined：导入导出按钮绑定误置于 setupSettingsMenuLayout 作用域外，移回 createSettingsPanel（#179 回归）',
+        ],
+        '1.21.15.4': [
+            '【新平台】新增酷鱼网 (kuyuu.cn) 平台适配，支持 Canvas 答题卡取图（tainted canvas 走 GM 下载）、scores 属性满分提取和键模式填分（#182）',
+        ],
+        '1.21.15.3': [
+            '【优化】设置面板「方案」「批改」页新增方案快捷导入导出，数据页保留全量配置备份（#179）',
+        ],
+        '1.21.15.2': [
+            '【优化】材料包ZIP 导出支持有图/无图切换与图片状态标签，与 HTML 导出行为对齐（#178）',
+        ],
         '1.21.15.1': [
             '【新平台】新增鑫考校园 (xinkao-campus) 平台适配，支持 data-score 属性满分提取、inputkey 键盘确认提交、subId+teaCode 任务标识和 token 换卷检测',
             '【新功能】历史记录支持导出「改卷材料包 ZIP」（改卷记录与答题卡图片），供本地 AI 生成改卷总结（#151）',
