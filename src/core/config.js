@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.15.6',
+    VERSION: '1.21.15.7',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.15.7': [
+            '【修复】酷鱼网取图重复下载同一张图：cachebuster 参数未归一化去重，改为按路径去重并按图片序号排序（#189）',
+        ],
         '1.21.15.6': [
             '【修复】酷鱼网分数确认弹窗未自动点击确定：选择器改用 key="ok"，填分后和提交后均自动确认（#186）',
         ],
