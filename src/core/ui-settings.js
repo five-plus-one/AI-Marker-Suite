@@ -1395,6 +1395,12 @@ function createSettingsPanel(options) {
     loadSettings();
     renderChangelog();
 
+    // 绑定方案导入导出按钮（方案页 + 批改页）
+    // 必须在 createSettingsPanel 内绑定：handleExportPreset/presetFileInput 属于本函数作用域，
+    // 且此时 setupSettingsMenuLayout 已执行完、动态按钮已创建
+    panel.querySelectorAll('.btn-export-preset').forEach(btn => { btn.onclick = handleExportPreset; });
+    panel.querySelectorAll('.btn-import-preset').forEach(btn => { btn.onclick = () => presetFileInput.click(); });
+
     // 初始化后打开侧边栏（除非调用方要求延迟打开，如 OOBE 场景）
     if (!options || !options.deferOpen) {
         requestAnimationFrame(() => openSettingsPanel());
@@ -1519,10 +1525,6 @@ function setupSettingsMenuLayout(panel) {
             pagesRoot.querySelector(`.settings-page[data-page="${btn.dataset.page}"]`)?.classList.add('active');
         };
     });
-
-    // shell 重组完成后统一绑定方案导入导出按钮（方案页 + 批改页）
-    panel.querySelectorAll('.btn-export-preset').forEach(btn => { btn.onclick = handleExportPreset; });
-    panel.querySelectorAll('.btn-import-preset').forEach(btn => { btn.onclick = () => presetFileInput.click(); });
 }
 
 // ========== 渲染 CHANGELOG ==========
