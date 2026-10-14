@@ -91,24 +91,26 @@ const KuyuuAdapter = {
         console.log('[酷鱼网] 开始获取答题卡图片...');
 
         // 1. 从 Performance 资源条目收集 OSS 答题卡 URL
-        const ossUrls = [];
+        //    URL 带缓存穿透参数 ?_=xxx（每次加载不同），去重必须按路径、忽略 query
+        const byPath = new Map(); // 归一化路径 -> 原始 URL
         try {
             const entries = performance.getEntriesByType('resource');
             for (const e of entries) {
                 const name = e.name || '';
-                if (name.includes('ky-metacut') && /\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(name)) {
-                    if (!ossUrls.includes(name)) ossUrls.push(name);
-                }
+                if (!name.includes('ky-metacut')) continue;
+                if (!/\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(name)) continue;
+                const path = name.split('?')[0]; // 归一化：去掉 cachebuster
+                if (!byPath.has(path)) byPath.set(path, name);
             }
         } catch (e) {
             console.warn('[酷鱼网] Performance API 读取失败:', e);
         }
 
-        if (!ossUrls.length) {
+        if (!byPath.size) {
             console.warn('[酷鱼网] 未在 Performance 资源中找到 OSS 答题卡图片');
             return [];
         }
-        console.log(`[酷鱼网] Performance 中找到 ${ossUrls.length} 张 OSS 候选图`);
+        console.log(`[酷鱼网] Performance 中找到 ${byPath.size} 张 OSS 候选图（已按路径去重）`);
 
         // 2. 页脚 #infoTasktype 取当前试卷号
         const paperId = this._getCurrentPaperId();
@@ -118,19 +120,28 @@ const KuyuuAdapter = {
         }
         console.log(`[酷鱼网] 当前试卷号: ${paperId}`);
 
-        // 3. 用试卷号匹配 OSS URL
-        const matched = ossUrls.filter(url => {
-            const m = url.match(/ky-metacut[^]*?\/(\d{6,})\/\d+\.(?:png|jpe?g|gif|webp|bmp)/i);
-            return m && m[1] === paperId;
-        });
+        // 3. 用试卷号匹配，按图片序号排序（一张卷可能切成 N.jpg 多张，供 AI 顺序阅读）
+        const matched = [...byPath.entries()]
+            .filter(([path]) => {
+                const m = path.match(/ky-metacut[^]*?\/(\d{6,})\/(\d+)\.(?:png|jpe?g|gif|webp|bmp)/i);
+                return m && m[1] === paperId;
+            })
+            .sort((a, b) => {
+                const na = parseInt((a[0].match(/\/(\d+)\.(?:png|jpe?g|gif|webp|bmp)/i) || [])[1] || '0', 10);
+                const nb = parseInt((b[0].match(/\/(\d+)\.(?:png|jpe?g|gif|webp|bmp)/i) || [])[1] || '0', 10);
+                return na - nb;
+            })
+            .map(([, url]) => url);
 
         if (matched.length) {
-            console.log(`[酷鱼网] 锁定当前试卷图片 ${matched.length} 张:`, matched[0].substring(0, 120));
+            console.log(`[酷鱼网] 锁定当前试卷图片 ${matched.length} 张（归一化路径）:`);
+            matched.forEach((u, i) => console.log(`  [${i + 1}] ${u.split('?')[0]}`));
             return matched;
         }
 
         // 4. 匹配不到不猜测——宁可不取图，也不批错卷
-        console.warn(`[酷鱼网] OSS 中未找到试卷 ${paperId} 的图片，拒绝猜测。候选:`, ossUrls.map(u => u.substring(0, 100)));
+        console.warn(`[酷鱼网] OSS 中未找到试卷 ${paperId} 的图片，拒绝猜测。候选路径:`,
+            [...byPath.keys()].map(p => p.substring(p.lastIndexOf('/') - 12)));
         return [];
     },
 
