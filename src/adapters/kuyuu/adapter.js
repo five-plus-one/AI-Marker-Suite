@@ -2,9 +2,10 @@
 // jQuery 传统页面 + Canvas 答题卡（ems-imageview 插件），域名: www.kuyuu.cn
 // 评阅页 URL: /read/read?schoolid=..&examgroup=..&examid=..&groupid=..&itemid=N
 //
-// 特点：
-// - 答题卡渲染在 canvas.ems-iv-img（跨域图片 tainted，toDataURL 不可用）
-//   取图走「img 标签 → Performance resource 条目 → canvas 兜底」三重策略，最终用 GM_xmlhttpRequest 下载
+// 特点（均经控制台实测确认）：
+// - 答题卡绘制在 canvas.ems-iv-img，跨域 tainted，toDataURL 不可用
+//   真身是阿里云 OSS 图：ky-metacut.oss-cn-hangzhou.aliyuncs.com/{年}/{月}/{examid}/{试卷号}/{N}.jpg
+//   取图走 Performance 资源条目 + 可见文本试卷号锁定，OSS 跨域需 GM_xmlhttpRequest 下载
 // - 评分输入框在 #scorePanel 的「键」模式表格，带 scores 合法分数表属性
 // - 键/鼠/批 三种打分模式，填分前确保「键」模式激活
 // - 提交按钮 a[btntype="submit"]，另有满分/零分快捷按钮
@@ -66,70 +67,60 @@ const KuyuuAdapter = {
 
     /**
      * 获取答题卡图片。
-     * canvas 是 tainted（跨域图片绘制），toDataURL 会抛异常，故采用三重策略：
-     *  1. 页面 <img> 标签（排除 UI 小图）
-     *  2. Performance resource 条目中的图片 URL（排除 UI 资源）
-     *  3. canvas.toDataURL 兜底（万一未 tainted）
-     * 返回 URL 数组，核心层会用 fetchImageAsBase64（GM_xmlhttpRequest）下载
+     * 实测结论（勿再改回猜测路径）：
+     * - canvas.ems-iv-img 跨域 tainted，toDataURL 不可用
+     * - 页面无答题卡 <img> 标签（只有 logo/二维码），img 策略无效
+     * - 答题卡真身在阿里云 OSS: ky-metacut.oss-cn-hangzhou.aliyuncs.com/{年}/{月}/{examid}/{试卷号}/{N}.jpg
+     * - 试卷会预加载多张（如 5580018~5580021），当前卷的试卷号出现在页面可见文本中
+     * - OSS 直接 fetch 被 CORS 拦截，必须走 GM_xmlhttpRequest（fetchImageAsBase64）
+     *
+     * 策略：Performance 资源条目拿 OSS URL → 用可见文本试卷号锁定当前卷
      */
     async gatherAnswerImages() {
         console.log('[酷鱼网] 开始获取答题卡图片...');
-        const urls = [];
 
-        // 策略1：img 标签（过滤 UI 小图 / 背景图）
-        const imgs = Array.from(document.querySelectorAll('#readView img, img'));
-        for (const img of imgs) {
-            const src = img.src || '';
-            if (!src || !src.startsWith('http')) continue;
-            if (src.includes(KUYUU_SELECTORS.UI_ASSET_PREFIX)) continue;
-            // 大尺寸优先（naturalWidth 在加载完成后才有值）
-            const isLarge = (img.naturalWidth > 200 && img.naturalHeight > 200) ||
-                            (img.width > 200 && img.height > 200);
-            if (isLarge && !urls.includes(src)) {
-                urls.push(src);
-            }
-        }
-        if (urls.length) {
-            console.log(`[酷鱼网] 从 img 标签获取到 ${urls.length} 张图片`);
-            return urls;
-        }
-
-        // 策略2：Performance API 资源条目（img/image 类型或图片扩展名）
+        // 1. 从 Performance 资源条目收集 OSS 答题卡 URL
+        const ossUrls = [];
         try {
             const entries = performance.getEntriesByType('resource');
             for (const e of entries) {
                 const name = e.name || '';
-                if (!name.startsWith('http')) continue;
-                if (name.includes(KUYUU_SELECTORS.UI_ASSET_PREFIX)) continue;
-                const isImgInitiator = e.initiatorType === 'img' || e.initiatorType === 'image';
-                const isImageExt = /\.(png|jpe?g|gif|webp|bmp|tif?f)(\?|$)/i.test(name);
-                if ((isImgInitiator || isImageExt) && !urls.includes(name)) {
-                    urls.push(name);
+                if (name.includes('ky-metacut') && /\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(name)) {
+                    if (!ossUrls.includes(name)) ossUrls.push(name);
                 }
-            }
-            if (urls.length) {
-                console.log(`[酷鱼网] 从 Performance 资源条目获取到 ${urls.length} 个候选图片 URL`);
-                return urls;
             }
         } catch (e) {
             console.warn('[酷鱼网] Performance API 读取失败:', e);
         }
 
-        // 策略3：canvas 兜底（非 tainted 时可用）
-        try {
-            const canvas = document.querySelector(KUYUU_SELECTORS.ANSWER_CANVAS);
-            if (canvas) {
-                const dataUrl = canvas.toDataURL('image/png');
-                if (dataUrl && dataUrl.length > 5000) {
-                    console.log('[酷鱼网] canvas 兜底导出成功');
-                    return [dataUrl];
-                }
-            }
-        } catch (e) {
-            console.warn('[酷鱼网] canvas 导出失败（tainted，属预期）:', e.message);
+        if (!ossUrls.length) {
+            console.warn('[酷鱼网] 未在 Performance 资源中找到 OSS 答题卡图片');
+            return [];
+        }
+        console.log(`[酷鱼网] Performance 中找到 ${ossUrls.length} 张 OSS 候选图`);
+
+        // 2. 从页面可见文本提取试卷号（实测：当前卷试卷号会出现在可见文本中）
+        const bodyText = document.body.innerText || '';
+        const visibleIds = new Set(bodyText.match(/\d{6,}/g) || []);
+
+        // 3. 锁定当前卷：OSS URL 中的试卷号 ∈ 可见文本
+        const matched = [];
+        for (const url of ossUrls) {
+            const m = url.match(/ky-metacut[^]*?\/(\d{6,})\/\d+\.(?:png|jpe?g|gif|webp|bmp)/i);
+            if (m && visibleIds.has(m[1])) matched.push(url);
         }
 
-        console.warn('[酷鱼网] 未能获取答题卡图片');
+        if (matched.length === 1) {
+            console.log('[酷鱼网] 锁定当前试卷图片:', matched[0].substring(0, 120));
+            return matched;
+        }
+
+        // 4. 无法唯一定位时不猜测——宁可不取图，也不批错卷
+        if (matched.length > 1) {
+            console.warn('[酷鱼网] 可见文本命中多张试卷，无法唯一定位，拒绝猜测:', matched);
+        } else {
+            console.warn('[酷鱼网] 可见文本未命中任何试卷号，无法定位当前卷。OSS 候选:', ossUrls.map(u => u.substring(0, 100)));
+        }
         return [];
     },
 

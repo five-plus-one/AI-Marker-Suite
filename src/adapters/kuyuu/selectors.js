@@ -1,6 +1,7 @@
 // ========== 酷鱼网 DOM 选择器常量 ==========
 // jQuery 传统页面 + Canvas 答题卡（ems-imageview 插件），域名: www.kuyuu.cn
-// 特点：canvas.ems-iv-img 跨域 tainted 不可 toDataURL，评分走键/鼠/批三模式切换
+// 特点：canvas.ems-iv-img 跨域 tainted 不可 toDataURL，答题卡真身在阿里云 OSS（ky-metacut），
+//       取图走 Performance 条目 + 可见文本试卷号锁定；评分走键/鼠/批三模式切换
 
 const KUYUU_SELECTORS = {
     // 页面检测
