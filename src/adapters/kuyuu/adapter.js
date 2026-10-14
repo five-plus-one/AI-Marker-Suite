@@ -207,7 +207,35 @@ const KuyuuAdapter = {
         }
 
         console.log(`[酷鱼网] 填入 ${successCount}/${inputs.length} 个分数`);
+        if (successCount > 0) this._autoConfirmScoreDialog();
         return successCount > 0;
+    },
+
+    /**
+     * 自动处理「分数确认」弹窗（实测结构）：
+     *   <div class="plg-dialog">…<button key="ok" default="true">确定</button>…</div>
+     * 弹窗可能在填分后或提交后出现，延迟不定，故多次重试。
+     * 只点确定（key="ok"），绝不动取消（key="cancel"）。
+     */
+    _autoConfirmScoreDialog() {
+        const tryClick = () => {
+            // 只认带 key="ok" 的确定按钮，且必须在可见弹窗内
+            const okBtn = Array.from(document.querySelectorAll('.plg-dialog button[key="ok"]'))
+                .find(b => b.offsetParent !== null);
+            if (!okBtn) return false;
+            console.log('[酷鱼网] 检测到分数确认弹窗，自动点击确定');
+            okBtn.click();
+            return true;
+        };
+        // 覆盖不同弹出延迟；多弹窗场景下一次点击后重新计时
+        [150, 400, 800, 1500].forEach(delay => {
+            setTimeout(() => {
+                if (tryClick()) {
+                    // 二次确认：点完再兜底一轮，防连锁弹窗
+                    setTimeout(() => tryClick(), 300);
+                }
+            }, delay);
+        });
     },
 
     submitGrade() {
@@ -219,14 +247,8 @@ const KuyuuAdapter = {
         btn.click();
         console.log('[酷鱼网] 点击提交按钮');
 
-        // 分数确认开关开启时可能弹确认对话框，异步处理不阻塞主流程
-        setTimeout(() => {
-            const confirmBtn = document.querySelector('.plg-dialog .btn-blue[defaul="true"], .layui-layer-btn0, .ui-dialog-buttonpane .btn-blue');
-            if (confirmBtn && confirmBtn.offsetParent !== null) {
-                console.log('[酷鱼网] 检测到确认弹窗，自动点击确定');
-                confirmBtn.click();
-            }
-        }, 250);
+        // 提交后可能弹分数确认弹窗，异步处理不阻塞主流程
+        this._autoConfirmScoreDialog();
 
         return true;
     },
