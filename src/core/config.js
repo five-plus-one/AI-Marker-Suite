@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.15.3',
+    VERSION: '1.21.15.4',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.15.4': [
+            '【新平台】新增酷鱼网 (kuyuu.cn) 平台适配，支持 Canvas 答题卡取图（tainted canvas 走 GM 下载）、scores 属性满分提取和键模式填分（#182）',
+        ],
         '1.21.15.3': [
             '【优化】设置面板「方案」「批改」页新增方案快捷导入导出，数据页保留全量配置备份（#179）',
         ],
