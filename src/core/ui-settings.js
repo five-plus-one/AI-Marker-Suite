@@ -729,6 +729,10 @@ function createSettingsPanel(options) {
                             <button class="preset-btn" id="btn-new-preset">新建</button>
                             <button class="preset-btn danger" id="btn-del-preset">删除</button>
                         </div>
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <button class="footer-btn btn-export-preset" style="flex:1;">导出此方案</button>
+                            <button class="footer-btn btn-import-preset" style="flex:1;">导入方案</button>
+                        </div>
                         <div class="checkbox-group">
                             <input type="checkbox" id="bind-url-checkbox">
                             <label for="bind-url-checkbox">绑定至当前试题</label>
@@ -960,12 +964,8 @@ function createSettingsPanel(options) {
                             <button class="footer-btn" id="btn-import-config" style="flex:1;">导入配置</button>
                         </div>
                         <input type="file" id="import-config-file" accept=".json" style="display:none;">
-                        <div style="display:flex;gap:8px;margin-top:8px;">
-                            <button class="footer-btn" id="btn-export-preset" style="flex:1;">导出此方案</button>
-                            <button class="footer-btn" id="btn-import-preset" style="flex:1;">导入方案</button>
-                        </div>
                         <input type="file" id="import-preset-file" accept=".json" style="display:none;">
-                        <div style="font-size:11px;color:#86868b;margin-top:4px;">「此方案」导出单个配置（含题目/答案/评分标准及插入的图片）；「导入方案」新增合并，不影响其他方案</div>
+                        <div style="font-size:11px;color:#86868b;margin-top:4px;">「导出配置」为全量备份（含所有方案、供应商、工作流）；单方案导出/导入见「方案」或「批改」页</div>
                         <div style="margin-top:10px;">
                             <button class="footer-btn danger" id="btn-reset-config" style="width:100%;">恢复默认设置</button>
                         </div>
@@ -1251,7 +1251,8 @@ function createSettingsPanel(options) {
     };
 
     // ===== 单方案导出/导入（含题目/答案/评分标准的插入图片）=====
-    panel.querySelector('#btn-export-preset').onclick = () => {
+    // 按钮可能出现在「方案」「批改」等多页，统一用 class 绑定
+    function handleExportPreset() {
         const presetName = PresetManager.data.active;
         const preset = PresetManager.data.list[presetName];
         if (!preset) { showToast('未找到当前方案'); return; }
@@ -1273,10 +1274,10 @@ function createSettingsPanel(options) {
         a.click();
         URL.revokeObjectURL(url);
         showToast(`方案「${presetName}」已导出（含图片）`);
-    };
+    }
 
     const presetFileInput = panel.querySelector('#import-preset-file');
-    panel.querySelector('#btn-import-preset').onclick = () => presetFileInput.click();
+    // 注意：批改页的按钮在 shell 重组时动态创建，绑定放到重组完成后（见文件末尾 buildSettingsShell 内）
     presetFileInput.onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -1473,6 +1474,19 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '分数设置');
     moveSection('grading', '勤勉加分');
     moveSection('grading', '空白答题卡检测');
+    const presetIOShortcut = document.createElement('div');
+    presetIOShortcut.className = 'form-section';
+    presetIOShortcut.innerHTML = `
+        <div class="section-header"><h4>方案导入导出</h4></div>
+        <div class="section-body">
+            <div style="display:flex;gap:8px;">
+                <button class="footer-btn btn-export-preset" style="flex:1;">导出此方案</button>
+                <button class="footer-btn btn-import-preset" style="flex:1;">导入方案</button>
+            </div>
+            <div style="font-size:11px;color:#86868b;margin-top:4px;">导出/导入当前方案（含题目、答案、评卷标准及插入图片）</div>
+        </div>
+    `;
+    pages.grading.appendChild(presetIOShortcut);
     moveSection('ai', '批改工作流');
     moveSection('ai', '供应商与模型');
     const apiWarning = configTab.querySelector('#api-key-warning');
@@ -1505,6 +1519,10 @@ function setupSettingsMenuLayout(panel) {
             pagesRoot.querySelector(`.settings-page[data-page="${btn.dataset.page}"]`)?.classList.add('active');
         };
     });
+
+    // shell 重组完成后统一绑定方案导入导出按钮（方案页 + 批改页）
+    panel.querySelectorAll('.btn-export-preset').forEach(btn => { btn.onclick = handleExportPreset; });
+    panel.querySelectorAll('.btn-import-preset').forEach(btn => { btn.onclick = () => presetFileInput.click(); });
 }
 
 // ========== 渲染 CHANGELOG ==========
