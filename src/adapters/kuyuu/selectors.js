@@ -30,6 +30,9 @@ const KUYUU_SELECTORS = {
     // 分数确认开关（开启时提交可能弹确认）
     CONFIRM_SWITCH: '#scorePanel .plg-switch .switch',
 
+    // 页脚当前试卷号（实测：#infoTasktype 文本形如「正常卷：5580018」）
+    TASK_PAPER_ID: '#infoTasktype',
+
     // UI 资源前缀（过滤 Performance API 中的背景图）
     UI_ASSET_PREFIX: '/public/images/plugins/',
 };

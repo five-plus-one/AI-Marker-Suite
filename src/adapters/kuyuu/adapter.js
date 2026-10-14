@@ -66,15 +66,26 @@ const KuyuuAdapter = {
     },
 
     /**
+     * 获取当前试卷号（页脚 #infoTasktype，文本形如「正常卷：5580018」）
+     * 实测确认这是当前卷的权威来源，比整页文本匹配更精准
+     */
+    _getCurrentPaperId() {
+        const el = document.querySelector(KUYUU_SELECTORS.TASK_PAPER_ID);
+        if (!el) return null;
+        const m = (el.textContent || '').match(/(\d+)/);
+        return m ? m[1] : null;
+    },
+
+    /**
      * 获取答题卡图片。
      * 实测结论（勿再改回猜测路径）：
      * - canvas.ems-iv-img 跨域 tainted，toDataURL 不可用
      * - 页面无答题卡 <img> 标签（只有 logo/二维码），img 策略无效
      * - 答题卡真身在阿里云 OSS: ky-metacut.oss-cn-hangzhou.aliyuncs.com/{年}/{月}/{examid}/{试卷号}/{N}.jpg
-     * - 试卷会预加载多张（如 5580018~5580021），当前卷的试卷号出现在页面可见文本中
+     * - 试卷会预加载多张（如 5580018~5580021），当前卷试卷号在页脚 #infoTasktype（如「正常卷：5580018」）
      * - OSS 直接 fetch 被 CORS 拦截，必须走 GM_xmlhttpRequest（fetchImageAsBase64）
      *
-     * 策略：Performance 资源条目拿 OSS URL → 用可见文本试卷号锁定当前卷
+     * 策略：Performance 资源条目拿 OSS URL → 用页脚试卷号锁定当前卷
      */
     async gatherAnswerImages() {
         console.log('[酷鱼网] 开始获取答题卡图片...');
@@ -99,28 +110,27 @@ const KuyuuAdapter = {
         }
         console.log(`[酷鱼网] Performance 中找到 ${ossUrls.length} 张 OSS 候选图`);
 
-        // 2. 从页面可见文本提取试卷号（实测：当前卷试卷号会出现在可见文本中）
-        const bodyText = document.body.innerText || '';
-        const visibleIds = new Set(bodyText.match(/\d{6,}/g) || []);
-
-        // 3. 锁定当前卷：OSS URL 中的试卷号 ∈ 可见文本
-        const matched = [];
-        for (const url of ossUrls) {
-            const m = url.match(/ky-metacut[^]*?\/(\d{6,})\/\d+\.(?:png|jpe?g|gif|webp|bmp)/i);
-            if (m && visibleIds.has(m[1])) matched.push(url);
+        // 2. 页脚 #infoTasktype 取当前试卷号
+        const paperId = this._getCurrentPaperId();
+        if (!paperId) {
+            console.warn('[酷鱼网] 未读到页脚试卷号 (#infoTasktype)，无法定位当前卷，拒绝猜测');
+            return [];
         }
+        console.log(`[酷鱼网] 当前试卷号: ${paperId}`);
 
-        if (matched.length === 1) {
-            console.log('[酷鱼网] 锁定当前试卷图片:', matched[0].substring(0, 120));
+        // 3. 用试卷号匹配 OSS URL
+        const matched = ossUrls.filter(url => {
+            const m = url.match(/ky-metacut[^]*?\/(\d{6,})\/\d+\.(?:png|jpe?g|gif|webp|bmp)/i);
+            return m && m[1] === paperId;
+        });
+
+        if (matched.length) {
+            console.log(`[酷鱼网] 锁定当前试卷图片 ${matched.length} 张:`, matched[0].substring(0, 120));
             return matched;
         }
 
-        // 4. 无法唯一定位时不猜测——宁可不取图，也不批错卷
-        if (matched.length > 1) {
-            console.warn('[酷鱼网] 可见文本命中多张试卷，无法唯一定位，拒绝猜测:', matched);
-        } else {
-            console.warn('[酷鱼网] 可见文本未命中任何试卷号，无法定位当前卷。OSS 候选:', ossUrls.map(u => u.substring(0, 100)));
-        }
+        // 4. 匹配不到不猜测——宁可不取图，也不批错卷
+        console.warn(`[酷鱼网] OSS 中未找到试卷 ${paperId} 的图片，拒绝猜测。候选:`, ossUrls.map(u => u.substring(0, 100)));
         return [];
     },
 
@@ -225,20 +235,26 @@ const KuyuuAdapter = {
         const timeout = 30000;
         const interval = 500;
         const startTime = Date.now();
+        const oldPaperId = this._getCurrentPaperId();
         const oldTaskId = this.getTaskIdentifier();
 
         while (Date.now() - startTime < timeout) {
-            // 检测任务标识变化（URL itemid 变化 → 换题）
-            const newTaskId = this.getTaskIdentifier();
-            if (newTaskId !== oldTaskId) {
+            // 优先：页脚试卷号变化（实测权威切卷信号）
+            const newPaperId = this._getCurrentPaperId();
+            if (oldPaperId && newPaperId && newPaperId !== oldPaperId) {
+                console.log(`[酷鱼网] 试卷号变化 ${oldPaperId} → ${newPaperId}，进入下一份`);
+                return true;
+            }
+
+            // 次选：任务标识变化（URL itemid 变化 → 换题）
+            if (this.getTaskIdentifier() !== oldTaskId) {
                 console.log('[酷鱼网] 检测到任务标识变化，进入下一题');
                 return true;
             }
 
-            // 检测分数输入框是否已清空（平台加载下一份时清空输入）
+            // 兜底：分数输入框已清空（平台加载下一份时清空输入）
             const firstInput = document.querySelector(KUYUU_SELECTORS.SCORE_INPUT);
             if (firstInput && firstInput.value === '') {
-                // 清空后稍等平台渲染答题卡
                 await new Promise(r => setTimeout(r, 300));
                 console.log('[酷鱼网] 检测到输入框已清空');
                 return true;
