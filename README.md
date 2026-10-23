@@ -2,7 +2,7 @@
 
 > **晚上挂机睡觉，早上起来全改完。**
 
-[![版本](https://img.shields.io/badge/version-1.21.15.6-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
+[![版本](https://img.shields.io/badge/version-1.21.16.0-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
 [![许可证](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
 **📖 使用文档**：[aimarking.five-plus-one.com](https://aimarking.five-plus-one.com) — 安装教程、配置指南、模式详解、30 个平台适配说明、常见问题
@@ -201,21 +201,24 @@
 
 > 完整更新日志见 [更新日志页面](https://aimarking.five-plus-one.com/changelog)
 
-### v1.21.15.1 ~ v1.21.15.6 (2026-10-13/14，灰度中)
+### v1.21.16 (2026-10-23)
 
 **新平台**
-- 新增鑫考校园 (xinkao-campus) 平台适配
-- 新增酷鱼网 (kuyuu.cn) 平台适配，Canvas 答题卡取图 + 页脚试卷号锁定 + 分数确认弹窗自动处理
+- 新增鑫考校园 (xinkao-campus) 平台适配，支持 data-score 满分提取、inputkey 键盘确认提交
+- 新增酷鱼网 (kuyuu.cn) 平台适配，Canvas 答题卡取图（OSS+页脚试卷号锁定）、scores 满分提取、分数确认弹窗自动处理
 
 **新功能**
 - 历史记录支持导出「改卷材料包 ZIP」（改卷记录与答题卡图片），供本地 AI 生成改卷总结
 - 配置支持导出/导入单个方案（含插入图片）
+
+**优化**
 - 材料包ZIP 导出支持有图/无图切换与图片状态标签
 - 设置面板「方案」「批改」页提供方案快捷导入导出
 
 **修复**
 - 设置面板初始化报 handleExportPreset is not defined
 - 酷鱼网分数确认弹窗未自动点击确定
+- 酷鱼网取图重复下载同一张图
 
 ### v1.21.15 (2026-10-13)
 **新平台**
