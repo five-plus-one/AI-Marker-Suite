@@ -85,8 +85,12 @@ function ensureUIIsolation() {
         });
     }
 
-    // ---- 2. 样式防御：仅作用于脚本 UI 根节点内的 button ----
-    // 只反制「压窄导致文字竖排」，不改容器尺寸/定位——拖拽、最小化等逻辑自行管理布局。
+    // ---- 2. 样式防御 ----
+    // (a) 按钮反制「压窄导致文字竖排」；
+    // (b) 批改完成弹窗的布局保护：平台全局 CSS 会概率性打乱弹窗尺寸/网格/底部按钮排布
+    //     （弹窗超出视口、按钮被挤变形、倒计时圆环错位）。只保布局，不碰 transform/定位——
+    //     拖拽、最小化由 JS 管理 transform 与尺寸，加 !important 会锁死它们。
+    //     弹窗的 width/max-width 用 !important 时，最小化需用 setProperty(..., 'important') 内联覆盖。
     if (document.getElementById('ai-ui-hardening-styles')) return;
     const style = document.createElement('style');
     style.id = 'ai-ui-hardening-styles';
@@ -102,6 +106,46 @@ function ensureUIIsolation() {
             text-orientation: mixed !important;
             float: none !important;
             flex-shrink: 0 !important;
+        }
+        /* 批改完成弹窗：尺寸与布局保护（不含 transform/position，拖拽最小化自行管理） */
+        #auto-submit-dialog {
+            width: 880px !important;
+            max-width: 94vw !important;
+            max-height: 90vh !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
+        }
+        #auto-submit-dialog .asd-grid {
+            display: grid !important;
+        }
+        #auto-submit-dialog .asd-footer {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+        }
+        #auto-submit-dialog .asd-buttons {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
+            flex-shrink: 0 !important;
+        }
+        #auto-submit-dialog .asd-countdown {
+            position: relative !important;
+            min-width: 36px !important;
+            height: 36px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-shrink: 0 !important;
+            white-space: nowrap !important;
+        }
+        #auto-submit-dialog .asd-countdown-ring {
+            width: 36px !important;
+            height: 36px !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
         }
     `;
     document.head.appendChild(style);
