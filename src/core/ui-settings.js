@@ -729,6 +729,10 @@ function createSettingsPanel(options) {
                             <button class="preset-btn" id="btn-new-preset">新建</button>
                             <button class="preset-btn danger" id="btn-del-preset">删除</button>
                         </div>
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <button class="footer-btn btn-export-preset" style="flex:1;">导出此方案</button>
+                            <button class="footer-btn btn-import-preset" style="flex:1;">导入方案</button>
+                        </div>
                         <div class="checkbox-group">
                             <input type="checkbox" id="bind-url-checkbox">
                             <label for="bind-url-checkbox">绑定至当前试题</label>
@@ -960,6 +964,8 @@ function createSettingsPanel(options) {
                             <button class="footer-btn" id="btn-import-config" style="flex:1;">导入配置</button>
                         </div>
                         <input type="file" id="import-config-file" accept=".json" style="display:none;">
+                        <input type="file" id="import-preset-file" accept=".json" style="display:none;">
+                        <div style="font-size:11px;color:#86868b;margin-top:4px;">「导出配置」为全量备份（含所有方案、供应商、工作流）；单方案导出/导入见「方案」或「批改」页</div>
                         <div style="margin-top:10px;">
                             <button class="footer-btn danger" id="btn-reset-config" style="width:100%;">恢复默认设置</button>
                         </div>
@@ -1244,6 +1250,63 @@ function createSettingsPanel(options) {
         fileInput.value = '';
     };
 
+    // ===== 单方案导出/导入（含题目/答案/评分标准的插入图片）=====
+    // 按钮可能出现在「方案」「批改」等多页，统一用 class 绑定
+    function handleExportPreset() {
+        const presetName = PresetManager.data.active;
+        const preset = PresetManager.data.list[presetName];
+        if (!preset) { showToast('未找到当前方案'); return; }
+        // 单方案自包含 JSON：question/answer/rubric 含 images[]（base64），完整携带
+        const exportData = {
+            type: 'ai-marker-preset',
+            version: SCRIPT_CONFIG.VERSION,
+            timestamp: new Date().toISOString(),
+            name: presetName,
+            preset: preset
+        };
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ts = new Date().toISOString().slice(0, 10);
+        const safeName = String(presetName).replace(/[\\/:*?"<>|]/g, '_');
+        a.download = `ai-marker-preset_${safeName}_${ts}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`方案「${presetName}」已导出（含图片）`);
+    }
+
+    const presetFileInput = panel.querySelector('#import-preset-file');
+    // 注意：批改页的按钮在 shell 重组时动态创建，绑定放到重组完成后（见文件末尾 buildSettingsShell 内）
+    presetFileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (data.type !== 'ai-marker-preset' || !data.name || !data.preset) {
+                throw new Error('不是有效的单方案配置文件');
+            }
+            const importName = String(data.name).trim();
+            if (!importName) throw new Error('方案名称为空');
+            const exists = !!PresetManager.data.list[importName];
+            if (exists) {
+                const ok = await showConfirmModal(`方案「${importName}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
+                if (!ok) { presetFileInput.value = ''; return; }
+            }
+            // 合并导入：只写入该方案，不影响其他方案/供应商/工作流
+            PresetManager.data.list[importName] = data.preset;
+            PresetManager.data.active = importName;
+            PresetManager.save();
+            renderPresetDropdown();
+            fillFormFromActivePreset();
+            showToast(`方案「${importName}」导入成功${exists ? '（已覆盖）' : ''}`);
+        } catch (err) {
+            if (err) showToast('导入失败：' + (err.message || '文件格式错误'));
+        }
+        presetFileInput.value = '';
+    };
+
     // 恢复默认设置
     panel.querySelector('#btn-reset-config').onclick = async () => {
         if (await showConfirmModal('确定要恢复默认设置吗？\n\n将重置：\n• 所有配置方案\n• 供应商与模型\n• 工作流配置\n\n此操作不可撤销！')) {
@@ -1332,6 +1395,12 @@ function createSettingsPanel(options) {
     loadSettings();
     renderChangelog();
 
+    // 绑定方案导入导出按钮（方案页 + 批改页）
+    // 必须在 createSettingsPanel 内绑定：handleExportPreset/presetFileInput 属于本函数作用域，
+    // 且此时 setupSettingsMenuLayout 已执行完、动态按钮已创建
+    panel.querySelectorAll('.btn-export-preset').forEach(btn => { btn.onclick = handleExportPreset; });
+    panel.querySelectorAll('.btn-import-preset').forEach(btn => { btn.onclick = () => presetFileInput.click(); });
+
     // 初始化后打开侧边栏（除非调用方要求延迟打开，如 OOBE 场景）
     if (!options || !options.deferOpen) {
         requestAnimationFrame(() => openSettingsPanel());
@@ -1411,6 +1480,19 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '分数设置');
     moveSection('grading', '勤勉加分');
     moveSection('grading', '空白答题卡检测');
+    const presetIOShortcut = document.createElement('div');
+    presetIOShortcut.className = 'form-section';
+    presetIOShortcut.innerHTML = `
+        <div class="section-header"><h4>方案导入导出</h4></div>
+        <div class="section-body">
+            <div style="display:flex;gap:8px;">
+                <button class="footer-btn btn-export-preset" style="flex:1;">导出此方案</button>
+                <button class="footer-btn btn-import-preset" style="flex:1;">导入方案</button>
+            </div>
+            <div style="font-size:11px;color:#86868b;margin-top:4px;">导出/导入当前方案（含题目、答案、评卷标准及插入图片）</div>
+        </div>
+    `;
+    pages.grading.appendChild(presetIOShortcut);
     moveSection('ai', '批改工作流');
     moveSection('ai', '供应商与模型');
     const apiWarning = configTab.querySelector('#api-key-warning');

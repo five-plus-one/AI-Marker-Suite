@@ -329,6 +329,103 @@ const HistoryManager = {
         this._download(JSON.stringify(records, null, 2), '评阅历史_' + this._fileTimestamp() + '.json', 'application/json');
     },
 
+    // base64（可含 data: 前缀）→ Uint8Array
+    _base64ToBytes(b64) {
+        const clean = String(b64 || '').replace(/^data:[^,]+,/, '');
+        const bin = atob(clean);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+    },
+
+    /**
+     * 导出「改卷材料包」ZIP：records.json + 图片文件，供本地 AI 生成改卷总结/失分点分析
+     * 结构：
+     *   records.json      — 完整改卷记录（含小题分、纠错、双评/仲裁字段）
+     *   images/<id>/1.png — 按记录 ID 归档答题卡图片（仅当前平台可导出的；includeImages=false 时不打包）
+     *   README.txt        — 使用说明
+     *   MISSING_IMAGES.txt— 无图/跨平台图的记录清单（includeImages=false 时不生成）
+     * @param {Array} records - 要导出的记录，默认全部
+     * @param {Object} options - { includeImages = true } false 时只导出文字记录
+     */
+    async exportMaterialsPackage(records, options = {}) {
+        const { includeImages = true } = options;
+        records = records || this.records;
+        const entries = [];
+        const missing = [];
+        let imageCount = 0;
+
+        if (includeImages) {
+            for (const r of records) {
+                try {
+                    const base64s = await ImageStore.get(r.id);
+                    if (base64s && base64s.length) {
+                        for (let i = 0; i < base64s.length; i++) {
+                            try {
+                                entries.push({
+                                    name: `images/${r.id}/${i + 1}.png`,
+                                    data: this._base64ToBytes(base64s[i])
+                                });
+                                imageCount++;
+                            } catch (e) { /* 单张图解析失败不影响其他 */ }
+                        }
+                    } else {
+                        missing.push(r.id);
+                    }
+                } catch (e) {
+                    missing.push(r.id);
+                }
+            }
+        }
+
+        // records.json：完整记录（不含 base64 图，图片单独归档）
+        const cleanRecords = records.map(r => {
+            const { imageBase64s, ...rest } = r;
+            return rest;
+        });
+        entries.push({
+            name: 'records.json',
+            data: ZipWriter._utf8(JSON.stringify({
+                exportedAt: new Date().toISOString(),
+                count: cleanRecords.length,
+                records: cleanRecords
+            }, null, 2))
+        });
+
+        const readme = [
+            'AI 批改助手 — 改卷材料包',
+            '========================',
+            '',
+            '本材料包用于生成「改卷总结 / 失分点分析」，可整体交给本地 AI 分析。',
+            '',
+            '目录结构：',
+            '  records.json       — 完整改卷记录（分数、小题分、AI评语、纠错理由、双评/仲裁字段等）',
+            includeImages
+                ? '  images/<id>/N.png  — 按记录 ID 归档的答题卡图片'
+                : '  （本次为无图导出，不含 images/ 目录）',
+            includeImages
+                ? '  MISSING_IMAGES.txt — 无图片或图片无法导出的记录清单'
+                : '',
+            '',
+            `导出时间：${new Date().toLocaleString('zh-CN')}`,
+            `记录数：${cleanRecords.length}，图片数：${imageCount}${includeImages ? '' : '（无图模式）'}`,
+            '',
+            includeImages ? '说明：图片按浏览器域名隔离存储，本材料包仅含当前平台的图片。' : '说明：本次导出选择了无图模式，仅包含文字记录。',
+            includeImages ? '跨平台记录的图片无法导出，已在 MISSING_IMAGES.txt 中列出。' : ''
+        ].filter(Boolean).join('\n');
+        entries.push({ name: 'README.txt', data: ZipWriter._utf8(readme) });
+
+        if (includeImages && missing.length) {
+            entries.push({
+                name: 'MISSING_IMAGES.txt',
+                data: ZipWriter._utf8('以下记录没有可导出的答题卡图片（无图，或图片存储在其他平台域名下）：\n\n' + missing.join('\n') + '\n')
+            });
+        }
+
+        const zipBytes = ZipWriter.build(entries);
+        this._download(zipBytes, '改卷材料包_' + this._fileTimestamp() + '.zip', 'application/zip');
+    },
+
     async exportHTML(records, options = {}) {
         const { includeImages = true } = options;
         records = records || this.records;
@@ -442,8 +539,10 @@ const HistoryManager = {
     },
 
     _download(content, filename, type) {
-        const BOM = type.includes('csv') ? '﻿' : '';
-        const blob = new Blob([BOM + content], { type });
+        // 二进制（Uint8Array）直接入 Blob，不加 BOM、不字符串化
+        const isBinary = content instanceof Uint8Array;
+        const BOM = (!isBinary && type.includes('csv')) ? '﻿' : '';
+        const blob = new Blob(isBinary ? [content] : [BOM + content], { type });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = filename; a.click();
@@ -739,6 +838,7 @@ function showHistoryPanel() {
                         <button class="hist-export-fmt active" data-fmt="json">JSON</button>
                         <button class="hist-export-fmt" data-fmt="csv">CSV</button>
                         <button class="hist-export-fmt" data-fmt="html">HTML</button>
+                        <button class="hist-export-fmt" data-fmt="zip">材料包ZIP</button>
                     </div>
                 </div>
                 <div class="hist-tools-right">
@@ -756,7 +856,7 @@ function showHistoryPanel() {
                     <div style="margin-bottom:6px;"><span style="color:#34A853;font-weight:500;">● 有图可导出</span> — 图片在当前网站，可直接导出</div>
                     <div style="margin-bottom:6px;"><span style="color:#856404;font-weight:500;">● 有图·无法导出</span> — 图片在其他网站，需切换到对应网站导出</div>
                     <div style="margin-bottom:8px;"><span style="color:#86868b;font-weight:500;">● 无图</span> — 未保存图片</div>
-                    <div class="hist-help-note">此选项只影响 HTML 导出中的图片展示，不影响文本内容。CSV 和 JSON 导出不受影响。</div>
+                    <div class="hist-help-note">此选项影响 HTML 和材料包ZIP 导出中的图片，不影响文本内容。CSV 和 JSON 导出不受影响。</div>
                 </div>
             </div>
             <div class="hist-batch-bar" id="hist-batch-bar">
@@ -861,12 +961,16 @@ function showHistoryPanel() {
         renderList(currentFilteredRecords);
     };
 
-    // 导出功能：格式选择器 + HTML 图片选项
+    // 导出功能：格式选择器 + 图片选项（HTML / 材料包ZIP 共用）
     let exportFormat = 'json';
-    let htmlImageOption = 'with';
+    let imageOption = 'with';
+
+    function isImageAwareFormat() {
+        return exportFormat === 'html' || exportFormat === 'zip';
+    }
 
     function updateImageFilterVisibility() {
-        const show = (exportFormat === 'html' && htmlImageOption === 'with');
+        const show = isImageAwareFormat() && imageOption === 'with';
         const wrap = document.getElementById('hist-filter-images-wrap');
         if (wrap) wrap.style.display = show ? 'block' : 'none';
         if (!show) {
@@ -880,8 +984,8 @@ function showHistoryPanel() {
             document.querySelectorAll('.hist-export-fmt').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             exportFormat = btn.dataset.fmt;
-            document.getElementById('hist-html-opts').style.display = exportFormat === 'html' ? 'flex' : 'none';
-            if (exportFormat !== 'html') document.getElementById('hist-img-help-content').style.display = 'none';
+            document.getElementById('hist-html-opts').style.display = isImageAwareFormat() ? 'flex' : 'none';
+            if (!isImageAwareFormat()) document.getElementById('hist-img-help-content').style.display = 'none';
             updateImageFilterVisibility();
             currentFilteredRecords = getFilteredRecords();
             updateCount(currentFilteredRecords);
@@ -893,8 +997,8 @@ function showHistoryPanel() {
         btn.onclick = () => {
             document.querySelectorAll('.hist-html-img').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            htmlImageOption = btn.dataset.img;
-            if (htmlImageOption === 'without') document.getElementById('hist-img-help-content').style.display = 'none';
+            imageOption = btn.dataset.img;
+            if (imageOption === 'without') document.getElementById('hist-img-help-content').style.display = 'none';
             updateImageFilterVisibility();
             currentFilteredRecords = getFilteredRecords();
             updateCount(currentFilteredRecords);
@@ -911,7 +1015,8 @@ function showHistoryPanel() {
         const records = getFilteredRecords();
         if (exportFormat === 'json') HistoryManager.exportJSON(records);
         else if (exportFormat === 'csv') HistoryManager.exportCSV(records);
-        else if (exportFormat === 'html') HistoryManager.exportHTML(records, { includeImages: htmlImageOption === 'with' });
+        else if (exportFormat === 'html') HistoryManager.exportHTML(records, { includeImages: imageOption === 'with' });
+        else if (exportFormat === 'zip') HistoryManager.exportMaterialsPackage(records, { includeImages: imageOption === 'with' });
     };
 
     // 批量管理
@@ -1079,7 +1184,7 @@ function showHistoryPanel() {
             const correctedTag = r.isCorrected ? '<span class="hist-tag corrected">已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span class="hist-tag ${r.dualEval.result === 'arbitration' ? 'arbitration' : 'dual'}">双评</span>` : '';
             const diligenceTag = r.diligenceBonus && r.diligenceBonus > 0 ? `<span class="hist-tag" style="color:#34A853;background:rgba(52,168,83,0.08);border-color:rgba(52,168,83,0.15);">+${r.diligenceBonus}勤勉</span>` : '';
-            const showImageTag = (exportFormat === 'html' && htmlImageOption === 'with');
+            const showImageTag = isImageAwareFormat() && imageOption === 'with';
             const imgStatus = showImageTag ? ImageStore.getImageStatus(r.id) : null;
             const imageTag = showImageTag
                 ? (imgStatus.status === 'local'
