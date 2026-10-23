@@ -15,7 +15,7 @@ function getUIRoot() {
 //      会拦截脚本弹窗输入框里的编辑按键 —— 在 body 冒泡阶段按键源属于脚本 UI 时 stopPropagation；
 //   2. 全局 button/布局 CSS（Bootstrap 等）压窄脚本按钮导致文字竖排、网格错位
 //      —— 对脚本 UI 根节点注入防御性 !important 样式（作用域仅限脚本 UI，不触碰平台 DOM）。
-const AI_UI_ROOT_SELECTOR = [
+const AI_UI_ROOTS = [
     '#auto-submit-dialog', '#asd-minimized-bar',
     '.ai-modal-overlay', '#correction-panel',
     '#ai-settings-overlay', '#ai-grading-settings',
@@ -25,7 +25,12 @@ const AI_UI_ROOT_SELECTOR = [
     '#ai-tools-page',
     '.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn',
     '#ai-batch-progress',
-].join(', ');
+];
+const AI_UI_ROOT_SELECTOR = AI_UI_ROOTS.join(', ');
+// 注意：CSS 逗号列表里「A, B, C button」的 button 后缀只作用于 C，
+// 必须逐项拼接出「A button, B button, C button」，否则规则会打到根容器自身，
+// min-width/white-space 等会把弹窗/面板撑爆（#198 引入的回归）。
+const AI_UI_BUTTON_SELECTOR = AI_UI_ROOTS.map(s => s + ' button').join(', ');
 
 let _aiUIIsolationInstalled = false;
 function ensureUIIsolation() {
@@ -48,16 +53,16 @@ function ensureUIIsolation() {
         });
     }
 
-    // ---- 2. 样式防御：仅作用于脚本 UI 根节点内部 ----
+    // ---- 2. 样式防御：仅作用于脚本 UI 根节点内的 button ----
+    // 只反制「压窄导致文字竖排」，不改容器尺寸/定位——拖拽、最小化等逻辑自行管理布局。
     if (document.getElementById('ai-ui-hardening-styles')) return;
     const style = document.createElement('style');
     style.id = 'ai-ui-hardening-styles';
     style.textContent = `
-        /* 样式隔离：防止宿主全局 button/布局规则压窄控件（文字竖排、错位） */
         ${AI_UI_ROOT_SELECTOR} {
             box-sizing: border-box !important;
         }
-        ${AI_UI_ROOT_SELECTOR} button {
+        ${AI_UI_BUTTON_SELECTOR} {
             min-width: max-content !important;
             white-space: nowrap !important;
             word-break: keep-all !important;
@@ -66,24 +71,6 @@ function ensureUIIsolation() {
             float: none !important;
             flex-shrink: 0 !important;
         }
-        #auto-submit-dialog {
-            width: 880px !important;
-            max-width: 94vw !important;
-            max-height: 90vh !important;
-            display: flex !important;
-            flex-direction: column !important;
-            transform: translate(-50%, -50%) !important;
-        }
-        #auto-submit-dialog .asd-grid {
-            display: grid !important;
-        }
-        #auto-submit-dialog .asd-footer,
-        #auto-submit-dialog .asd-buttons,
-        .cor-footer, .ai-modal-footer {
-            display: flex !important;
-            align-items: center !important;
-        }
-        #auto-submit-dialog .asd-buttons { gap: 10px !important; }
     `;
     document.head.appendChild(style);
 }
