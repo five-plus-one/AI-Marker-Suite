@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.5',
+    VERSION: '1.21.16.6',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.6': [
+            '【修复】批改完成弹窗布局概率性错乱：按钮被挤变形、倒计时圆环压在按钮上、弹窗超出屏幕——恢复布局防御样式（不含 transform，拖拽最小化不受影响），并修复暂停时「已暂停」被挤成竖排（#207）',
+        ],
         '1.21.16.5': [
             '【修复】@match 匹配模式统一改为通配协议 *://（原先写死 https:// 的条目），避免 http 访问或部分浏览器匹配不到（#204）',
         ],

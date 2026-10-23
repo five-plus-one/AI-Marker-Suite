@@ -526,7 +526,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 window.aiGradingState.countdownPaused = true;
                 dialog.querySelector('#pause-cancel-btn').textContent = '撤销并退出';
                 const cdDisplay = dialog.querySelector('#countdown-display');
-                if (cdDisplay) cdDisplay.innerHTML = '<span style="font-size:12px;color:#86868b;">已暂停</span>';
+                if (cdDisplay) {
+                    // 倒计时容器固定 36px 是给圆环用的，「已暂停」三个字会被挤成竖排
+                    cdDisplay.style.setProperty('width', 'auto', 'important');
+                    cdDisplay.innerHTML = '<span style="font-size:12px;color:#86868b;">已暂停</span>';
+                }
             } else {
                 if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
                 dialog.remove();
@@ -661,10 +665,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         dialog.querySelector('.asd-header').style.display = 'none';
         if (grid) grid.style.display = 'none';
         if (footer) footer.style.display = 'none';
-        dialog.style.width = 'auto';
-        dialog.style.maxWidth = 'none';
+        // 防御样式对 width/maxWidth 用了 !important，内联必须同样带 important 才能覆盖
+        dialog.style.setProperty('width', 'auto', 'important');
+        dialog.style.setProperty('max-width', 'none', 'important');
+        dialog.style.setProperty('overflow', 'visible', 'important');
         dialog.style.borderRadius = '16px';
-        dialog.style.overflow = 'visible';
         dialog.style.top = 'auto';
         dialog.style.left = '50%';
         dialog.style.transform = 'translateX(-50%)';
@@ -684,10 +689,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             dialog.querySelector('.asd-header').style.display = '';
             if (grid) grid.style.display = '';
             if (footer) footer.style.display = '';
-            dialog.style.width = '';
-            dialog.style.maxWidth = '';
+            dialog.style.removeProperty('width');
+            dialog.style.removeProperty('max-width');
+            dialog.style.removeProperty('overflow');
             dialog.style.borderRadius = '';
-            dialog.style.overflow = '';
             dialog.style.top = '';
             dialog.style.left = '';
             dialog.style.transform = '';
