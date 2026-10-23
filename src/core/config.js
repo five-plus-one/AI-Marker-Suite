@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.2',
+    VERSION: '1.21.16.3',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.3': [
+            '【修复】回滚 #198 样式防御的错误作用域：按钮规则误打到弹窗/设置面板根容器导致宽度失控、菜单宽度不一，改为逐项 button 作用域并移除锁死拖拽/最小化的 transform 覆盖',
+        ],
         '1.21.16.2': [
             '【修复】脚本 UI 与宿主平台隔离：弹窗内编辑按键（Backspace 等）不再被平台全局打分快捷键拦截，按钮布局不再被平台全局样式压窄错位（#197）',
         ],
