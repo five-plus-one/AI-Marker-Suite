@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.3',
+    VERSION: '1.21.16.5',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,13 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.5': [
+            '【修复】@match 匹配模式统一改为通配协议 *://（原先写死 https:// 的条目），避免 http 访问或部分浏览器匹配不到（#204）',
+        ],
+        '1.21.16.4': [
+            '【修复】脚本弹窗内 Backspace/删除彻底恢复：平台全局打分快捷键绑在 body 同节点上，stopPropagation 挡不住同节点监听器，改为 stopImmediatePropagation 并在捕获阶段拦截（#202）',
+            '【修复】浮动按钮（AI 批改/历史/设置）纳入样式防御作用域，避免被平台全局样式压成竖排（#202）',
+        ],
         '1.21.16.3': [
             '【修复】回滚 #198 样式防御的错误作用域：按钮规则误打到弹窗/设置面板根容器导致宽度失控、菜单宽度不一，改为逐项 button 作用域并移除锁死拖拽/最小化的 transform 覆盖',
         ],
