@@ -2,10 +2,77 @@
 // 在 <frameset> 文档中，document.body 是 <frameset> 元素，不会渲染非 frame 子元素。
 // 此时改用 document.documentElement (<html>) 作为挂载点。
 function getUIRoot() {
+    ensureUIIsolation();
     if (document.body && document.body.tagName === 'FRAMESET') {
         return document.documentElement;
     }
     return document.body;
+}
+
+// ========== UI 隔离（键盘 + 样式） ==========
+// 宿主平台常见两类污染：
+//   1. document/body 级全局快捷键（如阅卷平台数字键盘：Backspace=清除分数、数字键=输分），
+//      会拦截脚本弹窗输入框里的编辑按键 —— 在 body 冒泡阶段按键源属于脚本 UI 时 stopPropagation；
+//   2. 全局 button/布局 CSS（Bootstrap 等）压窄脚本按钮导致文字竖排、网格错位
+//      —— 对脚本 UI 根节点注入防御性 !important 样式（作用域仅限脚本 UI，不触碰平台 DOM）。
+const AI_UI_ROOTS = [
+    '#auto-submit-dialog', '#asd-minimized-bar',
+    '.ai-modal-overlay', '#correction-panel',
+    '#ai-settings-overlay', '#ai-grading-settings',
+    '#ai-md-editor-overlay', '#ai-md-editor', '.md-formula-panel',
+    '#ai-crop-overlay', '.ai-img-choice-overlay', '.ai-recog-overlay',
+    '#ai-history-overlay', '#ai-history-panel', '#ai-history-detail',
+    '#ai-tools-page',
+    '.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn',
+    '#ai-batch-progress',
+];
+const AI_UI_ROOT_SELECTOR = AI_UI_ROOTS.join(', ');
+// 注意：CSS 逗号列表里「A, B, C button」的 button 后缀只作用于 C，
+// 必须逐项拼接出「A button, B button, C button」，否则规则会打到根容器自身，
+// min-width/white-space 等会把弹窗/面板撑爆（#198 引入的回归）。
+const AI_UI_BUTTON_SELECTOR = AI_UI_ROOTS.map(s => s + ' button').join(', ');
+
+let _aiUIIsolationInstalled = false;
+function ensureUIIsolation() {
+    if (_aiUIIsolationInstalled) return;
+    _aiUIIsolationInstalled = true;
+
+    // ---- 1. 键盘隔离：脚本 UI 内的按键不冒泡到宿主 document/body 全局监听 ----
+    // 只 stopPropagation 不 preventDefault：默认编辑行为（Backspace 删字）不受影响，
+    // 脚本 UI 自身挂在输入框上的处理器（target/更内层）先于 body 执行，也不受影响。
+    const stopIfOurs = (e) => {
+        const t = e.target;
+        if (t && t.closest && t.closest(AI_UI_ROOT_SELECTOR)) {
+            e.stopPropagation();
+        }
+    };
+    const mount = (document.body && document.body.tagName === 'FRAMESET') ? document.documentElement : document.body;
+    if (mount) {
+        ['keydown', 'keypress', 'keyup'].forEach(type => {
+            mount.addEventListener(type, stopIfOurs, false);
+        });
+    }
+
+    // ---- 2. 样式防御：仅作用于脚本 UI 根节点内的 button ----
+    // 只反制「压窄导致文字竖排」，不改容器尺寸/定位——拖拽、最小化等逻辑自行管理布局。
+    if (document.getElementById('ai-ui-hardening-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'ai-ui-hardening-styles';
+    style.textContent = `
+        ${AI_UI_ROOT_SELECTOR} {
+            box-sizing: border-box !important;
+        }
+        ${AI_UI_BUTTON_SELECTOR} {
+            min-width: max-content !important;
+            white-space: nowrap !important;
+            word-break: keep-all !important;
+            writing-mode: horizontal-tb !important;
+            text-orientation: mixed !important;
+            float: none !important;
+            flex-shrink: 0 !important;
+        }
+    `;
+    document.head.appendChild(style);
 }
 
 // ========== 浮动按钮让位（设置面板打开时避免遮挡） ==========
