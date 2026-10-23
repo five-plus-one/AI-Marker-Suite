@@ -12,7 +12,7 @@ function getUIRoot() {
 // ========== UI 隔离（键盘 + 样式） ==========
 // 宿主平台常见两类污染：
 //   1. document/body 级全局快捷键（如阅卷平台数字键盘：Backspace=清除分数、数字键=输分），
-//      会拦截脚本弹窗输入框里的编辑按键 —— 在 body 冒泡阶段按键源属于脚本 UI 时 stopPropagation；
+//      会拦截脚本弹窗输入框里的编辑按键；
 //   2. 全局 button/布局 CSS（Bootstrap 等）压窄脚本按钮导致文字竖排、网格错位
 //      —— 对脚本 UI 根节点注入防御性 !important 样式（作用域仅限脚本 UI，不触碰平台 DOM）。
 const AI_UI_ROOTS = [
@@ -27,28 +27,60 @@ const AI_UI_ROOTS = [
     '#ai-batch-progress',
 ];
 const AI_UI_ROOT_SELECTOR = AI_UI_ROOTS.join(', ');
-// 注意：CSS 逗号列表里「A, B, C button」的 button 后缀只作用于 C，
-// 必须逐项拼接出「A button, B button, C button」，否则规则会打到根容器自身，
-// min-width/white-space 等会把弹窗/面板撑爆（#198 引入的回归）。
-const AI_UI_BUTTON_SELECTOR = AI_UI_ROOTS.map(s => s + ' button').join(', ');
+// 按钮防御规则的作用域：
+//   - 容器根节点 -> 命中其内部 button（拼成「X button」）
+//   - 浮动按钮本身就是 button -> 必须命中自身（不能拼成「.ai-grade-btn button」，那是在找它的子孙）
+// 同样注意 CSS 逗号列表里「A, B, C button」的 button 后缀只作用于 C，必须逐项拼接。
+const AI_UI_SELF_BUTTONS = ['.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn'];
+const AI_UI_BUTTON_SELECTOR = AI_UI_ROOTS
+    .map(s => (AI_UI_SELF_BUTTONS.indexOf(s) !== -1 ? s : s + ' button'))
+    .join(', ');
+
+// 判断事件源是否位于脚本 UI 内
+function isAIUIEvent(e) {
+    const t = e.target;
+    return !!(t && t.closest && t.closest(AI_UI_ROOT_SELECTOR));
+}
 
 let _aiUIIsolationInstalled = false;
 function ensureUIIsolation() {
     if (_aiUIIsolationInstalled) return;
     _aiUIIsolationInstalled = true;
 
-    // ---- 1. 键盘隔离：脚本 UI 内的按键不冒泡到宿主 document/body 全局监听 ----
-    // 只 stopPropagation 不 preventDefault：默认编辑行为（Backspace 删字）不受影响，
-    // 脚本 UI 自身挂在输入框上的处理器（target/更内层）先于 body 执行，也不受影响。
-    const stopIfOurs = (e) => {
-        const t = e.target;
-        if (t && t.closest && t.closest(AI_UI_ROOT_SELECTOR)) {
-            e.stopPropagation();
+    // ---- 1. 键盘隔离 ----
+    // 实测（2026-10-23 y.ajia.cn）：平台用 jQuery 把全局打分快捷键绑在 body 上：
+    //   body keydown [reset]：Backspace/Delete 且 target 非 <input> -> 触发清分数 + return false（取消删字）
+    //   body keypress       ：非数字键 -> return false（吞掉空格/回车等默认行为）
+    // 由于平台处理器与我们的隔离监听器挂在同一个 body 节点上，stopPropagation()
+    // 挡不住同节点的其他监听器，必须用 stopImmediatePropagation()；
+    // 且要区分两种时机，才能既掐死平台处理器、又不误伤脚本 UI 自身的按键处理器：
+    //
+    //  (a) body 捕获阶段 - 拦 keypress/keyup 和 Backspace/Delete 的 keydown。
+    //      这几类不需要脚本 UI 自身的 JS 处理器（删字/输入走浏览器默认行为，
+    //      stopImmediatePropagation 不取消默认行为），在到达 target 前就掐断，
+    //      平台处理器无论注册先后都收不到。
+    //  (b) body 冒泡阶段 - 拦其余 keydown（Enter、Ctrl+B、可打印字符等）。
+    //      此时 target 上的处理器（Enter 关弹窗、Ctrl+B 加粗等）已执行完，
+    //      再掐断后续 body 同节点的平台处理器。
+    const shieldIfOurs = (e) => {
+        if (!isAIUIEvent(e)) return;
+        // IME 组字过程中不干预（keyCode 229 / isComposing）
+        if (e.isComposing || e.keyCode === 229) return;
+        const isEditKey = e.key === 'Backspace' || e.key === 'Delete'
+            || e.keyCode === 8 || e.keyCode === 46;
+        if (e.type === 'keypress' || e.type === 'keyup' || (e.type === 'keydown' && isEditKey)) {
+            e.stopImmediatePropagation();
         }
+    };
+    const stopIfOurs = (e) => {
+        if (!isAIUIEvent(e)) return;
+        if (e.isComposing || e.keyCode === 229) return;
+        e.stopImmediatePropagation();
     };
     const mount = (document.body && document.body.tagName === 'FRAMESET') ? document.documentElement : document.body;
     if (mount) {
         ['keydown', 'keypress', 'keyup'].forEach(type => {
+            mount.addEventListener(type, shieldIfOurs, true);
             mount.addEventListener(type, stopIfOurs, false);
         });
     }
