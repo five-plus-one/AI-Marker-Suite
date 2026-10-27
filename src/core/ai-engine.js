@@ -659,15 +659,18 @@ async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, 
 
 // ========== 双评引擎 ==========
 // 双评小题分数合并（逐题取平均；评语有差异时并列两份）
-function mergeDualSubScores(detailA, detailB) {
+function mergeDualSubScores(detailA, detailB, scoringConfig) {
     if (!detailA?.subScores || !detailB?.subScores ||
         detailA.subScores.length !== detailB.subScores.length) {
         return detailA?.subScores || null;
     }
     return detailA.subScores.map((sqA, i) => {
         const sqB = detailB.subScores[i];
+        // 按小题取整步长取平均（默认 step=1 且 method=round 时与原先 Math.round 完全一致）
+        const roundStep = sqA.roundStep || scoringConfig?.units?.[i]?.roundStep || scoringConfig?.roundStep || 1;
+        const roundMethod = scoringConfig?.roundMethod || 'round';
         const avgScore = (sqA.score !== null && sqA.score !== undefined && sqB.score !== null && sqB.score !== undefined)
-            ? Math.round((sqA.score + sqB.score) / 2)
+            ? ScoreCalculator.round((sqA.score + sqB.score) / 2, { roundStep, roundMethod })
             : (sqA.score ?? sqB.score);
         // 按评语内容决定是否并列（与给分是否相同无关）：措辞不同就都展示
         const cA = (sqA.comment || '').trim();
@@ -756,11 +759,15 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
 
     // 分差在阈值内
     if (diff <= threshold) {
-        let finalScore = Math.round((scoreA + scoreB) / 2);
+        // 总分取整同步走 roundStep/roundMethod（默认配置下与原 Math.round 一致）
+        let finalScore = ScoreCalculator.round((scoreA + scoreB) / 2, {
+            roundStep: config.scoring?.roundStep || 1,
+            roundMethod: config.scoring?.roundMethod || 'round'
+        });
         console.log(`✅ [双评] 分差在阈值内，取平均分: ${finalScore}`);
 
         // 处理分小题分数：对每个小题分别取平均
-        const finalSubScores = mergeDualSubScores(detailA, detailB);
+        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
         if (finalSubScores && detailA?.subScores && detailB?.subScores &&
             detailA.subScores.length === detailB.subScores.length) {
             console.log(`✅ [双评] 分小题平均: ${finalSubScores.map(s => s.label + '=' + s.score).join(', ')}`);

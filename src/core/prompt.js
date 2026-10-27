@@ -89,6 +89,16 @@ function buildDiligencePromptSection(config) {
 
 // ---------- 通用约束片段（所有评分 Prompt 共用） ----------
 // startNum: 起始编号，避免各 Prompt 手动拼编号出错
+// 小题分取整步长的文字描述（供提示词使用）
+// step=1 时输出与历史完全一致（「一个整数」），保证默认配置下提示词逐字不变
+function describeScoreStep(step) {
+    const s = parseFloat(step) || 1;
+    if (s === 1) return '（一个整数）';
+    if (s === 0.5) return '（0.5 的倍数，如 0、0.5、1、1.5、2）';
+    if (s === 0.25) return '（0.25 的倍数，如 0、0.25、0.5、0.75、1）';
+    return '（' + s + ' 的倍数，如 0、' + s + '、' + (s * 2) + '）';
+}
+
 function buildCommonConstraints(startNum) {
     const n = startNum || 5;
     return `${n}. 如果无法识别学生答案，在【答案复述】写"未能识别"
@@ -392,9 +402,12 @@ ${resultB.calculation ? `老师B分数计算：${resultB.calculation}` : ''}
 （抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）`;
 
     if (hasSub) {
-        for (const sq of subQuestions) {
-            prompt += `\n\n${sq.label}分数：（一个整数）`;
-        }
+        // resultA.subScores 不带 roundStep，从 scoring.units 按序取
+        const arbUnits = config.scoring?.units || [];
+        subQuestions.forEach((sq, i) => {
+            const step = arbUnits[i]?.roundStep || config.scoring?.roundStep || 1;
+            prompt += `\n\n${sq.label}分数：${describeScoreStep(step)}`;
+        });
     }
 
     prompt += `
@@ -491,7 +504,7 @@ function buildSubQuestionPrompt(config) {
 （写出各小题计算公式）`;
 
     for (const sq of config.subQuestions) {
-        prompt += `\n\n${sq.label}分数：（一个整数）`;
+        prompt += `\n\n${sq.label}分数：${describeScoreStep(sq.roundStep)}`;
         prompt += `\n${sq.label}评语：（简短评语）`;
     }
 
@@ -698,7 +711,12 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     // 从 scoring.units 派生 subQuestions（唯一数据源）
     const units = config.scoring?.units || [];
     const subQuestions = units.length > 1
-        ? units.map((u, i) => ({ id: String.fromCharCode(97 + i), label: u.label, maxScore: u.maxScore }))
+        ? units.map((u, i) => ({
+            id: String.fromCharCode(97 + i),
+            label: u.label,
+            maxScore: u.maxScore,
+            roundStep: u.roundStep || config.scoring?.roundStep || 1
+        }))
         : [];
     const hasSub = subQuestions.length > 0;
 
