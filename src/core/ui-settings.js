@@ -774,7 +774,7 @@ function createSettingsPanel(options) {
                             <input type="radio" name="output-mode" value="detailed" id="output-mode-detailed">
                             <label for="output-mode-detailed">详细（默认）</label>
                             <input type="radio" name="output-mode" value="score-only" id="output-mode-score-only">
-                            <label for="output-mode-score-only">精简（仅分数）</label>
+                            <label for="output-mode-score-only">精简（仅分数）<span style="color:#E67E22;font-size:10px;font-weight:600;">实验性</span></label>
                         </div>
                         <div class="mode-desc" id="output-mode-desc">输出答案复述、评分依据、分数计算与评语，可解释性强。</div>
                     </div>
@@ -1320,6 +1320,8 @@ function createSettingsPanel(options) {
             // 合并导入：只写入该方案，不影响其他方案/供应商/工作流
             PresetManager.data.list[importName] = data.preset;
             PresetManager.data.active = importName;
+            // 导入旧版本方案时补全新字段（outputMode/retryPolicy 等），与启动时迁移同源
+            if (typeof PresetManager.migrateAll === 'function') PresetManager.migrateAll();
             PresetManager.save();
             renderPresetDropdown();
             fillFormFromActivePreset();
@@ -1501,6 +1503,7 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '运行模式');
     moveSection('grading', '批改上下文');
     moveSection('grading', '分数设置');
+    moveSection('grading', '输出模式');
     moveSection('grading', '勤勉加分');
     moveSection('grading', '空白答题卡检测');
     const presetIOShortcut = document.createElement('div');
@@ -1521,6 +1524,7 @@ function setupSettingsMenuLayout(panel) {
     const apiWarning = configTab.querySelector('#api-key-warning');
     if (apiWarning) pages.ai.appendChild(apiWarning);
     moveSection('automation', '批阅份数');
+    moveSection('automation', '自动重试');
     moveSection('data', '历史记录');
     const historyShortcut = document.createElement('div');
     historyShortcut.className = 'form-section';
@@ -1863,8 +1867,8 @@ function fillFormFromActivePreset() {
     const outputModeRadio = document.querySelector(`input[name="output-mode"][value="${outputModeVal}"]`);
     if (outputModeRadio) outputModeRadio.checked = true;
     const outputModeDescs = {
-        detailed: '输出答案复述、评分依据、分数计算与评语，可解释性强。',
-        'score-only': '只输出各小题分数与总分，批改速度更快（教师实测约 3 倍），但纠错面板的「提示词优化」需要识别答案，此模式下不可用。'
+        detailed: '输出答案复述、评分依据、分数计算与评语，可解释性强。（推荐）',
+        'score-only': '【实验性】只输出各小题分数与总分，批改速度更快（教师实测约 3 倍）。注意：纠错面板的「提示词优化」需要识别答案，此模式下不可用。'
     };
     const outputDescEl = document.getElementById('output-mode-desc');
     if (outputDescEl) outputDescEl.textContent = outputModeDescs[outputModeVal];

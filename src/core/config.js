@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.11',
+    VERSION: '1.21.16.12',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,11 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.12': [
+            '【修复】设置面板「输出模式」「自动重试」两区未加入分页布局导致不显示（#210）',
+            '【修复】导入旧版本方案后自动补全 outputMode/retryPolicy 字段，与启动时迁移同源（#210）',
+            '【优化】精简输出模式标记为「实验性」，仅在配置选项中开启',
+        ],
         '1.21.16.11': [
             '【新功能】新增「仅输出分数」精简批改模式（可切换，详细模式仍为默认）：省去答案复述/评分依据/分数计算/评语，批改速度更快（#210）',
         ],
