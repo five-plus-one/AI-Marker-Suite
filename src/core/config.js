@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.9',
+    VERSION: '1.21.16.10',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.10': [
+            '【新平台】新增云阅卷(开州) (yyj.kzedu.cn) 平台适配，支持 scoreitem 点击给分、「自动给分」勾选状态自适应提交、图片路径变化翻卷检测（#217）',
+        ],
         '1.21.16.9': [
             '【修复】无人值守可靠性：超时/空响应/流未结束退避重试（5s·10s·15s），次数与超时开关可配置（#211）',
         ],
