@@ -614,6 +614,56 @@ function recordOutputLimitOutcome(config) {
     }
 }
 
+// ========== 瞬态错误退避重试（#211） ==========
+// 超时 / 模型返回空内容 / 流式未完整结束，此前是零重试直接抛错 -> 主流程暂停，
+// 无人值守形同虚设。这里做退避重试（默认 5s/10s/15s），次数与开关可配置。
+//
+// 设计约束（保证不影响既有流程与适配器）：
+//   - 只覆盖原先「零重试」的瞬态错误；截断升级、5xx/429 重试仍走 callAI 原有逻辑
+//   - 不消耗 requestBudget（那是主逻辑的请求预算，瞬态重试由 retryPolicy 单独限额）
+//   - 答卷一致性由填分前的 verifyPaperUnchanged 兜底（#212），重试本身不校验
+function getRetryPolicy(config) {
+    const p = (config && config.retryPolicy) || {};
+    const mr = Number(p.maxRetries);
+    return {
+        retryOnEmpty: p.retryOnEmpty !== false,
+        retryOnTimeout: p.retryOnTimeout !== false,
+        maxRetries: Number.isInteger(mr) ? Math.min(Math.max(mr, 0), 5) : 3,
+        backoffBaseMs: Number(p.backoffBaseMs) > 0 ? Number(p.backoffBaseMs) : 5000
+    };
+}
+
+function classifyTransientError(error, policy) {
+    const msg = (error && error.message) || '';
+    if (msg.indexOf('用户主动暂停') !== -1) return null;              // 用户操作，不重试
+    if (msg.indexOf('被拦截') !== -1) return null;                    // 跨域配置问题，重试无意义
+    if (msg.indexOf('请求超时') !== -1) {
+        // 超时时服务端可能仍在生成，重试会重复计费 —— 由 retryOnTimeout 控制
+        return policy.retryOnTimeout ? '请求超时' : null;
+    }
+    if (msg.indexOf('AI未返回可用内容') !== -1) {
+        return policy.retryOnEmpty ? '模型返回空内容' : null;
+    }
+    if (msg.indexOf('未完整结束') !== -1) return '响应未完整结束';
+    return null;
+}
+
+async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
+    const policy = getRetryPolicy(config);
+    for (let i = 0; i <= policy.maxRetries; i++) {
+        try {
+            return await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
+        } catch (error) {
+            const kind = classifyTransientError(error, policy);
+            if (!kind || i >= policy.maxRetries) throw error;
+            const delay = policy.backoffBaseMs * (i + 1);
+            console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
+            if (onStreamUpdate) onStreamUpdate(`⏳ ${kind}，${Math.round(delay / 1000)}s 后自动重试（第${i + 1}/${policy.maxRetries}次）…`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     const budget = config.requestBudget || { remaining: 3 };
@@ -628,7 +678,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         if (budget.remaining <= 0) throw new Error('AI请求次数已达到上限');
         budget.remaining--;
         try {
-            const result = await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
+            const result = await callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
             if (upgraded && config.outputObservation) config.outputObservation.upgraded = true;
             return result;
         } catch (error) {

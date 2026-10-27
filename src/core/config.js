@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.8',
+    VERSION: '1.21.16.9',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.9': [
+            '【修复】无人值守可靠性：超时/空响应/流未结束退避重试（5s·10s·15s），次数与超时开关可配置（#211）',
+        ],
         '1.21.16.8': [
             '【修复】数据安全：填分前校验答卷一致性，AI 请求期间翻卷不再把旧卷分数填进新卷并自动提交（#212）',
         ],

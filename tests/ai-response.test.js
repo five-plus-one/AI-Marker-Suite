@@ -70,8 +70,46 @@ test('接口默认额度截断时不使用部分评分或重复请求', async ()
     assert.equal(requests.length, 1);
 });
 
-test('超时状态不明时不重复发送请求', async () => {
-    const { call, requests } = setup([{ kind: 'timeout' }]);
+test('关闭超时重试时保持旧行为：状态不明不重复发送请求', async () => {
+    const { call, requests } = setup([{ kind: 'timeout' }], { ...config, retryPolicy: { retryOnTimeout: false } });
+    await assert.rejects(call(), /请求超时/);
+    assert.equal(requests.length, 1);
+});
+
+test('超时默认退避重试，全部失败后抛出超时错误', async () => {
+    const { call, requests } = setup([
+        { kind: 'timeout' }, { kind: 'timeout' }, { kind: 'timeout' }, { kind: 'timeout' }
+    ]);
+    await assert.rejects(call(), /请求超时/);
+    assert.equal(requests.length, 4, '应为 1 次原始请求 + 3 次退避重试');
+});
+
+test('超时重试后成功则返回结果', async () => {
+    const body = event({ delta: { content: '得分：9' }, finish_reason: null }) +
+        event({ delta: {}, finish_reason: 'stop' }) + 'data: [DONE]\n\n';
+    const { call, requests } = setup([{ kind: 'timeout' }, { body }]);
+    assert.equal(await call(), '得分：9');
+    assert.equal(requests.length, 2);
+});
+
+test('模型返回空内容默认退避重试', async () => {
+    const empty = event({ delta: {}, finish_reason: 'stop' }) + 'data: [DONE]\n\n';
+    const body = event({ delta: { content: '得分：5' }, finish_reason: null }) +
+        event({ delta: {}, finish_reason: 'stop' }) + 'data: [DONE]\n\n';
+    const { call, requests } = setup([{ body: empty }, { body }]);
+    assert.equal(await call(), '得分：5');
+    assert.equal(requests.length, 2);
+});
+
+test('关闭空响应重试时不重复发送请求', async () => {
+    const empty = event({ delta: {}, finish_reason: 'stop' }) + 'data: [DONE]\n\n';
+    const { call, requests } = setup([{ body: empty }], { ...config, retryPolicy: { retryOnEmpty: false } });
+    await assert.rejects(call(), /未返回可用内容/);
+    assert.equal(requests.length, 1);
+});
+
+test('maxRetries 可配置为 0 时等价于不重试', async () => {
+    const { call, requests } = setup([{ kind: 'timeout' }], { ...config, retryPolicy: { maxRetries: 0 } });
     await assert.rejects(call(), /请求超时/);
     assert.equal(requests.length, 1);
 });
@@ -83,9 +121,13 @@ test('明确的服务端错误至多重试一次', async () => {
     assert.equal(requests.length, 2);
 });
 
-test('流式响应缺少结束标记时暂停', async () => {
-    const { call } = setup([{ body: event({ delta: { content: '得分：1' }, finish_reason: null }) }]);
+test('流式响应缺少结束标记时退避重试，耗尽后仍报未完整结束', async () => {
+    const incomplete = event({ delta: { content: '得分：1' }, finish_reason: null });
+    const { call, requests } = setup([
+        { body: incomplete }, { body: incomplete }, { body: incomplete }, { body: incomplete }
+    ]);
     await assert.rejects(call(), /未完整结束/);
+    assert.equal(requests.length, 4, '应为 1 次原始请求 + 3 次退避重试');
 });
 
 test('限流后截断时停止请求并保留待核查状态', async () => {
