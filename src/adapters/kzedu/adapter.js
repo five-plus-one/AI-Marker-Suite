@@ -20,9 +20,11 @@ const KzeduAdapter = {
         return window.location.hostname.includes('yyj.kzedu.cn');
     },
 
-    // 快速页面检查（不等待 DOM），用于 URL 变化监听器
+    // 快速页面检查（不等待 DOM），用于 URL 变化监听器（OOBE 弹窗判定走这里）
+    // 必须精确匹配 /marking/grading 路由：
+    // 不能用 includes('/marking/grading')——任务列表页 #/marking/gradingList/list 也含该子串，会误弹 OOBE
     isMarkingPage() {
-        return window.location.hash.includes('/marking/grading');
+        return /#\/marking\/grading(\?|$)/.test(window.location.hash);
     },
 
     async detectMarkingPage() {
