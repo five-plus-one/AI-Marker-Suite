@@ -67,6 +67,11 @@ const PresetManager = {
                     cfg.scoring = { roundStep: 1, roundMethod: 'round' };
                     changed = true;
                 }
+                // 迁移：输出模式默认详细（仅在缺失时补，不覆盖用户选择）
+                if (!cfg.outputMode) {
+                    cfg.outputMode = 'detailed';
+                    changed = true;
+                }
                 if (cfg.scoring && !cfg.scoring.diligence) {
                     cfg.scoring.diligence = { enabled: false, maxBonus: 3, decayPower: 2, criteria: '' };
                     changed = true;
