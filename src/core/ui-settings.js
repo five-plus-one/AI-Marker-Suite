@@ -768,6 +768,19 @@ function createSettingsPanel(options) {
                 </div>
 
                 <div class="form-section">
+                    <div class="section-header"><h4>输出模式</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="mode-segmented">
+                            <input type="radio" name="output-mode" value="detailed" id="output-mode-detailed">
+                            <label for="output-mode-detailed">详细（默认）</label>
+                            <input type="radio" name="output-mode" value="score-only" id="output-mode-score-only">
+                            <label for="output-mode-score-only">精简（仅分数）</label>
+                        </div>
+                        <div class="mode-desc" id="output-mode-desc">输出答案复述、评分依据、分数计算与评语，可解释性强。</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
                     <div class="section-header"><h4>自动重试</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
                         <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
@@ -1845,7 +1858,25 @@ function fillFormFromActivePreset() {
     const desc = document.getElementById('mode-desc');
     if (desc) { desc.textContent = modeDescs[gradingMode]; desc.className = 'mode-desc ' + (modeDescClasses[gradingMode] || ''); }
 
+    // 输出模式
+    const outputModeVal = config.outputMode === 'score-only' ? 'score-only' : 'detailed';
+    const outputModeRadio = document.querySelector(`input[name="output-mode"][value="${outputModeVal}"]`);
+    if (outputModeRadio) outputModeRadio.checked = true;
+    const outputModeDescs = {
+        detailed: '输出答案复述、评分依据、分数计算与评语，可解释性强。',
+        'score-only': '只输出各小题分数与总分，批改速度更快（教师实测约 3 倍），但纠错面板的「提示词优化」需要识别答案，此模式下不可用。'
+    };
+    const outputDescEl = document.getElementById('output-mode-desc');
+    if (outputDescEl) outputDescEl.textContent = outputModeDescs[outputModeVal];
+
     // 自动重试配置
+    document.querySelectorAll('input[name="output-mode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const d = document.getElementById('output-mode-desc');
+            if (d) d.textContent = outputModeDescs[radio.value] || '';
+        });
+    });
+
     const retryPolicyCfg = config.retryPolicy || {};
     const retryMaxInput = document.getElementById('retry-max-retries');
     if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
@@ -2720,6 +2751,9 @@ function saveAISettings() {
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
 
+    // 保存输出模式
+    const outputMode = document.querySelector('input[name="output-mode"]:checked')?.value || 'detailed';
+
     // 保存自动重试配置
     const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
@@ -2754,6 +2788,7 @@ function saveAISettings() {
                 criteria: diligenceCriteria
             }
         },
+        outputMode: outputMode,
         retryPolicy: {
             maxRetries: retryMaxRetries,
             retryOnTimeout: retryOnTimeout
@@ -2781,7 +2816,8 @@ function saveAISettings() {
         ...config,
         scoring: { ...oldConfig?.scoring, ...config.scoring },
         batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig },
-        retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy }
+        retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy },
+        outputMode: config.outputMode
     };
 
     const currentUrlId = PresetManager.getTaskIdentifier();
