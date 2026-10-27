@@ -30,6 +30,72 @@ async function detectMarkingPage() {
     return false;
 }
 
+// ========== 答卷一致性校验（数据安全） ==========
+// AI 请求耗时期间若用户翻卷，AI 返回的是旧卷分数，而填分按当前页面 DOM 填，
+// 会把旧卷分数填进新卷并自动提交。这里在填分前校验答卷是否仍是原来那份。
+//
+// 保守策略（保证不影响任何适配器的既有流程）：
+//   - 未变化  -> 返回 unchanged:true，主流程零影响（绝大多数情况）
+//   - 明确变了 -> 返回 unchanged:false，由调用方抛错进入既有暂停流程
+//   - 无法判定 -> 返回 unchanged:null，放行并打告警（不阻塞）
+// 任何异常都归入「无法判定」，绝不因校验本身破坏正常批改。
+//
+// 平台差异处理：
+//   - 多数适配器返回 img.src（http/https），稳定且廉价，可直接比对
+//   - c30 / lehua 等 Canvas 型平台返回 canvas.toDataURL() 的 data: URL，
+//     每次导出可能不同，且 gatherAnswerImages 内含 0.5~1s 等待 —— 比对既不可靠
+//     又会平白增加耗时。这类平台跳过图片比对，退化为「分数输入框是否清空」弱信号。
+async function scoreInputsCleared(adapter) {
+    try {
+        if (!adapter || typeof adapter.getScoreInputs !== 'function') return false;
+        const inputs = adapter.getScoreInputs() || [];
+        if (!inputs.length) return false;
+        return inputs.every(x => x && x.element && !String(x.element.value || '').trim());
+    } catch (e) {
+        return false;
+    }
+}
+
+async function verifyPaperUnchanged(adapter, recordedUrls) {
+    try {
+        if (!adapter || typeof adapter.gatherAnswerImages !== 'function') {
+            return { unchanged: null, reason: '适配器不支持 gatherAnswerImages' };
+        }
+        if (!recordedUrls || !recordedUrls.length) {
+            return { unchanged: null, reason: '未记录基准图片' };
+        }
+        const baseline = recordedUrls[0];
+
+        // Canvas 型平台（data: URL）：图片不可比对，跳过重取以免误判与额外耗时
+        if (typeof baseline === 'string' && baseline.indexOf('data:') === 0) {
+            if (await scoreInputsCleared(adapter)) {
+                return { unchanged: false, reason: '分数输入框已清空（Canvas 型平台，图片不可比对）' };
+            }
+            return { unchanged: null, reason: 'Canvas 型平台，图片不可比对，按原流程继续' };
+        }
+
+        const newUrls = await adapter.gatherAnswerImages();
+        if (!newUrls || !newUrls.length) {
+            return { unchanged: null, reason: '重新获取图片为空' };
+        }
+        // 张数与首图均一致 —— 判定未变化
+        if (recordedUrls.length === newUrls.length && baseline === newUrls[0]) {
+            return { unchanged: true };
+        }
+        // 首图不一致 —— 强证据表明答卷已切换。
+        // 辅证：分数输入框是否被清空（与 waitForNextPaper 的翻卷判据同源）
+        const cleared = await scoreInputsCleared(adapter);
+        return {
+            unchanged: false,
+            reason: cleared
+                ? '答题卡图片已变化且分数输入框已清空'
+                : '答题卡图片已变化'
+        };
+    } catch (e) {
+        return { unchanged: null, reason: '校验异常: ' + (e && e.message) };
+    }
+}
+
 // ========== 主控流程 ==========
 async function startAutoGrading() {
     window.aiGradingState.abortController = new AbortController();
@@ -233,6 +299,18 @@ async function startAutoGrading() {
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
+            // ===== 答卷一致性校验（数据安全）=====
+            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷
+            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
+            const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
+            if (paperCheck.unchanged === false) {
+                console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
+                throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
+            }
+            if (paperCheck.unchanged === null) {
+                console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+            }
+
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
 
             // 填分：优先使用新接口 fillScores，回退到旧接口 fillScore

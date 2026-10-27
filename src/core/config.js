@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.7',
+    VERSION: '1.21.16.8',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.8': [
+            '【修复】数据安全：填分前校验答卷一致性，AI 请求期间翻卷不再把旧卷分数填进新卷并自动提交（#212）',
+        ],
         '1.21.16.7': [
             '【修复】小题分取整步长 0.5/0.25 时分数精度丢失：提示词改按步长措辞、双评合并按 roundStep 取整（#214）',
         ],
