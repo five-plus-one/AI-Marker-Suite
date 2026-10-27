@@ -768,6 +768,16 @@ function createSettingsPanel(options) {
                 </div>
 
                 <div class="form-section">
+                    <div class="section-header"><h4>自动重试</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
+                            <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
+                        <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
                     <div class="section-header"><h4>分数设置</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
                         <div id="scoring-units-container">
@@ -1835,6 +1845,13 @@ function fillFormFromActivePreset() {
     const desc = document.getElementById('mode-desc');
     if (desc) { desc.textContent = modeDescs[gradingMode]; desc.className = 'mode-desc ' + (modeDescClasses[gradingMode] || ''); }
 
+    // 自动重试配置
+    const retryPolicyCfg = config.retryPolicy || {};
+    const retryMaxInput = document.getElementById('retry-max-retries');
+    if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
+    const retryTimeoutInput = document.getElementById('retry-on-timeout');
+    if (retryTimeoutInput) retryTimeoutInput.checked = retryPolicyCfg.retryOnTimeout !== false;
+
     document.getElementById('bind-url-checkbox').checked = (PresetManager.data.bindings[currentUrlId] === PresetManager.data.active);
 
     // 分数设置
@@ -2703,6 +2720,10 @@ function saveAISettings() {
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
 
+    // 保存自动重试配置
+    const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
+    const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
+
     // 保存空白答题卡检测配置
     const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
     const blankThresholdPct = parseFloat(document.getElementById('blank-threshold')?.value) || 1;
@@ -2733,6 +2754,10 @@ function saveAISettings() {
                 criteria: diligenceCriteria
             }
         },
+        retryPolicy: {
+            maxRetries: retryMaxRetries,
+            retryOnTimeout: retryOnTimeout
+        },
         blankDetection: {
             enabled: blankDetectionEnabled,
             threshold: blankThreshold
@@ -2755,7 +2780,8 @@ function saveAISettings() {
         ...oldConfig,
         ...config,
         scoring: { ...oldConfig?.scoring, ...config.scoring },
-        batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig }
+        batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig },
+        retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy }
     };
 
     const currentUrlId = PresetManager.getTaskIdentifier();
