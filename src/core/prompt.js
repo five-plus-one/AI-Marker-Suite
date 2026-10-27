@@ -89,11 +89,32 @@ function buildDiligencePromptSection(config) {
 
 // ---------- 通用约束片段（所有评分 Prompt 共用） ----------
 // startNum: 起始编号，避免各 Prompt 手动拼编号出错
-function buildCommonConstraints(startNum) {
-    const n = startNum || 5;
-    return `${n}. 如果无法识别学生答案，在【答案复述】写"未能识别"
-${n + 1}. 严格按照评分标准打分，不要随意给分
-${n + 2}. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
+// 小题分取整步长的文字描述（供提示词使用）
+// step=1 时输出与历史完全一致（「一个整数」），保证默认配置下提示词逐字不变
+// 是否启用「仅输出分数」精简输出模式
+// 默认（undefined / 'detailed'）为详细模式，提示词与历史逐字一致
+function isScoreOnlyMode(config) {
+    return !!(config && (config.outputMode === 'score-only' || (config.scoring && config.scoring.outputMode === 'score-only')));
+}
+
+function describeScoreStep(step) {
+    const s = parseFloat(step) || 1;
+    if (s === 1) return '（一个整数）';
+    if (s === 0.5) return '（0.5 的倍数，如 0、0.5、1、1.5、2）';
+    if (s === 0.25) return '（0.25 的倍数，如 0、0.25、0.5、0.75、1）';
+    return '（' + s + ' 的倍数，如 0、' + s + '、' + (s * 2) + '）';
+}
+
+function buildCommonConstraints(startNum, scoreOnly) {
+    let n = startNum || 5;
+    const lines = [];
+    // 精简模式不输出【答案复述】，该约束会自相矛盾，须去掉
+    if (!scoreOnly) {
+        lines.push(n++ + '. 如果无法识别学生答案，在【答案复述】写"未能识别"');
+    }
+    lines.push(n++ + '. 严格按照评分标准打分，不要随意给分');
+    lines.push(n++ + '. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案');
+    return lines.join('\n');
 }
 
 // ---------- 取总满分（units 优先，回退 scoring.maxScore） ----------
@@ -126,7 +147,22 @@ function buildStructuredPrompt(config) {
     if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
     prompt += `\n【满分】\n${maxScoreText}`;
 
-    prompt += `
+    if (isScoreOnlyMode(config)) {
+        // 精简模式：只输出分数，省去答案复述/评分依据/分数计算（教师实测约 3 倍提速）
+        prompt += `
+
+===== 输出要求 =====
+只输出分数，不要输出任何分析、评语或计算过程。严格按照以下格式：
+
+【得分】
+（一个数字，可以是小数，表示准确性得分）${buildDiligencePromptSection(config)}
+
+===== 重要约束 =====
+1. 只输出【得分】一行数字，不要任何其他内容
+2. 【得分】必须只有一行，只包含数字，可以是小数
+${buildCommonConstraints(3, true)}`;
+    } else {
+        prompt += `
 
 ===== 输出要求 =====
 你必须严格按照以下格式输出，不得添加任何额外内容：
@@ -148,6 +184,7 @@ function buildStructuredPrompt(config) {
 2. 【得分】必须只有一行，只包含数字，可以是小数
 3. 可以在内容中使用 Markdown 格式（如 **加粗**、列表、$公式$），但【】段落标记必须保留
 ${buildCommonConstraints(4)}`;
+    }
     return prompt;
 }
 
@@ -392,9 +429,12 @@ ${resultB.calculation ? `老师B分数计算：${resultB.calculation}` : ''}
 （抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）`;
 
     if (hasSub) {
-        for (const sq of subQuestions) {
-            prompt += `\n\n${sq.label}分数：（一个整数）`;
-        }
+        // resultA.subScores 不带 roundStep，从 scoring.units 按序取
+        const arbUnits = config.scoring?.units || [];
+        subQuestions.forEach((sq, i) => {
+            const step = arbUnits[i]?.roundStep || config.scoring?.roundStep || 1;
+            prompt += `\n\n${sq.label}分数：${describeScoreStep(step)}`;
+        });
     }
 
     prompt += `
@@ -477,7 +517,8 @@ function buildSubQuestionPrompt(config) {
         prompt += '\n';
     }
 
-    prompt += `
+    if (!isScoreOnlyMode(config)) {
+        prompt += `
 ===== 输出要求 =====
 你必须严格按照以下格式输出，不得添加任何额外内容：
 
@@ -489,21 +530,32 @@ function buildSubQuestionPrompt(config) {
 
 【分数计算】
 （写出各小题计算公式）`;
+    } else {
+        prompt += `
+===== 输出要求 =====
+只输出各小题分数和总分，不要输出任何分析、评语或计算过程。`;
+    }
 
     for (const sq of config.subQuestions) {
-        prompt += `\n\n${sq.label}分数：（一个整数）`;
-        prompt += `\n${sq.label}评语：（简短评语）`;
+        prompt += `\n\n${sq.label}分数：${describeScoreStep(sq.roundStep)}`;
+        if (!isScoreOnlyMode(config)) {
+            prompt += `\n${sq.label}评语：（简短评语）`;
+        }
     }
 
     prompt += `\n\n【得分】
 （各小题分数之和，一个数字）${buildDiligencePromptSection(config)}
 
 ===== 重要约束 =====
-1. 必须使用【】作为段落标记
+${isScoreOnlyMode(config)
+        ? `1. 只输出各小题分数和【得分】，不要输出分析、评语或计算过程
+2. 各小题分数和【得分】必须各只有一行，只包含数字
+3. 各小题分数之和应等于【得分】`
+        : `1. 必须使用【】作为段落标记
 2. 各小题分数和【得分】必须各只有一行，只包含数字
 3. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
-4. 各小题分数之和应等于【得分】
-${buildCommonConstraints(5)}`;
+4. 各小题分数之和应等于【得分】`}
+${buildCommonConstraints(isScoreOnlyMode(config) ? 4 : 5, isScoreOnlyMode(config))}`;
     return prompt;
 }
 
@@ -698,7 +750,12 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     // 从 scoring.units 派生 subQuestions（唯一数据源）
     const units = config.scoring?.units || [];
     const subQuestions = units.length > 1
-        ? units.map((u, i) => ({ id: String.fromCharCode(97 + i), label: u.label, maxScore: u.maxScore }))
+        ? units.map((u, i) => ({
+            id: String.fromCharCode(97 + i),
+            label: u.label,
+            maxScore: u.maxScore,
+            roundStep: u.roundStep || config.scoring?.roundStep || 1
+        }))
         : [];
     const hasSub = subQuestions.length > 0;
 

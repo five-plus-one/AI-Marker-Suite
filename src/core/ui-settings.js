@@ -768,6 +768,29 @@ function createSettingsPanel(options) {
                 </div>
 
                 <div class="form-section">
+                    <div class="section-header"><h4>输出模式</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="mode-segmented">
+                            <input type="radio" name="output-mode" value="detailed" id="output-mode-detailed">
+                            <label for="output-mode-detailed">详细（默认）</label>
+                            <input type="radio" name="output-mode" value="score-only" id="output-mode-score-only">
+                            <label for="output-mode-score-only">精简（仅分数）<span style="color:#E67E22;font-size:10px;font-weight:600;">实验性</span></label>
+                        </div>
+                        <div class="mode-desc" id="output-mode-desc">输出答案复述、评分依据、分数计算与评语，可解释性强。</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="section-header"><h4>自动重试</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
+                            <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
+                        <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
                     <div class="section-header"><h4>分数设置</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
                         <div id="scoring-units-container">
@@ -1297,6 +1320,8 @@ function createSettingsPanel(options) {
             // 合并导入：只写入该方案，不影响其他方案/供应商/工作流
             PresetManager.data.list[importName] = data.preset;
             PresetManager.data.active = importName;
+            // 导入旧版本方案时补全新字段（outputMode/retryPolicy 等），与启动时迁移同源
+            if (typeof PresetManager.migrateAll === 'function') PresetManager.migrateAll();
             PresetManager.save();
             renderPresetDropdown();
             fillFormFromActivePreset();
@@ -1478,6 +1503,7 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '运行模式');
     moveSection('grading', '批改上下文');
     moveSection('grading', '分数设置');
+    moveSection('grading', '输出模式');
     moveSection('grading', '勤勉加分');
     moveSection('grading', '空白答题卡检测');
     const presetIOShortcut = document.createElement('div');
@@ -1498,6 +1524,7 @@ function setupSettingsMenuLayout(panel) {
     const apiWarning = configTab.querySelector('#api-key-warning');
     if (apiWarning) pages.ai.appendChild(apiWarning);
     moveSection('automation', '批阅份数');
+    moveSection('automation', '自动重试');
     moveSection('data', '历史记录');
     const historyShortcut = document.createElement('div');
     historyShortcut.className = 'form-section';
@@ -1834,6 +1861,31 @@ function fillFormFromActivePreset() {
     const modeDescClasses = { normal: '', trial: 'trial-desc', unattended: 'unattended-desc' };
     const desc = document.getElementById('mode-desc');
     if (desc) { desc.textContent = modeDescs[gradingMode]; desc.className = 'mode-desc ' + (modeDescClasses[gradingMode] || ''); }
+
+    // 输出模式
+    const outputModeVal = config.outputMode === 'score-only' ? 'score-only' : 'detailed';
+    const outputModeRadio = document.querySelector(`input[name="output-mode"][value="${outputModeVal}"]`);
+    if (outputModeRadio) outputModeRadio.checked = true;
+    const outputModeDescs = {
+        detailed: '输出答案复述、评分依据、分数计算与评语，可解释性强。（推荐）',
+        'score-only': '【实验性】只输出各小题分数与总分，批改速度更快（教师实测约 3 倍）。注意：纠错面板的「提示词优化」需要识别答案，此模式下不可用。'
+    };
+    const outputDescEl = document.getElementById('output-mode-desc');
+    if (outputDescEl) outputDescEl.textContent = outputModeDescs[outputModeVal];
+
+    // 自动重试配置
+    document.querySelectorAll('input[name="output-mode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const d = document.getElementById('output-mode-desc');
+            if (d) d.textContent = outputModeDescs[radio.value] || '';
+        });
+    });
+
+    const retryPolicyCfg = config.retryPolicy || {};
+    const retryMaxInput = document.getElementById('retry-max-retries');
+    if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
+    const retryTimeoutInput = document.getElementById('retry-on-timeout');
+    if (retryTimeoutInput) retryTimeoutInput.checked = retryPolicyCfg.retryOnTimeout !== false;
 
     document.getElementById('bind-url-checkbox').checked = (PresetManager.data.bindings[currentUrlId] === PresetManager.data.active);
 
@@ -2703,6 +2755,13 @@ function saveAISettings() {
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
 
+    // 保存输出模式
+    const outputMode = document.querySelector('input[name="output-mode"]:checked')?.value || 'detailed';
+
+    // 保存自动重试配置
+    const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
+    const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
+
     // 保存空白答题卡检测配置
     const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
     const blankThresholdPct = parseFloat(document.getElementById('blank-threshold')?.value) || 1;
@@ -2733,6 +2792,11 @@ function saveAISettings() {
                 criteria: diligenceCriteria
             }
         },
+        outputMode: outputMode,
+        retryPolicy: {
+            maxRetries: retryMaxRetries,
+            retryOnTimeout: retryOnTimeout
+        },
         blankDetection: {
             enabled: blankDetectionEnabled,
             threshold: blankThreshold
@@ -2755,7 +2819,9 @@ function saveAISettings() {
         ...oldConfig,
         ...config,
         scoring: { ...oldConfig?.scoring, ...config.scoring },
-        batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig }
+        batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig },
+        retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy },
+        outputMode: config.outputMode
     };
 
     const currentUrlId = PresetManager.getTaskIdentifier();

@@ -1,15 +1,20 @@
 // ========== 全局配置方案管理器 ==========
 const PresetManager = {
     data: null,
+    // 对全部方案做字段迁移/补全。init 启动时调用，导入方案后也调用，
+    // 保证旧版本数据（含导入的旧文件）都能自动升级到当前结构。
+    migrateAll() {
+        this._migrateGradingMode();
+        this._migrateProvider();
+        this._migrateWorkflow();
+        this._migrateBlankDetection();
+    },
     init() {
         try {
             let saved = GM_getValue('ai-grading-presets');
             if (saved) {
                 this.data = JSON.parse(saved);
-                this._migrateGradingMode();
-                this._migrateProvider();
-                this._migrateWorkflow();
-                this._migrateBlankDetection();
+                this.migrateAll();
             } else {
                 let oldConfigStr = GM_getValue('ai-grading-config');
                 let defaultCfg = oldConfigStr ? JSON.parse(oldConfigStr) : {
@@ -65,6 +70,16 @@ const PresetManager = {
                 }
                 if (!cfg.scoring) {
                     cfg.scoring = { roundStep: 1, roundMethod: 'round' };
+                    changed = true;
+                }
+                // 迁移：输出模式默认详细（仅在缺失时补，不覆盖用户选择）
+                if (!cfg.outputMode) {
+                    cfg.outputMode = 'detailed';
+                    changed = true;
+                }
+                // 迁移：自动重试策略缺失时补默认值（不覆盖用户已有配置）
+                if (!cfg.retryPolicy) {
+                    cfg.retryPolicy = { maxRetries: 3, retryOnTimeout: true, retryOnEmpty: true };
                     changed = true;
                 }
                 if (cfg.scoring && !cfg.scoring.diligence) {
