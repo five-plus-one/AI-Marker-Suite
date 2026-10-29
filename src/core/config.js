@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.13',
+    VERSION: '1.21.16.14',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.14': [
+            '【优化】答卷一致性校验改为实验性开关（设置面板「答卷校验」区），误报时可临时关闭继续批改（#225）',
+        ],
         '1.21.16.13': [
             '【修复】答卷一致性校验误拦：九科星等多图平台切卷过渡期、酷鱼网等 cachebuster URL 平台，从第二份起被误判「答卷已切换」而中断批改（#225）',
         ],

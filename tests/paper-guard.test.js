@@ -54,10 +54,11 @@ test('翻卷过渡期张数不齐仍判未变化（基准图仍在集合中）',
     assert.strictEqual(r.unchanged, true);
 });
 
-test('首图被过滤掉（未加载）导致暂时缺失，复查后仍在 -> 不拦截', async () => {
+test('首图被过滤掉（未加载）但其余基准图仍在 -> 立即判未变化', async () => {
     const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
     let calls = 0;
     const adapter = {
+        // 第一次取图缺 a（未加载被过滤），但 b 还在 —— 任一基准图在集合中即判未变化
         gatherAnswerImages: async () => {
             calls++;
             return calls === 1 ? ['https://x.com/b.png'] : ['https://x.com/a.png', 'https://x.com/b.png'];
@@ -65,8 +66,23 @@ test('首图被过滤掉（未加载）导致暂时缺失，复查后仍在 -> �
         getScoreInputs: () => []
     };
     const r = await verify(adapter, baseline);
-    assert.strictEqual(r.unchanged, null, '复查后基准图仍在，应判无法判定并放行');
-    assert.ok(r.reason.includes('过渡期') || r.reason.includes('基准图仍在'));
+    assert.strictEqual(r.unchanged, true, '任一基准图仍在集合中，应立即判未变化');
+    assert.strictEqual(calls, 1, '不应触发复查');
+});
+
+test('全部基准图暂时缺失、复查后回来 -> 不拦截', async () => {
+    const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
+    let calls = 0;
+    const adapter = {
+        // 第一次两张都被过滤（未加载），第二次都回来了
+        gatherAnswerImages: async () => {
+            calls++;
+            return calls === 1 ? [] : ['https://x.com/a.png', 'https://x.com/b.png'];
+        },
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, baseline);
+    assert.strictEqual(r.unchanged, null, '第一次取到空 -> 无法判定放行');
 });
 
 test('基准图两次都不再出现 -> 判定已切换', async () => {

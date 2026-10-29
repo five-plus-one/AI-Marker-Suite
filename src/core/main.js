@@ -59,8 +59,13 @@ function normalizePaperImageUrl(u) {
     return s;
 }
 
-function paperUrlSetContains(urls, normalized) {
-    return (urls || []).some(u => normalizePaperImageUrl(u) === normalized);
+// normalizedList 为「归一化后的基准 URL 集合」；判定当前集合是否含其中任一个
+function paperUrlSetContains(urls, normalizedList) {
+    const set = normalizedList || [];
+    return (urls || []).some(u => {
+        const n = normalizePaperImageUrl(u);
+        return n && set.indexOf(n) !== -1;
+    });
 }
 
 async function scoreInputsCleared(adapter) {
@@ -92,30 +97,37 @@ async function verifyPaperUnchanged(adapter, recordedUrls) {
             return { unchanged: null, reason: 'Canvas 型平台，图片不可比对，按原流程继续' };
         }
 
-        const normBaseline = normalizePaperImageUrl(baseline);
+        // 归一化基准集合（去 cachebuster；过滤空值，空 URL 不能作为比对依据）
+        const normBaselineSet = recordedUrls.map(normalizePaperImageUrl).filter(Boolean);
+        if (!normBaselineSet.length) {
+            return { unchanged: null, reason: '基准图片 URL 为空，无法比对' };
+        }
+
         const newUrls = await adapter.gatherAnswerImages();
         if (!newUrls || !newUrls.length) {
             return { unchanged: null, reason: '重新获取图片为空' };
         }
 
-        // 基准首图（归一化后）仍在当前集合中 —— 仍是同一份。
+        // 任一基准图（归一化后）仍在当前集合中 —— 仍是同一份。
+        // 用「任一」而非「首图」：翻卷过渡期首图可能恰好未加载被过滤掉，
+        // 用首图会误判；用任一基准图在集合中则稳得多。
         // 这同时容忍：翻卷过渡期张数不齐、URL 带 cachebuster 每次不同。
-        if (paperUrlSetContains(newUrls, normBaseline)) {
+        if (paperUrlSetContains(newUrls, normBaselineSet)) {
             return { unchanged: true };
         }
 
-        // 基准首图不见了 —— 可能真换卷，也可能该图此刻恰好未加载完被过滤掉。
+        // 基准图都不见了 —— 可能真换卷，也可能这些图此刻恰好都未加载完被过滤。
         // 等待片刻复查一次再判定，避免把加载过渡期误判成换卷。
         await new Promise(r => setTimeout(r, 1500));
         const retryUrls = await adapter.gatherAnswerImages();
         if (!retryUrls || !retryUrls.length) {
             return { unchanged: null, reason: '复查时未取到图片，无法判定' };
         }
-        if (paperUrlSetContains(retryUrls, normBaseline)) {
+        if (paperUrlSetContains(retryUrls, normBaselineSet)) {
             return { unchanged: null, reason: '图片加载过渡期，复查后基准图仍在，按原流程继续' };
         }
 
-        // 两次取图都不含基准首图 —— 确实换了卷
+        // 两次取图都不含任何基准图 —— 确实换了卷
         return { unchanged: false, reason: '答题卡图片已变化（基准图不再出现）' };
     } catch (e) {
         return { unchanged: null, reason: '校验异常: ' + (e && e.message) };
@@ -325,16 +337,21 @@ async function startAutoGrading() {
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
-            // ===== 答卷一致性校验（数据安全）=====
-            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷
-            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
-            const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
-            if (paperCheck.unchanged === false) {
-                console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
-                throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
-            }
-            if (paperCheck.unchanged === null) {
-                console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+            // ===== 答卷一致性校验（数据安全，实验性可关）=====
+            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷。
+            // 若用户遇到误报，可在设置面板「答卷校验」关闭此项。
+            if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
+                console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
+            } else {
+                const verifyAdapter = window.__AI_MARKER_ADAPTER__;
+                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
+                if (paperCheck.unchanged === false) {
+                    console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
+                    throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
+                }
+                if (paperCheck.unchanged === null) {
+                    console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+                }
             }
 
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
