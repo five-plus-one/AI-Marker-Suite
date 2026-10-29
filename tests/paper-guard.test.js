@@ -1,8 +1,8 @@
 // ========== #212 答卷一致性校验：回归测试 ==========
 // 目标：证明
-//   1. 答卷未变化时校验放行（绝大多数情况，对所有适配器零影响）
+//   1. 答卷未变化时校验放行（含 cachebuster URL、翻卷过渡期张数不齐的场景）
 //   2. 任何异常/不可判定都放行并告警，绝不阻塞正常批改
-//   3. 只有明确证据（图片变化）才判定为「已切换」
+//   3. 只有明确证据（基准图两次都不再出现）才判定为「已切换」
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -11,14 +11,17 @@ const vm = require('vm');
 
 function loadVerify() {
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
-    // scoreInputsCleared 被 verifyPaperUnchanged 调用，必须一起提取进沙箱
-    const helper = src.match(/async function scoreInputsCleared\(adapter\) \{[\s\S]*?\n\}/);
-    const main = src.match(/async function verifyPaperUnchanged\(adapter, recordedUrls\) \{[\s\S]*?\n\}/);
-    assert.ok(main, 'verifyPaperUnchanged 函数未找到');
-    assert.ok(helper, 'scoreInputsCleared 函数未找到');
-    const sandbox = { console: { warn: () => {}, log: () => {} }, String, Array, Promise };
+    const grab = (name) => {
+        const re = new RegExp('(?:async )?function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}');
+        const m = src.match(re);
+        assert.ok(m, name + ' 函数未找到');
+        return m[0];
+    };
+    const parts = [grab('normalizePaperImageUrl'), grab('paperUrlSetContains'),
+                   grab('scoreInputsCleared'), grab('verifyPaperUnchanged')];
+    const sandbox = { console: { warn: () => {}, log: () => {} }, String, Array, Promise, setTimeout };
     vm.createContext(sandbox);
-    vm.runInContext(helper[0] + '\n' + main[0] + '\n;__v = verifyPaperUnchanged;', sandbox);
+    vm.runInContext(parts.join('\n') + '\n;__v = verifyPaperUnchanged;', sandbox);
     return sandbox.__v;
 }
 
@@ -37,20 +40,71 @@ test('答卷未变化时放行（对所有适配器零影响）', async () => {
     assert.strictEqual(r.unchanged, true);
 });
 
-test('首图变化时判定为已切换', async () => {
-    const r = await verify(fakeAdapter(['https://x.com/NEW.png']), ['https://x.com/old.png']);
+test('cachebuster URL 变化仍判未变化（酷鱼网类平台）', async () => {
+    const baseline = ['https://x.com/paper/1.png?_=1111'];
+    const now = ['https://x.com/paper/1.png?_=2222', 'https://x.com/paper/2.png?_=3333'];
+    const r = await verify(fakeAdapter(now), baseline);
+    assert.strictEqual(r.unchanged, true, '去 query 后路径一致，应判未变化');
+});
+
+test('翻卷过渡期张数不齐仍判未变化（基准图仍在集合中）', async () => {
+    const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
+    const now = ['https://x.com/a.png', 'https://x.com/b.png', 'https://x.com/c.png'];
+    const r = await verify(fakeAdapter(now), baseline);
+    assert.strictEqual(r.unchanged, true);
+});
+
+test('首图被过滤掉（未加载）但其余基准图仍在 -> 立即判未变化', async () => {
+    const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
+    let calls = 0;
+    const adapter = {
+        // 第一次取图缺 a（未加载被过滤），但 b 还在 —— 任一基准图在集合中即判未变化
+        gatherAnswerImages: async () => {
+            calls++;
+            return calls === 1 ? ['https://x.com/b.png'] : ['https://x.com/a.png', 'https://x.com/b.png'];
+        },
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, baseline);
+    assert.strictEqual(r.unchanged, true, '任一基准图仍在集合中，应立即判未变化');
+    assert.strictEqual(calls, 1, '不应触发复查');
+});
+
+test('全部基准图暂时缺失、复查后回来 -> 不拦截', async () => {
+    const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
+    let calls = 0;
+    const adapter = {
+        // 第一次两张都被过滤（未加载），第二次都回来了
+        gatherAnswerImages: async () => {
+            calls++;
+            return calls === 1 ? [] : ['https://x.com/a.png', 'https://x.com/b.png'];
+        },
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, baseline);
+    assert.strictEqual(r.unchanged, null, '第一次取到空 -> 无法判定放行');
+});
+
+test('基准图两次都不再出现 -> 判定已切换', async () => {
+    const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
+    const now = ['https://x.com/NEW1.png', 'https://x.com/NEW2.png'];
+    const r = await verify(fakeAdapter(now), baseline);
     assert.strictEqual(r.unchanged, false);
     assert.ok(r.reason.includes('变化'));
 });
 
-test('首图变化且输入框已清空时给出强证据文案', async () => {
+test('复查时取不到图片 -> 无法判定（放行）', async () => {
+    const baseline = ['https://x.com/a.png'];
+    let calls = 0;
     const adapter = {
-        gatherAnswerImages: async () => ['https://x.com/NEW.png'],
-        getScoreInputs: () => [{ element: { value: '' } }, { element: { value: '' } }]
+        gatherAnswerImages: async () => {
+            calls++;
+            return calls === 1 ? ['https://x.com/GONE.png'] : [];
+        },
+        getScoreInputs: () => []
     };
-    const r = await verify(adapter, ['https://x.com/old.png']);
-    assert.strictEqual(r.unchanged, false);
-    assert.ok(r.reason.includes('清空'), '应提到输入框清空，实际: ' + r.reason);
+    const r = await verify(adapter, baseline);
+    assert.strictEqual(r.unchanged, null);
 });
 
 test('适配器不支持 gatherAnswerImages 时无法判定（放行）', async () => {
@@ -63,11 +117,6 @@ test('无基准图片时无法判定（放行）', async () => {
     assert.strictEqual(r.unchanged, null);
 });
 
-test('重新获取为空时无法判定（放行）', async () => {
-    const r = await verify(fakeAdapter([]), ['https://x.com/a.png']);
-    assert.strictEqual(r.unchanged, null);
-});
-
 test('gatherAnswerImages 抛异常时无法判定（放行）', async () => {
     const adapter = { gatherAnswerImages: async () => { throw new Error('boom'); } };
     const r = await verify(adapter, ['https://x.com/a.png']);
@@ -75,31 +124,8 @@ test('gatherAnswerImages 抛异常时无法判定（放行）', async () => {
     assert.ok(r.reason.includes('boom'));
 });
 
-test('getScoreInputs 抛异常不影响主判（仍按图片变化判定）', async () => {
-    const adapter = {
-        gatherAnswerImages: async () => ['https://x.com/NEW.png'],
-        getScoreInputs: () => { throw new Error('x'); }
-    };
-    const r = await verify(adapter, ['https://x.com/old.png']);
-    assert.strictEqual(r.unchanged, false);
-});
-
-test('张数变化视为已切换', async () => {
-    const r = await verify(fakeAdapter(['https://x.com/a.png']), ['https://x.com/a.png', 'https://x.com/b.png']);
-    assert.strictEqual(r.unchanged, false);
-});
-
-test('相同张数相同首图视为未变化（即使后续 URL 不同）', async () => {
-    const r = await verify(
-        fakeAdapter(['https://x.com/a.png', 'https://x.com/OTHER.png']),
-        ['https://x.com/a.png', 'https://x.com/b.png']
-    );
-    assert.strictEqual(r.unchanged, true);
-});
-
 test('Canvas 型平台（data: URL）跳过图片比对，按输入框信号判定', async () => {
     const dataUrl = 'data:image/png;base64,AAAA';
-    // 输入框未清空 -> 无法判定，放行（不误判、不加耗时）
     const adapter1 = {
         gatherAnswerImages: async () => { throw new Error('不应被调用'); },
         getScoreInputs: () => [{ element: { value: '5' } }]
@@ -107,7 +133,6 @@ test('Canvas 型平台（data: URL）跳过图片比对，按输入框信号判�
     const r1 = await verify(adapter1, [dataUrl]);
     assert.strictEqual(r1.unchanged, null);
 
-    // 输入框已清空 -> 判定已切换
     const adapter2 = {
         gatherAnswerImages: async () => { throw new Error('不应被调用'); },
         getScoreInputs: () => [{ element: { value: '' } }]

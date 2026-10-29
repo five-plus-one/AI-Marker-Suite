@@ -34,17 +34,40 @@ async function detectMarkingPage() {
 // AI 请求耗时期间若用户翻卷，AI 返回的是旧卷分数，而填分按当前页面 DOM 填，
 // 会把旧卷分数填进新卷并自动提交。这里在填分前校验答卷是否仍是原来那份。
 //
-// 保守策略（保证不影响任何适配器的既有流程）：
+// 判定策略（既要拦住错卷、又不能误拦）：
 //   - 未变化  -> 返回 unchanged:true，主流程零影响（绝大多数情况）
 //   - 明确变了 -> 返回 unchanged:false，由调用方抛错进入既有暂停流程
 //   - 无法判定 -> 返回 unchanged:null，放行并打告警（不阻塞）
 // 任何异常都归入「无法判定」，绝不因校验本身破坏正常批改。
 //
-// 平台差异处理：
-//   - 多数适配器返回 img.src（http/https），稳定且廉价，可直接比对
-//   - c30 / lehua 等 Canvas 型平台返回 canvas.toDataURL() 的 data: URL，
-//     每次导出可能不同，且 gatherAnswerImages 内含 0.5~1s 等待 —— 比对既不可靠
-//     又会平白增加耗时。这类平台跳过图片比对，退化为「分数输入框是否清空」弱信号。
+// 平台差异处理（实测踩到的两个误拦坑，均已覆盖）：
+//   1. 多图平台按加载态过滤取图（img.complete/naturalWidth），翻卷过渡期只能取到
+//      已加载的部分 —— 张数/首图会与基准不同，不能据此判「已切换」。
+//   2. 平台图片 URL 带 cachebuster（如 ?_=xxx，酷鱼网），同一份卷两次取图 URL 必不同。
+//   3. c30/lehua 等 Canvas 型平台返回 canvas.toDataURL() 的 data: URL，每次可能不同
+//      且 gatherAnswerImages 内含 0.5~1s 等待 —— 直接跳过图片比对。
+//
+// 因此比对时做两件事：① 归一化 URL（去掉 query/hash，只留路径）；
+// ② 不比张数/首图是否相等，而是看「基准首图（归一化）是否仍在当前集合中」。
+function normalizePaperImageUrl(u) {
+    if (typeof u !== 'string' || !u) return '';
+    let s = u;
+    const q = s.indexOf('?');
+    if (q !== -1) s = s.slice(0, q);
+    const h = s.indexOf('#');
+    if (h !== -1) s = s.slice(0, h);
+    return s;
+}
+
+// normalizedList 为「归一化后的基准 URL 集合」；判定当前集合是否含其中任一个
+function paperUrlSetContains(urls, normalizedList) {
+    const set = normalizedList || [];
+    return (urls || []).some(u => {
+        const n = normalizePaperImageUrl(u);
+        return n && set.indexOf(n) !== -1;
+    });
+}
+
 async function scoreInputsCleared(adapter) {
     try {
         if (!adapter || typeof adapter.getScoreInputs !== 'function') return false;
@@ -74,23 +97,38 @@ async function verifyPaperUnchanged(adapter, recordedUrls) {
             return { unchanged: null, reason: 'Canvas 型平台，图片不可比对，按原流程继续' };
         }
 
+        // 归一化基准集合（去 cachebuster；过滤空值，空 URL 不能作为比对依据）
+        const normBaselineSet = recordedUrls.map(normalizePaperImageUrl).filter(Boolean);
+        if (!normBaselineSet.length) {
+            return { unchanged: null, reason: '基准图片 URL 为空，无法比对' };
+        }
+
         const newUrls = await adapter.gatherAnswerImages();
         if (!newUrls || !newUrls.length) {
             return { unchanged: null, reason: '重新获取图片为空' };
         }
-        // 张数与首图均一致 —— 判定未变化
-        if (recordedUrls.length === newUrls.length && baseline === newUrls[0]) {
+
+        // 任一基准图（归一化后）仍在当前集合中 —— 仍是同一份。
+        // 用「任一」而非「首图」：翻卷过渡期首图可能恰好未加载被过滤掉，
+        // 用首图会误判；用任一基准图在集合中则稳得多。
+        // 这同时容忍：翻卷过渡期张数不齐、URL 带 cachebuster 每次不同。
+        if (paperUrlSetContains(newUrls, normBaselineSet)) {
             return { unchanged: true };
         }
-        // 首图不一致 —— 强证据表明答卷已切换。
-        // 辅证：分数输入框是否被清空（与 waitForNextPaper 的翻卷判据同源）
-        const cleared = await scoreInputsCleared(adapter);
-        return {
-            unchanged: false,
-            reason: cleared
-                ? '答题卡图片已变化且分数输入框已清空'
-                : '答题卡图片已变化'
-        };
+
+        // 基准图都不见了 —— 可能真换卷，也可能这些图此刻恰好都未加载完被过滤。
+        // 等待片刻复查一次再判定，避免把加载过渡期误判成换卷。
+        await new Promise(r => setTimeout(r, 1500));
+        const retryUrls = await adapter.gatherAnswerImages();
+        if (!retryUrls || !retryUrls.length) {
+            return { unchanged: null, reason: '复查时未取到图片，无法判定' };
+        }
+        if (paperUrlSetContains(retryUrls, normBaselineSet)) {
+            return { unchanged: null, reason: '图片加载过渡期，复查后基准图仍在，按原流程继续' };
+        }
+
+        // 两次取图都不含任何基准图 —— 确实换了卷
+        return { unchanged: false, reason: '答题卡图片已变化（基准图不再出现）' };
     } catch (e) {
         return { unchanged: null, reason: '校验异常: ' + (e && e.message) };
     }
@@ -299,16 +337,21 @@ async function startAutoGrading() {
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
-            // ===== 答卷一致性校验（数据安全）=====
-            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷
-            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
-            const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
-            if (paperCheck.unchanged === false) {
-                console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
-                throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
-            }
-            if (paperCheck.unchanged === null) {
-                console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+            // ===== 答卷一致性校验（数据安全，实验性可关）=====
+            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷。
+            // 若用户遇到误报，可在设置面板「答卷校验」关闭此项。
+            if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
+                console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
+            } else {
+                const verifyAdapter = window.__AI_MARKER_ADAPTER__;
+                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
+                if (paperCheck.unchanged === false) {
+                    console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
+                    throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
+                }
+                if (paperCheck.unchanged === null) {
+                    console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+                }
             }
 
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);

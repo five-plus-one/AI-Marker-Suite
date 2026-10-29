@@ -82,6 +82,11 @@ const PresetManager = {
                     cfg.retryPolicy = { maxRetries: 3, retryOnTimeout: true, retryOnEmpty: true };
                     changed = true;
                 }
+                // 迁移：答卷校验缺失时补默认开启（不覆盖用户已有配置）
+                if (!cfg.paperGuard) {
+                    cfg.paperGuard = { enabled: true };
+                    changed = true;
+                }
                 if (cfg.scoring && !cfg.scoring.diligence) {
                     cfg.scoring.diligence = { enabled: false, maxBonus: 3, decayPower: 2, criteria: '' };
                     changed = true;
