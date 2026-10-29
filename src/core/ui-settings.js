@@ -791,6 +791,17 @@ function createSettingsPanel(options) {
                 </div>
 
                 <div class="form-section">
+                    <div class="section-header"><h4>答卷校验<span style="color:#E67E22;font-size:10px;font-weight:600;">实验性</span></h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group"><input type="checkbox" id="paper-guard-enabled" checked><label for="paper-guard-enabled">填分前校验答卷一致性</label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">
+                            AI 请求期间若翻卷，防止把旧卷分数填进新卷并误提交。<br>
+                            <b>若遇到误报</b>（被「答卷已切换」拦下、但实际并未换卷），可先<b>取消勾选此项</b>继续批改，并把日志反馈给我们。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
                     <div class="section-header"><h4>分数设置</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
                         <div id="scoring-units-container">
@@ -1504,6 +1515,7 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '批改上下文');
     moveSection('grading', '分数设置');
     moveSection('grading', '输出模式');
+    moveSection('grading', '答卷校验');
     moveSection('grading', '勤勉加分');
     moveSection('grading', '空白答题卡检测');
     const presetIOShortcut = document.createElement('div');
@@ -1861,6 +1873,11 @@ function fillFormFromActivePreset() {
     const modeDescClasses = { normal: '', trial: 'trial-desc', unattended: 'unattended-desc' };
     const desc = document.getElementById('mode-desc');
     if (desc) { desc.textContent = modeDescs[gradingMode]; desc.className = 'mode-desc ' + (modeDescClasses[gradingMode] || ''); }
+
+    // 答卷校验（实验性开关）
+    const paperGuardCfg = config.paperGuard || {};
+    const paperGuardInput = document.getElementById('paper-guard-enabled');
+    if (paperGuardInput) paperGuardInput.checked = paperGuardCfg.enabled !== false;
 
     // 输出模式
     const outputModeVal = config.outputMode === 'score-only' ? 'score-only' : 'detailed';
@@ -2755,6 +2772,9 @@ function saveAISettings() {
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
 
+    // 保存答卷校验开关
+    const paperGuardEnabled = document.getElementById('paper-guard-enabled')?.checked !== false;
+
     // 保存输出模式
     const outputMode = document.querySelector('input[name="output-mode"]:checked')?.value || 'detailed';
 
@@ -2792,6 +2812,7 @@ function saveAISettings() {
                 criteria: diligenceCriteria
             }
         },
+        paperGuard: { enabled: paperGuardEnabled },
         outputMode: outputMode,
         retryPolicy: {
             maxRetries: retryMaxRetries,
@@ -2821,6 +2842,7 @@ function saveAISettings() {
         scoring: { ...oldConfig?.scoring, ...config.scoring },
         batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig },
         retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy },
+        paperGuard: { ...oldConfig?.paperGuard, ...config.paperGuard },
         outputMode: config.outputMode
     };
 

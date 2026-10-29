@@ -337,16 +337,21 @@ async function startAutoGrading() {
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
-            // ===== 答卷一致性校验（数据安全）=====
-            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷
-            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
-            const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
-            if (paperCheck.unchanged === false) {
-                console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
-                throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
-            }
-            if (paperCheck.unchanged === null) {
-                console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+            // ===== 答卷一致性校验（数据安全，实验性可关）=====
+            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷。
+            // 若用户遇到误报，可在设置面板「答卷校验」关闭此项。
+            if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
+                console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
+            } else {
+                const verifyAdapter = window.__AI_MARKER_ADAPTER__;
+                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
+                if (paperCheck.unchanged === false) {
+                    console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
+                    throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
+                }
+                if (paperCheck.unchanged === null) {
+                    console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+                }
             }
 
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
