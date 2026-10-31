@@ -286,7 +286,7 @@ function createToolsPageUI() {
             </div>
             <div class="ai-tools-status-row">
                 <span class="ai-tools-status-label">支持平台</span>
-                <span class="ai-tools-status-value">34 个</span>
+                <span class="ai-tools-status-value">33 个</span>
             </div>
         </div>
 
