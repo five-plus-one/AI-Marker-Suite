@@ -286,7 +286,7 @@ function createToolsPageUI() {
             </div>
             <div class="ai-tools-status-row">
                 <span class="ai-tools-status-label">支持平台</span>
-                <span class="ai-tools-status-value">7 个</span>
+                <span class="ai-tools-status-value">34 个</span>
             </div>
         </div>
 
@@ -408,8 +408,35 @@ function showAboutPanel() {
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">七天网络</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">好分数</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">五岳阅卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">阅小二</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">华翰云</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">光大阅卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">云阅卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">新教育</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">润建学情</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">54学霸</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">九科星</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">慧阅卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">乐华阅卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">鑫考</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">慧学星</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">粤教翔云</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">云阅卷(好分数)</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">科耘阅卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">光大阅卷V2</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">威科姆(悦卷通)</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">C30教育云</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">AMEQP网上评卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">海云智评</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">鑫考(内网)</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">九五优评</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">上进教育服务云</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">南昊AI教学提分</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">鑫考校园</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">酷鱼网</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">A佳教育</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">云阅卷(开州)</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">正确阅卷</span>
                     </div>
                 </div>
 
