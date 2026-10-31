@@ -2,7 +2,7 @@
 
 > **晚上挂机睡觉，早上起来全改完。**
 
-[![版本](https://img.shields.io/badge/version-1.21.16.15-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
+[![版本](https://img.shields.io/badge/version-1.21.16.16-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
 [![许可证](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
 **📖 使用文档**：[aimarking.five-plus-one.com](https://aimarking.five-plus-one.com) — 安装教程、配置指南、模式详解、34 个平台适配说明、常见问题
@@ -19,7 +19,7 @@
 | 每道题都要手动输分、点提交 | **全自动**：识别 → 打分 → 填入 → 提交 → 下一份 |
 | 改完想回头看某份试卷 | **评阅历史**，一键回看，支持导出 HTML/CSV/JSON/材料包ZIP |
 
-**支持平台（34 个）**：智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、润建学情、54学霸、九科星、慧阅卷、乐华阅卷、鑫考、慧学星、粤教翔云、云阅卷(好分数)、科耘阅卷、光大阅卷V2、威科姆（悦卷通）、C30教育云、AMEQP网上评卷、海云智评、鑫考(内网)、九五优评、上进教育服务云、南昊AI教学提分、鑫考校园、酷鱼网、正确阅卷。
+**支持平台（34 个）**：智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、润建学情、54学霸、九科星、慧阅卷、乐华阅卷、鑫考、慧学星、粤教翔云、云阅卷(好分数)、科耘阅卷、光大阅卷V2、威科姆（悦卷通）、C30教育云、AMEQP网上评卷、海云智评、鑫考(内网)、九五优评、上进教育服务云、南昊AI教学提分、鑫考校园、酷鱼网、A佳教育、云阅卷(开州)、正确阅卷。
 
 > 📋 [完整平台列表与各平台适配说明](https://aimarking.five-plus-one.com/platforms/) · 如果您有适配需求，请[联系我](https://r-l.ink/contact)
 
