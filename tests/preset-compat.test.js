@@ -119,3 +119,68 @@ test('导入旧版本文件后调用 migrateAll 可补齐缺失字段', () => {
     assert.strictEqual(c.outputMode, 'detailed', '导入的旧方案应补 outputMode');
     assert.ok(c.retryPolicy && c.retryPolicy.maxRetries === 3, '导入的旧方案应补 retryPolicy');
 });
+
+test('批改节奏 humanPacing 缺失时补默认值（默认关闭）', () => {
+    const { PM } = loadPreset({
+        '默认配置': {
+            question: { text: '', images: [], format: 'plain' },
+            answer: { text: '', images: [], format: 'plain' },
+            rubric: { text: '', images: [], format: 'plain' },
+            scoring: {}
+        }
+    });
+    const hp = PM.data.list['默认配置'].humanPacing;
+    assert.ok(hp, '应补 humanPacing');
+    assert.strictEqual(hp.enabled, false, '默认应关闭');
+    assert.strictEqual(hp.normalDelay.min, 5, '普通模式默认下限 5');
+    assert.strictEqual(hp.normalDelay.max, 15, '普通模式默认上限 15');
+    assert.strictEqual(hp.unattendedDelay.min, 0, '无人模式默认下限 0');
+    assert.strictEqual(hp.unattendedDelay.max, 8, '无人模式默认上限 8');
+    assert.strictEqual(hp.rest.enabled, false, '随机休息默认关闭');
+    assert.strictEqual(hp.recordDuration, true, '默认记录用时');
+});
+
+test('批改节奏 humanPacing 不覆盖用户已有配置，缺失子字段自动补齐', () => {
+    const cfg = {
+        question: { text: '', images: [], format: 'plain' },
+        answer: { text: '', images: [], format: 'plain' },
+        rubric: { text: '', images: [], format: 'plain' },
+        scoring: {},
+        humanPacing: {
+            enabled: true,
+            normalDelay: { min: 10, max: 20 }
+            // unattendedDelay / rest / recordDuration 缺失
+        }
+    };
+    const { PM } = loadPreset({ '我的方案': cfg });
+    const hp = PM.data.list['我的方案'].humanPacing;
+    assert.strictEqual(hp.enabled, true, '不得覆盖 enabled');
+    assert.strictEqual(hp.normalDelay.min, 10, '不得覆盖 normalDelay.min');
+    assert.strictEqual(hp.normalDelay.max, 20, '不得覆盖 normalDelay.max');
+    assert.ok(hp.unattendedDelay && hp.unattendedDelay.min === 0 && hp.unattendedDelay.max === 8, '应补 unattendedDelay');
+    assert.ok(hp.rest && hp.rest.enabled === false, '应补 rest');
+    assert.strictEqual(hp.recordDuration, true, '应补 recordDuration');
+});
+
+test('humanPacing 整对象导出/导入往返保全', () => {
+    const preset = {
+        question: { text: 'q', images: [], format: 'plain' },
+        answer: { text: 'a', images: [], format: 'plain' },
+        rubric: { text: 'r', images: [], format: 'plain' },
+        scoring: {},
+        humanPacing: {
+            enabled: true,
+            normalDelay: { min: 8, max: 30 },
+            unattendedDelay: { min: 2, max: 6 },
+            rest: { enabled: true, everyCount: 15, restMin: 60, restMax: 240 },
+            recordDuration: false
+        }
+    };
+    const exported = JSON.stringify({ type: 'ai-marker-preset', name: '节奏方案', preset });
+    const imported = JSON.parse(exported).preset;
+    assert.strictEqual(imported.humanPacing.enabled, true);
+    assert.deepStrictEqual(imported.humanPacing.normalDelay, { min: 8, max: 30 });
+    assert.deepStrictEqual(imported.humanPacing.unattendedDelay, { min: 2, max: 6 });
+    assert.deepStrictEqual(imported.humanPacing.rest, { enabled: true, everyCount: 15, restMin: 60, restMax: 240 });
+    assert.strictEqual(imported.humanPacing.recordDuration, false);
+});

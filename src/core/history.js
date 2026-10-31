@@ -305,11 +305,14 @@ const HistoryManager = {
 
     exportCSV(records) {
         records = records || this.records;
-        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析\n';
+        // 注意：新列一律追加在末尾，避免破坏既有列序（下游按列号解析的用户不受影响）
+        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析,用时(秒),随机延迟(秒)\n';
         const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const esc = s => '"' + String(s || '').replace(/"/g, '""') + '"';
             const d = r.dualEval;
+            const durSec = (r.durationMs !== null && r.durationMs !== undefined) ? (r.durationMs / 1000).toFixed(1) : '';
+            const delaySec = (r.pacingDelayMs !== null && r.pacingDelayMs !== undefined) ? (r.pacingDelayMs / 1000).toFixed(1) : '';
             return [time, r.presetName, r.gradingMode, r.aiScore, r.finalScore,
                 r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(r.studentAnswer), esc(r.aiComment),
                 r.diligenceLevel || 0, r.diligenceBonus || 0, esc(r.diligenceReason || ''),
@@ -318,7 +321,8 @@ const HistoryManager = {
                 d?.scoreB ?? '', esc(d?.detailB?.['评分依据'] ?? ''), esc(d?.detailB?.['分数计算'] ?? ''),
                 d?.diff ?? '',
                 d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'average-fallback' ? '取平均' : '',
-                d?.arbScore ?? '', esc(d?.arbAnalysis ?? '')
+                d?.arbScore ?? '', esc(d?.arbAnalysis ?? ''),
+                durSec, delaySec
             ].join(',');
         }).join('\n');
         this._download(header + rows, '评阅历史_' + this._fileTimestamp() + '.csv', 'text/csv;charset=utf-8');
@@ -1337,6 +1341,12 @@ function showHistoryDetail(record) {
 
     const time = new Date(record.timestamp).toLocaleString('zh-CN');
     const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[record.gradingMode] || record.gradingMode;
+    // 批改节奏用时（脚本测量：开始处理 → 提交，含随机延迟）
+    const durSec = (record.durationMs !== null && record.durationMs !== undefined) ? (record.durationMs / 1000).toFixed(1) : null;
+    const delaySec = (record.pacingDelayMs) ? (record.pacingDelayMs / 1000).toFixed(1) : null;
+    const durationCell = durSec !== null
+        ? `<div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">用时</div><div style="font-size:13px;">${durSec}s${delaySec !== null ? ` <span style="color:#0f7b6c;font-size:11px;">(延迟 ${delaySec}s)</span>` : ''}<div style="font-size:10px;color:#999;margin-top:2px;">脚本测量，与平台记录可能差 1~2 秒</div></div></div>`
+        : '';
 
     drawer.innerHTML = `
         <div style="padding:18px 24px 14px;border-bottom:1px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
@@ -1347,6 +1357,7 @@ function showHistoryDetail(record) {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">时间</div><div style="font-size:13px;">${time}</div></div>
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">方案 / 模式</div><div style="font-size:13px;">${record.presetName} &middot; ${modeLabel}</div></div>
+                ${durationCell}
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">AI评分</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;">${record.aiScore}</div></div>
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">最终分数</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:${record.isCorrected ? '#0052FF' : '#1d1d1f'};">${record.finalScore}${record.isCorrected ? ' &#10003;' : ''}</div></div>
             </div>
