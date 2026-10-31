@@ -2,7 +2,7 @@
 
 > **晚上挂机睡觉，早上起来全改完。**
 
-[![版本](https://img.shields.io/badge/version-1.21.16.15-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
+[![版本](https://img.shields.io/badge/version-1.21.16.16-blue.svg)](https://github.com/five-plus-one/AI-Marker-Suite)
 [![许可证](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
 **📖 使用文档**：[aimarking.five-plus-one.com](https://aimarking.five-plus-one.com) — 安装教程、配置指南、模式详解、34 个平台适配说明、常见问题
