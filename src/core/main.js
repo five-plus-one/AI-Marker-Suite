@@ -137,6 +137,11 @@ async function verifyPaperUnchanged(adapter, recordedUrls) {
 // ========== 主控流程 ==========
 async function startAutoGrading() {
     window.aiGradingState.abortController = new AbortController();
+    // 批改节奏：本卷用时计时起点（开始处理 → 提交，含随机延迟）
+    // 已有起点（翻卷检测时刻）时不覆盖，保住「检测到→提交」的完整窗口
+    if (!window.aiGradingState.cycleStartTime) {
+        window.aiGradingState.cycleStartTime = Date.now();
+    }
     console.log('▶️ [诊断] startAutoGrading 开始执行');
 
     try {

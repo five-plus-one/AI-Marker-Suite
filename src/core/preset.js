@@ -8,6 +8,7 @@ const PresetManager = {
         this._migrateProvider();
         this._migrateWorkflow();
         this._migrateBlankDetection();
+        this._migrateHumanPacing();
     },
     init() {
         try {
@@ -125,6 +126,50 @@ const PresetManager = {
                     cfg.blankDetection = { enabled: false, threshold: 0.01 };
                     changed = true;
                 }
+            } catch (e) {
+                console.warn(`⚠️ Migration failed for preset "${name}":`, e);
+            }
+        }
+        if (changed) this.save();
+    },
+    // 迁移：批改节奏（实验性）缺失时补默认值（关闭状态零行为变化，不覆盖用户已有配置）
+    _migrateHumanPacing() {
+        let changed = false;
+        const defaults = {
+            enabled: false,
+            normalDelay: { min: 5, max: 15 },
+            unattendedDelay: { min: 0, max: 8 },
+            rest: { enabled: false, everyCount: 20, restMin: 30, restMax: 180 },
+            recordDuration: true
+        };
+        for (const name in this.data.list) {
+            try {
+                const cfg = this.data.list[name];
+                if (!cfg.humanPacing) {
+                    cfg.humanPacing = JSON.parse(JSON.stringify(defaults));
+                    changed = true;
+                    continue;
+                }
+                const hp = cfg.humanPacing;
+                if (typeof hp.enabled !== 'boolean') { hp.enabled = defaults.enabled; changed = true; }
+                if (!hp.normalDelay) { hp.normalDelay = { ...defaults.normalDelay }; changed = true; }
+                else {
+                    if (hp.normalDelay.min === undefined) { hp.normalDelay.min = defaults.normalDelay.min; changed = true; }
+                    if (hp.normalDelay.max === undefined) { hp.normalDelay.max = defaults.normalDelay.max; changed = true; }
+                }
+                if (!hp.unattendedDelay) { hp.unattendedDelay = { ...defaults.unattendedDelay }; changed = true; }
+                else {
+                    if (hp.unattendedDelay.min === undefined) { hp.unattendedDelay.min = defaults.unattendedDelay.min; changed = true; }
+                    if (hp.unattendedDelay.max === undefined) { hp.unattendedDelay.max = defaults.unattendedDelay.max; changed = true; }
+                }
+                if (!hp.rest) { hp.rest = { ...defaults.rest }; changed = true; }
+                else {
+                    if (typeof hp.rest.enabled !== 'boolean') { hp.rest.enabled = defaults.rest.enabled; changed = true; }
+                    if (hp.rest.everyCount === undefined) { hp.rest.everyCount = defaults.rest.everyCount; changed = true; }
+                    if (hp.rest.restMin === undefined) { hp.rest.restMin = defaults.rest.restMin; changed = true; }
+                    if (hp.rest.restMax === undefined) { hp.rest.restMax = defaults.rest.restMax; changed = true; }
+                }
+                if (typeof hp.recordDuration !== 'boolean') { hp.recordDuration = defaults.recordDuration; changed = true; }
             } catch (e) {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }

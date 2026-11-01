@@ -42,6 +42,78 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3) {
     return false;
 }
 
+// 批改节奏：按「每 N 份」计数，到点则随机休息（均在「下一份已出现」之后调用）
+async function pacingRestIfNeeded() {
+    const hpCfg = (typeof PresetManager !== 'undefined' && PresetManager.getCurrentConfig)
+        ? PresetManager.getCurrentConfig().humanPacing : null;
+    if (!hpCfg || !hpCfg.enabled || !hpCfg.rest || !hpCfg.rest.enabled) return;
+
+    const hpState = window.aiGradingState.humanPacing = window.aiGradingState.humanPacing || {};
+    hpState.paperCount = (hpState.paperCount || 0) + 1;
+    const every = Math.max(1, Math.floor(hpCfg.rest.everyCount) || 20);
+    if (hpState.paperCount < every) return;
+
+    hpState.paperCount = 0;
+    const rMin = Math.max(1, Math.floor(hpCfg.rest.restMin) || 30);
+    const rMax = Math.max(rMin, Math.floor(hpCfg.rest.restMax) || 180);
+    const restSec = rMin + Math.floor(Math.random() * (rMax - rMin + 1));
+    console.log(`☕ [批改节奏] 拟人休息 ${restSec}s`);
+    await showPacingRestBanner(restSec);
+}
+
+// 拟人休息横幅（批改节奏 · 实验性）：固定顶栏显示剩余时间，可点「立即继续」跳过
+// 停止/暂停批改时自动收起。休息放在下一份已出现之后，平台会把休息时间计入下一份用时
+function showPacingRestBanner(seconds) {
+    return new Promise((resolve) => {
+        const old = document.getElementById('human-pacing-rest-banner');
+        if (old) old.remove();
+
+        let remain = Math.max(0, Math.floor(seconds));
+        const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+        const banner = document.createElement('div');
+        banner.id = 'human-pacing-rest-banner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647 !important;' +
+            'background:#fff8e6;border-bottom:2px solid #f0c36d;color:#7a5b1e;' +
+            'padding:12px 20px;display:flex;align-items:center;justify-content:center;gap:16px;' +
+            'font-size:14px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+            'box-shadow:0 4px 16px rgba(122,91,30,0.18);';
+        banner.innerHTML = `
+            <span>☕ 拟人休息中</span>
+            <span style="font-family:'SF Mono',monospace;font-size:16px;" id="hpr-remain">${fmt(remain)}</span>
+            <span style="font-weight:400;font-size:12px;color:#9a7a3a;">后自动继续</span>
+            <button id="hpr-continue" style="padding:6px 16px;border:1px solid #d4a94e;background:#fff3d6;
+                color:#7a5b1e;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">立即继续</button>
+        `;
+        getUIRoot().appendChild(banner);
+
+        let timer = null;
+        const finish = () => {
+            if (timer) clearInterval(timer);
+            timer = null;
+            if (banner.parentNode) banner.remove();
+            resolve();
+        };
+        banner.querySelector('#hpr-continue').addEventListener('click', () => {
+            console.log('☕ [批改节奏] 用户跳过休息');
+            finish();
+        });
+        timer = setInterval(() => {
+            // 停止/暂停批改时收起横幅（调用方会检查状态决定是否继续）
+            if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) {
+                finish();
+                return;
+            }
+            remain--;
+            const el = banner.querySelector('#hpr-remain');
+            if (el) el.textContent = fmt(Math.max(0, remain));
+            if (remain <= 0) {
+                console.log('☕ [批改节奏] 休息结束');
+                finish();
+            }
+        }, 1000);
+    });
+}
+
 function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const oldDialog = document.getElementById('auto-submit-dialog');
     if (oldDialog) oldDialog.remove();
@@ -66,13 +138,35 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const imageUrls = window.aiGradingState.currentImageUrls || [];
     const isUnattended = mode === 'unattended';
     const isTrial = mode === 'trial';
-    const countdownSeconds = isUnattended ? 1 : 5;
+
+    // ===== 批改节奏（实验性）=====
+    // 关闭时零行为变化（普通 5s / 无人 1s）；开启后普通/无人模式在配置区间内随机延迟，试改不参与
+    const humanPacingCfg = (typeof PresetManager !== 'undefined' && PresetManager.getCurrentConfig)
+        ? (PresetManager.getCurrentConfig().humanPacing || {}) : {};
+    const pacingActive = humanPacingCfg.enabled === true && !isTrial;
+    let countdownSeconds = isUnattended ? 1 : 5;
+    let pacingDelaySeconds = 0;
+    if (pacingActive) {
+        const range = isUnattended ? humanPacingCfg.unattendedDelay : humanPacingCfg.normalDelay;
+        const defMin = isUnattended ? 0 : 5;
+        const defMax = isUnattended ? 8 : 15;
+        const min = Math.max(0, Math.floor(range?.min ?? defMin));
+        const max = Math.max(min, Math.floor(range?.max ?? defMax));
+        pacingDelaySeconds = min + Math.floor(Math.random() * (max - min + 1));
+        countdownSeconds = pacingDelaySeconds;
+    }
+    window.aiGradingState.humanPacing = window.aiGradingState.humanPacing || {};
+    window.aiGradingState.humanPacing.lastDelayMs = pacingActive ? pacingDelaySeconds * 1000 : 0;
+
     const showCountdown = !isTrial;
     const showCorrectionBtn = !isUnattended;
 
     const headerLabel = isTrial ? '试改确认' : '批改完成';
     const modeTag = isUnattended ? '<span style="color:#888;font-weight:normal;font-size:12px;margin-left:8px;">[自动模式]</span>'
                    : isTrial ? '<span style="color:#7c3aed;font-weight:normal;font-size:12px;margin-left:8px;">[试改模式]</span>' : '';
+    const pacingTag = pacingActive
+        ? `<span style="color:#0f7b6c;font-weight:normal;font-size:12px;margin-left:8px;">[拟人节奏 · 延迟 ${pacingDelaySeconds}s]</span>`
+        : '';
     const isBlankCard = extraInfo?.isBlankCard || false;
     const blankRatios = extraInfo?.blankRatios || null;
     const blankTag = isBlankCard ? '<span style="color:#E67E22;font-weight:normal;font-size:12px;margin-left:8px;">[空白卡]</span>' : '';
@@ -253,7 +347,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         </style>
         <div class="asd-overlay"></div>
         <div class="asd-header" id="asd-drag-handle" style="cursor:move;">
-            <span>${headerLabel} ${modeTag}${blankTag}</span>
+            <span>${headerLabel} ${modeTag}${pacingTag}${blankTag}</span>
             <div style="display:flex;gap:6px;margin-left:auto;">
                 <button id="minimize-btn" style="background:none;border:1px solid #d8dee8;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;color:#666;display:flex;align-items:center;justify-content:center;" title="最小化">—</button>
             </div>
@@ -598,7 +692,9 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     finalScore: 0, isCorrected: false, correctionReason: '',
                     imageBase64s: base64Arr,
                     subScores: (config.scoring?.units || []).map(u => ({ label: u.label, score: 0, maxScore: u.maxScore })),
-                    dualEval: null, diligenceLevel: 0, diligenceBonus: 0, diligenceReason: ''
+                    dualEval: null, diligenceLevel: 0, diligenceBonus: 0, diligenceReason: '',
+                    durationMs: window.aiGradingState.cycleStartTime ? (Date.now() - window.aiGradingState.cycleStartTime) : null,
+                    pacingDelayMs: 0
                 });
             } catch (e) {
                 console.error('⚠️ 历史记录保存失败:', e);
@@ -612,8 +708,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
                     const oldImgUrl = window.aiGradingState.currentImageUrls[0];
                     if (adapter && adapter.waitForNextPaper) {
-                        waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
+                        waitForNextPaperWithRetry(adapter, oldImgUrl).then(async (hasNext) => {
                             if (hasNext && window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+                                await pacingRestIfNeeded();
+                                if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
+                                window.aiGradingState.cycleStartTime = Date.now();
                                 setTimeout(startAutoGrading, 500);
                             } else if (!hasNext) {
                                 window.aiGradingState.isRunning = false;
@@ -768,6 +867,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         }
 
         try {
+            // 批改节奏：记录本卷用时（开始处理 → 提交，含随机延迟）与延迟时长
+            const hpState = window.aiGradingState.humanPacing || {};
+            const humanPacingRecordCfg = humanPacingCfg || {};
+            const durationMs = window.aiGradingState.cycleStartTime
+                ? (Date.now() - window.aiGradingState.cycleStartTime) : null;
             HistoryManager.add({
                 presetName: PresetManager.data.active,
                 gradingMode: mode,
@@ -779,11 +883,14 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 dualEval: dualEval || null,
                 diligenceLevel: diligence?.level || 0,
                 diligenceBonus: diligence?.bonus || 0,
-                diligenceReason: diligence?.reason || ''
+                diligenceReason: diligence?.reason || '',
+                durationMs: humanPacingRecordCfg.recordDuration !== false ? durationMs : null,
+                pacingDelayMs: hpState.lastDelayMs || 0
             });
         } catch (e) {
             console.error('⚠️ [诊断] 历史记录保存失败（不影响批阅进度）:', e);
         }
+        window.aiGradingState.cycleStartTime = null;
 
         const adapter = window.__AI_MARKER_ADAPTER__;
         const submitted = adapter && adapter.submitGrade ? await adapter.submitGrade() : false;
@@ -794,9 +901,14 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 const oldImgUrl = window.aiGradingState.currentImageUrls[0];
 
                 if (adapter && adapter.waitForNextPaper) {
-                    waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
+                    waitForNextPaperWithRetry(adapter, oldImgUrl).then(async (hasNext) => {
                         if (hasNext && window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+                            // 批改节奏：随机休息（实验性）——休息放在下一份已出现之后，
+                            // 平台侧会把休息时间计入下一份的「批改用时」，拟真度更高
+                            await pacingRestIfNeeded();
+                            if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
                             console.log('继续批改...');
+                            window.aiGradingState.cycleStartTime = Date.now();
                             setTimeout(startAutoGrading, 500);
                         } else if (!hasNext) {
                             // 不停止，改为暂停让用户决定
@@ -835,18 +947,22 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
     dialog.querySelector('#confirm-submit-btn').addEventListener('click', confirmSubmitFn);
 
-    // 倒计时（环形进度）
+    // 倒计时（环形进度）。拟人节奏抽到 0 秒时无等待直接提交
     if (showCountdown) {
-        let countdown = countdownSeconds;
-        const ringFill = dialog.querySelector('#countdown-ring-fill');
-        const totalDash = 100.53; // 2 * PI * 16
-        dialog.countdownTimer = setInterval(() => {
-            if (window.aiGradingState.countdownPaused) return;
-            countdown--;
-            const span = dialog.querySelector('#countdown-number');
-            if (span) span.textContent = countdown;
-            if (ringFill) ringFill.style.strokeDashoffset = totalDash * (1 - countdown / countdownSeconds);
-            if (countdown <= 0) confirmSubmitFn();
-        }, 1000);
+        if (countdownSeconds <= 0) {
+            confirmSubmitFn();
+        } else {
+            let countdown = countdownSeconds;
+            const ringFill = dialog.querySelector('#countdown-ring-fill');
+            const totalDash = 100.53; // 2 * PI * 16
+            dialog.countdownTimer = setInterval(() => {
+                if (window.aiGradingState.countdownPaused) return;
+                countdown--;
+                const span = dialog.querySelector('#countdown-number');
+                if (span) span.textContent = countdown;
+                if (ringFill) ringFill.style.strokeDashoffset = totalDash * (1 - countdown / countdownSeconds);
+                if (countdown <= 0) confirmSubmitFn();
+            }, 1000);
+        }
     }
 }
