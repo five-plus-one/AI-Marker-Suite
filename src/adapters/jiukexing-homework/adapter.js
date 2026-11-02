@@ -144,6 +144,21 @@ const JiukexingHomeworkAdapter = {
         return JIUKEXING_HW_SELECTORS.MARK_PATH_REG.test(window.location.pathname);
     },
 
+    // 当前是否为「暂不支持的批改模式」（按学生批阅：一页多题）。
+    // URL 信号为主：按题批阅 URL 带 questionId，按学生批阅带 studentNumber（无 questionId）。
+    // 分数框数量只作兜底——按学生页可能只渲染出 1 个框，数框会漏报（#247）
+    isUnsupportedMarkingMode() {
+        if (!this.isMarkingPage()) return false;
+        const qid = this._getUrlParam('questionId') || this._getUrlParam('homeworkQuestionId');
+        if (!qid && this._getUrlParam('studentNumber')) return true;
+        return document.querySelectorAll(JIUKEXING_HW_SELECTORS.SCORE_INPUT).length > 1;
+    },
+
+    // 供核心层在弹新试题 OOBE 前调用（幂等横幅）
+    showUnsupportedModeNotice() {
+        this._showMultiQuestionNotice();
+    },
+
     async detectMarkingPage() {
         if (!this.isMarkingPage()) {
             console.log('[九科星作业] 当前不在批改页 (path:', window.location.pathname, ')');
@@ -156,8 +171,8 @@ const JiukexingHomeworkAdapter = {
             await new Promise(r => setTimeout(r, 300));
 
             // 多题并排（按学生批阅）暂不支持：提示并引导跳转按题批阅
-            if (this._isMultiQuestionMode()) {
-                console.log('[九科星作业] 检测到多题并排（按学生批阅模式），暂不支持');
+            if (this.isUnsupportedMarkingMode()) {
+                console.log('[九科星作业] 检测到按学生批阅（多题模式），暂不支持');
                 this._showMultiQuestionNotice();
                 return false;
             }
@@ -392,13 +407,6 @@ const JiukexingHomeworkAdapter = {
     },
 
     // ========== 内部工具 ==========
-
-    // 多题并排 = 按学生批阅模式（一次显示该生全部题目，每题一个分数框）。
-    // 按题批阅一屏一题、一个分数框
-    _isMultiQuestionMode() {
-        const inputs = document.querySelectorAll(JIUKEXING_HW_SELECTORS.SCORE_INPUT);
-        return inputs.length > 1;
-    },
 
     // 按学生批阅暂不支持：固定横幅提示 + 跳转按题批阅链接（幂等，不重复弹）
     _showMultiQuestionNotice() {

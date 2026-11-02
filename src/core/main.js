@@ -790,6 +790,27 @@ setInterval(async () => {
             return;
         }
 
+        // 适配器声明的「不支持的批改模式」（如九科星按学生批阅多题页）：
+        // 弹提示横幅、停止批改、跳过方案切换与 OOBE——typeof 门控，未实现该钩子的适配器零影响
+        if (typeof adapter.isUnsupportedMarkingMode === 'function' && adapter.isUnsupportedMarkingMode()) {
+            console.log('[诊断] 当前为不支持的批改模式，跳过方案配置');
+            if (typeof adapter.showUnsupportedModeNotice === 'function') {
+                adapter.showUnsupportedModeNotice();
+            }
+            if (window.aiGradingState.isRunning) {
+                window.aiGradingState.isRunning = false;
+                window.aiGradingState.isPaused = true;
+                const stopBtn = document.querySelector('.ai-grade-btn');
+                if (stopBtn) {
+                    stopBtn.textContent = '继续批改';
+                    stopBtn.classList.remove('running', 'unattended', 'trial');
+                    stopBtn.classList.add('paused');
+                }
+                showToast('当前批改模式暂不支持自动批改，批改已暂停');
+            }
+            return;
+        }
+
         if (!window.aiGradingState.isRunning) {
             // 非阅卷页面不弹窗，直接返回
             // 优先使用快速检查（不等待 DOM），回退到完整检测
