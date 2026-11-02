@@ -138,6 +138,15 @@ async function verifyPaperUnchanged(adapter, recordedUrls) {
     }
 }
 
+// 离开批改页的判定必须「复查确认」：DOM 型 isMarkingPage（frame/组件重载）
+// 会短暂返回 false，瞬时 false 绝不能触发清理（会误杀进行中的批改）
+async function confirmLeftMarkingPage(adapter) {
+    if (!adapter || typeof adapter.isMarkingPage !== 'function') return false;
+    if (adapter.isMarkingPage()) return false;
+    await new Promise(r => setTimeout(r, 800));
+    return !adapter.isMarkingPage();
+}
+
 // ========== 离开批改页的生命周期清理 ==========
 // SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
 //「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
@@ -177,8 +186,8 @@ async function startAutoGrading() {
     console.log('▶️ [诊断] startAutoGrading 开始执行');
 
     // 离开批改页（如退回列表页）：中性停止，绝不能报「所有试卷已批改完成」
-    const leaveCheckAdapter = window.__AI_MARKER_ADAPTER__;
-    if (leaveCheckAdapter && typeof leaveCheckAdapter.isMarkingPage === 'function' && !leaveCheckAdapter.isMarkingPage()) {
+    // 复查确认后才动手：DOM 型 isMarkingPage 在组件重载瞬间会短暂 false
+    if (await confirmLeftMarkingPage(window.__AI_MARKER_ADAPTER__)) {
         console.log('ℹ️ 已离开批改页面，停止本轮批改');
         handleLeaveMarkingPage();
         return;
@@ -241,8 +250,8 @@ async function startAutoGrading() {
             console.log(`🖼️ [诊断] 找到答题卡图片数量: ${imageUrls.length}`);
 
             if (!imageUrls || imageUrls.length === 0) {
-                // 取图为空 ≠ 批完：先确认还在批改页（取图等待窗口内可能已导航离开）
-                if (adapter && typeof adapter.isMarkingPage === 'function' && !adapter.isMarkingPage()) {
+                // 取图为空 ≠ 批完：复查确认是否已离开批改页（取图等待窗口内可能已导航离开）
+                if (await confirmLeftMarkingPage(adapter)) {
                     console.log('ℹ️ 已离开批改页面，停止本轮批改');
                     handleLeaveMarkingPage();
                     return;
@@ -390,8 +399,9 @@ async function startAutoGrading() {
             window.aiGradingState.errorRetryCount = 0;
             // ===== 离开批改页检查（先于答卷校验：填分/提交必须在批改页上）=====
             // AI 请求期间教师可能退回列表页——这是离开页面，不是换卷，中性暂停即可
+            // 复查确认：DOM 型 isMarkingPage 瞬时 false 不算离开
             const verifyAdapter = window.__AI_MARKER_ADAPTER__;
-            if (verifyAdapter && typeof verifyAdapter.isMarkingPage === 'function' && !verifyAdapter.isMarkingPage()) {
+            if (await confirmLeftMarkingPage(verifyAdapter)) {
                 console.warn('ℹ️ 已离开批改页面，暂停批改');
                 throw new Error('已离开批改页面（本次评分结果未提交）');
             }
@@ -772,9 +782,11 @@ setInterval(async () => {
         if (adapter.isRegradeMode ? adapter.isRegradeMode() : window.aiGradingState.isRegrading) return;
 
         // SPA 导航离开批改页（如退回列表页）：统一清理
-        // 无论批改是否在跑，都要关 OOBE 弹窗、关提交弹窗、中性停止循环
+        // 复查确认后才动手：DOM 型 isMarkingPage（frame 重载）瞬时 false 会误杀进行中的批改
         if (typeof adapter.isMarkingPage === 'function' && !adapter.isMarkingPage()) {
-            handleLeaveMarkingPage();
+            if (await confirmLeftMarkingPage(adapter)) {
+                handleLeaveMarkingPage();
+            }
             return;
         }
 
