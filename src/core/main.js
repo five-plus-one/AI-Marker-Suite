@@ -84,6 +84,10 @@ async function verifyPaperUnchanged(adapter, recordedUrls) {
         if (!adapter || typeof adapter.gatherAnswerImages !== 'function') {
             return { unchanged: null, reason: '适配器不支持 gatherAnswerImages' };
         }
+        // 已离开批改页（如退回列表页）≠ 换卷：跳过比对，绝不能误报「基准图不再出现」
+        if (typeof adapter.isMarkingPage === 'function' && !adapter.isMarkingPage()) {
+            return { unchanged: null, reason: '已离开批改页面，跳过答卷校验' };
+        }
         if (!recordedUrls || !recordedUrls.length) {
             return { unchanged: null, reason: '未记录基准图片' };
         }
@@ -342,13 +346,19 @@ async function startAutoGrading() {
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
+            // ===== 离开批改页检查（先于答卷校验：填分/提交必须在批改页上）=====
+            // AI 请求期间教师可能退回列表页——这是离开页面，不是换卷，中性暂停即可
+            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
+            if (verifyAdapter && typeof verifyAdapter.isMarkingPage === 'function' && !verifyAdapter.isMarkingPage()) {
+                console.warn('ℹ️ 已离开批改页面，暂停批改');
+                throw new Error('已离开批改页面（本次评分结果未提交）');
+            }
             // ===== 答卷一致性校验（数据安全，实验性可关）=====
             // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷。
             // 若用户遇到误报，可在设置面板「答卷校验」关闭此项。
             if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
                 console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
             } else {
-                const verifyAdapter = window.__AI_MARKER_ADAPTER__;
                 const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
                 if (paperCheck.unchanged === false) {
                     console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);

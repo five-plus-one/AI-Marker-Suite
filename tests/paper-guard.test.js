@@ -150,3 +150,35 @@ test('Canvas 型平台不会调用 gatherAnswerImages（避免 0.5~1s 额外等�
     await verify(adapter, ['data:image/png;base64,AAAA']);
     assert.strictEqual(called, 0, '基准为 data: URL 时绝不能重取图片');
 });
+
+// ---------- 离开批改页（#244）：退回列表页 ≠ 换卷 ----------
+test('已离开批改页（isMarkingPage false）→ 不判换卷，即使取到不同图片', async () => {
+    const adapter = {
+        isMarkingPage: () => false,
+        // 离开后即便取到别的图（缓存兜底/邻座图），也绝不能判「已切换」
+        gatherAnswerImages: async () => ['https://x.com/neighbor.png'],
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, ['https://x.com/a.png']);
+    assert.notStrictEqual(r.unchanged, false, '离开批改页不得判已切换');
+    assert.strictEqual(r.unchanged, null, '离开批改页应放行（无法判定）');
+});
+
+test('仍在批改页（isMarkingPage true）→ 正常比对，换卷照常拦截', async () => {
+    const adapter = {
+        isMarkingPage: () => true,
+        gatherAnswerImages: async () => ['https://x.com/new.png'],
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, ['https://x.com/old.png']);
+    assert.strictEqual(r.unchanged, false, '批改页上真换卷仍应拦截');
+});
+
+test('适配器无 isMarkingPage（历史适配器）→ 行为不变，正常比对', async () => {
+    const adapter = {
+        gatherAnswerImages: async () => ['https://x.com/new.png'],
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, ['https://x.com/old.png']);
+    assert.strictEqual(r.unchanged, false, '缺 isMarkingPage 时保持原有判定');
+});
