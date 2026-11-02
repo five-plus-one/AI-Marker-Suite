@@ -34,6 +34,7 @@ feature/* ──PR──▶ dev ──PR──▶ preview ──PR──▶ stab
 - 同版本号无法触发用户端更新检查（Actions 里的 version-guard 会强制拦截）
 
 - 新版本条目写入 `SCRIPT_CONFIG.CHANGELOG`，条目格式：`【新平台】/【新功能】/【优化】/【修复】/【文档】+ 一句话描述`
+- **CHANGELOG/发布文案禁止裸写 `@xxx`**（GitHub 会解析为用户提及：`@match` 曾把无关用户标成贡献者）。脚本头关键字一律写「match」「脚本头 match」「connect」等；release.yml 有全角 ＠ 消毒兜底，但不要依赖它
 
 ## 发布清单（stable 发版）
 

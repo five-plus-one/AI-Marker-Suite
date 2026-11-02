@@ -53,6 +53,8 @@ jobs:
           fi
 
       # 从 manifest.json 提取当前版本的更新日志，按分类生成 Release 说明
+      # 注意：文案禁止裸 @xxx（GitHub 会解析为用户提及，如 @match 曾误标无关用户），
+      # 生成后统一消毒为全角 ＠，双保险
       - name: Generate release notes
         run: |
           node -e "
@@ -127,7 +129,9 @@ jobs:
               '**推荐浏览器**: Microsoft Edge + Tampermonkey',
             ].join('\n');
 
-            require('fs').writeFileSync('RELEASE_NOTES.md', body);
+            // 消毒：@xxx 会被 GitHub 解析为用户提及（@match 曾误标无关用户为贡献者），转全角 ＠
+            const safeBody = body.replace(/@([A-Za-z][A-Za-z0-9_-]*)/g, '＠\$1');
+            require('fs').writeFileSync('RELEASE_NOTES.md', safeBody);
           "
           cat RELEASE_NOTES.md
 
@@ -138,4 +142,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file RELEASE_NOTES.md \
+            --generate-notes \
             dist/ai_marker.user.js
