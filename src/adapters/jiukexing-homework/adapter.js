@@ -55,8 +55,9 @@
                     for (const u of item.markingUrlList) {
                         const urlStr = u && (u.markingUrlObj || u.markingUrl || u.url);
                         if (urlStr && typeof urlStr === 'string' && OBS_REG.test(urlStr)) {
+                            // 只进匹配缓存，不推进加载时序——API 名册是全班清单，
+                            // 不是「已加载图」，推进去会让兜底取到邻座的图
                             urls.push(urlStr);
-                            pushObsUrl(urlStr);
                         }
                     }
                 }
@@ -151,6 +152,17 @@ const JiukexingHomeworkAdapter = {
         try {
             console.log('[九科星作业] 开始检测批改页面...');
             await waitForElement(JIUKEXING_HW_SELECTORS.STUDENT_LIST, 8000).catch(() => null);
+            // 等渲染稳定后再数分数框（按学生批阅的多题输入框可能晚于首个出现）
+            await new Promise(r => setTimeout(r, 300));
+
+            // 多题并排（按学生批阅）暂不支持：提示并引导跳转按题批阅
+            if (this._isMultiQuestionMode()) {
+                console.log('[九科星作业] 检测到多题并排（按学生批阅模式），暂不支持');
+                this._showMultiQuestionNotice();
+                return false;
+            }
+            this._removeMultiQuestionNotice();
+
             const scoreInput = document.querySelector(JIUKEXING_HW_SELECTORS.SCORE_INPUT);
             const submitBtn = this._findSubmitButton();
             const canvas = document.querySelector(JIUKEXING_HW_SELECTORS.ANSWER_CANVAS);
@@ -174,6 +186,12 @@ const JiukexingHomeworkAdapter = {
     },
 
     async gatherAnswerImages() {
+        // 不在批改页（如退回列表页）：返回空列表，绝不能从缓存兜底出图——
+        // 那会让答卷校验把「离开页面」误判成「换卷」
+        if (!this.isMarkingPage()) {
+            console.log('[九科星作业] 不在批改页，返回空图片列表');
+            return [];
+        }
         console.log('[九科星作业] 开始获取答题卡图片...');
         await new Promise(r => setTimeout(r, 400));
 
@@ -374,6 +392,61 @@ const JiukexingHomeworkAdapter = {
     },
 
     // ========== 内部工具 ==========
+
+    // 多题并排 = 按学生批阅模式（一次显示该生全部题目，每题一个分数框）。
+    // 按题批阅一屏一题、一个分数框
+    _isMultiQuestionMode() {
+        const inputs = document.querySelectorAll(JIUKEXING_HW_SELECTORS.SCORE_INPUT);
+        return inputs.length > 1;
+    },
+
+    // 按学生批阅暂不支持：固定横幅提示 + 跳转按题批阅链接（幂等，不重复弹）
+    _showMultiQuestionNotice() {
+        if (document.getElementById('jxh-hw-mode-notice')) return;
+
+        const m = window.location.pathname.match(/\/mark\/(\d+)/);
+        const homeworkId = m ? m[1] : '';
+        const classId = this._getUrlParam('classId');
+
+        // 优先直达按题批改页（从接口缓存取一个题目 ID）；拿不到就回列表页按题入口
+        const cache = (window.__JXH_HW_STATE__ && window.__JXH_HW_STATE__.markingCache) || [];
+        const qids = [];
+        for (const e of cache) {
+            if (e.homeworkQuestionId && qids.indexOf(e.homeworkQuestionId) < 0) qids.push(e.homeworkQuestionId);
+        }
+        let href;
+        let linkText;
+        if (qids.length && homeworkId) {
+            href = `/homework/homework/mark/${homeworkId}?classId=${encodeURIComponent(classId)}&questionId=${encodeURIComponent(qids[0])}&showFullScreen=1`;
+            linkText = '切换到按题批阅';
+        } else {
+            href = `/homework/homework/correct/${homeworkId}?classId=${encodeURIComponent(classId)}&type=question`;
+            linkText = '前往按题批阅';
+        }
+
+        const banner = document.createElement('div');
+        banner.id = 'jxh-hw-mode-notice';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647 !important;' +
+            'background:#fff3e6;border-bottom:2px solid #f0b36d;color:#8a4b12;' +
+            'padding:12px 20px;display:flex;align-items:center;justify-content:center;gap:14px;' +
+            'font-size:14px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+            'box-shadow:0 4px 16px rgba(138,75,18,0.18);';
+        banner.innerHTML = `
+            <span>⚠️ 「按学生批阅」一页涉及多个题目，暂不支持自动批改。请使用「按题批阅」（一次一题）模式。</span>
+            <a href="${href}" style="padding:6px 16px;background:#fff;border:1px solid #d4883a;color:#8a4b12;
+                border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">${linkText}</a>
+            <button id="jxh-hw-mode-notice-close" style="background:none;border:none;color:#8a4b12;
+                font-size:18px;cursor:pointer;padding:0 6px;">×</button>
+        `;
+        document.body.appendChild(banner);
+        banner.querySelector('#jxh-hw-mode-notice-close').addEventListener('click', () => banner.remove());
+        console.log('[九科星作业] 已显示按学生批阅暂不支持提示');
+    },
+
+    _removeMultiQuestionNotice() {
+        const el = document.getElementById('jxh-hw-mode-notice');
+        if (el) el.remove();
+    },
 
     // 填分前取消勾选「自动提交」：勾选时平台会在填分后约 1s 自动交卷，
     // 绕过提交确认弹窗与「批改节奏」拟人延迟。提交时机由脚本提交流程接管
