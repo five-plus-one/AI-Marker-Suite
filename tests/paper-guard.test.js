@@ -182,3 +182,36 @@ test('适配器无 isMarkingPage（历史适配器）→ 行为不变，正常�
     const r = await verify(adapter, ['https://x.com/old.png']);
     assert.strictEqual(r.unchanged, false, '缺 isMarkingPage 时保持原有判定');
 });
+
+// ---------- 离开批改页判定的「复查确认」（#246 加固）----------
+// DOM 型 isMarkingPage（frame/组件重载）会短暂返回 false，瞬时 false 不算离开
+function loadConfirm() {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
+    const m = src.match(/async function confirmLeftMarkingPage\([^)]*\) \{[\s\S]*?\n\}/);
+    assert.ok(m, 'confirmLeftMarkingPage 未找到');
+    const sandbox = { console: { log: () => {} }, Promise, setTimeout };
+    vm.createContext(sandbox);
+    vm.runInContext(m[0] + '\n;__c = confirmLeftMarkingPage;', sandbox);
+    return sandbox.__c;
+}
+const confirmLeft = loadConfirm();
+
+test('复查确认：持续不在批改页 → 判定离开', async () => {
+    const adapter = { isMarkingPage: () => false };
+    assert.strictEqual(await confirmLeft(adapter), true);
+});
+
+test('复查确认：瞬时 false 后恢复（frame 重载）→ 不算离开，不误杀', async () => {
+    let calls = 0;
+    const adapter = { isMarkingPage: () => { calls++; return calls > 1; } };
+    assert.strictEqual(await confirmLeft(adapter), false, '复查恢复后不得判离开');
+});
+
+test('复查确认：一直在批改页 → 不算离开', async () => {
+    assert.strictEqual(await confirmLeft({ isMarkingPage: () => true }), false);
+});
+
+test('复查确认：适配器无 isMarkingPage → 不算离开（零影响）', async () => {
+    assert.strictEqual(await confirmLeft({}), false);
+    assert.strictEqual(await confirmLeft(null), false);
+});

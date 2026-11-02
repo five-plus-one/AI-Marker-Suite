@@ -3008,6 +3008,19 @@ function saveAISettings() {
 
 // ========== 新手引导 ==========
 let _onboardingDialogOpen = false; // 防止重复弹出
+let _onboardingOverlayEl = null;   // 引导弹窗根元素（SPA 导航离开批改页时需主动关闭）
+
+// 关闭新手引导弹窗（供「离开批改页」生命周期清理调用）
+function hideOnboardingDialog() {
+    if (_onboardingOverlayEl) {
+        _onboardingOverlayEl.remove();
+        _onboardingOverlayEl = null;
+    }
+    if (_onboardingDialogOpen) {
+        _onboardingDialogOpen = false;
+        console.log('[OOBE] 已关闭引导弹窗');
+    }
+}
 
 function showOnboardingDialog(forceShow, mode) {
     if (_onboardingDialogOpen) return; // 已打开，跳过
@@ -3025,6 +3038,7 @@ function showOnboardingDialog(forceShow, mode) {
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
     overlay.style.setProperty('z-index', '2147483647', 'important');
+    _onboardingOverlayEl = overlay;
 
     let currentStep = 1;
     let presetName = '';
