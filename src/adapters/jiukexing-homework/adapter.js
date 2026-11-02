@@ -256,6 +256,9 @@ const JiukexingHomeworkAdapter = {
         const score = scores[0];
         if (score === null || score === undefined) return false;
 
+        // 「自动提交」勾选时平台在填分后约 1s 自动交卷，会绕过确认弹窗与拟人延迟——必须先关掉
+        this._disableAutoSubmit();
+
         const el = document.querySelector(JIUKEXING_HW_SELECTORS.SCORE_INPUT);
         if (el && el.getBoundingClientRect().width > 0) {
             // Vue 3 / Element Plus 受控输入：native setter + 事件链
@@ -371,6 +374,30 @@ const JiukexingHomeworkAdapter = {
     },
 
     // ========== 内部工具 ==========
+
+    // 填分前取消勾选「自动提交」：勾选时平台会在填分后约 1s 自动交卷，
+    // 绕过提交确认弹窗与「批改节奏」拟人延迟。提交时机由脚本提交流程接管
+    _disableAutoSubmit() {
+        const labels = Array.from(document.querySelectorAll('label.el-checkbox'));
+        for (const label of labels) {
+            const text = (label.textContent || '').trim();
+            if (!text.includes('自动提交')) continue;
+            const cb = label.querySelector('input[type="checkbox"]');
+            if (cb && cb.checked) {
+                label.click();
+                // Element Plus 受控组件：若点击后仍勾选，再点隐藏原生 input 兜底
+                if (cb.checked) {
+                    cb.click();
+                    cb.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                if (!cb.checked) {
+                    console.log('[九科星作业] 已取消勾选「自动提交」（勾选时填分会触发平台自动提交）');
+                } else {
+                    console.warn('[九科星作业] 「自动提交」取消勾选失败，填分后可能被平台自动提交');
+                }
+            }
+        }
+    },
 
     _getUrlParam(name) {
         try {

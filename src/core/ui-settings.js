@@ -1581,6 +1581,7 @@ function setupSettingsMenuLayout(panel) {
     if (apiWarning) pages.ai.appendChild(apiWarning);
     moveSection('automation', '批阅份数');
     moveSection('automation', '自动重试');
+    moveSection('automation', '批改节奏');
     moveSection('data', '历史记录');
     const historyShortcut = document.createElement('div');
     historyShortcut.className = 'form-section';
