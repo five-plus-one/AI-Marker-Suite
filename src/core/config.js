@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.17',
+    VERSION: '1.21.16.18',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.18': [
+            '【新功能】新增九科星作业系统适配（jxp.jkxjxw.com）：API 拦截取 OBS 题块图 + 学生名条匹配，与考试阅卷互不干扰（#238）',
+        ],
         '1.21.16.17': [
             '【新功能】新增「批改节奏」实验性配置（默认关闭）：拟人化随机提交延迟（普通 5-15s / 无人 0-8s 可配）、弹窗标注、用时记录、随机休息（#235）',
         ],
