@@ -144,6 +144,8 @@ const BUILD_CONFIGS = [
             'adapters/kzedu/adapter.js',
             'adapters/yuejuan/selectors.js',
             'adapters/yuejuan/adapter.js',
+            'adapters/jiukexing-homework/selectors.js',
+            'adapters/jiukexing-homework/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
@@ -193,6 +195,7 @@ const BUILD_CONFIGS = [
                 '*://yyj.kzedu.cn/*',
                 '*://www.yuejuan.com/*',
                 '*://yuejuan.com/*',
+                '*://jxp.jkxjxw.com/*',
             ],
             include: [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
