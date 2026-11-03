@@ -346,7 +346,7 @@ const JiukexingHomeworkAdapter = {
 
     async waitForNextPaper(oldImageUrl) {
         console.log('[九科星作业] 等待下一份试卷...');
-        const oldName = this._getCurrentStudentName();
+        let oldName = this._getCurrentStudentName();
         const oldQ = this._getUrlParam('questionId') || this._getUrlParam('homeworkQuestionId') || '';
         const oldPath = (oldImageUrl || '').split('?')[0];
         const state = window.__JXH_HW_STATE__ || { obsLoadLog: [] };
@@ -361,9 +361,14 @@ const JiukexingHomeworkAdapter = {
                 console.log('✅ [九科星作业] 检测到题目切换');
                 return true;
             }
+            const curName = this._getCurrentStudentName();
+            // 名条延迟渲染：进入等待时还没名字，等它出现后立即建立基线
+            if (!oldName && curName) {
+                console.log(`[九科星作业] 名条延迟出现，建立基线: ${curName}`);
+                oldName = curName;
+            }
             // 换学生：名条变化（名字可检测时以它为准——加载时序信号会被
             // 邻座预加载误触发，同卷重复批改的竞态就藏在这里，#253 复查补堵）
-            const curName = this._getCurrentStudentName();
             if (oldName) {
                 if (curName && curName !== oldName) {
                     console.log(`✅ [九科星作业] 检测到学生切换: ${oldName} → ${curName}`);
@@ -374,7 +379,7 @@ const JiukexingHomeworkAdapter = {
                 await new Promise(r => setTimeout(r, 300));
                 continue;
             }
-            // 名字不可检测时才用加载时序兜底（邻座预加载可能误触发，属已知弱点）
+            // 名条始终不可用时才用加载时序兜底（邻座预加载可能误触发，属已知弱点）
             const log = state.obsLoadLog || [];
             const curLast = log.length ? (log[log.length - 1] || '').split('?')[0] : '';
             if (curLast && oldObsLast && curLast !== oldObsLast) {
