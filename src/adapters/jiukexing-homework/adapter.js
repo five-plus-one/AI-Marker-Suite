@@ -225,17 +225,24 @@ const JiukexingHomeworkAdapter = {
                 console.log(`[九科星作业] 接口匹配「${studentName}」→ ${matched.urls.length} 张题块图`);
                 return matched.urls.slice();
             }
-            console.warn(`[九科星作业] 接口缓存中未匹配到「${studentName}」，走加载时序兜底`);
+            // 缓存在但匹配不上：宁可不取图（下游报「未找到答题卡」可重试），
+            // 也绝不走「最近加载」兜底——平台预加载邻座图，兜底会把邻座的卷批了（#253）
+            console.warn(`[九科星作业] 缓存中无「${studentName}」，拒绝兜底取图（防批错卷）`);
+            return [];
         }
 
-        // 2. 加载时序/PERF 兜底：取最近加载的一张（平台预加载邻座，全取会批错卷）
+        // 2. 仅当拦截器完全错过接口（缓存为空）才允许加载时序兜底，
+        //    且只在候选唯一时采用——多候选无法区分当前卷与邻座预加载
         const obsLog = (state.obsLoadLog && state.obsLoadLog.length)
             ? state.obsLoadLog.slice()
             : this._getObsUrlsFromPerformance();
-        if (obsLog.length) {
-            const url = obsLog[obsLog.length - 1];
-            console.log(`[九科星作业] 兜底取最近加载题块图${studentName ? `（目标: ${studentName}）` : ''}:`, url.split('?')[0]);
-            return [url];
+        if (obsLog.length === 1) {
+            console.log('[九科星作业] 无接口缓存，候选唯一，采用:', obsLog[0].split('?')[0]);
+            return [obsLog[0]];
+        }
+        if (obsLog.length > 1) {
+            console.warn(`[九科星作业] 无接口缓存且候选 ${obsLog.length} 张（含邻座预加载），无法安全区分，拒绝取图`);
+            return [];
         }
 
         console.warn('[九科星作业] 未找到答题卡图片（接口未拦截到且无 OBS 资源记录）');
@@ -339,7 +346,7 @@ const JiukexingHomeworkAdapter = {
 
     async waitForNextPaper(oldImageUrl) {
         console.log('[九科星作业] 等待下一份试卷...');
-        const oldName = this._getCurrentStudentName();
+        let oldName = this._getCurrentStudentName();
         const oldQ = this._getUrlParam('questionId') || this._getUrlParam('homeworkQuestionId') || '';
         const oldPath = (oldImageUrl || '').split('?')[0];
         const state = window.__JXH_HW_STATE__ || { obsLoadLog: [] };
@@ -354,14 +361,25 @@ const JiukexingHomeworkAdapter = {
                 console.log('✅ [九科星作业] 检测到题目切换');
                 return true;
             }
-            // 换学生：列表 active 名条 / 打分栏当前学生 变化
             const curName = this._getCurrentStudentName();
-            if (curName && oldName && curName !== oldName) {
-                console.log(`✅ [九科星作业] 检测到学生切换: ${oldName} → ${curName}`);
-                await new Promise(r => setTimeout(r, 300));
-                return true;
+            // 名条延迟渲染：进入等待时还没名字，等它出现后立即建立基线
+            if (!oldName && curName) {
+                console.log(`[九科星作业] 名条延迟出现，建立基线: ${curName}`);
+                oldName = curName;
             }
-            // 换学生：OBS 加载时序出现新图
+            // 换学生：名条变化（名字可检测时以它为准——加载时序信号会被
+            // 邻座预加载误触发，同卷重复批改的竞态就藏在这里，#253 复查补堵）
+            if (oldName) {
+                if (curName && curName !== oldName) {
+                    console.log(`✅ [九科星作业] 检测到学生切换: ${oldName} → ${curName}`);
+                    await new Promise(r => setTimeout(r, 300));
+                    return true;
+                }
+                // 名字未变：不采信加载时序/PERF 信号，继续等名条更新
+                await new Promise(r => setTimeout(r, 300));
+                continue;
+            }
+            // 名条始终不可用时才用加载时序兜底（邻座预加载可能误触发，属已知弱点）
             const log = state.obsLoadLog || [];
             const curLast = log.length ? (log[log.length - 1] || '').split('?')[0] : '';
             if (curLast && oldObsLast && curLast !== oldObsLast) {

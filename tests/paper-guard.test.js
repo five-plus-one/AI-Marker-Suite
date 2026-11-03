@@ -18,7 +18,8 @@ function loadVerify() {
         return m[0];
     };
     const parts = [grab('normalizePaperImageUrl'), grab('paperUrlSetContains'),
-                   grab('scoreInputsCleared'), grab('verifyPaperUnchanged')];
+                   grab('snapshotScoreInputs'), grab('scoreInputsTransitionedEmpty'),
+                   grab('verifyPaperUnchanged')];
     const sandbox = { console: { warn: () => {}, log: () => {} }, String, Array, Promise, setTimeout };
     vm.createContext(sandbox);
     vm.runInContext(parts.join('\n') + '\n;__v = verifyPaperUnchanged;', sandbox);
@@ -124,21 +125,46 @@ test('gatherAnswerImages 抛异常时无法判定（放行）', async () => {
     assert.ok(r.reason.includes('boom'));
 });
 
-test('Canvas 型平台（data: URL）跳过图片比对，按输入框信号判定', async () => {
+test('Canvas 型平台（data: URL）：仅「非空→清空」跃变判换卷（#253 语义修正）', async () => {
     const dataUrl = 'data:image/png;base64,AAAA';
-    const adapter1 = {
+    const mk = (value) => ({
         gatherAnswerImages: async () => { throw new Error('不应被调用'); },
-        getScoreInputs: () => [{ element: { value: '5' } }]
-    };
-    const r1 = await verify(adapter1, [dataUrl]);
-    assert.strictEqual(r1.unchanged, null);
+        getScoreInputs: () => [{ element: { value } }]
+    });
 
-    const adapter2 = {
+    // 取图时非空 → 校验时被清空：换卷证据成立
+    const r1 = await verify(mk(''), [dataUrl], ['5']);
+    assert.strictEqual(r1.unchanged, false, '非空→清空应判换卷');
+
+    // 值为数字 0（合法分值）：不算清空（#253 复查修掉的 || 判空缺陷）
+    const r0 = await verify({ gatherAnswerImages: async () => { throw new Error('不应被调用'); }, getScoreInputs: () => [{ element: { value: 0 } }] }, [dataUrl], ['5']);
+    assert.strictEqual(r0.unchanged, null, '0 分是有效值，不得判清空');
+    const r0b = await verify(mk(''), [dataUrl], [0]);
+    assert.strictEqual(r0b.unchanged, false, '快照 0 分（非空）→ 被清空应判换卷');
+
+    // 空→空：填分前的正常状态，绝不误报（旧逻辑此处误判，已根治）
+    const r2 = await verify(mk(''), [dataUrl], ['']);
+    assert.strictEqual(r2.unchanged, null, '空→空是常态，必须放行');
+    const r2b = await verify(mk(''), [dataUrl], [null]);
+    assert.strictEqual(r2b.unchanged, null, '快照无值同样放行');
+
+    // 无快照 = 不可判定
+    const r3 = await verify(mk(''), [dataUrl], null);
+    assert.strictEqual(r3.unchanged, null, '无快照不得判换卷');
+
+    // 非空 → 仍有值：未被清空
+    const r4 = await verify(mk('5'), [dataUrl], ['5']);
+    assert.strictEqual(r4.unchanged, null, '仍有值不算清空');
+
+    // 点击式分数容器（无 value 属性）：恒不参与判定（旧逻辑对此恒真误报）
+    const clickAdapter = {
         gatherAnswerImages: async () => { throw new Error('不应被调用'); },
-        getScoreInputs: () => [{ element: { value: '' } }]
+        getScoreInputs: () => [{ element: { className: 'score-box' }, type: 'click' }]
     };
-    const r2 = await verify(adapter2, [dataUrl]);
-    assert.strictEqual(r2.unchanged, false);
+    const r5 = await verify(clickAdapter, [dataUrl], [null]);
+    assert.strictEqual(r5.unchanged, null, '点击式容器不得判换卷');
+    const r6 = await verify(clickAdapter, [dataUrl], ['5']);
+    assert.strictEqual(r6.unchanged, null, '点击式容器无真实输入框，一律放行');
 });
 
 test('Canvas 型平台不会调用 gatherAnswerImages（避免 0.5~1s 额外等待）', async () => {

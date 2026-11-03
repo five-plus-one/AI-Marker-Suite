@@ -15,7 +15,8 @@ function loadVerify() {
         return m[0];
     };
     const parts = [grab('normalizePaperImageUrl'), grab('paperUrlSetContains'),
-                   grab('scoreInputsCleared'), grab('verifyPaperUnchanged')];
+                   grab('snapshotScoreInputs'), grab('scoreInputsTransitionedEmpty'),
+                   grab('verifyPaperUnchanged')];
     const sandbox = { console: { warn: () => {}, log: () => {} }, String, Array, Promise, setTimeout };
     vm.createContext(sandbox);
     vm.runInContext(parts.join('\n') + '\n;__v = verifyPaperUnchanged;', sandbox);
