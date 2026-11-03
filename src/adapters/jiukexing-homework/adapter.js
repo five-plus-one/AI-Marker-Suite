@@ -225,17 +225,24 @@ const JiukexingHomeworkAdapter = {
                 console.log(`[九科星作业] 接口匹配「${studentName}」→ ${matched.urls.length} 张题块图`);
                 return matched.urls.slice();
             }
-            console.warn(`[九科星作业] 接口缓存中未匹配到「${studentName}」，走加载时序兜底`);
+            // 缓存在但匹配不上：宁可不取图（下游报「未找到答题卡」可重试），
+            // 也绝不走「最近加载」兜底——平台预加载邻座图，兜底会把邻座的卷批了（#253）
+            console.warn(`[九科星作业] 缓存中无「${studentName}」，拒绝兜底取图（防批错卷）`);
+            return [];
         }
 
-        // 2. 加载时序/PERF 兜底：取最近加载的一张（平台预加载邻座，全取会批错卷）
+        // 2. 仅当拦截器完全错过接口（缓存为空）才允许加载时序兜底，
+        //    且只在候选唯一时采用——多候选无法区分当前卷与邻座预加载
         const obsLog = (state.obsLoadLog && state.obsLoadLog.length)
             ? state.obsLoadLog.slice()
             : this._getObsUrlsFromPerformance();
-        if (obsLog.length) {
-            const url = obsLog[obsLog.length - 1];
-            console.log(`[九科星作业] 兜底取最近加载题块图${studentName ? `（目标: ${studentName}）` : ''}:`, url.split('?')[0]);
-            return [url];
+        if (obsLog.length === 1) {
+            console.log('[九科星作业] 无接口缓存，候选唯一，采用:', obsLog[0].split('?')[0]);
+            return [obsLog[0]];
+        }
+        if (obsLog.length > 1) {
+            console.warn(`[九科星作业] 无接口缓存且候选 ${obsLog.length} 张（含邻座预加载），无法安全区分，拒绝取图`);
+            return [];
         }
 
         console.warn('[九科星作业] 未找到答题卡图片（接口未拦截到且无 OBS 资源记录）');
