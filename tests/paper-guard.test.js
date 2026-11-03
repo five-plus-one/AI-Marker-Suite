@@ -136,6 +136,12 @@ test('Canvas 型平台（data: URL）：仅「非空→清空」跃变判换卷�
     const r1 = await verify(mk(''), [dataUrl], ['5']);
     assert.strictEqual(r1.unchanged, false, '非空→清空应判换卷');
 
+    // 值为数字 0（合法分值）：不算清空（#253 复查修掉的 || 判空缺陷）
+    const r0 = await verify({ gatherAnswerImages: async () => { throw new Error('不应被调用'); }, getScoreInputs: () => [{ element: { value: 0 } }] }, [dataUrl], ['5']);
+    assert.strictEqual(r0.unchanged, null, '0 分是有效值，不得判清空');
+    const r0b = await verify(mk(''), [dataUrl], [0]);
+    assert.strictEqual(r0b.unchanged, false, '快照 0 分（非空）→ 被清空应判换卷');
+
     // 空→空：填分前的正常状态，绝不误报（旧逻辑此处误判，已根治）
     const r2 = await verify(mk(''), [dataUrl], ['']);
     assert.strictEqual(r2.unchanged, null, '空→空是常态，必须放行');

@@ -69,13 +69,15 @@ function paperUrlSetContains(urls, normalizedList) {
 }
 
 // 快照当前评分输入框的值（Canvas 型平台换卷判定的对照基准）。
-// 只有真实 input/textarea 参与（有 value 属性）；点击式分数容器记 null
+// 只有真实 input/textarea 参与（有 value 属性）；点击式分数容器记 null。
+// 注意 value 可能是数字 0（合法分值，非空），不能用 ||'' 判空
 function snapshotScoreInputs(adapter) {
     try {
         if (!adapter || typeof adapter.getScoreInputs !== 'function') return [];
         return (adapter.getScoreInputs() || []).map(x => {
             const el = x && x.element;
-            return (el && typeof el === 'object' && 'value' in el) ? String(el.value || '') : null;
+            return (el && typeof el === 'object' && 'value' in el)
+                ? (el.value == null ? '' : String(el.value)) : null;
         });
     } catch (e) {
         return [];
@@ -90,7 +92,7 @@ async function scoreInputsTransitionedEmpty(adapter, snapshot) {
     try {
         if (!adapter || typeof adapter.getScoreInputs !== 'function') return false;
         if (!snapshot || !snapshot.length) return false; // 无快照 = 不可判定，放行
-        const hadValue = snapshot.some(v => v !== null && v.trim() !== '');
+        const hadValue = snapshot.some(v => v != null && String(v).trim() !== '');
         if (!hadValue) return false; // 取图时就没有值 → 现在为空是常态
         const inputs = adapter.getScoreInputs() || [];
         let realCount = 0;
@@ -98,7 +100,8 @@ async function scoreInputsTransitionedEmpty(adapter, snapshot) {
             const el = x && x.element;
             if (!el || typeof el !== 'object' || !('value' in el)) continue;
             realCount++;
-            if (String(el.value || '').trim() !== '') return false; // 还有值，未被清空
+            const v = el.value == null ? '' : String(el.value);
+            if (v.trim() !== '') return false; // 还有值（含 0 分），未被清空
         }
         return realCount > 0;
     } catch (e) {
