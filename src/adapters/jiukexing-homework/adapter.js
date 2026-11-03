@@ -361,14 +361,20 @@ const JiukexingHomeworkAdapter = {
                 console.log('✅ [九科星作业] 检测到题目切换');
                 return true;
             }
-            // 换学生：列表 active 名条 / 打分栏当前学生 变化
+            // 换学生：名条变化（名字可检测时以它为准——加载时序信号会被
+            // 邻座预加载误触发，同卷重复批改的竞态就藏在这里，#253 复查补堵）
             const curName = this._getCurrentStudentName();
-            if (curName && oldName && curName !== oldName) {
-                console.log(`✅ [九科星作业] 检测到学生切换: ${oldName} → ${curName}`);
+            if (oldName) {
+                if (curName && curName !== oldName) {
+                    console.log(`✅ [九科星作业] 检测到学生切换: ${oldName} → ${curName}`);
+                    await new Promise(r => setTimeout(r, 300));
+                    return true;
+                }
+                // 名字未变：不采信加载时序/PERF 信号，继续等名条更新
                 await new Promise(r => setTimeout(r, 300));
-                return true;
+                continue;
             }
-            // 换学生：OBS 加载时序出现新图
+            // 名字不可检测时才用加载时序兜底（邻座预加载可能误触发，属已知弱点）
             const log = state.obsLoadLog || [];
             const curLast = log.length ? (log[log.length - 1] || '').split('?')[0] : '';
             if (curLast && oldObsLast && curLast !== oldObsLast) {

@@ -667,16 +667,20 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 }
             }
 
-            // 填入 0 分
+            // 填入 0 分（失败不静默：空分提交等于误判 0 分）
             const config = PresetManager.getCurrentConfig();
             const adapter = window.__AI_MARKER_ADAPTER__;
+            let blankFillOk = true;
             if (adapter) {
                 const units = config.scoring?.units || [];
                 if (adapter.fillScores && units.length > 0) {
-                    adapter.fillScores(units.map(() => 0));
+                    blankFillOk = adapter.fillScores(units.map(() => 0));
                 } else if (adapter.fillScores) {
-                    adapter.fillScores([0]);
+                    blankFillOk = adapter.fillScores([0]);
                 }
+            }
+            if (blankFillOk === false) {
+                showToast('⚠️ 0 分未成功填入，请在提交前确认分数框');
             }
 
             // 更新批阅份数
