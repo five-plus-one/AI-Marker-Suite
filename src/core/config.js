@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.18',
+    VERSION: '1.21.16.19',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.19': [
+            '【新平台】新增精斗云(大数据精准教学) (exam.wxy100.com) 平台适配：AngularJS ng-model 分数框填分、图片 ?r= 缓存参数剥离翻卷检测、「自动提交」勾选自动取消防绕过确认（#254）',
+        ],
         '1.21.16.18': [
             '【新功能】新增九科星作业系统适配（jxp.jkxjxw.com）：API 拦截取 OBS 题块图 + 学生名条匹配，与考试阅卷互不干扰（#238）',
             '【修复】九科星作业「自动提交」勾选时填分即被平台自动提交，改为填分前自动取消勾选（#242）',
