@@ -269,3 +269,22 @@ jobs:
             --title "$TITLE" \
             --notes-file RELEASE_NOTES.md
           echo "✅ 预发布已更新: preview-latest ($TITLE)"
+
+      # --generate-notes 会把历史提交标题拉进说明（可能含 @match 等脚本头关键字，
+      # 被 GitHub 解析为用户提及），且这部分不受正文消毒覆盖——发布后二次消毒。
+      # 只杀脚本头关键字类误提及，真实贡献者归属（@用户名）保留（#240 回归修复）
+      - name: Sanitize generated notes (防脚本头关键字误提及)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view preview-latest --json body --jq .body > NOTES_IN.md
+          node -e "
+            const fs = require('fs');
+            const keys = ['@match','@connect','@grant','@include','@exclude','@require','@resource','@run-at','@noframes','@unwrap','@updateURL','@downloadURL','@supportURL','@homepage','@antifeature'];
+            let b = fs.readFileSync('NOTES_IN.md', 'utf8');
+            for (const k of keys) { if (b.includes(k)) b = b.split(k).join('＠' + k.slice(1)); }
+            fs.writeFileSync('NOTES_OUT.md', b);
+          "
+          gh release edit preview-latest --notes-file NOTES_OUT.md
+          echo "✅ 发布说明已消毒（保留真实贡献者归属）"
