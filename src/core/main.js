@@ -68,18 +68,48 @@ function paperUrlSetContains(urls, normalizedList) {
     });
 }
 
-async function scoreInputsCleared(adapter) {
+// 快照当前评分输入框的值（Canvas 型平台换卷判定的对照基准）。
+// 只有真实 input/textarea 参与（有 value 属性）；点击式分数容器记 null。
+// 注意 value 可能是数字 0（合法分值，非空），不能用 ||'' 判空
+function snapshotScoreInputs(adapter) {
+    try {
+        if (!adapter || typeof adapter.getScoreInputs !== 'function') return [];
+        return (adapter.getScoreInputs() || []).map(x => {
+            const el = x && x.element;
+            return (el && typeof el === 'object' && 'value' in el)
+                ? (el.value == null ? '' : String(el.value)) : null;
+        });
+    } catch (e) {
+        return [];
+    }
+}
+
+// Canvas 型平台（data: 基准图）的换卷证据只有一种可靠形态：
+// 「取图时非空 → 校验时全空」的跃变。
+// 「空 → 空」是填分前的正常状态（校验本就发生在填分之前），绝不能判换卷——
+// 那是 #253 误报的根源；点击式分数容器（无 value）永远不参与判定。
+async function scoreInputsTransitionedEmpty(adapter, snapshot) {
     try {
         if (!adapter || typeof adapter.getScoreInputs !== 'function') return false;
+        if (!snapshot || !snapshot.length) return false; // 无快照 = 不可判定，放行
+        const hadValue = snapshot.some(v => v != null && String(v).trim() !== '');
+        if (!hadValue) return false; // 取图时就没有值 → 现在为空是常态
         const inputs = adapter.getScoreInputs() || [];
-        if (!inputs.length) return false;
-        return inputs.every(x => x && x.element && !String(x.element.value || '').trim());
+        let realCount = 0;
+        for (const x of inputs) {
+            const el = x && x.element;
+            if (!el || typeof el !== 'object' || !('value' in el)) continue;
+            realCount++;
+            const v = el.value == null ? '' : String(el.value);
+            if (v.trim() !== '') return false; // 还有值（含 0 分），未被清空
+        }
+        return realCount > 0;
     } catch (e) {
         return false;
     }
 }
 
-async function verifyPaperUnchanged(adapter, recordedUrls) {
+async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot) {
     try {
         if (!adapter || typeof adapter.gatherAnswerImages !== 'function') {
             return { unchanged: null, reason: '适配器不支持 gatherAnswerImages' };
@@ -93,10 +123,11 @@ async function verifyPaperUnchanged(adapter, recordedUrls) {
         }
         const baseline = recordedUrls[0];
 
-        // Canvas 型平台（data: URL）：图片不可比对，跳过重取以免误判与额外耗时
+        // Canvas 型平台（data: URL）：图片不可比对，跳过重取以免误判与额外耗时。
+        // 换卷证据只认「取图时非空 → 现在全空」的跃变（见 scoreInputsTransitionedEmpty）
         if (typeof baseline === 'string' && baseline.indexOf('data:') === 0) {
-            if (await scoreInputsCleared(adapter)) {
-                return { unchanged: false, reason: '分数输入框已清空（Canvas 型平台，图片不可比对）' };
+            if (await scoreInputsTransitionedEmpty(adapter, inputSnapshot)) {
+                return { unchanged: false, reason: '分数输入框由非空变为清空（Canvas 型平台，疑似换卷）' };
             }
             return { unchanged: null, reason: 'Canvas 型平台，图片不可比对，按原流程继续' };
         }
@@ -258,7 +289,9 @@ async function startAutoGrading() {
                 }
                 if (window.aiGradingState.gradingMode === 'unattended') {
                     stopAutoGrading();
-                    safeAlert('✅ 所有试卷已批改完成！');
+                    // 取图为空 ≠ 一定是批完（也可能是取图被防批错卷策略拒绝），
+                    // 文案保持诚实，不谎报「全部完成」（#246/#253 同一原则）
+                    safeAlert('未取到答题卡图片（可能已全部批完，或平台暂未提供图片），批改已暂停，请核对后继续。');
                     return;
                 }
                 safeAlert('❌ 未找到答题卡图片！');
@@ -267,6 +300,8 @@ async function startAutoGrading() {
             }
 
             window.aiGradingState.currentImageUrls = imageUrls;
+            // Canvas 型平台换卷判定的对照基准：AI 期间输入框若「非空→清空」才可疑
+            window.aiGradingState.paperGuardInputSnapshot = snapshotScoreInputs(adapter);
 
             const gradeBtn = document.querySelector('.ai-grade-btn');
             if (gradeBtn && window.aiGradingState.gradingMode !== 'unattended') {
@@ -297,16 +332,20 @@ async function startAutoGrading() {
                         window.aiGradingState.blankDetection.blankCount++;
                         showToast(`⏭️ 空白答题卡已跳过（第${window.aiGradingState.blankDetection.blankCount}张）`);
 
-                        // 填入 0 分
+                        // 填入 0 分（失败不静默：空分提交等于误判 0 分）
                         const scoringConfig = presetConfig.scoring || {};
                         const maxScore = PresetManager.getMaxScore();
+                        let blankFillOk = true;
                         if (adapter) {
                             const units = scoringConfig.units || [];
                             if (adapter.fillScores && units.length > 0) {
-                                adapter.fillScores(units.map(() => 0));
+                                blankFillOk = adapter.fillScores(units.map(() => 0));
                             } else if (adapter.fillScores) {
-                                adapter.fillScores([0]);
+                                blankFillOk = adapter.fillScores([0]);
                             }
+                        }
+                        if (blankFillOk === false) {
+                            showToast('⚠️ 0 分未成功填入，请在提交前确认分数框');
                         }
 
                         // 显示提交对话框
@@ -411,7 +450,7 @@ async function startAutoGrading() {
             if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
                 console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
             } else {
-                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls);
+                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls, window.aiGradingState.paperGuardInputSnapshot);
                 if (paperCheck.unchanged === false) {
                     console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
                     throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
@@ -424,18 +463,26 @@ async function startAutoGrading() {
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
 
             // 填分：优先使用新接口 fillScores，回退到旧接口 fillScore
+            // 填分失败绝不能静默续走提交——那会把空分/旧分送进平台（#253 同类缺陷）
             const adapter = window.__AI_MARKER_ADAPTER__;
+            let fillOk = false;
             if (adapter) {
                 if (adapter.fillScores && finalUnitScores) {
                     // 新接口：按评分单元顺序填入
-                    adapter.fillScores(finalUnitScores.map(u => u.score));
+                    fillOk = adapter.fillScores(finalUnitScores.map(u => u.score));
                 } else if (adapter.fillScores) {
                     // 单题模式
-                    adapter.fillScores([finalScore]);
+                    fillOk = adapter.fillScores([finalScore]);
                 } else if (adapter.fillScore) {
                     // 旧接口兼容
-                    adapter.fillScore({ total: finalScore, subScores: finalUnitScores });
+                    fillOk = adapter.fillScore({ total: finalScore, subScores: finalUnitScores });
+                } else {
+                    fillOk = true; // 适配器无填分接口（理论上不存在），交由人工流程
                 }
+            }
+            if (fillOk === false) {
+                console.warn('⚠️ [诊断] 分数填入失败，中止本次提交');
+                throw new Error('分数填入失败（分数框缺失或分数不可填），请手动输入分数后继续');
             }
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
             // 如果开启了空白卡检测且有范本，附带当前图的占比数据（复用之前缓存的结果）

@@ -244,7 +244,10 @@ jobs:
               '**推荐浏览器**: Microsoft Edge + Tampermonkey',
             ].join('\n');
 
-            require('fs').writeFileSync('RELEASE_NOTES.md', body);
+            // 消毒：@xxx 会被 GitHub 解析为用户提及（@match 曾误标无关用户为贡献者），转全角 ＠
+            // 与 stable 的 release.yml 同款（#240 的 preview 侧补齐）
+            const safeBody = body.replace(/@([A-Za-z][A-Za-z0-9_-]*)/g, '＠$1');
+            require('fs').writeFileSync('RELEASE_NOTES.md', safeBody);
             console.log('version:', version);
           "
           cat RELEASE_NOTES.md
@@ -261,6 +264,7 @@ jobs:
           gh release create preview-latest dist/ai_marker.user.js \
             --prerelease \
             --latest=false \
+            --generate-notes \
             --target "$GITHUB_SHA" \
             --title "$TITLE" \
             --notes-file RELEASE_NOTES.md
