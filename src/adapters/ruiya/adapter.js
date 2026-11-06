@@ -1,6 +1,7 @@
-// ========== 睿芽考试服务云平台阅卷适配器 ==========
+// ========== OnlyETS 考试服务云平台阅卷适配器（睿芽/恒佳租户） ==========
 // ASP.NET WebForms + jQuery + Bootstrap + iCheck
-// 域名: ruiya.onlyets.com，阅卷页: /mark/v6/view/<32位GUID>
+// 租户域名: ruiya.onlyets.com（睿芽）、*.yuejuan51.com（恒佳，2026-11-06 实测 31/31 选择器一致）
+// 阅卷页: /mark/v6/view/<32位GUID>
 //
 // 与威科姆（wyna.onlyets.com）同为厂商 CampusManage/MarkClient 代码，DOM 一致，
 // 但本适配器独立维护（不修改 wuyuetong），并修正其以下缺陷：
@@ -30,16 +31,18 @@ const RUIYA_TIMING = {
 };
 
 const RuiyaAdapter = {
-    name: '睿芽阅卷',
+    name: '睿芽阅卷',   // 注册时按租户域名覆盖（恒佳租户显示「恒佳阅卷」）
     id: 'ruiya',
-    urlPatterns: ['*://ruiya.onlyets.com/*'],
+    urlPatterns: ['*://ruiya.onlyets.com/*', '*://*.yuejuan51.com/*', '*://yuejuan51.com/*'],
     iconUrl: '',
 
     // ---------- 宿主判定 ----------
     shouldInitialize() {
         const h = (window.location.hostname || '').toLowerCase();
-        // 精确匹配：不能吞掉 wyna.onlyets.com（威科姆），也不误匹配 xruiya.onlyets.com
-        return h === 'ruiya.onlyets.com' || h.endsWith('.ruiya.onlyets.com');
+        // 多租户精确匹配：睿芽（ruiya.onlyets.com）与恒佳（yuejuan51.com）同为 OnlyETS 租户；
+        // 不能吞掉 wyna.onlyets.com（威科姆），也不误匹配 xruiya.onlyets.com 等近似域
+        return h === 'ruiya.onlyets.com' || h.endsWith('.ruiya.onlyets.com')
+            || h === 'yuejuan51.com' || h.endsWith('.yuejuan51.com');
     },
 
     // 快速页面检查（不等待 DOM），供 URL 变化监听器使用
@@ -605,6 +608,9 @@ const RuiyaAdapter = {
 };
 
 if (RuiyaAdapter.shouldInitialize()) {
+    // 多租户显示名：恒佳租户（yuejuan51.com）显示「恒佳阅卷」，睿芽保持「睿芽阅卷」
+    RuiyaAdapter.name = window.location.hostname.toLowerCase().includes('yuejuan51')
+        ? '恒佳阅卷' : '睿芽阅卷';
     window.__AI_MARKER_ADAPTER__ = RuiyaAdapter;
     try {
         RuiyaAdapter._installZIndexStyle();
