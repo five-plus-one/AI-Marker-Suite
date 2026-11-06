@@ -236,15 +236,18 @@ function createSettingsPanel(options) {
             }
             .checkbox-group label { margin: 0; font-size: 13px; color: #1a1a1a; font-weight: 500; }
 
-            .preset-controls { display: flex; gap: 6px; margin-bottom: 12px; }
+            /* flex 子项默认 min-width:auto，select 最小宽度随最长 option 撑开，
+               长方案名会把同排按钮挤出容器——必须 min-width:0 限宽 + wrap 兜底（#268） */
+            .preset-controls { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
             .preset-controls select {
-                flex: 1; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1);
+                flex: 1 1 auto; min-width: 0; max-width: 100%;
+                padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1);
                 background: rgba(0,0,0,0.02); font-size: 13px;
             }
             .preset-btn {
                 background: transparent; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px;
                 padding: 0 12px; cursor: pointer; font-size: 12px; font-weight: 500; color: #444; transition: all 0.2s;
-                height: 34px; display: flex; align-items: center;
+                height: 34px; display: flex; align-items: center; flex-shrink: 0; white-space: nowrap;
             }
             .preset-btn:hover { background: rgba(0,0,0,0.03); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
             .preset-btn.danger:hover { color: #D93025; border-color: rgba(217,48,37,0.3); background: rgba(217,48,37,0.04); }
@@ -396,6 +399,12 @@ function createSettingsPanel(options) {
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
             }
+            /* 长方案名单独省略号限宽，避免把行尾「未保存」徽标一起裁掉（#268） */
+            #ai-grading-settings .settings-current-line #settings-current-preset {
+                display: inline-block; max-width: 55%;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                vertical-align: bottom;
+            }
             #ai-grading-settings .settings-unsaved-chip {
                 display: none !important;
                 margin-left: 6px !important;
@@ -405,6 +414,7 @@ function createSettingsPanel(options) {
                 color: #c2352b !important;
                 font-size: 11px !important;
                 font-weight: 700 !important;
+                flex-shrink: 0;
             }
             #ai-grading-settings .settings-unsaved-chip.visible {
                 display: inline-flex !important;
@@ -927,7 +937,7 @@ function createSettingsPanel(options) {
                             <label>模型列表</label>
                             <div id="model-list" style="margin-bottom:8px;"></div>
                             <div style="display:flex;gap:8px;">
-                                <input type="text" id="new-model-id" placeholder="模型ID (如 doubao-seed-2-0-mini)" style="flex:1;">
+                                <input type="text" id="new-model-id" placeholder="模型ID (如 doubao-seed-2-0-mini)" style="flex:1 1 auto;min-width:0;">
                                 <button class="preset-btn" id="btn-add-model">添加</button>
                             </div>
                         </div>
@@ -2414,8 +2424,8 @@ function renderModelList() {
         const tags = (info.tags || []).map(t => `<span style="display:inline-block;padding:1px 6px;margin-left:4px;font-size:10px;border-radius:3px;background:${t === '推荐' ? 'rgba(0,82,255,0.1)' : 'rgba(0,0,0,0.05)'};color:${t === '推荐' ? '#0052FF' : '#666'};">${t}</span>`).join('');
         const isBuiltin = info.isBuiltin;
         html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;margin-bottom:4px;border-radius:6px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);">`;
-        html += `<div><span style="font-size:12px;font-weight:500;">${info.label || id}</span>${tags}${isBuiltin ? '<span style="display:inline-block;padding:1px 6px;margin-left:4px;font-size:10px;border-radius:3px;background:rgba(217,48,37,0.08);color:#D93025;">内置</span>' : ''}</div>`;
-        html += `<div style="display:flex;align-items:center;gap:6px;">`;
+        html += `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><span style="font-size:12px;font-weight:500;">${info.label || id}</span>${tags}${isBuiltin ? '<span style="display:inline-block;padding:1px 6px;margin-left:4px;font-size:10px;border-radius:3px;background:rgba(217,48,37,0.08);color:#D93025;">内置</span>' : ''}</div>`;
+        html += `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">`;
         if (!isBuiltin) {
             html += `<button class="preset-btn danger" style="padding:2px 6px;font-size:10px;" onclick="event.stopPropagation();deleteModel('${id}')">删除</button>`;
         }
@@ -3160,9 +3170,9 @@ function showOnboardingDialog(forceShow, mode) {
                         <div style="width:40px;height:40px;border-radius:10px;background:${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;transition:all 0.2s;">
                             ${w.icon}
                         </div>
-                        <div style="flex:1;">
-                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;">${w.name}</div>
-                            <div style="font-size:12px;color:#86868b;margin-top:2px;">${w.desc}</div>
+                        <div style="flex:1 1 auto;min-width:0;">
+                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</div>
+                            <div style="font-size:12px;color:#86868b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.desc}</div>
                         </div>
                         <div style="width:20px;height:20px;border-radius:50%;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.15)'};display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s;">
                             ${selectedWorkflow===w.id?`<div style="width:10px;height:10px;border-radius:50%;background:${w.id==='fast'?'#0052FF':w.id==='normal'?'#1d1d1f':'#7c3aed'};"></div>`:''}

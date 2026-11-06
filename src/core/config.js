@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.22',
+    VERSION: '1.21.16.23',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.23': [
+            '【修复】长名称方案把「新建/删除」按钮挤出可视区：方案/工作流/供应商三行限宽换行加固，并同步修复模型列表删除按钮、工作流弹层、头部未保存徽标、纠错小题分值共 6 处同类布局（#268）',
+        ],
         '1.21.16.22': [
             '【新平台】新增恒佳考试服务云平台 (yuejuan51.com) 支持：与睿芽同构（OnlyETS 租户），睿芽适配器多租户化，UI 按域名显示「恒佳阅卷」（#265）',
         ],
