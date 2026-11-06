@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.19',
+    VERSION: '1.21.16.22',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,15 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.22': [
+            '【新平台】新增恒佳考试服务云平台 (yuejuan51.com) 支持：与睿芽同构（OnlyETS 租户），睿芽适配器多租户化，UI 按域名显示「恒佳阅卷」（#265）',
+        ],
+        '1.21.16.21': [
+            '【新平台】新增睿芽考试服务云平台 (ruiya.onlyets.com) 平台适配：OSS 题块裁剪图取图、多小题 ipt_score 满分提取、submitMark 提交语义对接、密号/图片/data-stu 三重换卷检测与回评面板判定（#263）',
+        ],
+        '1.21.16.20': [
+            '【新平台】新增小帆智能阅卷 (xfkj.cc) 平台适配：OSS 裁剪答题卡多页取图、多小题满分提取（placeholder）、「提交」后图片路径变化翻卷检测与回评模式识别（#261）',
+        ],
         '1.21.16.19': [
             '【新平台】新增精斗云(大数据精准教学) (exam.wxy100.com) 平台适配：AngularJS ng-model 分数框填分、图片 ?r= 缓存参数剥离翻卷检测、「自动提交」勾选自动取消防绕过确认（#254）',
         ],
