@@ -764,11 +764,13 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
     dialog.querySelector('#minimize-btn').addEventListener('click', () => {
         // 隐藏主对话框内容
-        overlay.style.display = 'none';
-        dialog.querySelector('.asd-header').style.display = 'none';
-        if (grid) grid.style.display = 'none';
-        if (footer) footer.style.display = 'none';
-        // 防御样式对 width/maxWidth 用了 !important，内联必须同样带 important 才能覆盖
+        // 防御样式（#ai-ui-hardening-styles）对 width/maxWidth 以及 .asd-grid/.asd-footer 的 display
+        // 都用了 !important，普通内联 display:none 会被碾压（表现为最小化后仍显示全尺寸内容），
+        // 必须同样带 important 覆盖（#271）
+        overlay.style.setProperty('display', 'none', 'important');
+        dialog.querySelector('.asd-header').style.setProperty('display', 'none', 'important');
+        if (grid) grid.style.setProperty('display', 'none', 'important');
+        if (footer) footer.style.setProperty('display', 'none', 'important');
         dialog.style.setProperty('width', 'auto', 'important');
         dialog.style.setProperty('max-width', 'none', 'important');
         dialog.style.setProperty('overflow', 'visible', 'important');
@@ -787,11 +789,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
     if (minimizedBar) {
         minimizedBar.querySelector('#restore-btn').addEventListener('click', () => {
-            // 恢复主对话框
-            overlay.style.display = '';
-            dialog.querySelector('.asd-header').style.display = '';
-            if (grid) grid.style.display = '';
-            if (footer) footer.style.display = '';
+            // 恢复主对话框（removeProperty 清除最小化写入的 important 内联，回落防御/基础样式）
+            overlay.style.removeProperty('display');
+            dialog.querySelector('.asd-header').style.removeProperty('display');
+            if (grid) grid.style.removeProperty('display');
+            if (footer) footer.style.removeProperty('display');
             dialog.style.removeProperty('width');
             dialog.style.removeProperty('max-width');
             dialog.style.removeProperty('overflow');
