@@ -719,8 +719,9 @@ function mergeDualSubScores(detailA, detailB, scoringConfig) {
         // 按小题取整步长取平均（默认 step=1 且 method=round 时与原先 Math.round 完全一致）
         const roundStep = sqA.roundStep || scoringConfig?.units?.[i]?.roundStep || scoringConfig?.roundStep || 1;
         const roundMethod = scoringConfig?.roundMethod || 'round';
+        const unitMax = sqA.maxScore ?? sqB.maxScore;
         const avgScore = (sqA.score !== null && sqA.score !== undefined && sqB.score !== null && sqB.score !== undefined)
-            ? ScoreCalculator.round((sqA.score + sqB.score) / 2, { roundStep, roundMethod })
+            ? ScoreCalculator.round((sqA.score + sqB.score) / 2, { roundStep, roundMethod }, unitMax)
             : (sqA.score ?? sqB.score);
         // 按评语内容决定是否并列（与给分是否相同无关）：措辞不同就都展示
         const cA = (sqA.comment || '').trim();
@@ -809,11 +810,11 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
 
     // 分差在阈值内
     if (diff <= threshold) {
-        // 总分取整同步走 roundStep/roundMethod（默认配置下与原 Math.round 一致）
+        // 总分取整同步走 roundStep/roundMethod（默认配置下与原 Math.round 一致）；传满分钳制（#273）
         let finalScore = ScoreCalculator.round((scoreA + scoreB) / 2, {
             roundStep: config.scoring?.roundStep || 1,
             roundMethod: config.scoring?.roundMethod || 'round'
-        });
+        }, config.scoring?.maxScore);
         console.log(`✅ [双评] 分差在阈值内，取平均分: ${finalScore}`);
 
         // 处理分小题分数：对每个小题分别取平均

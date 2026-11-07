@@ -354,12 +354,12 @@ function showCorrectionPanel(context) {
     // ---------- 确认得分并退出（仅修改分数 / 应用修改共用） ----------
     function confirmScore(fb, newAnswer, newRubric) {
         const scoringConfig = PresetManager.getCurrentConfig().scoring || { roundStep: 1, roundMethod: 'round' };
-        const roundedTeacherScore = ScoreCalculator.round(fb.teacherScore, scoringConfig);
+        const roundedTeacherScore = ScoreCalculator.round(fb.teacherScore, scoringConfig, scoringConfig.maxScore);
         let correctedSubScores = context.subScores;
         if (fb.subScoreCorrections && context.subScores) {
             correctedSubScores = context.subScores.map((sq, i) => {
                 const t = fb.subScoreCorrections[i]?.teacherScore;
-                return { ...sq, score: t != null ? ScoreCalculator.round(t, scoringConfig) : sq.score };
+                return { ...sq, score: t != null ? ScoreCalculator.round(t, scoringConfig, sq.maxScore) : sq.score };
             });
         }
         const correctionInfo = {

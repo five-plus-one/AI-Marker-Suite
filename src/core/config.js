@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.24',
+    VERSION: '1.21.16.25',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.25': [
+            '【新功能】评分步长支持自定义多种值（1.5/2/2.5 等）：评分单元步长自由输入+预设、满分非步长整数倍时满分特例放行、取整/双评/纠错全链路吸附钳制（#273）',
+        ],
         '1.21.16.24': [
             '【修复】批改完成弹窗「最小化」失效仍显示全尺寸内容：布局防御样式锁死 grid/footer 显示，隐藏改用 important 内联覆盖，恢复正常显隐（#271）',
         ],
