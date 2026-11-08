@@ -401,6 +401,23 @@ const GuangdaAdapter = {
         return false;
     },
 
+    // 提交失败弹窗（服务端异常，如空步骤分触发 NullPointerException，#275）自动恢复：
+    // 平台前端在提交响应失败时弹「该卷提交失败…」（message 直显服务端异常文本），
+    // 按钮「重新获取试卷」= 重新拉取试卷（getDdb，安全操作）。点击恢复避免批改流卡死。
+    _autoRecoverCommitFail() {
+        try {
+            const btns = document.querySelectorAll('button');
+            for (const b of btns) {
+                if (b.textContent.trim() === '重新获取试卷' && b.getClientRects().length > 0) {
+                    console.warn('⚠️ [诊断] 检测到平台「提交失败」弹窗（服务端异常），自动点击「重新获取试卷」恢复');
+                    b.click();
+                    return true;
+                }
+            }
+        } catch (e) { /* 轮询中的异常不影响主流程 */ }
+        return false;
+    },
+
     // 处理"给分详情"二次确认弹窗
     _handleConfirmDialog() {
         console.log('⏳ [诊断] 等待给分详情弹窗...');
@@ -467,6 +484,9 @@ const GuangdaAdapter = {
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
+                // 提交失败弹窗（服务端异常）自动恢复（#275）
+                this._autoRecoverCommitFail();
+
                 const currentMh = this._getCurrentMh();
 
                 // 密号变化 = 新试卷已加载
@@ -554,31 +574,49 @@ const GuangdaAdapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
+        // 数据安全：先全量校验、全部命中才点击（#275）。
+        // 平台提交载荷的步骤分（pjdt.vPjxt[].vPjbz[].df）为空时，服务端拆箱会抛
+        // NullPointerException 并弹出「该卷提交失败/重新获取试卷」；此前"任一小题命中
+        // 即成功"会把未命中/未给分的小题连同空步骤分一起提交，必须整体拒绝，
+        // 且不在页面上留下半点击状态。
+        const planned = [];
+        for (let i = 0; i < inputs.length; i++) {
             const input = inputs[i];
             const container = input.element;
-            if (input.type === 'click') {
-                // 在容器中查找匹配的分数选项并点击
-                const scoreItems = container.querySelectorAll('.scores li');
-                let clicked = false;
-                for (const item of scoreItems) {
-                    if (item.textContent.trim() === String(scores[i])) {
-                        item.click();
-                        clicked = true;
-                        break;
-                    }
-                }
-                if (clicked) {
-                    successCount++;
-                    console.log(`✅ [诊断] ${input.label} 分数 ${scores[i]} 已点击`);
-                } else {
-                    console.warn(`⚠️ [诊断] ${input.label} 未找到分数 ${scores[i]} 的选项`);
-                }
+            const score = scores[i];
+
+            if (score === null || score === undefined) {
+                console.warn(`⚠️ [诊断] ${input.label} 无 AI 分数（第 ${i + 1} 个小题缺失），拒绝提交`);
+                return false;
             }
+            if (input.type !== 'click') {
+                console.warn(`⚠️ [诊断] ${input.label} 非点击式评分单元，无法填分，拒绝提交`);
+                return false;
+            }
+            const scoreItems = container.querySelectorAll('.scores li');
+            if (scoreItems.length === 0) {
+                // 该小题没有任何给分档位 = 平台题块未配置分步分/给分档位
+                console.warn(`⚠️ [诊断] ${input.label} 无给分档位（该题块未配置分步分/给分档位，请在平台命题设置中配置），拒绝提交`);
+                return false;
+            }
+            let target = null;
+            for (const item of scoreItems) {
+                if (item.textContent.trim() === String(score)) { target = item; break; }
+            }
+            if (!target) {
+                const opts = Array.from(scoreItems).map(li => li.textContent.trim()).join(',');
+                console.warn(`⚠️ [诊断] ${input.label} 分数 ${score} 不在给分档位 [${opts}] 内（步长/档位与 AI 给分不一致），拒绝提交`);
+                return false;
+            }
+            planned.push({ label: input.label, score, target });
         }
-        return successCount > 0;
+
+        // 全部命中，执行点击
+        for (const p of planned) {
+            p.target.click();
+            console.log(`✅ [诊断] ${p.label} 分数 ${p.score} 已点击`);
+        }
+        return true;
     },
 
     detectSubQuestions() {

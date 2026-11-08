@@ -879,6 +879,7 @@ function createSettingsPanel(options) {
                                 </thead>
                                 <tbody id="scoring-units-list"></tbody>
                             </table>
+                            <datalist id="su-step-presets"><option value="1"></option><option value="0.5"></option><option value="0.25"></option><option value="0.1"></option></datalist>
                             <div class="scoring-table-footer">
                                 <span>总分</span>
                                 <span><span class="scoring-total-value" id="scoring-total-score">0</span> 分</span>
@@ -2100,7 +2101,7 @@ function addScoringUnitItem(data) {
     item.innerHTML = `
         <td><span class="su-label-text" title="${escapeSettingsHtml(label)}">${escapeSettingsHtml(label)}</span><input type="hidden" class="su-label" value="${escapeSettingsHtml(label)}"></td>
         <td><input type="number" class="su-max-score" min="0.1" step="0.1" placeholder="必填" value="${data?.maxScore || ''}"><div class="field-error">必填</div></td>
-        <td><select class="su-round-step"><option value="1" ${stepVal===1?'selected':''}>整数</option><option value="0.5" ${stepVal===0.5?'selected':''}>0.5分</option><option value="0.1" ${stepVal===0.1?'selected':''}>0.1分</option></select></td>
+        <td><input type="number" class="su-round-step" list="su-step-presets" min="0.01" step="0.01" style="width:74px;" value="${stepVal}"></td>
         <td><button class="preset-btn danger su-del-btn" title="删除">×</button></td>
     `;
     item.querySelector('.su-del-btn').onclick = () => {
@@ -2135,7 +2136,10 @@ function getScoringUnitsFromForm() {
     items.forEach((item, i) => {
         const label = item.querySelector('.su-label')?.value?.trim() || `第${i + 1}题`;
         const maxScore = parseFloat(item.querySelector('.su-max-score')?.value);
-        const roundStep = parseFloat(item.querySelector('.su-round-step')?.value) || 1;
+        // 步长支持自定义多种值（1.5/2/2.5…，#273）：归一化为正数且不超过 2 位小数
+        let roundStep = parseFloat(item.querySelector('.su-round-step')?.value);
+        if (!isFinite(roundStep) || roundStep <= 0) roundStep = 1;
+        roundStep = Math.round(roundStep * 100) / 100;
         units.push({
             label,
             maxScore: isNaN(maxScore) ? 0 : maxScore,
@@ -2847,6 +2851,15 @@ function saveAISettings() {
     if (workflowId) {
         WorkflowManager.setActive(workflowId);
     }
+
+    // 满分非步长整数倍时提醒（不拦截保存：满分将作为特例允许给到，#273）
+    try {
+        const oddUnits = scoringUnits.filter(u => u.maxScore > 0 && u.roundStep > 0
+            && Math.abs(u.maxScore / u.roundStep - Math.round(u.maxScore / u.roundStep)) > 1e-9);
+        if (oddUnits.length > 0) {
+            showToast('提示：' + oddUnits.map(u => u.label).join('、') + ' 的满分不是步长的整数倍，满分将作为特例允许');
+        }
+    } catch (e) { /* 提示失败不影响保存 */ }
 
     // 保存取整配置
     const roundStep = scoringUnits.length > 0

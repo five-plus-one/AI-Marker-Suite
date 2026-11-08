@@ -97,12 +97,22 @@ function isScoreOnlyMode(config) {
     return !!(config && (config.outputMode === 'score-only' || (config.scoring && config.scoring.outputMode === 'score-only')));
 }
 
-function describeScoreStep(step) {
+function describeScoreStep(step, maxScore) {
     const s = parseFloat(step) || 1;
-    if (s === 1) return '（一个整数）';
-    if (s === 0.5) return '（0.5 的倍数，如 0、0.5、1、1.5、2）';
-    if (s === 0.25) return '（0.25 的倍数，如 0、0.25、0.5、0.75、1）';
-    return '（' + s + ' 的倍数，如 0、' + s + '、' + (s * 2) + '）';
+    let text;
+    if (s === 1) text = '（一个整数）';
+    else if (s === 0.5) text = '（0.5 的倍数，如 0、0.5、1、1.5、2）';
+    else if (s === 0.25) text = '（0.25 的倍数，如 0、0.25、0.5、0.75、1）';
+    else text = '（' + s + ' 的倍数，如 0、' + s + '、' + (Math.round(s * 2 * 100) / 100) + '）';
+    // 满分不整除步长时（如步长 1.5 / 满分 10），满分作为特例明确告知（#273）
+    const max = parseFloat(maxScore);
+    if (isFinite(max) && max > 0 && s > 0) {
+        const ratio = max / s;
+        if (Math.abs(ratio - Math.round(ratio)) > 1e-9) {
+            text = text.slice(0, -1) + '，可给满分 ' + max + '）';
+        }
+    }
+    return text;
 }
 
 function buildCommonConstraints(startNum, scoreOnly) {
@@ -433,7 +443,7 @@ ${resultB.calculation ? `老师B分数计算：${resultB.calculation}` : ''}
         const arbUnits = config.scoring?.units || [];
         subQuestions.forEach((sq, i) => {
             const step = arbUnits[i]?.roundStep || config.scoring?.roundStep || 1;
-            prompt += `\n\n${sq.label}分数：${describeScoreStep(step)}`;
+            prompt += `\n\n${sq.label}分数：${describeScoreStep(step, arbUnits[i]?.maxScore)}`;
         });
     }
 
@@ -537,7 +547,7 @@ function buildSubQuestionPrompt(config) {
     }
 
     for (const sq of config.subQuestions) {
-        prompt += `\n\n${sq.label}分数：${describeScoreStep(sq.roundStep)}`;
+        prompt += `\n\n${sq.label}分数：${describeScoreStep(sq.roundStep, sq.maxScore)}`;
         if (!isScoreOnlyMode(config)) {
             prompt += `\n${sq.label}评语：（简短评语）`;
         }

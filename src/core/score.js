@@ -7,15 +7,30 @@ const ScoreCalculator = {
      * 取整规则
      * @param {number} score - 原始分数
      * @param {Object} scoringConfig - { roundStep, roundMethod }
+     * @param {number} [maxScore] - 该分数对应的满分（传入时启用吸附+钳制语义，#273）
+     *   合法分数 = {0, s, 2s, …, floor(max/s)·s} ∪ {满分}：
+     *   - 越界一律钳制到 [0, 满分]（取整可能越过满分，如步长 1.5/满分 10 时 10 → 10.5）
+     *   - 满分不整除步长时，满分本身作为特例放行（保证满分拿得到）
+     *   未传 maxScore 时行为与历史逐值一致
      * @returns {number}
      */
-    round(score, scoringConfig) {
+    round(score, scoringConfig, maxScore) {
         if (score === null || score === undefined || !scoringConfig) return score;
         const step = scoringConfig.roundStep || 1;
         const method = scoringConfig.roundMethod || 'round';
-        if (step === 1) return Math[method](score);
-        const rounded = Math[method](score / step) * step;
-        return Math.round(rounded * 100) / 100;
+        let rounded;
+        if (step === 1) {
+            rounded = Math[method](score);
+        } else {
+            rounded = Math[method](score / step) * step;
+            rounded = Math.round(rounded * 100) / 100;
+        }
+        if (maxScore !== null && maxScore !== undefined && isFinite(maxScore) && maxScore >= 0) {
+            const max = Math.round(maxScore * 100) / 100;
+            if (rounded > max) rounded = max;
+            if (rounded < 0) rounded = 0;
+        }
+        return rounded;
     },
 
     /**
@@ -80,8 +95,8 @@ const ScoreCalculator = {
      * @returns {{ finalScore, finalUnitScores, bonus, breakdown }}
      */
     calculate({ aiScore, diligenceLevel, maxScore, scoringConfig, aiUnitScores }) {
-        // 1. 准确性分数取整
-        const accuracyScore = this.round(aiScore, scoringConfig);
+        // 1. 准确性分数取整（传满分启用吸附+钳制，#273）
+        const accuracyScore = this.round(aiScore, scoringConfig, maxScore);
         if (accuracyScore !== aiScore) {
             console.log(`📐 [分数计算] 取整: ${aiScore} → ${accuracyScore} (步长: ${scoringConfig.roundStep}, 方式: ${scoringConfig.roundMethod})`);
         }
@@ -101,12 +116,12 @@ const ScoreCalculator = {
         // 4. 各评分单元分数处理（每个单元可有独立步长）
         let finalUnitScores = null;
         if (aiUnitScores && aiUnitScores.length > 0) {
-            // 对每个单元取整（优先使用单元步长，回退全局步长）
+            // 对每个单元取整（优先使用单元步长，回退全局步长；传单元满分钳制，#273）
             const rounded = aiUnitScores.map(u => {
                 const unitConfig = u.roundStep ? { ...scoringConfig, roundStep: u.roundStep } : scoringConfig;
                 return {
                     ...u,
-                    score: u.score !== null && u.score !== undefined ? this.round(u.score, unitConfig) : null
+                    score: u.score !== null && u.score !== undefined ? this.round(u.score, unitConfig, u.maxScore) : null
                 };
             });
             // 勤勉加分按比例分配
