@@ -5,12 +5,13 @@ const assert = require('assert');
 const test = require('node:test');
 
 // 用 DOM 桩加载真实适配器代码（含教师实测故障形态回归，#306）
-function loadAdapter(imgs) {
+function loadAdapter(imgs, dom) {
     const sb = {
         console,
         location: { hash: '#/marking/grading?questionId=332228', hostname: 'yj.lcedu.net.cn' },
         getComputedStyle: (el) => el._cs || { display: 'block', visibility: 'visible', opacity: '1' },
         Event: class { constructor(t) { this.type = t; } },
+        aiGradingState: { isRegrading: false },
     };
     sb.HTMLInputElement = {
         prototype: {
@@ -20,7 +21,7 @@ function loadAdapter(imgs) {
     };
     sb.document = {
         querySelectorAll: (sel) => (sel === 'img.el-image__inner' ? imgs : []),
-        querySelector: () => null,
+        querySelector: (sel) => (dom && dom[sel] ? dom[sel] : null),
     };
     sb.window = sb;
     // 阻塞式等待用（#309）
@@ -112,4 +113,56 @@ test('#306 计算样式兜底过滤（无 checkVisibility 时 opacity/display/vi
     for (const it of imgs) { delete it.checkVisibility; }
     const a = loadAdapter(imgs);
     assert.strictEqual(await a.waitForNextPaper(OLD), true, 'visibility:hidden 残留图不得拖死判定');
+});
+
+// ---------- #312 审计A收口 ----------
+function fakeInput() {
+    return {
+        tagName: 'INPUT',
+        getAttribute: () => null,
+        dispatchEvent: () => {},
+        get value() { return this._v; },
+        set value(v) { this._v = String(v); },
+    };
+}
+
+test('#312 取图单考生一致性：混入他人考生图 → 整体拒绝（宁可不取）', async () => {
+    const a = loadAdapter([fakeImg(OLD, { visible: true }), fakeImg(NEW, { visible: true })]);
+    assert.strictEqual((await a.gatherAnswerImages()).length, 0, '考生号不一致必须拒绝取图');
+});
+
+test('#312 取图：同考生多图保留、非考生图剔除', async () => {
+    const a = loadAdapter([
+        fakeImg(OLD, { visible: true }),
+        fakeImg('https://obsyj.lcedu.net.cn/x/student/711074/h2/332229.png', { visible: true }),
+        fakeImg('https://obsyj.lcedu.net.cn/logo.png', { visible: true }),
+    ]);
+    const out = await a.gatherAnswerImages();
+    assert.strictEqual(out.length, 2, '同考生多图保留，非考生图剔除');
+});
+
+test('#312 换卷正向证据：旧图隐藏但仅旁图可见 → 继续等（不得误判换卷）', async () => {
+    const a = loadAdapter([fakeImg(OLD, { visible: false }), fakeImg('https://obsyj.lcedu.net.cn/logo.png', { visible: true, w: 300, h: 120 })]);
+    assert.strictEqual(await a.waitForNextPaper(OLD), false, '无考生号新图出现前不得判换卷');
+});
+
+test('#312 fillScores 数值闸：NaN/负分拒绝且不写入，合法值通过', async () => {
+    const input = fakeInput();
+    const a = loadAdapter([], { '#compuinput': input });
+    assert.strictEqual(a.fillScores([NaN]), false, 'NaN 必须拒绝');
+    assert.strictEqual(a.fillScores([-1]), false, '负分必须拒绝');
+    assert.strictEqual(input.value, undefined, '拒绝时不得写入');
+    assert.strictEqual(a.fillScores([3.5]), true, '合法小数通过');
+    assert.strictEqual(input.value, '3.5');
+});
+
+test('#312 isRegradeMode 委托核心回评态、isMarkingPage 同步快检存在', () => {
+    const a = loadAdapter([], { '#compuinput': fakeInput(), 'button.submitscorebtn': { tagName: 'BUTTON' } });
+    assert.strictEqual(a.isRegradeMode(), false, '核心未回评 → false');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'adapters', 'huahanyun', 'adapter.js'), 'utf8');
+    assert.ok(/aiGradingState\.isRegrading/.test(src), 'isRegradeMode 必须读核心 isRegrading（不得恒 false 短路）');
+    assert.strictEqual(typeof a.isMarkingPage, 'function', '必须提供 isMarkingPage 同步快检');
+    assert.strictEqual(a.isMarkingPage(), true, '三特征页面上应为 true');
+    const b = loadAdapter([]);
+    assert.strictEqual(b.isMarkingPage(), false, '缺特征页面应为 false');
 });
