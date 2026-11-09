@@ -77,10 +77,22 @@ const PresetManager = {
                     else unit.roundStep = Math.round(us * 100) / 100;
                     const ms = parseFloat(unit.maxScore);
                     unit.maxScore = isFinite(ms) && ms >= 0 ? ms : 0;
+                    // label 强制字符串（#299）：防对象/数组混入渲染层
+                    unit.label = String(unit.label == null ? '' : unit.label);
                     return unit;
                 });
             }
             out.scoring = sc;
+        }
+        // 勤勉配置净化（#299 R3）：decayPower 非数值会产出 NaN 分直写平台
+        if (out.diligence && typeof out.diligence === 'object') {
+            const dg = Object.assign({}, out.diligence);
+            dg.enabled = dg.enabled === true;
+            const mb = parseFloat(dg.maxBonus);
+            dg.maxBonus = (isFinite(mb) && mb >= 0 && mb <= 100) ? mb : 3;
+            const dp = parseFloat(dg.decayPower);
+            dg.decayPower = (isFinite(dp) && dp > 0 && dp <= 10) ? dp : 2;
+            out.diligence = dg;
         }
         return out;
     },

@@ -85,6 +85,33 @@ test('中文句号不做小数点（实测「3。4分」并成 3.4 属错分）'
     assert.strictEqual(extractScore('２.５分', 24), 2.5);
 });
 
+// ---------- markdown 选择性转义（#299 R1 回归） ----------
+test('markdown 转义选择性：代码/公式豁免、标签转义', () => {
+    const msrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ui-markdown.js'), 'utf8');
+    const m = msrc.match(/function sanitizeMarkdownHtml\(text\) \{[\s\S]*?\n\}/);
+    assert.ok(m, 'sanitizeMarkdownHtml 未找到');
+    const sb2 = { String, Array };
+    vm.createContext(sb2);
+    vm.runInContext(m[0] + '\n;__f = sanitizeMarkdownHtml;', sb2);
+    const f = sb2.__f;
+    assert.strictEqual(f('a < b'), 'a < b', '裸 <（非标签形）不得转义');
+    assert.strictEqual(f('$a < b$'), '$a < b$', 'KaTeX 公式豁免');
+    assert.strictEqual(f('`a < b`'), '`a < b`', '行内代码豁免');
+    assert.ok(f('<script>alert(1)</script>').indexOf('<script') === -1, '标签形尖括号必须转义');
+    assert.ok(f('end <img src=x onerror=y> end').indexOf('<img') === -1, 'img 注入必须转义');
+});
+
+test('CN。CN 分数形态按小数、digit。digit 保守（#299）', () => {
+    const r2 = parseSubQuestionResponse('【答案复述】x\n【得分】：6\n25(1)分数：三。五分', {
+        subQuestions: [{ id: 1, label: '25(1)', maxScore: 6 }]
+    });
+    assert.strictEqual(r2.subScores[0].score, 3.5, '「三。五分」应解析 3.5');
+    const r3 = parseSubQuestionResponse('【答案复述】x\n【得分】：6\n25(1)分数：3。4分', {
+        subQuestions: [{ id: 1, label: '25(1)', maxScore: 6 }]
+    });
+    assert.strictEqual(r3.subScores[0].score, 3, '「3。4分」保守读 3（断句形态不得并分）');
+});
+
 // ---------- 回归：半角行为逐值不变 ----------
 test('半角数字/等号优先等既有语义逐值不变（回归）', () => {
     assert.strictEqual(extractScore('得分：4分', 24), 4);

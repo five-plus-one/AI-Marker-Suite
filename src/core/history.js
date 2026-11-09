@@ -1,3 +1,22 @@
+// 渲染点转义（#299）：历史记录含 #298 前落库的未转义 AI/学生文本，且数据须保持原样入库
+// （入口转义会随保存逐轮累积）——在 HTML 渲染边界统一深转义字符串字段
+function escHistDeep(obj) {
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+    const walk = (v) => {
+        if (typeof v === 'string') return esc(v);
+        if (Array.isArray(v)) return v.map(walk);
+        if (v && typeof v === 'object') {
+            const o = {};
+            for (const k of Object.keys(v)) o[k] = walk(v[k]);
+            return o;
+        }
+        return v;
+    };
+    return walk(obj);
+}
+
 // ========== IndexedDB 图片存储 ==========
 const ImageStore = {
     DB_NAME: 'ai-marker-images',
@@ -1205,6 +1224,7 @@ function showHistoryPanel() {
 
         // 渲染当前页记录
         listEl.innerHTML = pageRecords.map(r => {
+            r = escHistDeep(r); // #299 渲染点转义（含存量记录）
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[r.gradingMode] || r.gradingMode;
             const scoreHtml = r.isCorrected
@@ -1365,6 +1385,7 @@ function showHistoryDetail(record) {
         overflow:hidden;
     `;
 
+    record = escHistDeep(record); // #299 渲染点转义（含存量记录，数据层保持原样）
     const time = new Date(record.timestamp).toLocaleString('zh-CN');
     const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[record.gradingMode] || record.gradingMode;
     // 批改节奏用时（脚本测量：开始处理 → 提交，含随机延迟）

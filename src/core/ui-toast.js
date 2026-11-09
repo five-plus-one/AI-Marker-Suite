@@ -81,7 +81,11 @@ function showToast(msg, type = 'info') {
 
     const toast = document.createElement('div');
     toast.className = `toast-notification ${type}`;
-    toast.innerHTML = `<span style="flex:1;">${msg}</span><button class="toast-close">&times;</button>`;
+    // 消息内容转义（#299）：msg 可能含远程/平台文本
+    const escMsg = String(msg == null ? '' : msg).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+    toast.innerHTML = `<span style="flex:1;">${escMsg}</span><button class="toast-close">&times;</button>`;
     getUIRoot().appendChild(toast);
 
     const closeBtn = toast.querySelector('.toast-close');
