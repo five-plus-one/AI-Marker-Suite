@@ -124,9 +124,13 @@ const ScoreCalculator = {
                     score: u.score !== null && u.score !== undefined ? this.round(u.score, unitConfig, u.maxScore) : null
                 };
             });
-            // 勤勉加分按比例分配
+            // 勤勉加分按比例分配；单元独立步长时分配结果可能脱网格，
+            // 分配后按单元步长+满分再吸附（#289 二轮审计 A-3）
             finalUnitScores = roundedBonus > 0
-                ? this.distributeBonus(rounded, roundedBonus, s => this.round(s, scoringConfig))
+                ? this.distributeBonus(rounded, roundedBonus, s => this.round(s, scoringConfig)).map(u => {
+                    const unitConfig = u.roundStep ? { ...scoringConfig, roundStep: u.roundStep } : scoringConfig;
+                    return { ...u, score: u.score !== null && u.score !== undefined ? this.round(u.score, unitConfig, u.maxScore) : u.score };
+                })
                 : rounded;
 
             // 校验：各单元之和应等于总分；不一致时以小题之和为准（小题是明细、最终按小题填入平台）
