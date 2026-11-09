@@ -144,8 +144,9 @@ const HanhanAdapter = {
                 const currentUrl = currentImg ? currentImg.src : null;
 
                 // 检测图片变化或输入框被清空
+                // 仅真清空算清空：'0' 是合法分值，0 分卷不能误判翻卷（#285）
                 const input = document.querySelector(HANHAN_SELECTORS.SCORE_INPUT);
-                const inputCleared = input && (input.value === '' || input.value === '0');
+                const inputCleared = input && String(input.value).trim() === '';
 
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);

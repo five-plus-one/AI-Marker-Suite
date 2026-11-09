@@ -65,6 +65,19 @@ const NhciscAdapter = {
         return [window.location.pathname, urlSubid, hidSubid, queId].join('::');
     },
 
+    // 稳定试卷标识（供答卷一致性校验做强信号比对，#285）：
+    // examid/secid 换卷同快照切换（与 waitForNextPaper 换卷信号同源），同卷不变；
+    // 拿不到时返回 null 退回既有比对
+    getPaperIdentity() {
+        try {
+            const examid = this._fieldValue(NHCISC_SELECTORS.EXAM_ID_INPUT);
+            const secid = this._fieldValue(NHCISC_SELECTORS.SEC_ID_INPUT);
+            return [examid, secid].filter(Boolean).join('|') || null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     async gatherAnswerImages() {
         console.log('[南昊] 开始获取答题卡图片...');
 

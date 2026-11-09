@@ -395,15 +395,15 @@ const ZhixueAdapter = {
                     return;
                 }
 
-                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框）
+                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框；仅真清空算空，'0' 是合法分值，#285）
                 // 旧版输入框
                 const scoreInputOld = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
                                    searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
-                const inputClearedOld = scoreInputOld && (scoreInputOld.value === '' || scoreInputOld.value === '0');
+                const inputClearedOld = scoreInputOld && String(scoreInputOld.value).trim() === '';
                 // 新版输入框
                 const scoreInputNew = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW) ||
                                    searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_NEW);
-                const inputClearedNew = scoreInputNew && (scoreInputNew.value === '' || scoreInputNew.value === '0');
+                const inputClearedNew = scoreInputNew && String(scoreInputNew.value).trim() === '';
 
                 if ((inputClearedOld || inputClearedNew) && checkTimes > 3) {
                     clearInterval(checkNextTimer);

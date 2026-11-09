@@ -226,10 +226,10 @@ const YuejiaoxiangyunAdapter = {
                 const currentImg = document.querySelector(YUEJIAOXIANGYUN_SELECTORS.ANSWER_IMAGE);
                 const currentUrl = currentImg ? currentImg.src : null;
 
-                // 检测输入框清空
+                // 检测输入框清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
                 const input = document.querySelector(YUEJIAOXIANGYUN_SELECTORS.SCORE_INPUT)
                     || document.querySelector(YUEJIAOXIANGYUN_SELECTORS.SCORE_INPUT_ALT);
-                const inputCleared = input && (input.value === '' || input.value === '0');
+                const inputCleared = input && String(input.value).trim() === '';
 
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);

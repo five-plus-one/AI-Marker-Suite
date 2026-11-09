@@ -169,7 +169,8 @@ const XinkaoAdapter = {
                 const currentImg = document.querySelector(XINKAO_SELECTORS.ANSWER_IMAGE);
                 const currentUrl = currentImg ? currentImg.src : null;
                 const input = document.querySelector(XINKAO_SELECTORS.SCORE_INPUT);
-                const inputCleared = input && (input.value === '' || input.value === '0');
+                // 仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷（#285）
+                const inputCleared = input && String(input.value).trim() === '';
 
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);
