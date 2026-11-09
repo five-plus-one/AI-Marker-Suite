@@ -152,9 +152,9 @@ const HaofenshuyizeAdapter = {
                     return;
                 }
 
-                // 检测输入框被清空
+                // 检测输入框被清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
                 const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && (scoreInput.value === '' || scoreInput.value === '0');
+                const inputCleared = scoreInput && String(scoreInput.value).trim() === '';
                 if (inputCleared && checkTimes > 3) {
                     clearInterval(timer);
                     console.log('✅ 云阅卷(好分数) — 新试卷已加载（输入框清空）');
