@@ -131,17 +131,23 @@ const XfkjAdapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        let filled = 0;
-
-        for (let i = 0; i < scores.length; i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-            const entry = inputs[i];
-            if (!entry) {
-                // 数据安全：填分失败必须显式失败，不得静默续走提交
-                console.warn(`⚠️ [诊断] 小帆智能阅卷 — 第 ${i + 1} 个分数无对应输入框，填分中止`);
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [小帆智能阅卷] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [小帆智能阅卷] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
                 return false;
             }
+        }
+
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+
+        for (let i = 0; i < inputs.length; i++) {
+            const entry = inputs[i];
             const el = entry.element;
             // 快捷打分模式下输入框带 disabled，去掉以保证填入生效（提交读取的是输入框值）
             el.removeAttribute('disabled');
@@ -149,11 +155,10 @@ const XfkjAdapter = {
             setter.call(el, String(scores[i]));
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
-            filled++;
         }
 
-        console.log(`📝 [诊断] 小帆智能阅卷 — 已填入 ${filled} 个分数: ${scores.join(',')}`);
-        return filled > 0;
+        console.log(`📝 [诊断] 小帆智能阅卷 — 已填入 ${inputs.length} 个分数: ${scores.join(',')}`);
+        return true;
     },
 
     submitGrade() {

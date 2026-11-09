@@ -113,7 +113,10 @@ function createMarkdownRenderer() {
         render: function (text) {
             if (!text) return '';
             try {
-                return markedInstance.parse(text);
+                // XSS 防御（#296）：marked 默认放行原始 HTML，而 AI/学生文本不可信——
+                // 解析前转义尖括号（Markdown 语法不受影响），杜绝 innerHTML 注入
+                var safe = String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                return markedInstance.parse(safe);
             } catch (e) {
                 console.error('[AI-Marker] Markdown 渲染错误:', e);
                 return '<pre>' + escapeHtml(text) + '</pre>';

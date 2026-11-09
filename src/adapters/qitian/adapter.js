@@ -4,14 +4,16 @@
 const QitianAdapter = {
     name: '七天网络',
     id: 'qitian',
-    urlPatterns: ['*://*.7net.cc/*', '*://*.qt7.net/*'],
+    urlPatterns: ['*://*.7net.cc/*', '*://*.qt7.net/*', '*://*.qt7.cn/*'],
     iconUrl: '',
 
     shouldInitialize() {
         const h = window.location.hostname;
         // yj5.7net.cc 是新 UI，由 qitian-new 适配器处理
         if (h.includes('yj5.')) return false;
-        return h.includes('7net.cc') || h.includes('qt7.net');
+        // qt7.cn 为七天网络新域名（#296 声明与实现对齐）；
+        // DOM 形态沿用 7net.cc 检测链（detectMarkingPage 三特征兜底），形态不一致时检测自然不通过
+        return h.includes('7net.cc') || h.includes('qt7.net') || h.includes('qt7.cn');
     },
 
     async detectMarkingPage() {

@@ -192,15 +192,25 @@ const SipdAdapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [上进教育] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [上进教育] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
 
         // 确保键盘打分模式 + 输入框可编辑
         this._ensureKeyboardMode();
 
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-
+        for (let i = 0; i < inputs.length; i++) {
             const input = inputs[i].element;
             input.removeAttribute('readonly');
             setter.call(input, scores[i]);
@@ -210,11 +220,9 @@ const SipdAdapter = {
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.dispatchEvent(new Event('change', { bubbles: true }));
             input.dispatchEvent(new Event('blur', { bubbles: true }));
-
-            successCount++;
         }
 
-        return successCount > 0;
+        return true;
     },
 
     submitGrade() {

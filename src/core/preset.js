@@ -58,6 +58,32 @@ const PresetManager = {
         this.data = { list: { "默认配置": {} }, active: "默认配置", bindings: {} };
         this._writeDisabled = true;
     },
+
+    // 导入内容净化（#296）：导入 JSON 可携带任意字符串——roundMethod 被 Math[] 索引会打穿判分。
+    // 只保留已知字段的可信形态，危险值一律回落安全默认
+    sanitizePreset(cfg) {
+        if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return {};
+        const out = Object.assign({}, cfg);
+        if (out.scoring && typeof out.scoring === 'object') {
+            const sc = Object.assign({}, out.scoring);
+            if (!['round', 'floor', 'ceil'].includes(sc.roundMethod)) sc.roundMethod = 'round';
+            const step = parseFloat(sc.roundStep);
+            sc.roundStep = (isFinite(step) && step > 0 && step <= 10) ? Math.round(step * 100) / 100 : 1;
+            if (Array.isArray(sc.units)) {
+                sc.units = sc.units.map(u => {
+                    const unit = (u && typeof u === 'object' && !Array.isArray(u)) ? Object.assign({}, u) : {};
+                    const us = parseFloat(unit.roundStep);
+                    if (!isFinite(us) || us <= 0 || us > 10) delete unit.roundStep;
+                    else unit.roundStep = Math.round(us * 100) / 100;
+                    const ms = parseFloat(unit.maxScore);
+                    unit.maxScore = isFinite(ms) && ms >= 0 ? ms : 0;
+                    return unit;
+                });
+            }
+            out.scoring = sc;
+        }
+        return out;
+    },
     _migrateGradingMode() {
         let changed = false;
         for (const name in this.data.list) {
@@ -267,13 +293,13 @@ const PresetManager = {
     save() {
         if (this._writeDisabled) {
             // 降级期保存被拦（#293）：可见提示 + 惰性探活（瞬态读取失败可自愈退出降级）
+            // 注意（#297）：探活成功**不覆盖内存数据**——用户在保护期的修改必须保留
             try {
                 const probe = GM_getValue('ai-grading-presets');
                 const recovered = probe ? JSON.parse(probe) : null;
                 if (recovered && recovered.list) {
-                    this.data = recovered;
                     this._writeDisabled = false;
-                    if (typeof showToast === 'function') showToast('配置存储访问已恢复；保护期间的修改未保存，请核对后重新保存');
+                    if (typeof showToast === 'function') showToast('配置存储访问已恢复，请再次点击保存');
                     return false;
                 }
             } catch (_) { /* 仍不可读，维持降级 */ }

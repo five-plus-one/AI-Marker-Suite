@@ -37,7 +37,7 @@ test("「'0' 当输入框清空」判空谓词不得回退（#285）", () => {
 
 test("已收口适配器的 fillScores 不得回流半成功语义（successCount > 0）", () => {
     // 两遍式全或无已收口：guangda、guangda-2、ameqp、qitian、qitian-new
-    const sealed = ['guangda', 'guangda-2', 'ameqp', 'qitian', 'qitian-new'];
+    const sealed = ['guangda', 'guangda-2', 'ameqp', 'qitian', 'qitian-new', 'ruiya'];
     const offenders = [];
     for (const a of adapters) {
         if (!sealed.includes(a.name)) continue;

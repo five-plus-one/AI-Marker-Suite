@@ -811,7 +811,9 @@ const Guangda2Adapter = {
 
     // 使用 MutationObserver 等待特征元素出现
     const observer = new MutationObserver(() => {
-        if (Guangda2Adapter.shouldInitialize()) {
+        // 注册前查已注册（#297 F12）：延迟注册不得覆盖其他适配器已建立的注册，
+        // 防止 LI.f-csp 特征跨平台误判时劫持会话
+        if (Guangda2Adapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
             window.__AI_MARKER_ADAPTER__ = Guangda2Adapter;
             observer.disconnect();
             console.log('🎯 [光大V2] 延迟注册适配器成功');
