@@ -632,7 +632,8 @@ function parseSubQuestionResponse(text, config) {
     // 如果结构化解析成功提取到分数
     if (structured.score !== null) {
         // 尝试提取各小题分数
-        const clean = text.replace(/\*\*/g, '').replace(/\*/g, '');
+        // 抗格式漂移（#287/#289 二轮审计 A-5）：小题行的全角/中文数字同样归一化
+        const clean = normalizeScoreText(text.replace(/\*\*/g, '').replace(/\*/g, ''));
         const subScores = [];
         let calculatedTotal = 0;
 

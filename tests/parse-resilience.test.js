@@ -9,6 +9,7 @@ const vm = require('vm');
 
 function loadPrompt() {
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'prompt.js'), 'utf8');
+    const scoreSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'score.js'), 'utf8');
     const sandbox = {
         console: { log: () => {}, warn: () => {} },
         window: {}, document: null,
@@ -16,11 +17,12 @@ function loadPrompt() {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(src + '\n;__exports__ = { extractScore, parseStructuredResponse, normalizeScoreText };', sandbox);
+    vm.runInContext(scoreSrc + '\n;globalThis.ScoreCalculator = typeof ScoreCalculator !== "undefined" ? ScoreCalculator : null;', sandbox);
+    vm.runInContext(src + '\n;__exports__ = { extractScore, parseStructuredResponse, normalizeScoreText, parseSubQuestionResponse };', sandbox);
     return sandbox.__exports__;
 }
 
-const { extractScore, parseStructuredResponse, normalizeScoreText } = loadPrompt();
+const { extractScore, parseStructuredResponse, normalizeScoreText, parseSubQuestionResponse } = loadPrompt();
 
 // ---------- 全角数字 ----------
 test('全角数字/小数点归一化后可解析', () => {
@@ -58,6 +60,17 @@ test('【得分】为全角/中文数字时整体解析成功（#287 实测场�
 
     const p2 = parseStructuredResponse('【答案复述】x\n【得分】：八分\n【评分依据】ok', 24);
     assert.strictEqual(p2.score, 8);
+});
+
+// ---------- 小题行变体（#289 二轮审计 A-5） ----------
+test('小题行全角/中文数字经归一化可解析', () => {
+    const text = '【答案复述】x\n【得分】：8\n【评分依据】ok\n第1题分数：８分\n第2题分数：二分';
+    const r = parseSubQuestionResponse(text, {
+        subQuestions: [{ id: 1, label: '第1题', maxScore: 10 }, { id: 2, label: '第2题', maxScore: 5 }]
+    });
+    assert.strictEqual(r.score, 8);
+    assert.strictEqual(r.subScores[0].score, 8);
+    assert.strictEqual(r.subScores[1].score, 2);
 });
 
 // ---------- 回归：半角行为逐值不变 ----------
