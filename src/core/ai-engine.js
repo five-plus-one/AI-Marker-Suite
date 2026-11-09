@@ -800,6 +800,29 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     let detailA = resultA.status === 'fulfilled' ? resultA.value : null;
     let detailB = resultB.status === 'fulfilled' ? resultB.value : null;
 
+    // 单侧解析为 null 时重试该侧一次（#287）：模型偶发格式漂移/漏段落不应让整批批改停摆。
+    // 仅对「调用成功但解析失败」重试（rejected 的模型异常已走 callAIGrading 内部重试，不重复打）；
+    // 重试仍不可解析则保留下方显式抛错，数据安全门不放松
+    async function retryUnparsedSide(cfg, label) {
+        console.warn(`⚠️ [双评] ${label} 结果不可解析（score=null），重试一次...`);
+        if (onStreamUpdate) onStreamUpdate(`🔄 双评：${label}结果不可解析，正在重试...`);
+        try {
+            const r = await callAIGrading(base64DataArray, { ...config, ...cfg }, null);
+            return (r && r.score !== null && r.score !== undefined) ? r : null;
+        } catch (e) {
+            console.warn(`⚠️ [双评] ${label} 重试失败:`, e && e.message);
+            return null;
+        }
+    }
+    if (scoreA === null && resultA.status === 'fulfilled') {
+        detailA = await retryUnparsedSide(primaryConfig, '主模型');
+        scoreA = detailA ? detailA.score : null;
+    }
+    if (scoreB === null && resultB.status === 'fulfilled') {
+        detailB = await retryUnparsedSide(secondaryConfig, '副模型');
+        scoreB = detailB ? detailB.score : null;
+    }
+
     if (scoreA === null || scoreB === null) {
         const failure = resultA.status === 'rejected' ? resultA.reason : resultB.status === 'rejected' ? resultB.reason : null;
         throw failure || new Error('双评结果不完整，请检查两个模型的回答后继续批改');
