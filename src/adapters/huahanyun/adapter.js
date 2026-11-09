@@ -6,17 +6,35 @@
     'use strict';
 
     const HY_HELPERS = {
-        // 可见答卷图（过滤 data: 小图标与隐藏图，#284 同款可见性过滤）
-        getVisibleAnswerImage() {
+        // 真可见答卷图（#306）：el-image 换卷过渡期常新旧图并存——隐藏残留/离屏预载
+        // 能骗过尺寸过滤，必须用 checkVisibility（opacity/visibility/content-visibility）
+        // + 计算样式兜底剔除；只留"真可见"的大图
+        getVisibleAnswerImages() {
             const imgs = document.querySelectorAll(window.HUAHANYUN_SELECTORS.ANSWER_IMAGE);
+            const out = [];
             for (const img of imgs) {
                 const src = img.getAttribute('src') || '';
                 if (!src || src.indexOf('data:') === 0) continue;
                 const r = img.getBoundingClientRect();
                 if (r.width < 50 || r.height < 50) continue;
-                return { img, src };
+                if (typeof img.checkVisibility === 'function') {
+                    if (!img.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })) continue;
+                } else if (typeof getComputedStyle === 'function') {
+                    const cs = getComputedStyle(img);
+                    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.1) continue;
+                }
+                out.push({ img, src, area: r.width * r.height });
             }
-            return null;
+            return out;
+        },
+
+        // 主答卷图：真可见中取最大面（过渡期旧图残留时取新主图）
+        getVisibleAnswerImage() {
+            const list = HY_HELPERS.getVisibleAnswerImages();
+            if (list.length === 0) return null;
+            let best = list[0];
+            for (const it of list) { if (it.area > best.area) best = it; }
+            return best;
         },
 
         // 考生标识：OBS 路径中的考生号（签名 query 抖动不参与）（#281 强信号）
@@ -145,21 +163,32 @@
             return true;
         },
 
-        // 取图：可见大图（OBS 裁剪图直链带 X-Amz 签名，可直接抓取）
+        // 取图：真可见大图（OBS 裁剪图直链带 X-Amz 签名，可直接抓取）。
+        // waitForNextPaper 以"旧考生号退出可见集"为换卷成立条件，故此处不会新旧混图
         async gatherAnswerImages() {
-            const found = HY_HELPERS.getVisibleAnswerImage();
-            return found ? [found.src] : [];
+            return HY_HELPERS.getVisibleAnswerImages().map(it => it.src);
         },
 
-        // 换卷判定：考生标识（路径级）变化即换卷；拿不准不误判（宁可等待）
+        // 换卷判定（#306 集合退出语义）：可见图考生号集合中**旧考生号已退出**才判换卷——
+        // 过渡期新旧图并存时继续等（1 tick），旧图退场即判换卷；
+        // 判定成立时可见集只含新卷，杜绝新旧混图喂 AI（宁等勿错）
         async waitForNextPaper(oldImageUrl) {
-            const cur = HY_HELPERS.getVisibleAnswerImage();
-            if (!cur) return false;
+            const cur = HY_HELPERS.getVisibleAnswerImages();
+            if (cur.length === 0) return false; // 无图不误判，继续等
             const oldKey = HY_HELPERS.extractStudentKey(oldImageUrl);
-            const newKey = HY_HELPERS.extractStudentKey(cur.src);
-            if (oldKey && newKey) return oldKey !== newKey;
-            // 标识提取失败（兜底路径）：仅当路径本身变化才判换卷
-            return HY_HELPERS.normalizePath(oldImageUrl) !== HY_HELPERS.normalizePath(cur.src);
+            if (oldKey) {
+                for (const it of cur) {
+                    if (HY_HELPERS.extractStudentKey(it.src) === oldKey) return false; // 旧图仍可见 → 未换卷
+                }
+                // 旧考生号已退出可见集；且集合非空（上面判过）→ 换卷成立
+                return true;
+            }
+            // 兜底：考生号提取失败（非标准 URL）——按路径集合判定（拿不准宁可等待）
+            const oldPath = HY_HELPERS.normalizePath(oldImageUrl);
+            for (const it of cur) {
+                if (HY_HELPERS.normalizePath(it.src) === oldPath) return false;
+            }
+            return true;
         },
 
         // 纸卷身份：考生号（换卷必变、同卷签名抖动不变）（#281 强信号）
