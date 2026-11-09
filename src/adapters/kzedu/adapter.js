@@ -127,6 +127,21 @@ const KzeduAdapter = {
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296）——暂存前全量校验，缺失/错位显式拒绝；
+        // 真实给分在 submitGrade（「自动给分」勾选时点击 scoreitem 会立即提交翻卷）
+        const inputs = this.getScoreInputs();
+        if (inputs.length === 0) return false;
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [云阅卷(开州)] 分数个数(${scores.length})多于评分单元数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [云阅卷(开州)] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         // 多单元按顺序记录（当前页面为单单元）
         this._pendingScores = scores.slice();
         this._pendingScore = scores[0];
@@ -134,7 +149,6 @@ const KzeduAdapter = {
         // 只做显示预览，绝不点击按钮：
         // 「自动给分」勾选时点击 scoreitem 会立即提交翻卷，跳过用户确认环节
         scores.forEach((score, i) => {
-            if (score === null || score === undefined) return;
             const els = document.querySelectorAll(KZEDU_SELECTORS.SCORE_INPUT);
             const el = els[i];
             if (el) this._setInputPreview(el, score);

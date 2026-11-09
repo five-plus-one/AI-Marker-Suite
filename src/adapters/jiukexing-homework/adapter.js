@@ -293,8 +293,16 @@ const JiukexingHomeworkAdapter = {
 
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
+        // 数据安全：两遍式全或无（#296）——单题模式下多余分数=配置错位，显式拒绝（不静默忽略）
+        if (scores.length > 1) {
+            console.warn(`⚠️ [九科星作业] 分数个数(${scores.length})>1（单题模式配置错位）→ 拒绝`);
+            return false;
+        }
         const score = scores[0];
-        if (score === null || score === undefined) return false;
+        if (score === null || score === undefined) {
+            console.warn('⚠️ [九科星作业] 无 AI 分数（分数缺失）→ 拒绝');
+            return false;
+        }
 
         // 「自动提交」勾选时平台在填分后约 1s 自动交卷，会绕过确认弹窗与拟人延迟——必须先关掉
         this._disableAutoSubmit();

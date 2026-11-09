@@ -226,8 +226,16 @@ const RunjianAdapter = {
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296）——单题模式下多余分数=配置错位，显式拒绝（不静默忽略）
+        if (scores.length > 1) {
+            console.warn(`⚠️ [润建] 分数个数(${scores.length})>1（单题模式配置错位）→ 拒绝`);
+            return false;
+        }
         const score = scores[0];
-        if (score === null || score === undefined) return false;
+        if (score === null || score === undefined) {
+            console.warn('⚠️ [润建] 无 AI 分数（分数缺失）→ 拒绝');
+            return false;
+        }
 
         console.log(`📝 [润建] 填入分数: ${score}`);
 
@@ -320,10 +328,16 @@ const RunjianAdapter = {
         const startTime = Date.now();
         const maxWait = 30000; // 最多等待 30 秒
 
+        // 只比 pathname（#297 F13）：COS 签名/裁切参数在 query 且同卷刷新会变，
+        // 整 URL 比较会把同卷重取误判成换卷
+        const pathOf = (u) => {
+            try { return new URL(u, location.href).pathname; } catch (e) { return String(u || '').split('?')[0]; }
+        };
+
         return new Promise((resolve) => {
             const timer = setInterval(() => {
                 // 检测1: API 拦截的图片 URL 变化
-                if (_runjianCurrentImageUrl && oldUrl && _runjianCurrentImageUrl !== oldUrl) {
+                if (_runjianCurrentImageUrl && oldUrl && pathOf(_runjianCurrentImageUrl) !== pathOf(oldUrl)) {
                     clearInterval(timer);
                     console.log('✅ [润建] 新试卷已加载（API 图片变化）');
                     resolve(true);
@@ -332,7 +346,7 @@ const RunjianAdapter = {
 
                 // 检测2: background-image 变化
                 const currentBgUrl = this._getImageFromBackground();
-                if (currentBgUrl && oldUrl && currentBgUrl !== oldUrl) {
+                if (currentBgUrl && oldUrl && pathOf(currentBgUrl) !== pathOf(oldUrl)) {
                     clearInterval(timer);
                     console.log('✅ [润建] 新试卷已加载（背景图变化）');
                     resolve(true);

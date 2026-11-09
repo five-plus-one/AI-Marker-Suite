@@ -118,14 +118,22 @@ const YuejuanAdapter = {
 
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
-        const score = scores[0];
-        if (score === null || score === undefined) return false;
 
-        // 只做输入框预览，不点击打分板：
-        // 保证「点击即提交」类行为（若存在）不发生在用户确认之前
+        // 数据安全：两遍式全或无（#296）——暂存前全量校验（单题模式），缺失/错位显式拒绝；
+        // 真实给分在 submitGrade（防「点击即提交」类行为跳过用户确认）
+        if (scores.length > 1) {
+            console.warn(`⚠️ [正确阅卷] 分数个数(${scores.length})>1（单题模式配置错位）→ 拒绝`);
+            return false;
+        }
+        const score = scores[0];
+        if (score === null || score === undefined) {
+            console.warn('⚠️ [正确阅卷] 无 AI 分数（分数缺失）→ 拒绝');
+            return false;
+        }
+
         this._pendingScore = score;
         const el = document.querySelector(YUEJUAN_SELECTORS.SCORE_INPUT);
-        this._setInputPreview(el, score);
+        if (el) this._setInputPreview(el, score);
         console.log(`📝 [诊断] 正确阅卷 — 记录待提交分数: ${score}（等待确认后点击打分板并提交）`);
         return true;
     },

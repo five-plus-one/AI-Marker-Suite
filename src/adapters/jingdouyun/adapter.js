@@ -135,18 +135,32 @@ const JingdouyunAdapter = {
         // 「自动提交」勾选时分数录入可能触发平台自动交卷，绕过确认弹窗——先取消勾选
         this._disableAutoSubmit();
 
-        this._pendingScores = scores.slice();
         const inputs = this.getScoreInputs();
         if (!inputs.length) return false;
 
-        let ok = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-            if (this._setScoreValue(inputs[i].element, scores[i])) ok++;
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位或写入失败即整体拒绝，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [精斗云] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [精斗云] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
         }
 
+        for (let i = 0; i < inputs.length; i++) {
+            if (!this._setScoreValue(inputs[i].element, scores[i])) {
+                console.warn(`⚠️ [精斗云] ${inputs[i].label} 分数 ${scores[i]} 写入未生效 → 拒绝，不提交半填状态`);
+                return false;
+            }
+        }
+
+        this._pendingScores = scores.slice();
         console.log(`📝 [诊断] 精斗云 — 填入分数 ${scores.join(',')}（只写分数框预览，等待用户确认后保存）`);
-        return ok > 0;
+        return true;
     },
 
     async submitGrade() {

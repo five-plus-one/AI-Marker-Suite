@@ -1307,7 +1307,8 @@ function createSettingsPanel(options) {
         a.download = `ai-marker-config_${ts}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showToast('配置已导出');
+        // 密钥提示（#297）：导出文件含明文 API Key
+        showToast('⚠️ 配置已导出（含明文 API Key），请勿公开分享');
     };
     // 配置导入
     const fileInput = panel.querySelector('#import-config-file');
@@ -1318,16 +1319,35 @@ function createSettingsPanel(options) {
         try {
             const text = await file.text();
             const data = JSON.parse(text);
-            if (!data.presets || !data.presets.list) throw new Error('无效的配置文件');
+            if (!data.presets || !data.presets.list || typeof data.presets.list !== 'object') throw new Error('无效的配置文件');
             await showConfirmModal(`确定要导入配置吗？\n文件：${file.name}\n将覆盖当前所有方案和服务商设置。`);
-            PresetManager.data = data.presets;
+            // 导入净化（#296）：逐方案清洗危险字段（如 roundMethod 被 Math[] 索引会打穿判分）
+            const cleanPresets = {
+                list: {},
+                active: String(data.presets.active || ''),
+                bindings: (data.presets.bindings && typeof data.presets.bindings === 'object') ? data.presets.bindings : {}
+            };
+            for (const name of Object.keys(data.presets.list)) {
+                // 原型污染护栏（#299 H3）：危险键名直接跳过
+                if (['__proto__', 'constructor', 'prototype'].includes(String(name))) continue;
+                const cfg = data.presets.list[name];
+                if (cfg && typeof cfg === 'object') cleanPresets.list[String(name)] = PresetManager.sanitizePreset(cfg);
+            }
+            const names = Object.keys(cleanPresets.list);
+            if (names.length === 0) throw new Error('配置文件中没有可用方案');
+            if (!cleanPresets.list[cleanPresets.active]) cleanPresets.active = names[0];
+            PresetManager.data = cleanPresets;
+            // 导入是用户显式恢复意图：解除只读降级（#293/#297）
+            PresetManager._writeDisabled = false;
             PresetManager.save();
             if (data.providers) {
                 ProviderManager.data = data.providers;
+                ProviderManager._writeDisabled = false;
                 ProviderManager.save();
             }
             if (data.workflows) {
                 WorkflowManager.data = data.workflows;
+                WorkflowManager._writeDisabled = false;
                 WorkflowManager.save();
             }
             renderPresetDropdown();
@@ -1362,7 +1382,8 @@ function createSettingsPanel(options) {
         a.download = `ai-marker-preset_${safeName}_${ts}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showToast(`方案「${presetName}」已导出（含图片）`);
+        // 密钥提示（#297）：方案含明文 API Key
+        showToast(`⚠️ 方案「${presetName}」已导出（含图片与明文 API Key），请勿公开分享`);
     }
 
     const presetFileInput = panel.querySelector('#import-preset-file');
@@ -1378,16 +1399,20 @@ function createSettingsPanel(options) {
             }
             const importName = String(data.name).trim();
             if (!importName) throw new Error('方案名称为空');
+            // 原型污染护栏（#299 H3）
+            if (['__proto__', 'constructor', 'prototype'].includes(importName)) throw new Error('非法方案名称');
             const exists = !!PresetManager.data.list[importName];
             if (exists) {
                 const ok = await showConfirmModal(`方案「${importName}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
                 if (!ok) { presetFileInput.value = ''; return; }
             }
             // 合并导入：只写入该方案，不影响其他方案/供应商/工作流
-            PresetManager.data.list[importName] = data.preset;
+            // 导入净化（#296）+ 显式恢复意图解除只读降级（#297）
+            PresetManager.data.list[importName] = PresetManager.sanitizePreset(data.preset);
             PresetManager.data.active = importName;
             // 导入旧版本方案时补全新字段（outputMode/retryPolicy 等），与启动时迁移同源
             if (typeof PresetManager.migrateAll === 'function') PresetManager.migrateAll();
+            PresetManager._writeDisabled = false;
             PresetManager.save();
             renderPresetDropdown();
             fillFormFromActivePreset();
@@ -1633,6 +1658,9 @@ function renderChangelogContent(container, changelog) {
     const arrowSVG = '<svg class="changelog-toggle" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
     let html = '';
+    const escCl = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
     versions.forEach((ver, idx) => {
         const items = changelog[ver];
         const collapsedClass = idx === 0 ? '' : ' collapsed'; // 最新版本展开，其余折叠
@@ -1640,11 +1668,12 @@ function renderChangelogContent(container, changelog) {
         html += `<div class="changelog-version${collapsedClass}">`;
         html += `<div class="changelog-version-header">`;
         html += arrowSVG;
-        html += `<span class="changelog-ver">v${ver}</span>`;
+        html += `<span class="changelog-ver">v${escCl(ver)}</span>`;
         html += `</div>`;
         html += `<ul class="changelog-items">`;
         items.forEach(item => {
-            html += `<li>${item}</li>`;
+            // 远端 changelog 文本转义（#299）
+            html += `<li>${escCl(item)}</li>`;
         });
         html += `</ul></div>`;
     });
@@ -2999,7 +3028,12 @@ function saveAISettings() {
         }
     }
 
-    PresetManager.save();
+    // 保存结果真实化（#297）：只读降级/保存失败不得报"已保存"
+    const savedOk = PresetManager.save();
+    if (!savedOk) {
+        safeAlert(`⚠️ 「${activeName}」保存失败：存储异常，本次修改未持久化。\n请勿刷新页面，稍后再次点击保存（会自动重试恢复）。`);
+        return;
+    }
     clearUnsavedChanges();
     const modeLabel = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode];
     safeAlert(`「${activeName}」已保存 — ${modeLabel}`);

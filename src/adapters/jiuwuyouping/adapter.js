@@ -185,21 +185,31 @@ const JiuwuyoupingAdapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [九五优评] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [九五优评] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         // 取 iframe 窗口的 HTMLInputElement（元素属于 iframe 文档）
         const proto = (win && win.HTMLInputElement && win.HTMLInputElement.prototype)
             || window.HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
 
-        let ok = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
+        for (let i = 0; i < inputs.length; i++) {
             const v = scores[i];
-            if (v === null || v === undefined) continue;
             const el = inputs[i].element;
             setter.call(el, String(v));
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('blur', { bubbles: true }));
-            ok++;
             console.log(`✅ [九五优评] 给分点 ${inputs[i].label} 填入 ${v}（满${inputs[i].maxScore}）`);
         }
 
@@ -208,7 +218,7 @@ const JiuwuyoupingAdapter = {
             if (win && typeof win.countSum === 'function') win.countSum();
         } catch (e) { /* ignore */ }
 
-        return ok > 0;
+        return true;
     },
 
     // ---------- 提交 ----------

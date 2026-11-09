@@ -323,7 +323,17 @@ const C30Adapter = {
     },
 
     fillScores(scores) {
-        if (!scores?.length || scores[0] == null) return false;
+        // 数据安全：两遍式全或无（#296）——暂存前全量校验（单题模式），缺失/错位显式拒绝；
+        // 真实写入在 submitGrade，写入失败由其显式传播
+        if (!scores || scores.length === 0) return false;
+        if (scores.length > 1) {
+            console.warn(`⚠️ [C30] 分数个数(${scores.length})>1（单题模式配置错位）→ 拒绝`);
+            return false;
+        }
+        if (scores[0] === null || scores[0] === undefined) {
+            console.warn('⚠️ [C30] 无 AI 分数（分数缺失）→ 拒绝');
+            return false;
+        }
         this._pendingScore = scores[0];
         console.log(`📝 [C30] fillScores: ${scores[0]}`);
         return true;
@@ -416,8 +426,17 @@ const C30Adapter = {
 
     submitGrade() {
         console.log('📤 [C30] submitGrade...');
-        this._setScoreValue(this._pendingScore);
+        if (this._pendingScore === null || this._pendingScore === undefined) {
+            console.warn('⚠️ [C30] 没有待提交的分数 → 拒绝提交');
+            return false;
+        }
+        // 写入失败必须显式失败，不得静默续走（#296）
+        const ok = this._setScoreValue(this._pendingScore);
         this._pendingScore = null;
+        if (!ok) {
+            console.warn('⚠️ [C30] 分数写入失败（快捷按钮与输入框均未命中）→ 拒绝提交');
+            return false;
+        }
         this._handleConfirmDialog();
 
         setTimeout(() => {

@@ -87,11 +87,13 @@ test('满分非步长整数倍时提示词补「可给满分」，整除时措�
 test('双评合并按 1.5 步长吸附且钳制到单元满分', () => {
     const mergeDualSubScores = loadMergeDual();
     const units = [{ roundStep: 1.5, maxScore: 10 }, { roundStep: 1.5, maxScore: 15 }];
-    const a = { subScores: [{ label: '56', score: 10, comment: '', roundStep: 1.5, maxScore: 10 }, { label: '57', score: 15, comment: '', roundStep: 1.5, maxScore: 15 }] };
-    const b = { subScores: [{ label: '56', score: 10, comment: '', roundStep: 1.5, maxScore: 10 }, { label: '57', score: 13.5, comment: '', roundStep: 1.5, maxScore: 15 }] };
+    const a = { subScores: [{ label: '56', score: 10, comment: '', roundStep: 1.5, maxScore: 10 }, { label: '57', score: 15, comment: '', roundStep: 1.5, maxScore: 16 }] };
+    const b = { subScores: [{ label: '56', score: 10, comment: '', roundStep: 1.5, maxScore: 10 }, { label: '57', score: 13.5, comment: '', roundStep: 1.5, maxScore: 16 }] };
     const out = mergeDualSubScores(a, b, { roundStep: 1.5, roundMethod: 'round', units });
     assert.strictEqual(out[0].score, 10, '(10+10)/2=10 不得取整成 10.5');
-    assert.strictEqual(out[1].score, 15, '(15+13.5)/2=14.25 吸附 1.5 网格 → 14.5? 不，9.5 倍数半数向上 → 15');
+    // 可分辨用例（#297 测试审计）：满分设 16 使钳制不会产生 15，
+    // 15 只能来自 1.5 网格吸附（14.25 → 9.5 个半数向上 → 15）
+    assert.strictEqual(out[1].score, 15, '(15+13.5)/2=14.25 吸附 1.5 网格 → 15');
 });
 
 test('双评合并平均分吸附到 1.5 网格', () => {
@@ -100,6 +102,15 @@ test('双评合并平均分吸附到 1.5 网格', () => {
     const b = { subScores: [{ label: '56', score: 6, comment: '', roundStep: 1.5, maxScore: 15 }] };
     const out = mergeDualSubScores(a, b, { roundStep: 1.5, roundMethod: 'round' });
     assert.strictEqual(out[0].score, 7.5, '(9+6)/2=7.5 在网格上应保留');
+});
+
+// ---------- roundMethod 白名单（#296） ----------
+test('roundMethod 白名单：非法值回落 round，不得索引任意 Math 成员', () => {
+    const { ScoreCalculator } = loadCore('score.js');
+    assert.strictEqual(ScoreCalculator.round(2.5, { roundStep: 1, roundMethod: 'random' }), 3, 'random 必须回落 round');
+    assert.strictEqual(ScoreCalculator.round(2.5, { roundStep: 1, roundMethod: 'sqrt' }), 3, 'sqrt 必须回落 round');
+    assert.strictEqual(ScoreCalculator.round(2.5, { roundStep: 1, roundMethod: 'floor' }), 2, '合法 floor 保持');
+    assert.strictEqual(ScoreCalculator.round(2.5, { roundStep: 1, roundMethod: 'ceil' }), 3, '合法 ceil 保持');
 });
 
 // ---------- 勤勉分配网格吸附（#289 二轮审计 A-3） ----------

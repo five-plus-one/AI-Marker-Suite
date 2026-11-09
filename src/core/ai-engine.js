@@ -148,12 +148,13 @@ const ProviderManager = {
     },
     save() {
         if (this._writeDisabled) {
-            // 惰性探活（#293）：瞬态读取失败可自愈
+            // 惰性探活（#293/#297）：瞬态读取失败可自愈；成功不覆盖内存数据（与 preset 对齐）
             try {
                 const probe = GM_getValue('ai-grading-providers-v2');
-                if (probe && JSON.parse(probe)) {
+                const recovered = probe ? JSON.parse(probe) : null;
+                if (recovered && recovered.providers) {
                     this._writeDisabled = false;
-                    if (typeof showToast === 'function') showToast('供应商配置存储已恢复；保护期间的修改未保存，请重新保存');
+                    if (typeof showToast === 'function') showToast('供应商配置存储已恢复，请再次点击保存');
                     return false;
                 }
             } catch (_) { /* 维持降级 */ }
@@ -399,12 +400,13 @@ const WorkflowManager = {
     },
     save() {
         if (this._writeDisabled) {
-            // 惰性探活（#293）：瞬态读取失败可自愈
+            // 惰性探活（#293/#297）：瞬态读取失败可自愈；成功不覆盖内存数据（与 preset 对齐）
             try {
                 const probe = GM_getValue('ai-grading-workflows');
-                if (probe && JSON.parse(probe)) {
+                const recovered = probe ? JSON.parse(probe) : null;
+                if (recovered && recovered.workflows) {
                     this._writeDisabled = false;
-                    if (typeof showToast === 'function') showToast('工作流配置存储已恢复；保护期间的修改未保存，请重新保存');
+                    if (typeof showToast === 'function') showToast('工作流配置存储已恢复，请再次点击保存');
                     return false;
                 }
             } catch (_) { /* 维持降级 */ }

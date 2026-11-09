@@ -144,8 +144,16 @@ const LehuaAdapter = {
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296）——暂存前全量校验（单题模式），缺失/错位显式拒绝
+        if (scores.length > 1) {
+            console.warn(`⚠️ [乐华阅卷] 分数个数(${scores.length})>1（单题模式配置错位）→ 拒绝`);
+            return false;
+        }
         const score = scores[0];
-        if (score === null || score === undefined) return false;
+        if (score === null || score === undefined) {
+            console.warn('⚠️ [乐华阅卷] 无 AI 分数（分数缺失）→ 拒绝');
+            return false;
+        }
 
         // 乐华阅卷平台在点击分数后会自动提交
         // 所以需要延迟到用户确认后再点击分数按钮
@@ -221,8 +229,11 @@ const LehuaAdapter = {
     submitGrade() {
         console.log('📤 [诊断] 乐华阅卷 — 用户确认后点击分数按钮提交');
 
-        // 点击分数按钮（触发平台自动提交）
-        this._clickScore();
+        // 点击分数按钮（触发平台自动提交）；失败必须显式失败，不得静默续走（#296）
+        if (!this._clickScore()) {
+            console.warn('⚠️ [诊断] 乐华阅卷 — 分数未成功给入（按钮与输入框均未命中）→ 拒绝提交');
+            return false;
+        }
 
         // 处理可能的二次确认弹窗
         this._handleConfirmDialog();

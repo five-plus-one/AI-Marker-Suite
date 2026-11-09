@@ -108,13 +108,22 @@ function extractRemoteVersion(scriptText) {
  */
 function extractRemoteChangelog(scriptText) {
     try {
-        // 匹配 CHANGELOG: { ... } 内容（支持多行，到下一个 }; 或 } 结尾）
+        // 零求值提取（#297）：原实现用 new Function 对远端文本求值（任意代码执行面）。
+        // CHANGELOG 结构固定为 { '版本': ['条目', ...] }，正则提取即可，无需执行
         const match = scriptText.match(/CHANGELOG\s*:\s*(\{[\s\S]*?\})\s*[,}]/);
         if (!match) return null;
-        // 用 Function 安全求值，避免 eval
-        const fn = new Function('return ' + match[1]);
-        const obj = fn();
-        return (obj && typeof obj === 'object') ? obj : null;
+        const block = match[1];
+        const obj = {};
+        const keyRe = /['"]([^'"]+)['"]\s*:\s*\[([\s\S]*?)\]/g;
+        let km;
+        while ((km = keyRe.exec(block)) !== null) {
+            const items = [];
+            const itemRe = /['"]([^'"]*)['"]/g;
+            let im;
+            while ((im = itemRe.exec(km[2])) !== null) items.push(im[1]);
+            obj[km[1]] = items;
+        }
+        return Object.keys(obj).length ? obj : null;
     } catch {
         return null;
     }
@@ -129,13 +138,17 @@ function extractRemoteChangelog(scriptText) {
 function collectChangelogHTML(remoteVersion, remoteChangelog) {
     const changelog = remoteChangelog;
     if (!changelog || typeof changelog !== 'object') return '';
+    // 转义（#297）：远程 changelog 文本不可信，渲染进 innerHTML 前必须转义
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
     const versions = Object.keys(changelog)
         .filter(v => compareVersions(v, SCRIPT_CONFIG.VERSION) > 0 && compareVersions(v, remoteVersion.split('-')[0]) <= 0)
         .sort((a, b) => compareVersions(b, a)); // 降序
     if (!versions.length) return '';
     return versions.map(v => {
-        const items = changelog[v].map(item => `<li>${item}</li>`).join('');
-        return `<div style="margin-bottom:8px;"><span class="version-tag">v${v}</span><ul style="margin:4px 0 0 16px;padding:0;font-size:12px;color:#666;line-height:1.8;">${items}</ul></div>`;
+        const items = changelog[v].map(item => `<li>${esc(item)}</li>`).join('');
+        return `<div style="margin-bottom:8px;"><span class="version-tag">v${esc(v)}</span><ul style="margin:4px 0 0 16px;padding:0;font-size:12px;color:#666;line-height:1.8;">${items}</ul></div>`;
     }).join('');
 }
 
