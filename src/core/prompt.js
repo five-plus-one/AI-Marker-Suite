@@ -297,11 +297,13 @@ function parseStructuredResponse(text, maxScore) {
 }
 
 // 解析抗漂移（#287）：全角数字/小数点归一化、常见中文数字（0~99）转阿拉伯数字。
-// 模型偶发输出「８分」「八分」「２.５」等变体，直接 \d 匹配会解析为 null 导致批改停摆
+// 模型偶发输出「８分」「八分」「２.５」等变体，直接 \d 匹配会解析为 null 导致批改停摆。
+// 注意（#297）：中文句号「。」**不做**小数点转换——实测「25(1)：3。4分」被并成 3.4 分属错分，
+// 保守取整（3）优于错分（3.4）；仅全角点 U+FF0E 转半角
 function normalizeScoreText(t) {
     let s = String(t)
         .replace(/[\uff10-\uff19]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
-        .replace(/[\uff0e\u3002]/g, '.')
+        .replace(/\uff0e/g, '.')
         .replace(/[\uff1a]/g, ':')
         .replace(/[\uff0d\u2212]/g, '-');
     // 混合小数变体（"二.五分" → "2.5"）——必须先于「…分」转换
@@ -638,7 +640,9 @@ function parseSubQuestionResponse(text, config) {
         let calculatedTotal = 0;
 
         for (const sq of config.subQuestions) {
-            const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // 双侧归一（#297）：label 与正文都过 normalizeScoreText，防止"五分题/5分题"类改写漂移
+            const normLabel = normalizeScoreText(sq.label);
+            const escapedLabel = normLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             let score = null;
 
             // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
@@ -657,7 +661,7 @@ function parseSubQuestionResponse(text, config) {
                 const bracketMatch = clean.match(bracketPattern);
                 if (bracketMatch) {
                     // 找到了括号格式，使用完整的 label（包括括号）进行匹配
-                    const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                    const fullLabel = normLabel + '(' + bracketMatch[1] + ')';
                     const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
                     // 尝试匹配 "25(1)分数：2"

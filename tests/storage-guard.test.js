@@ -141,18 +141,21 @@ test('降级期保存被拦时可见提示（不静默假成功）', () => {
     assert.ok(toasts.some(t => /未保存/.test(t)), '提示须说明未持久化');
 });
 
-test('降级期惰性探活：存储恢复后退出降级（瞬态失败自愈）', () => {
+test('降级期惰性探活：存储恢复后退出降级且保留内存修改（#297 语义）', () => {
     const store = { 'ai-grading-presets': '{bad' };
     const { PresetManager: pm } = load('preset.js', 'PresetManager', store);
     pm.init();
     assert.strictEqual(pm._writeDisabled, true);
+    // 用户在保护期做的修改（内存）
+    pm.data.list.UserEdit = { question: 'x' };
     // 模拟瞬态故障恢复：主键变回可解析
     store['ai-grading-presets'] = RAW_OK;
     const r = pm.save();
     assert.strictEqual(r, false, '本次保存仍未持久化（诚实返回）');
     assert.strictEqual(pm._writeDisabled, false, '降级应已解除');
-    assert.strictEqual(pm.data.active, 'A', '内存数据采用恢复出的存储数据');
-    assert.strictEqual(pm.save(), true, '后续保存恢复正常');
+    assert.ok(pm.data.list.UserEdit, '探活成功不得覆盖内存——用户修改必须保留（#297）');
+    assert.strictEqual(pm.save(), true, '后续保存正常');
+    assert.ok(JSON.parse(store['ai-grading-presets']).list.UserEdit, '再次保存后用户修改持久化');
 });
 
 test('历史图片迁移失败保留 base64（不得删除，#293 审计实锤）', async () => {
@@ -184,4 +187,25 @@ test('updater 恢复只补缺失键，不覆写现存配置', () => {
     sandbox.__f();
     assert.strictEqual(store['ai-grading-presets'], '{"list":{"NEW":{}}}', '现存配置不得被备份覆写');
     assert.strictEqual(store['ai-grading-providers-v2'], '{"providers":{}}', '缺失键应从备份补回');
+});
+
+// ---------- 导入净化（#296） ----------
+test('导入净化：危险 scoring 字段回落安全默认', () => {
+    const store = {};
+    const { PresetManager: pm } = load('preset.js', 'PresetManager', store);
+    const clean = pm.sanitizePreset({
+        question: 'q',
+        scoring: {
+            roundMethod: 'random',
+            roundStep: '999',
+            units: [{ label: 'A', maxScore: 'x', roundStep: 0.5 }, 'garbage']
+        }
+    });
+    assert.strictEqual(clean.scoring.roundMethod, 'round', '非法 roundMethod 回落');
+    assert.strictEqual(clean.scoring.roundStep, 1, '非法 roundStep 回落');
+    assert.strictEqual(clean.scoring.units[0].roundStep, 0.5, '合法单元步长保留');
+    assert.strictEqual(clean.scoring.units[0].maxScore, 0, '非法满分回落 0');
+    assert.strictEqual(typeof clean.scoring.units[1], 'object', '垃圾单元清洗为对象');
+    assert.strictEqual(JSON.stringify(pm.sanitizePreset(null)), '{}', 'null 不当方案');
+    assert.strictEqual(JSON.stringify(pm.sanitizePreset([1, 2])), '{}', '数组不当方案');
 });

@@ -184,14 +184,25 @@ const HuiXuexingAdapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝；写入阶段任一步骤无法给分同样整体拒绝（不带病提交）
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [慧学星] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [慧学星] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
 
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-
+        for (let i = 0; i < inputs.length; i++) {
             const input = inputs[i].element;
             const score = scores[i];
+            let filled = false;
 
             // 尝试通过 value setter 设置分数（绕过 readonly）
             setter.call(input, score);
@@ -201,33 +212,30 @@ const HuiXuexingAdapter = {
 
             // 验证值是否已设置
             if (parseFloat(input.value) === score) {
-                successCount++;
+                filled = true;
                 console.log(`[慧学星] ${inputs[i].label} 分数 ${score} 已填入（直接设置）`);
             } else {
                 // Fallback：尝试点击满分/零分按钮
                 if (score === 0) {
-                    if (this._clickStepButton(i, 'zero')) {
-                        successCount++;
-                        console.log(`[慧学星] ${inputs[i].label} 零分（点击按钮）`);
-                    }
+                    filled = this._clickStepButton(i, 'zero');
+                    if (filled) console.log(`[慧学星] ${inputs[i].label} 零分（点击按钮）`);
                 } else if (score === inputs[i].maxScore) {
-                    if (this._clickStepButton(i, 'full')) {
-                        successCount++;
-                        console.log(`[慧学星] ${inputs[i].label} 满分 ${score}（点击按钮）`);
-                    }
+                    filled = this._clickStepButton(i, 'full');
+                    if (filled) console.log(`[慧学星] ${inputs[i].label} 满分 ${score}（点击按钮）`);
                 } else {
                     // 中间分值：尝试点击 #scoreBtns 中的分数按钮
-                    if (this._clickScoreButton(i, score)) {
-                        successCount++;
-                        console.log(`[慧学星] ${inputs[i].label} 分数 ${score}（点击分数按钮）`);
-                    } else {
-                        console.warn(`[慧学星] ${inputs[i].label} 无法设置中间分值 ${score}`);
-                    }
+                    filled = this._clickScoreButton(i, score);
+                    if (filled) console.log(`[慧学星] ${inputs[i].label} 分数 ${score}（点击分数按钮）`);
                 }
+            }
+
+            if (!filled) {
+                console.warn(`⚠️ [慧学星] ${inputs[i].label} 分数 ${score} 无法设置（直接赋值与按钮均失败）→ 拒绝，不提交半填状态`);
+                return false;
             }
         }
 
-        return successCount > 0;
+        return true;
     },
 
     // 点击步骤的满分/零分按钮

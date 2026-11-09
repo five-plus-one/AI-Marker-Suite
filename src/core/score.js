@@ -17,7 +17,9 @@ const ScoreCalculator = {
     round(score, scoringConfig, maxScore) {
         if (score === null || score === undefined || !scoringConfig) return score;
         const step = scoringConfig.roundStep || 1;
-        const method = scoringConfig.roundMethod || 'round';
+        // roundMethod 白名单（#296）：导入配置可携带任意字符串，Math[method] 索引会被打穿
+        // （如 "random"/"sqrt" 静默改写每一份分数）。使用点兜底 + 导入点净化双层防御。
+        const method = ['round', 'floor', 'ceil'].includes(scoringConfig.roundMethod) ? scoringConfig.roundMethod : 'round';
         let rounded;
         if (step === 1) {
             rounded = Math[method](score);

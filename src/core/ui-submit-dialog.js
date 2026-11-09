@@ -1,6 +1,13 @@
 // ========== 填充分数及弹窗 ==========
 function fillScore(score, comment, subScores) {
     const adapter = window.__AI_MARKER_ADAPTER__;
+    // 数据安全闸门（#296）：小题缺分不得进入填分/提交链（空分进平台=事故），显式失败待人工
+    if (Array.isArray(subScores) && subScores.some(sq => sq && (sq.score === null || sq.score === undefined))) {
+        console.error('❌ [填分] 小题分存在空值，拒绝自动填分（#296 null 闸门）');
+        safeAlert('⚠️ AI 小题分不完整（存在空值），已拒绝自动填分。\n请人工核对后手动给分，或点「分数有误」重评。');
+        showAutoSubmitDialog(score, comment, subScores);
+        return;
+    }
     let filled = false;
     if (adapter) {
         if (adapter.fillScores && subScores && subScores.length > 0) {
@@ -12,8 +19,9 @@ function fillScore(score, comment, subScores) {
         }
     }
     if (!filled) {
-        console.warn('未找到分数输入框，将直接弹出确认窗口');
-        safeAlert(`AI打分结果：\n分数：${score}\n请手动输入分数！`);
+        // 拒绝原因透出（#297）：适配器具体拒绝原因见上方控制台日志
+        console.warn('未找到分数输入框或填分被拒绝（详见上方适配器日志），将直接弹出确认窗口');
+        safeAlert(`⚠️ 自动填分未完成（具体原因见控制台日志）。\nAI打分结果：\n分数：${score}\n请手动输入分数！`);
     }
     showAutoSubmitDialog(score, comment, subScores);
 }
@@ -115,6 +123,34 @@ function showPacingRestBanner(seconds) {
 }
 
 function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
+    // XSS 防御（#296）：AI 产出（学生答案/评语/评分依据/小题评语）均为不可信文本，
+    // 模板插值进 innerHTML 前统一转义——入口一次性处理，覆盖全部下游插值点
+    const escAi = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+    comment = escAi(comment);
+    if (Array.isArray(subScores)) {
+        subScores = subScores.map(s => (s && typeof s === 'object') ? Object.assign({}, s, { comment: escAi(s.comment) }) : s);
+    }
+    if (extraInfo && typeof extraInfo === 'object') {
+        const escVals = (obj) => {
+            if (!obj || typeof obj !== 'object') return obj;
+            const out = Object.assign({}, obj);
+            for (const k of Object.keys(out)) { if (typeof out[k] === 'string') out[k] = escAi(out[k]); }
+            return out;
+        };
+        extraInfo = Object.assign({}, extraInfo);
+        if (extraInfo.scoringDetails) extraInfo.scoringDetails = escVals(extraInfo.scoringDetails);
+        if (extraInfo.dualEval) {
+            extraInfo.dualEval = Object.assign({}, extraInfo.dualEval, {
+                detailA: escVals(extraInfo.dualEval.detailA),
+                detailB: escVals(extraInfo.dualEval.detailB),
+            });
+        }
+        if (extraInfo.diligence) {
+            extraInfo.diligence = Object.assign({}, extraInfo.diligence, { reason: escAi(extraInfo.diligence.reason) });
+        }
+    }
     const oldDialog = document.getElementById('auto-submit-dialog');
     if (oldDialog) oldDialog.remove();
 
@@ -134,7 +170,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const scoreMismatch = subSum !== null && Math.abs(subSum - score) > 0.01;
 
     window.aiGradingState.countdownPaused = false;
-    const studentAnswer = window.aiGradingState.currentStudentAnswer;
+    const studentAnswer = escAi(window.aiGradingState.currentStudentAnswer);
     const imageUrls = window.aiGradingState.currentImageUrls || [];
     const isUnattended = mode === 'unattended';
     const isTrial = mode === 'trial';

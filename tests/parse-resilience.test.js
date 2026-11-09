@@ -73,6 +73,18 @@ test('小题行全角/中文数字经归一化可解析', () => {
     assert.strictEqual(r.subScores[1].score, 2);
 });
 
+// ---------- 中文句号错分防护（#297） ----------
+test('中文句号不做小数点（实测「3。4分」并成 3.4 属错分）', () => {
+    assert.strictEqual(normalizeScoreText('3。4分').indexOf('3.4'), -1, '句号不得转小数点');
+    // 小题行实测场景（#297 审计例①）："25(1)分数：3。4分" 的 3 不得并成 3.4
+    const r = parseSubQuestionResponse('【答案复述】x\n【得分】：6\n25(1)分数：3。4分', {
+        subQuestions: [{ id: 1, label: '25(1)', maxScore: 6 }]
+    });
+    assert.strictEqual(r.subScores[0].score, 3, '保守读 3，不得错分成 3.4');
+    // 全角点仍转换（合法小数变体）
+    assert.strictEqual(extractScore('２.５分', 24), 2.5);
+});
+
 // ---------- 回归：半角行为逐值不变 ----------
 test('半角数字/等号优先等既有语义逐值不变（回归）', () => {
     assert.strictEqual(extractScore('得分：4分', 24), 4);

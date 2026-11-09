@@ -135,8 +135,16 @@ const KeewingAdapter = {
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296）——暂存前全量校验（单题模式），缺失/错位显式拒绝
+        if (scores.length > 1) {
+            console.warn(`⚠️ [科耘] 分数个数(${scores.length})>1（单题模式配置错位）→ 拒绝`);
+            return false;
+        }
         const score = scores[0];
-        if (score === null || score === undefined) return false;
+        if (score === null || score === undefined) {
+            console.warn('⚠️ [科耘] 无 AI 分数（分数缺失）→ 拒绝');
+            return false;
+        }
 
         // 科耘平台在填入分数后会自动提交
         // 所以需要延迟到用户确认后再填入
@@ -228,8 +236,11 @@ const KeewingAdapter = {
     submitGrade() {
         console.log('📤 [科耘] 开始提交分数...');
 
-        // 先填入分数（触发平台自动提交）
-        this._applyScore();
+        // 先填入分数（触发平台自动提交）；失败必须显式失败，不得静默续走（#296）
+        if (!this._applyScore()) {
+            console.warn('⚠️ [科耘] 分数未成功给入（按钮与输入框均未命中）→ 拒绝提交');
+            return false;
+        }
 
         // 平台会自动提交，不需要再点击提交按钮
         // 但处理可能的确认弹窗
