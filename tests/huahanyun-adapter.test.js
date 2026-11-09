@@ -156,6 +156,12 @@ test('#312 fillScores 数值闸：NaN/负分拒绝且不写入，合法值通过
     assert.strictEqual(input.value, '3.5');
 });
 
+test('#315 空 oldImageUrl 宁等勿错（fail-open 会同卷重复批改）', async () => {
+    const a = loadAdapter([fakeImg(NEW, { visible: true })]);
+    assert.strictEqual(await a.waitForNextPaper(''), false, '无旧图无从比较 → 等待');
+    assert.strictEqual(await a.waitForNextPaper(null), false);
+});
+
 test('#312 isRegradeMode 委托核心回评态、isMarkingPage 同步快检存在', () => {
     const a = loadAdapter([], { '#compuinput': fakeInput(), 'button.submitscorebtn': { tagName: 'BUTTON' } });
     assert.strictEqual(a.isRegradeMode(), false, '核心未回评 → false');

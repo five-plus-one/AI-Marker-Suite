@@ -889,9 +889,10 @@ async function runNewTaskOnboardingFlow(currentUrlId) {
     }
 }
 
-// #304 SPA 渲染竞态防护：登记的待重试任务与当前一致、且未在批改时才补跑
-function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning) {
-    return !!pendingId && pendingId === currentUrlId && !isRunning;
+// #304 SPA 渲染竞态防护：登记的待重试任务与当前一致、且未在批改/暂停态才补跑
+// （#315 G7：迟到 pending 不得在暂停期换活动方案）
+function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning, isPaused) {
+    return !!pendingId && pendingId === currentUrlId && !isRunning && !isPaused;
 }
 
 // URL 及 题号变化监听器 (轻量级轮询)
@@ -973,7 +974,7 @@ setInterval(async () => {
             // 可能拿旧方案继续批新题）；重试分支要求 !isRunning，停止后自动补跑
             pendingNewTaskFlowId = currentUrlId;
         }
-    } else if (shouldRetryPendingTaskFlow(pendingNewTaskFlowId, currentUrlId, window.aiGradingState.isRunning)) {
+    } else if (shouldRetryPendingTaskFlow(pendingNewTaskFlowId, currentUrlId, window.aiGradingState.isRunning, window.aiGradingState.isPaused)) {
         // #304 重试：仅补跑新题引导流程（不重入清理/横幅等副作用分支）
         const adapter = window.__AI_MARKER_ADAPTER__;
         const onMarkingPage = adapter

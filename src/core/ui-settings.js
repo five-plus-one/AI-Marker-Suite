@@ -1403,7 +1403,7 @@ function createSettingsPanel(options) {
             if (['__proto__', 'constructor', 'prototype'].includes(importName)) throw new Error('非法方案名称');
             const exists = !!PresetManager.data.list[importName];
             if (exists) {
-                const ok = await showConfirmModal(`方案「${importName}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
+                const ok = await showConfirmModal(`方案「${escapeSettingsHtml(importName)}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
                 if (!ok) { presetFileInput.value = ''; return; }
             }
             // 合并导入：只写入该方案，不影响其他方案/供应商/工作流
@@ -2411,7 +2411,7 @@ async function handleDeletePreset() {
         showAlertModal("必须至少保留一个配置方案！");
         return;
     }
-    if (await showConfirmModal(`确定要删除配置方案【${name}】吗？`)) {
+    if (await showConfirmModal(`确定要删除配置方案【${escapeSettingsHtml(name)}】吗？`)) {
         delete PresetManager.data.list[name];
         for (const url in PresetManager.data.bindings) {
             if (PresetManager.data.bindings[url] === name) delete PresetManager.data.bindings[url];
@@ -2534,7 +2534,7 @@ async function handleDeleteProvider() {
         showAlertModal("必须至少保留一个供应商！");
         return;
     }
-    if (await showConfirmModal(`确定要删除供应商【${name}】吗？`)) {
+    if (await showConfirmModal(`确定要删除供应商【${escapeSettingsHtml(name)}】吗？`)) {
         ProviderManager.deleteProvider(name);
         renderProviderDropdown();
         handleProviderChange();
@@ -2629,7 +2629,7 @@ async function handleDeleteWorkflow() {
         showAlertModal("默认工作流不允许删除！");
         return;
     }
-    if (await showConfirmModal(`确定要删除工作流【${wf.name}】吗？`)) {
+    if (await showConfirmModal(`确定要删除工作流【${escapeSettingsHtml(wf.name)}】吗？`)) {
         WorkflowManager.deleteWorkflow(wf.name);
         renderWorkflowDropdown();
         showToast(`工作流「${wf.name}」已删除`);
@@ -2671,13 +2671,13 @@ function showWorkflowEditModal(wf) {
     ensureModalStyles();
 
     const providers = Object.keys(ProviderManager.data.providers);
-    const providerOptions = providers.map(p => `<option value="${p}">${p}</option>`).join('');
+    const providerOptions = providers.map(p => `<option value="${escapeSettingsHtml(p)}">${escapeSettingsHtml(p)}</option>`).join('');
 
     function getModelOptions(providerName) {
         const provider = ProviderManager.data.providers[providerName];
         if (!provider) return '';
         return Object.entries(provider.models || {}).map(([id, info]) =>
-            `<option value="${id}">${info.label || id}</option>`
+            `<option value="${escapeSettingsHtml(id)}">${escapeSettingsHtml(info.label || id)}</option>`
         ).join('');
     }
 
@@ -2793,7 +2793,7 @@ function showWorkflowEditModal(wf) {
     const deleteBtn = modal.querySelector('#wf-edit-delete');
     if (deleteBtn) {
         deleteBtn.onclick = async () => {
-            if (await showConfirmModal(`确定要删除工作流【${wf.name}】吗？`)) {
+            if (await showConfirmModal(`确定要删除工作流【${escapeSettingsHtml(wf.name)}】吗？`)) {
                 WorkflowManager.deleteWorkflow(wf.name);
                 renderWorkflowDropdown();
                 close();
@@ -2829,7 +2829,7 @@ function showWorkflowEditModal(wf) {
 
         if (wf.isBuiltin) {
             // 修改默认工作流需要确认
-            if (!await showConfirmModal(`确定要修改默认工作流【${wf.name}】吗？`)) return;
+            if (!await showConfirmModal(`确定要修改默认工作流【${escapeSettingsHtml(wf.name)}】吗？`)) return;
             WorkflowManager.updateWorkflow(wf.name, config);
         } else {
             const newName = document.getElementById('wf-edit-name').value.trim();
