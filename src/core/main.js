@@ -825,8 +825,68 @@ if (document.readyState === 'loading') {
     setTimeout(init, 1000);
 }
 
+// 新题引导流程（#304 抽取）：方案绑定切换 + API Key 引导 + 新试题 OOBE + 配置下拉同步。
+// 从任务切换轮询抽出，供「切换即命中」与「SPA 渲染竞态重试」两条路径复用
+async function runNewTaskOnboardingFlow(currentUrlId) {
+    // SPA 导航到阅卷页面时，先确保 UI 已创建（按钮 + 设置面板）
+    // 必须在 early return 之前调用，否则新题目引导/无 API Key 时面板不会出现
+    // init 内部有防重复创建的 guard，不会产生重复 UI
+    setTimeout(init, 1000);
+
+    const boundPreset = PresetManager.data.bindings[currentUrlId];
+
+    // ========== OOBE调试日志 ==========
+    console.log('🔍 [OOBE调试] currentUrlId:', currentUrlId);
+    console.log('🔍 [OOBE调试] boundPreset:', boundPreset);
+    console.log('🔍 [OOBE调试] 所有绑定:', JSON.stringify(PresetManager.data.bindings));
+    console.log('🔍 [OOBE调试] 活动配置:', PresetManager.data.active);
+    console.log('🔍 [OOBE调试] 配置列表:', Object.keys(PresetManager.data.list).join(', '));
+    // ========== OOBE调试日志结束 ==========
+
+    if (boundPreset && PresetManager.data.list[boundPreset]) {
+        PresetManager.data.active = boundPreset;
+        PresetManager.save();
+        showToast(`✨ 检测到新试题，已自动切换至【${PresetManager.data.active}】方案`);
+    } else if (PresetManager.data.active !== "默认配置" && PresetManager.data.list["默认配置"]) {
+        PresetManager.data.active = "默认配置";
+        PresetManager.save();
+        showToast(`📝 未找到当前题目的专属方案，已恢复为【默认配置】`);
+    }
+
+    // 检查 API KEY 是否配置
+    const apiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
+    console.log('🔍 [OOBE调试] apiKey存在:', !!apiKey);
+    if (!apiKey) {
+        console.log('🔍 [OOBE调试] 无API Key，弹出首次启动OOBE');
+        showOnboardingDialog(true, 'first-launch');
+        return;
+    }
+
+    // 检查是否是新试题（未绑定配置）
+    console.log('🔍 [OOBE调试] 检查新试题条件: boundPreset=', boundPreset, ', 存在配置=', !!PresetManager.data.list[boundPreset]);
+    if (!boundPreset || !PresetManager.data.list[boundPreset]) {
+        console.log('🔍 [OOBE调试] 条件满足，弹出新试题OOBE');
+        showOnboardingDialog(true, 'new-question');
+        return;
+    } else {
+        console.log('🔍 [OOBE调试] 条件不满足，不弹出OOBE');
+    }
+
+    const select = document.getElementById('preset-select');
+    if (select) {
+        select.value = PresetManager.data.active;
+        select.dispatchEvent(new Event('change'));
+    }
+}
+
+// #304 SPA 渲染竞态防护：登记的待重试任务与当前一致、且未在批改时才补跑
+function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning) {
+    return !!pendingId && pendingId === currentUrlId && !isRunning;
+}
+
 // URL 及 题号变化监听器 (轻量级轮询)
 let lastUrlId = PresetManager.getTaskIdentifier();
+let pendingNewTaskFlowId = null;
 setInterval(async () => {
     const currentUrlId = PresetManager.getTaskIdentifier();
     if (currentUrlId !== lastUrlId) {
@@ -885,58 +945,26 @@ setInterval(async () => {
             const onMarkingPage = adapter.isMarkingPage
                 ? adapter.isMarkingPage()
                 : (adapter.detectMarkingPage ? await adapter.detectMarkingPage() : true);
-            if (!onMarkingPage) return;
-
-            // SPA 导航到阅卷页面时，先确保 UI 已创建（按钮 + 设置面板）
-            // 必须在 early return 之前调用，否则新题目引导/无 API Key 时面板不会出现
-            // init 内部有防重复创建的 guard，不会产生重复 UI
-            setTimeout(init, 1000);
-
-            const boundPreset = PresetManager.data.bindings[currentUrlId];
-
-            // ========== OOBE调试日志 ==========
-            console.log('🔍 [OOBE调试] currentUrlId:', currentUrlId);
-            console.log('🔍 [OOBE调试] boundPreset:', boundPreset);
-            console.log('🔍 [OOBE调试] 所有绑定:', JSON.stringify(PresetManager.data.bindings));
-            console.log('🔍 [OOBE调试] 活动配置:', PresetManager.data.active);
-            console.log('🔍 [OOBE调试] 配置列表:', Object.keys(PresetManager.data.list).join(', '));
-            // ========== OOBE调试日志结束 ==========
-
-            if (boundPreset && PresetManager.data.list[boundPreset]) {
-                PresetManager.data.active = boundPreset;
-                PresetManager.save();
-                showToast(`✨ 检测到新试题，已自动切换至【${PresetManager.data.active}】方案`);
-            } else if (PresetManager.data.active !== "默认配置" && PresetManager.data.list["默认配置"]) {
-                PresetManager.data.active = "默认配置";
-                PresetManager.save();
-                showToast(`📝 未找到当前题目的专属方案，已恢复为【默认配置】`);
-            }
-
-            // 检查 API KEY 是否配置
-            const apiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
-            console.log('🔍 [OOBE调试] apiKey存在:', !!apiKey);
-            if (!apiKey) {
-                console.log('🔍 [OOBE调试] 无API Key，弹出首次启动OOBE');
-                showOnboardingDialog(true, 'first-launch');
+            if (!onMarkingPage) {
+                // #304 SPA 渲染竞态：URL 先变、阅卷 DOM 后渲染——登记待重试，
+                // 下个 tick 补跑新题引导流程（一次性消费会导致配置窗丢失，需刷新才弹）
+                pendingNewTaskFlowId = currentUrlId;
                 return;
             }
-
-            // 检查是否是新试题（未绑定配置）
-            console.log('🔍 [OOBE调试] 检查新试题条件: boundPreset=', boundPreset, ', 存在配置=', !!PresetManager.data.list[boundPreset]);
-            if (!boundPreset || !PresetManager.data.list[boundPreset]) {
-                console.log('🔍 [OOBE调试] 条件满足，弹出新试题OOBE');
-                showOnboardingDialog(true, 'new-question');
-                return;
-            } else {
-                console.log('🔍 [OOBE调试] 条件不满足，不弹出OOBE');
-            }
-
-            const select = document.getElementById('preset-select');
-            if (select) {
-                select.value = PresetManager.data.active;
-                select.dispatchEvent(new Event('change'));
-            }
+            pendingNewTaskFlowId = null;
+            await runNewTaskOnboardingFlow(currentUrlId);
         }
+    } else if (shouldRetryPendingTaskFlow(pendingNewTaskFlowId, currentUrlId, window.aiGradingState.isRunning)) {
+        // #304 重试：仅补跑新题引导流程（不重入清理/横幅等副作用分支）
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        const onMarkingPage = adapter
+            ? (adapter.isMarkingPage
+                ? adapter.isMarkingPage()
+                : (adapter.detectMarkingPage ? await adapter.detectMarkingPage() : true))
+            : false;
+        if (!onMarkingPage) return; // DOM 仍未就绪，继续等
+        pendingNewTaskFlowId = null;
+        await runNewTaskOnboardingFlow(currentUrlId);
     }
 }, 1000);
 
