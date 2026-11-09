@@ -375,6 +375,9 @@ async function startAutoGrading() {
                         }));
                         showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
                             isBlankCard: true,
+                            // 数据安全（#312 B1）：0 分填入失败必须禁倒计时自动提交，
+                            // 否则无人模式 1 秒倒计时会把空框送进平台（空分提交=事故）
+                            fillFailed: blankFillOk === false,
                             blankRatios: {
                                 current: currentRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
                                 reference: refData.ratios,
@@ -826,8 +829,12 @@ if (document.readyState === 'loading') {
 }
 
 // 新题引导流程（#304 抽取）：方案绑定切换 + API Key 引导 + 新试题 OOBE + 配置下拉同步。
-// 从任务切换轮询抽出，供「切换即命中」与「SPA 渲染竞态重试」两条路径复用
+// 从任务切换轮询抽出，供「切换即命中」与「SPA 渲染竞态重试」两条路径复用。
+// #312 防重入：并发生 tick 双跑会双弹 OOBE
 async function runNewTaskOnboardingFlow(currentUrlId) {
+    if (newTaskFlowInFlight) return;
+    newTaskFlowInFlight = true;
+    try {
     // SPA 导航到阅卷页面时，先确保 UI 已创建（按钮 + 设置面板）
     // 必须在 early return 之前调用，否则新题目引导/无 API Key 时面板不会出现
     // init 内部有防重复创建的 guard，不会产生重复 UI
@@ -877,6 +884,9 @@ async function runNewTaskOnboardingFlow(currentUrlId) {
         select.value = PresetManager.data.active;
         select.dispatchEvent(new Event('change'));
     }
+    } finally {
+        newTaskFlowInFlight = false;
+    }
 }
 
 // #304 SPA 渲染竞态防护：登记的待重试任务与当前一致、且未在批改时才补跑
@@ -887,6 +897,7 @@ function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning) {
 // URL 及 题号变化监听器 (轻量级轮询)
 let lastUrlId = PresetManager.getTaskIdentifier();
 let pendingNewTaskFlowId = null;
+let newTaskFlowInFlight = false; // #312 防重入：并发生 tick 不得双跑新题引导（双弹窗）
 setInterval(async () => {
     const currentUrlId = PresetManager.getTaskIdentifier();
     if (currentUrlId !== lastUrlId) {
@@ -914,6 +925,10 @@ setInterval(async () => {
         if (typeof adapter.isMarkingPage === 'function' && !adapter.isMarkingPage()) {
             if (await confirmLeftMarkingPage(adapter)) {
                 handleLeaveMarkingPage();
+            } else {
+                // #312：复查结论"未离开"= 可能是 DOM 型检测瞬时 false 或 SPA 正进入新批改页——
+                // 登记待重试补跑新题引导（裸 return 会像 #304 一样丢掉本次任务切换）
+                pendingNewTaskFlowId = currentUrlId;
             }
             return;
         }
@@ -953,6 +968,10 @@ setInterval(async () => {
             }
             pendingNewTaskFlowId = null;
             await runNewTaskOnboardingFlow(currentUrlId);
+        } else {
+            // #312：批改运行中消费了任务切换——登记待补跑（否则批改停止后永不补跑，
+            // 可能拿旧方案继续批新题）；重试分支要求 !isRunning，停止后自动补跑
+            pendingNewTaskFlowId = currentUrlId;
         }
     } else if (shouldRetryPendingTaskFlow(pendingNewTaskFlowId, currentUrlId, window.aiGradingState.isRunning)) {
         // #304 重试：仅补跑新题引导流程（不重入清理/横幅等副作用分支）
