@@ -22,6 +22,25 @@ const AmeqpAdapter = {
         return (url || '').split('?')[0];
     },
 
+    // 从图片 src 提取稳定试卷标识：文件名首段即考号（如 7720272115_00_1_0.PNG → 7720272115）。
+    // 同卷 src 偶发重设（缓存戳/渲染重载/路径变体）不改变考号，换卷必变（#281）
+    _paperIdFromSrc(src) {
+        const file = (this._stripQuery(src).split('/').pop() || '');
+        const m = file.match(/^(\d+)/) || file.match(/^([^_]+)/);
+        return (m && m[1]) ? m[1] : this._stripQuery(src);
+    },
+
+    // 稳定试卷标识（供答卷一致性校验做强信号比对）
+    getPaperIdentity() {
+        try {
+            const img = this._answerImages()[0];
+            const src = (img && (img.src || img.getAttribute('src'))) || '';
+            return src ? this._paperIdFromSrc(src) : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     _answerImages() {
         return Array.from(document.querySelectorAll(AMEQP_SELECTORS.ANSWER_IMAGE));
     },
@@ -396,33 +415,39 @@ const AmeqpAdapter = {
     },
 
     async waitForNextPaper(oldImageUrl) {
-        // oldImageUrl 可能是裁切 dataURL 或整图 URL；换卷检测以 DOM 信号为主
-        const oldPath = (oldImageUrl && !oldImageUrl.startsWith('data:'))
-            ? this._stripQuery(oldImageUrl)
-            : this._stripQuery((this._answerImages()[0] || {}).src);
+        // 换卷检测以「试卷标识（考号）」为主信号（#281）：
+        // 旧信号（图片路径变化/分数框清空）在平台切换窗口期会抖动误判，
+        // 导致下一轮取到旧卷图、随后被答卷校验正确拦截并暂停（偶发"批改已暂停"）。
+        // 考号换卷必变、同卷 src 抖动不变，竞态窗口随之消除。
+        const oldId = this.getPaperIdentity();
         let checkTimes = 0;
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
                 checkTimes++;
 
-                // 信号1：答题卡图片路径变化（去缓存戳）
+                // 信号1（强）：试卷标识（考号）变化
+                const curId = this.getPaperIdentity();
+                const idMoved = oldId && curId && curId !== oldId;
+
+                // 信号2（弱，仅在拿不到标识时兜底）：答题卡图片路径变化（去缓存戳）
                 const imgPaths = this._answerImages()
                     .map(img => this._stripQuery(img.src))
                     .filter(Boolean);
-                const imgMoved = oldPath && imgPaths.length > 0 && !imgPaths.includes(oldPath);
+                const imgMoved = !oldId && imgPaths.length > 0 && oldImageUrl
+                    && !imgPaths.includes(this._stripQuery(oldImageUrl));
 
-                // 信号2：所有分数框被清空（平台换卷重置）
+                // 信号3：所有分数框被清空（平台换卷重置）
                 const inputs = this._scoreInputs();
                 const allEmpty = inputs.length > 0 && inputs.every(el => !el.value);
 
-                // 信号3：平台总分显示归零且分数框已清（提交成功后的重置）
+                // 信号4：平台总分显示归零且分数框已清（提交成功后的重置）
                 const queVal = document.querySelector(AMEQP_SELECTORS.QUE_VAL);
                 const queReset = queVal && (queVal.value === '' || parseFloat(queVal.value) === 0);
 
-                if (imgMoved || (allEmpty && queReset && checkTimes >= 4) || (allEmpty && checkTimes >= 5)) {
+                if (idMoved || imgMoved || (!oldId && ((allEmpty && queReset && checkTimes >= 4) || (allEmpty && checkTimes >= 5)))) {
                     clearInterval(timer);
-                    console.log('[AMEQP] 检测到下一份答卷', { imgMoved, allEmpty, queReset, checkTimes });
+                    console.log('[AMEQP] 检测到下一份答卷', { idMoved, imgMoved, allEmpty, queReset, checkTimes, oldId, curId });
                     resolve(true);
                 } else if (checkTimes > 100) {
                     // 20s 超时
