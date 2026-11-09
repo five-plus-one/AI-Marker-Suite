@@ -23,6 +23,11 @@ function loadAdapter(imgs) {
         querySelector: () => null,
     };
     sb.window = sb;
+    // 阻塞式等待用（#309）
+    sb.setTimeout = setTimeout;
+    sb.clearTimeout = clearTimeout;
+    // 测试用小窗口（生产默认 25s，#309 阻塞式）
+    sb.__AI_MARKER_WAIT_WINDOW_MS__ = 400;
     vm.createContext(sb);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'adapters', 'huahanyun', 'selectors.js'), 'utf8'), sb);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'adapters', 'huahanyun', 'adapter.js'), 'utf8'), sb);
@@ -76,6 +81,27 @@ test('#306 兜底路径集合判定（非标准 URL 无考生号）', async () =
     assert.strictEqual(await a1.waitForNextPaper(oldU), false, '同路径换签名不得判换卷');
     const a2 = loadAdapter([fakeImg(oldU, { visible: false }), fakeImg(other, { visible: true })]);
     assert.strictEqual(await a2.waitForNextPaper(oldU), true, '旧路径退出可见集即判换卷');
+});
+
+test('#309 平台延迟换图（窗口内）→ 阻塞等到换卷（教师症状本体：瞬时检查必报超时）', async () => {
+    const old = fakeImg(OLD, { visible: true });
+    const imgs = [old];
+    const a = loadAdapter(imgs);
+    // 模拟平台在提交后约 150ms 才换图（实测"其实加载很快"）
+    setTimeout(() => {
+        old.checkVisibility = () => false;
+        imgs.push(fakeImg(NEW, { visible: true }));
+    }, 150);
+    const t0 = Date.now();
+    assert.strictEqual(await a.waitForNextPaper(OLD), true, '窗口内换图必须被等到，不得瞬时返回 false');
+    assert.ok(Date.now() - t0 >= 100, '必须体现阻塞等待（瞬时检查正是每卷误报超时的根因）');
+});
+
+test('#309 窗口耗尽才返回 false（交 core 重试）', async () => {
+    const a = loadAdapter([fakeImg(OLD, { visible: true })]);
+    const t0 = Date.now();
+    assert.strictEqual(await a.waitForNextPaper(OLD), false, '窗口内未换卷 → false');
+    assert.ok(Date.now() - t0 >= 350, '应等满窗口而非瞬时返回');
 });
 
 test('#306 计算样式兜底过滤（无 checkVisibility 时 opacity/display/visibility）', async () => {
