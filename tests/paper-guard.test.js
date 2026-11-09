@@ -20,9 +20,10 @@ function loadVerify() {
     const parts = [grab('normalizePaperImageUrl'), grab('paperUrlSetContains'),
                    grab('snapshotScoreInputs'), grab('scoreInputsTransitionedEmpty'),
                    grab('verifyPaperUnchanged')];
-    const sandbox = { console: { warn: () => {}, log: () => {} }, String, Array, Promise, setTimeout };
+    const sandbox = { console: { warn: () => {}, log: () => {} }, String, Array, Promise, setTimeout, window: {} };
     vm.createContext(sandbox);
     vm.runInContext(parts.join('\n') + '\n;__v = verifyPaperUnchanged;', sandbox);
+    sandbox.__v.win = sandbox.window;
     return sandbox.__v;
 }
 
@@ -175,6 +176,43 @@ test('Canvas 型平台不会调用 gatherAnswerImages（避免 0.5~1s 额外等�
     };
     await verify(adapter, ['data:image/png;base64,AAAA']);
     assert.strictEqual(called, 0, '基准为 data: URL 时绝不能重取图片');
+});
+
+// ---------- 试卷标识强信号（#281：AMEQP 偶发误暂停修复）----------
+test('试卷标识一致 → 直接判未变化（同卷 src 抖动不再误报）', async () => {
+    verify.win.aiGradingState = { currentPaperId: '7720272115' };
+    const adapter = {
+        isMarkingPage: () => true,
+        getPaperIdentity: () => '7720272115',
+        gatherAnswerImages: async () => { throw new Error('标识命中不应重取图'); },
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, ['data:image/png;base64,AAAA']);
+    assert.strictEqual(r.unchanged, true);
+});
+
+test('试卷标识变化 → 判已切换（真换卷必拦，附标识差异说明）', async () => {
+    verify.win.aiGradingState = { currentPaperId: '7720272115' };
+    const adapter = {
+        isMarkingPage: () => true,
+        getPaperIdentity: () => '7720272116',
+        gatherAnswerImages: async () => { throw new Error('标识已命中不应重取图'); },
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, ['data:image/png;base64,AAAA']);
+    assert.strictEqual(r.unchanged, false);
+    assert.ok(r.reason.includes('标识'), '原因应说明标识变化，实际: ' + r.reason);
+});
+
+test('无记录标识或适配器无 getPaperIdentity → 退回既有比对（零影响）', async () => {
+    verify.win.aiGradingState = {};
+    const urls = ['https://x.com/a.png'];
+    const r = await verify({
+        isMarkingPage: () => true,
+        gatherAnswerImages: async () => urls,
+        getScoreInputs: () => []
+    }, urls);
+    assert.strictEqual(r.unchanged, true, '应走既有 URL 比对路径');
 });
 
 // ---------- 离开批改页（#244）：退回列表页 ≠ 换卷 ----------

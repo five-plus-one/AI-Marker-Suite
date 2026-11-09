@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.27',
+    VERSION: '1.21.16.28',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.28': [
+            '【修复】AMEQP 偶发「批改已暂停」：换卷检测与答卷校验改用考号级试卷标识（同卷图片抖动不再误判，弱信号不再提前触发），消除换卷窗口竞态（#281）',
+        ],
         '1.21.16.27': [
             '【修复】AMEQP 填分不被平台记分（红字不消失）：修双段编号解析截断致隐藏字段同步失效，改走给分列表原生记分链路并统一 X.X 格式，填分全或无+登记校验，提交前拦截"没给分"（#278）',
         ],

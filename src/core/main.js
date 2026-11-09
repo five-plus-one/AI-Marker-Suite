@@ -121,6 +121,23 @@ async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot) {
         if (!recordedUrls || !recordedUrls.length) {
             return { unchanged: null, reason: '未记录基准图片' };
         }
+
+        // 稳定试卷标识比对（最强信号，#281）：适配器提供标识（如考号）时优先使用——
+        // 同卷 src 重设/裁切产物波动不改变标识，换卷必变
+        try {
+            const state = (typeof window !== 'undefined' && window.aiGradingState) ? window.aiGradingState : null;
+            const recordedId = state && state.currentPaperId;
+            if (recordedId && typeof adapter.getPaperIdentity === 'function') {
+                const pid = adapter.getPaperIdentity();
+                if (pid) {
+                    if (pid === recordedId) {
+                        return { unchanged: true };
+                    }
+                    return { unchanged: false, reason: '试卷标识已变化（' + recordedId + ' → ' + pid + '）' };
+                }
+            }
+        } catch (e) { /* 标识不可用时退回既有比对 */ }
+
         const baseline = recordedUrls[0];
 
         // Canvas 型平台（data: URL）：图片不可比对，跳过重取以免误判与额外耗时。
@@ -302,6 +319,10 @@ async function startAutoGrading() {
             window.aiGradingState.currentImageUrls = imageUrls;
             // Canvas 型平台换卷判定的对照基准：AI 期间输入框若「非空→清空」才可疑
             window.aiGradingState.paperGuardInputSnapshot = snapshotScoreInputs(adapter);
+            // 记录稳定试卷标识（如有），答卷校验优先做强信号比对（#281）
+            if (adapter && typeof adapter.getPaperIdentity === 'function') {
+                window.aiGradingState.currentPaperId = adapter.getPaperIdentity();
+            }
 
             const gradeBtn = document.querySelector('.ai-grade-btn');
             if (gradeBtn && window.aiGradingState.gradingMode !== 'unattended') {
