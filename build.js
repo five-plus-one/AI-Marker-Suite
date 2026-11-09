@@ -94,6 +94,8 @@ const BUILD_CONFIGS = [
             'adapters/guangda-2/adapter.js',
             'adapters/yunyuejuan/selectors.js',
             'adapters/yunyuejuan/adapter.js',
+            'adapters/huahanyun/selectors.js',
+            'adapters/huahanyun/adapter.js',
             'adapters/xinjiaoyu/selectors.js',
             'adapters/xinjiaoyu/adapter.js',
             'adapters/xinkao/selectors.js',
@@ -208,6 +210,8 @@ const BUILD_CONFIGS = [
                 '*://ruiya.onlyets.com/*',
                 '*://*.yuejuan51.com/*',
                 '*://yuejuan51.com/*',
+                '*://yj.lcedu.net.cn/*',
+                '*://*.lcedu.net.cn/*',
             ],
             include: [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
@@ -234,6 +238,7 @@ const BUILD_CONFIGS = [
                 'zhengwuyun-1304451002.cos.ap-guangzhou.myqcloud.com',
                 'pj-sdlc.cn-bj.ufileos.com',
                 'kyasource.keewing.com',
+                'obsyj.lcedu.net.cn',
                 'ry-mark.oss-cn-beijing.aliyuncs.com',
                 '*',
             ],
