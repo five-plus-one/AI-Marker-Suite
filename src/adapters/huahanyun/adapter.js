@@ -94,6 +94,11 @@
             return this._hasDomSignature();
         },
 
+        // 同步快检（#312）：供核心"离开批改页清理"与快速路径使用（DOM 三特征，O(1) 查询）
+        isMarkingPage() {
+            return this._hasDomSignature();
+        },
+
         // 任务标识：URL questionId（稳定）
         getTaskIdentifier() {
             const m = location.hash.match(/questionId=(\d+)/);
@@ -101,8 +106,10 @@
         },
 
         isRegradeMode() {
-            // 回评状态真机未见；URL thisType 语义未证实——保守返回 false（宁可放行走主流程，#301 待复现）
-            return false;
+            // #312：委托核心回评态——此前恒 false 会短路核心自身的 isRegrading，
+            // 导致回评面板开着时仍跑新题引导（方案切换+OOBE 叠加）。
+            // 平台自身回评 URL 语义（thisType）仍待真机复现，暂无额外识别
+            return !!(window.aiGradingState && window.aiGradingState.isRegrading);
         },
 
         // 单题块单分框：一个任务一个分框（label/满分取自面板标题「书写 7(4分)」）
@@ -131,6 +138,13 @@
             const score = scores[0];
             if (score === null || score === undefined) {
                 console.warn(`⚠️ [云阅卷华翰云] 无 AI 分数 → 拒绝`);
+                return false;
+            }
+            // 数值闸（#312 A3）：NaN/负分/越界不得直写输入框（"NaN" 会同步校验通过进平台）
+            const num = Number(score);
+            const maxScore = inputs[0].maxScore;
+            if (!isFinite(num) || num < 0 || (maxScore > 0 && num > maxScore)) {
+                console.warn(`⚠️ [云阅卷华翰云] 分数非法（${score}，满分 ${maxScore || '未知'}）→ 拒绝`);
                 return false;
             }
             const input = inputs[0];
@@ -163,15 +177,24 @@
             return true;
         },
 
-        // 取图：真可见大图（OBS 裁剪图直链带 X-Amz 签名，可直接抓取）。
-        // waitForNextPaper 以"旧考生号退出可见集"为换卷成立条件，故此处不会新旧混图
+        // 取图（#312 A1 单考生一致性）：只取带考生号的题块图，且**可见集必须同属一个考生**——
+        // 混入他人图/头像（el-image 通用类）时整体拒绝（宁可不取，防错卷喂 AI）
         async gatherAnswerImages() {
-            return HY_HELPERS.getVisibleAnswerImages().map(it => it.src);
+            const keyed = HY_HELPERS.getVisibleAnswerImages()
+                .map(it => ({ it, key: HY_HELPERS.extractStudentKey(it.src) }))
+                .filter(x => x.key);
+            const keys = new Set(keyed.map(x => x.key));
+            if (keys.size === 0) return [];
+            if (keys.size > 1) {
+                console.warn(`⚠️ [云阅卷华翰云] 可见图考生号不一致（${[...keys].join(',') }）→ 拒绝取图（宁可不取）`);
+                return [];
+            }
+            return keyed.map(x => x.it.src);
         },
 
-        // 换卷判定（#306 集合退出语义 + #309 阻塞式窗口）：
+        // 换卷判定（#306 集合退出语义 + #309 阻塞式窗口 + #312 正向证据）：
         // 全仓适配器契约为**阻塞式等待**——内部轮询至窗口结束（默认 25s 与全仓对齐），
-        // 旧考生号退出可见集即刻返回 true；窗口耗尽才返回 false 交 core 重试。
+        // 旧考生号退出**且考生号图集非空**（新卷图已出现）才返回 true；窗口耗尽才 false 交 core 重试。
         // 此前的瞬时快照检查违反该契约：提交瞬间平台尚未换图 → 必报一次"等待超时"
         async waitForNextPaper(oldImageUrl) {
             const win = Number(window.__AI_MARKER_WAIT_WINDOW_MS__);
@@ -180,22 +203,28 @@
             const deadline = Date.now() + windowMs;
             while (true) {
                 const cur = HY_HELPERS.getVisibleAnswerImages();
-                if (cur.length > 0) {
-                    const oldKey = HY_HELPERS.extractStudentKey(oldImageUrl);
-                    let oldStillThere = false;
-                    if (oldKey) {
-                        for (const it of cur) {
-                            if (HY_HELPERS.extractStudentKey(it.src) === oldKey) { oldStillThere = true; break; }
+                const oldKey = HY_HELPERS.extractStudentKey(oldImageUrl);
+                if (oldKey) {
+                    // 强标识路径（#312 正向证据）：只认考生号图（旁图/头像不参与判定），
+                    // 考生号图非空且旧考生号退出 → 换卷成立（可见集只含新卷，防混图喂 AI）
+                    const keyed = cur.map(it => ({ it, key: HY_HELPERS.extractStudentKey(it.src) })).filter(x => x.key);
+                    if (keyed.length > 0) {
+                        let oldStillThere = false;
+                        for (const x of keyed) {
+                            if (x.key === oldKey) { oldStillThere = true; break; }
                         }
-                    } else {
-                        // 兜底：考生号提取失败（非标准 URL）——按路径集合判定（拿不准宁可等待）
+                        if (!oldStillThere) return true;
+                    }
+                } else {
+                    // 兜底：考生号提取失败（非标准 URL）——按路径集合判定（拿不准宁可等待）
+                    if (cur.length > 0) {
                         const oldPath = HY_HELPERS.normalizePath(oldImageUrl);
+                        let oldStillThere = false;
                         for (const it of cur) {
                             if (HY_HELPERS.normalizePath(it.src) === oldPath) { oldStillThere = true; break; }
                         }
+                        if (!oldStillThere) return true;
                     }
-                    // 旧考生号已退出可见集且集内仍有图 → 换卷成立（判定时可见集只含新卷，防新旧混图喂 AI）
-                    if (!oldStillThere) return true;
                 }
                 if (Date.now() >= deadline) return false;
                 await new Promise(r => setTimeout(r, tick));
