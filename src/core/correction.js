@@ -723,7 +723,7 @@ function showCorrectionPanel(context) {
             }
         } catch (err) {
             if (streamEl) {
-                streamEl.innerHTML = `<div style="color:#D93025;margin-bottom:10px;">分析失败：${err.message}</div>
+                streamEl.innerHTML = `<div style="color:#D93025;margin-bottom:10px;">分析失败：${String(err.message == null ? '' : err.message).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
                     <button class="ai-modal-btn-confirm" id="cor-retry-analysis" style="margin-right:8px;">重试分析</button>
                     <button class="ai-modal-btn-cancel" id="cor-back-step1">返回修改</button>`;
                 streamEl.querySelector('#cor-retry-analysis').onclick = e => {

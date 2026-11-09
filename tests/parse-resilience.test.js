@@ -112,6 +112,28 @@ test('CN。CN 分数形态按小数、digit。digit 保守（#299）', () => {
     assert.strictEqual(r3.subScores[0].score, 3, '「3。4分」保守读 3（断句形态不得并分）');
 });
 
+// ---------- 输出级消毒（#315 G1：豁免区反斜杠击穿回归） ----------
+test('sanitizeRenderedHtml：豁免区击穿 PoC 不得直通（审计实测样本）', () => {
+    const msrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ui-markdown.js'), 'utf8');
+    const m = msrc.match(/function sanitizeRenderedHtml\(html\) \{[\s\S]*?\n\}/);
+    assert.ok(m, 'sanitizeRenderedHtml 未找到');
+    const sb3 = { String, Object, Array };
+    vm.createContext(sb3);
+    vm.runInContext(m[0] + '\n;__f = sanitizeRenderedHtml;', sb3);
+    const f = sb3.__f;
+    // 审计 PoC：\$<img onerror>$ 反斜杠形态 → marked 输出原始 img（豁免区不被消费）
+    const poc1 = '<p>$<img src=x onerror=alert(1)>$</p>';
+    assert.ok(f(poc1).indexOf('onerror') === -1, 'PoC1 onerror 必须剥离');
+    // 反引号转义形态 + script 直通
+    assert.ok(f('<p>`<script>alert(1)</script>`</p>').indexOf('<script') === -1, 'script 必须移除');
+    // javascript: URI 中和
+    assert.ok(f('<a href="javascript:alert(1)">x</a>').toLowerCase().indexOf('javascript:') === -1, 'javascript: 必须中和');
+    // 合法 markdown HTML 不受影响
+    assert.strictEqual(f('<p><strong>a</strong> <code>b</code></p>'), '<p><strong>a</strong> <code>b</code></p>', '合法标签不得误伤');
+    // svg/math 容器移除
+    assert.ok(f('<svg onload=alert(1)></svg>').indexOf('onload') === -1, 'svg 必须移除');
+});
+
 // ---------- 回归：半角行为逐值不变 ----------
 test('半角数字/等号优先等既有语义逐值不变（回归）', () => {
     assert.strictEqual(extractScore('得分：4分', 24), 4);

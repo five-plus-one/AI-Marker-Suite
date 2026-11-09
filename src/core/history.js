@@ -632,7 +632,8 @@ HistoryManager.init().catch(e => console.error('[历史] 初始化失败:', e));
     console.log('--- AI批改存储诊断 ---');
     console.log('脚本版本:', SCRIPT_CONFIG.VERSION);
     console.log('原始数据大小:', (raw.length / 1024 / 1024).toFixed(2), 'MB');
-    const records = typeof data === 'string' ? JSON.parse(data) : (data || []);
+    let records;
+    try { records = typeof data === 'string' ? JSON.parse(data) : (data || []); } catch (e) { console.warn('⚠️ 导入记录解析失败:', e); records = []; }
     console.log('记录数:', records.length);
     const withBase64 = records.filter(r => r.imageBase64s && r.imageBase64s.length > 0);
     console.log('含imageBase64s的记录:', withBase64.length, '条');
@@ -1228,8 +1229,8 @@ function showHistoryPanel() {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[r.gradingMode] || r.gradingMode;
             const scoreHtml = r.isCorrected
-                ? `<span>${escapeHtml(r.aiScore)}</span><span class="arrow">&rarr;</span><span class="corrected">${escapeHtml(r.finalScore)}</span>`
-                : `<span>${escapeHtml(r.finalScore)}</span>`;
+                ? `<span>${r.aiScore}</span><span class="arrow">&rarr;</span><span class="corrected">${r.finalScore}</span>`
+                : `<span>${r.finalScore}</span>`;
             const markedTag = r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
             const correctedTag = r.isCorrected ? '<span class="hist-tag corrected">已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span class="hist-tag ${r.dualEval.result === 'arbitration' ? 'arbitration' : 'dual'}">双评</span>` : '';
@@ -1252,9 +1253,9 @@ function showHistoryPanel() {
                         <div class="hist-item-top">
                             <label class="hist-item-check"><input type="checkbox" data-id="${r.id}" ${selectedIds.has(r.id) ? 'checked' : ''}></label>
                             <span class="hist-item-time">${time}</span>
-                            <span class="hist-item-meta">${escapeHtml(presetName)} · ${escapeHtml(modeLabel)}模式</span>
+                            <span class="hist-item-meta">${presetName} · ${modeLabel}模式</span>
                         </div>
-                        <p class="hist-item-text">答案：${escapeHtml(answerPreview)}</p>
+                        <p class="hist-item-text">答案：${answerPreview}</p>
                         <div class="hist-item-tags">${dualTag}${diligenceTag}${imageTag}${markedTag}${correctedTag}</div>
                     </div>
                     <div class="hist-item-side">
