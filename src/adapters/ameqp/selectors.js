@@ -17,7 +17,9 @@ const AMEQP_SELECTORS = {
     SCORE_LEGEND: 'legend.mark_leg',
 
     // 平台内部状态字段：OnSubmit 校验的就是它们，填分后必须同步
-    SUB_SCORE_HIDDEN: 'MarQueSubSco_',   // #MarQueSubSco_N 存该题得分
+    SUB_SCORE_HIDDEN: 'MarQueSubSco_',   // #MarQueSubSco_1_1 存该题得分（双段编号）
+    SCORE_MSG: 'txt_msg_',               // #txt_msg_1_1 "本题尚未给分"红字态（给分后隐藏）
+    SCORE_LIST: 'Mark_scoList_',         // #Mark_scoList_1_1 给分列表弹层（span.sco_list[value="X.X"]）
     QUE_VAL: '#queVal',                  // 当前总分显示
     QUE_VAL_OLD: '#queVal_old',
 
