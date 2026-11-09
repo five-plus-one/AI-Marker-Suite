@@ -896,8 +896,12 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
     if (!arbConfig) {
         console.warn('⚠️ [三评] 仲裁模型配置不完整，取平均分');
-        const finalScore = Math.round((scoreA + scoreB) / 2);
-        const finalSubScores = mergeDualSubScores(detailA, detailB);
+        // 仲裁降级取 A/B 平均同步走 roundStep/roundMethod + 满分钳制（#289 二轮审计 A-1）
+        const finalScore = ScoreCalculator.round((scoreA + scoreB) / 2, {
+            roundStep: config.scoring?.roundStep || 1,
+            roundMethod: config.scoring?.roundMethod || 'round'
+        }, config.scoring?.maxScore);
+        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
         const detail = buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore);
         const avgLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
         return {
@@ -936,7 +940,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     // 小题分兜底：仲裁漏给部分小题分时，用 A/B 合并结果补齐
     let arbSubScores = arbParsed.subScores || null;
     if (arbHasSub) {
-        const fallbackSubScores = mergeDualSubScores(detailA, detailB);
+        const fallbackSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
         if (!arbSubScores && fallbackSubScores) {
             arbSubScores = fallbackSubScores;
             console.warn('⚠️ [三评] 仲裁未返回小题分，使用 A/B 合并结果兜底');

@@ -297,18 +297,31 @@ const QitianNewAdapter = {
     fillScores(scores) {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
+
+        // 数据安全：全或无（#284 的新 UI 同款语义，#289 二轮审计 A-4 补齐）——
+        // 任一题缺分即整体拒绝，不提交半份分（半成功语义曾致「成绩数据录入错误」）
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [诊断] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失），拒绝填分`);
+                return false;
+            }
+        }
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
+        for (let i = 0; i < inputs.length; i++) {
             setter.call(inputs[i].element, scores[i]);
             inputs[i].element.dispatchEvent(new Event('input', { bubbles: true }));
             inputs[i].element.dispatchEvent(new Event('change', { bubbles: true }));
             inputs[i].element.dispatchEvent(new Event('blur', { bubbles: true }));
-            successCount++;
             console.log(`✅ [诊断] ${inputs[i].label} 分数 ${scores[i]} 已填入`);
         }
-        return successCount > 0;
+        // 登记校验：全部输入框必须落值，否则显式失败
+        for (let i = 0; i < inputs.length; i++) {
+            if (String(inputs[i].element.value).trim() === '') {
+                console.error(`❌ [诊断] ${inputs[i].label} 填分校验失败（输入框为空），拒绝提交`);
+                return false;
+            }
+        }
+        return true;
     },
 
     detectSubQuestions() {

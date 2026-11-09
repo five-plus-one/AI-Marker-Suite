@@ -102,6 +102,28 @@ test('双评合并平均分吸附到 1.5 网格', () => {
     assert.strictEqual(out[0].score, 7.5, '(9+6)/2=7.5 在网格上应保留');
 });
 
+// ---------- 勤勉分配网格吸附（#289 二轮审计 A-3） ----------
+test('勤勉加分分配后各单元吸附回自身步长网格', () => {
+    const { ScoreCalculator } = loadCore('score.js');
+    const res = ScoreCalculator.calculate({
+        aiScore: 2,
+        diligenceLevel: 5,
+        maxScore: 13,
+        scoringConfig: { roundStep: 1, roundMethod: 'round', diligence: { enabled: true } },
+        aiUnitScores: [
+            { label: 'A', score: 1, maxScore: 4, roundStep: 1.5 },
+            { label: 'B', score: 1, maxScore: 9, roundStep: 1.5 }
+        ]
+    });
+    assert.ok(res.bonus > 0, '本用例需要勤勉加分大于 0');
+    res.finalUnitScores.forEach(u => {
+        const step = u.roundStep;
+        const onGrid = Math.abs(u.score / step - Math.round(u.score / step)) < 1e-9;
+        const atMax = Math.abs(u.score - u.maxScore) < 1e-9;
+        assert.ok(onGrid || atMax, `${u.label} 分数 ${u.score} 脱离步长 ${step} 网格（且非满分特例）`);
+    });
+});
+
 // ---------- calculate 流水线集成 ----------
 test('calculate() 单元分越界取整后钳制到单元满分（1.5 步长）', () => {
     const { ScoreCalculator } = loadCore('score.js');
