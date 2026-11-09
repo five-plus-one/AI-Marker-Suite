@@ -1328,6 +1328,8 @@ function createSettingsPanel(options) {
                 bindings: (data.presets.bindings && typeof data.presets.bindings === 'object') ? data.presets.bindings : {}
             };
             for (const name of Object.keys(data.presets.list)) {
+                // 原型污染护栏（#299 H3）：危险键名直接跳过
+                if (['__proto__', 'constructor', 'prototype'].includes(String(name))) continue;
                 const cfg = data.presets.list[name];
                 if (cfg && typeof cfg === 'object') cleanPresets.list[String(name)] = PresetManager.sanitizePreset(cfg);
             }
@@ -1397,6 +1399,8 @@ function createSettingsPanel(options) {
             }
             const importName = String(data.name).trim();
             if (!importName) throw new Error('方案名称为空');
+            // 原型污染护栏（#299 H3）
+            if (['__proto__', 'constructor', 'prototype'].includes(importName)) throw new Error('非法方案名称');
             const exists = !!PresetManager.data.list[importName];
             if (exists) {
                 const ok = await showConfirmModal(`方案「${importName}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
@@ -1654,6 +1658,9 @@ function renderChangelogContent(container, changelog) {
     const arrowSVG = '<svg class="changelog-toggle" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
     let html = '';
+    const escCl = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
     versions.forEach((ver, idx) => {
         const items = changelog[ver];
         const collapsedClass = idx === 0 ? '' : ' collapsed'; // 最新版本展开，其余折叠
@@ -1661,11 +1668,12 @@ function renderChangelogContent(container, changelog) {
         html += `<div class="changelog-version${collapsedClass}">`;
         html += `<div class="changelog-version-header">`;
         html += arrowSVG;
-        html += `<span class="changelog-ver">v${ver}</span>`;
+        html += `<span class="changelog-ver">v${escCl(ver)}</span>`;
         html += `</div>`;
         html += `<ul class="changelog-items">`;
         items.forEach(item => {
-            html += `<li>${item}</li>`;
+            // 远端 changelog 文本转义（#299）
+            html += `<li>${escCl(item)}</li>`;
         });
         html += `</ul></div>`;
     });

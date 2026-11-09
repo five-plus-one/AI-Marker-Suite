@@ -13,6 +13,17 @@ window.__aiMarkdownRenderer = null; // 供 ui-stream.js 使用
 
 // ========== MarkdownRenderer ==========
 
+// 选择性 XSS 转义（#299）：只转义"标签形"尖括号（< 后跟字母/斜杠/叹号），
+// 代码块/行内代码/KaTeX 段先行豁免——整体转义会打坏公式（$a < b$）与代码显示（双层转义）
+function sanitizeMarkdownHtml(text) {
+    var parts = String(text).split(/(```[\s\S]*?```|`[^`\n]*`|\$\$[\s\S]*?\$\$|\$[^$\n]*\$)/g);
+    return parts.map(function (seg, i) {
+        if (i % 2 === 1) return seg; // 奇数位 = 代码/公式段，豁免
+        return seg.replace(/<(?=[a-zA-Z\/!])/g, '&lt;');
+    }).join('');
+}
+
+
 /**
  * 将 ai-img://N 协议的图片引用替换为 data URI
  * @param {string} md - Markdown 文本
@@ -113,10 +124,8 @@ function createMarkdownRenderer() {
         render: function (text) {
             if (!text) return '';
             try {
-                // XSS 防御（#296）：marked 默认放行原始 HTML，而 AI/学生文本不可信——
-                // 解析前转义尖括号（Markdown 语法不受影响），杜绝 innerHTML 注入
-                var safe = String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                return markedInstance.parse(safe);
+                // XSS 防御（#299）：选择性转义标签形尖括号；代码/公式段豁免
+                return markedInstance.parse(sanitizeMarkdownHtml(text));
             } catch (e) {
                 console.error('[AI-Marker] Markdown 渲染错误:', e);
                 return '<pre>' + escapeHtml(text) + '</pre>';

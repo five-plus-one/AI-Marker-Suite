@@ -306,8 +306,9 @@ function normalizeScoreText(t) {
         .replace(/\uff0e/g, '.')
         .replace(/[\uff1a]/g, ':')
         .replace(/[\uff0d\u2212]/g, '-');
-    // 混合小数变体（"二.五分" → "2.5"）——必须先于「…分」转换
-    s = s.replace(/([零〇一二三四五六七八九])[\.．]([零〇一二三四五六七八九])/g, (m, a, b) => {
+    // 混合小数变体（"二.五分" → "2.5"；中文句号形态"三。五分"同样按小数处理，#299）
+    // 注意：数字。数字（"3。4"）**不**转换（#297 实测该形态是断句不是小数）
+    s = s.replace(/([零〇一二三四五六七八九])[\.．。]([零〇一二三四五六七八九])/g, (m, a, b) => {
         const na = cnScoreToNumber(a);
         const nb = cnScoreToNumber(b);
         return (na === null || nb === null) ? m : na + '.' + nb;

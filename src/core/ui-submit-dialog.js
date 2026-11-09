@@ -5,7 +5,7 @@ function fillScore(score, comment, subScores) {
     if (Array.isArray(subScores) && subScores.some(sq => sq && (sq.score === null || sq.score === undefined))) {
         console.error('❌ [填分] 小题分存在空值，拒绝自动填分（#296 null 闸门）');
         safeAlert('⚠️ AI 小题分不完整（存在空值），已拒绝自动填分。\n请人工核对后手动给分，或点「分数有误」重评。');
-        showAutoSubmitDialog(score, comment, subScores);
+        showAutoSubmitDialog(score, comment, subScores, { fillFailed: true });
         return;
     }
     let filled = false;
@@ -22,6 +22,8 @@ function fillScore(score, comment, subScores) {
         // 拒绝原因透出（#297）：适配器具体拒绝原因见上方控制台日志
         console.warn('未找到分数输入框或填分被拒绝（详见上方适配器日志），将直接弹出确认窗口');
         safeAlert(`⚠️ 自动填分未完成（具体原因见控制台日志）。\nAI打分结果：\n分数：${score}\n请手动输入分数！`);
+        showAutoSubmitDialog(score, comment, subScores, { fillFailed: true });
+        return;
     }
     showAutoSubmitDialog(score, comment, subScores);
 }
@@ -128,9 +130,14 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const escAi = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
     ));
+    // 原始（未转义）评语/小题保留给纠错/重显链路，避免转义文本入库累积（#299）
+    const rawComment = comment;
+    const rawSubScores = subScores;
     comment = escAi(comment);
     if (Array.isArray(subScores)) {
-        subScores = subScores.map(s => (s && typeof s === 'object') ? Object.assign({}, s, { comment: escAi(s.comment) }) : s);
+        subScores = subScores.map(s => (s && typeof s === 'object')
+            ? Object.assign({}, s, { comment: escAi(s.comment), label: escAi(s.label) })
+            : s);
     }
     if (extraInfo && typeof extraInfo === 'object') {
         const escVals = (obj) => {
@@ -145,6 +152,8 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             extraInfo.dualEval = Object.assign({}, extraInfo.dualEval, {
                 detailA: escVals(extraInfo.dualEval.detailA),
                 detailB: escVals(extraInfo.dualEval.detailB),
+                // 仲裁分析（AI 文本）此前漏转义（#299 H1）
+                arbAnalysis: escAi(extraInfo.dualEval.arbAnalysis),
             });
         }
         if (extraInfo.diligence) {
@@ -194,7 +203,8 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     window.aiGradingState.humanPacing = window.aiGradingState.humanPacing || {};
     window.aiGradingState.humanPacing.lastDelayMs = pacingActive ? pacingDelaySeconds * 1000 : 0;
 
-    const showCountdown = !isTrial;
+    // 填分失败/含缺分的弹窗不得自动倒计时提交（#299：无人模式 1s 倒计时曾自动提交空分）
+    const showCountdown = !isTrial && !(extraInfo && extraInfo.fillFailed);
     const showCorrectionBtn = !isUnattended;
 
     const headerLabel = isTrial ? '试改确认' : '批改完成';
@@ -597,7 +607,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
             dialog.remove();
             showCorrectionPanel({
-                score, comment, studentAnswer, imageUrls,
+                score, comment: rawComment, studentAnswer, imageUrls,
                 base64DataArray: window.aiGradingState.currentBase64DataArray || [],
                 config: PresetManager.getCurrentConfig(),
                 callConfig: PresetManager.getActiveCallConfig(),
@@ -643,7 +653,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     fillScore(finalScore, comment, correctedSubScores);
                 },
                 onCancel() {
-                    showAutoSubmitDialog(score, comment, subScores);
+                    showAutoSubmitDialog(score, rawComment, rawSubScores, { fillFailed: !!(extraInfo && extraInfo.fillFailed) });
                 }
             });
         });

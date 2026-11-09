@@ -209,3 +209,16 @@ test('导入净化：危险 scoring 字段回落安全默认', () => {
     assert.strictEqual(JSON.stringify(pm.sanitizePreset(null)), '{}', 'null 不当方案');
     assert.strictEqual(JSON.stringify(pm.sanitizePreset([1, 2])), '{}', '数组不当方案');
 });
+
+test('导入净化：diligence 非数值回落安全默认（#299 R3，防 NaN 分）', () => {
+    const store = {};
+    const { PresetManager: pm } = load('preset.js', 'PresetManager', store);
+    const clean = pm.sanitizePreset({ diligence: { enabled: 'yes', maxBonus: 'big', decayPower: 'x' } });
+    assert.strictEqual(clean.diligence.enabled, false);
+    assert.strictEqual(clean.diligence.maxBonus, 3);
+    assert.strictEqual(clean.diligence.decayPower, 2, '非法衰减指数回落 2（NaN 分之源）');
+    const clean2 = pm.sanitizePreset({ diligence: { enabled: true, maxBonus: 5, decayPower: 3 } });
+    assert.strictEqual(clean2.diligence.enabled, true);
+    assert.strictEqual(clean2.diligence.maxBonus, 5);
+    assert.strictEqual(clean2.diligence.decayPower, 3);
+});

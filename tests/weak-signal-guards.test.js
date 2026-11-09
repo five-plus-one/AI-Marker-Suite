@@ -35,12 +35,10 @@ test("「'0' 当输入框清空」判空谓词不得回退（#285）", () => {
     assert.deepStrictEqual(offenders, [], '发现「0 当清空」回退: ' + offenders.join(', '));
 });
 
-test("已收口适配器的 fillScores 不得回流半成功语义（successCount > 0）", () => {
-    // 两遍式全或无已收口：guangda、guangda-2、ameqp、qitian、qitian-new
-    const sealed = ['guangda', 'guangda-2', 'ameqp', 'qitian', 'qitian-new', 'ruiya'];
+test("已收口适配器的 fillScores 不得回流半成功语义（全量适配器，#299 扩面）", () => {
+    // 全部适配器均不得出现半成功语义（防回退）
     const offenders = [];
     for (const a of adapters) {
-        if (!sealed.includes(a.name)) continue;
         const i = a.src.indexOf('fillScores(');
         if (i === -1) continue;
         const body = a.src.slice(i, i + 2500);
