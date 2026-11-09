@@ -168,14 +168,24 @@ const HistoryManager = {
 
     async init() {
         let saved;
+        this._writeDisabled = false;
         try {
             saved = GM_getValue('ai-grading-history');
         } catch (e) {
-            console.warn('[历史] GM_getValue 读取失败，重置存储:', e);
-            try { GM_setValue('ai-grading-history', '[]'); } catch (_) {}
-            saved = '[]';
+            // 读取失败只读降级（#293）：绝不重置存储，原始历史保持原样
+            console.warn('[历史] GM_getValue 读取失败，进入只读降级（不重置存储）:', e);
+            this._writeDisabled = true;
+            saved = null;
         }
-        this.records = saved ? JSON.parse(saved) : [];
+        try {
+            this.records = saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            // 解析失败：救下原始字节 + 只读降级（#293），旧历史优先于新写入
+            console.warn('[历史] 历史数据解析失败，进入只读降级:', e);
+            try { if (saved) GM_setValue('ai-grading-history-rescue', String(saved)); } catch (_) {}
+            this._writeDisabled = true;
+            this.records = [];
+        }
 
         // 迁移旧记录的 base64 到 IndexedDB + 清理 imageUrls 中的 data:URL
         const toMigrate = this.records.filter(r => r.imageBase64s && r.imageBase64s.length > 0);
@@ -188,7 +198,10 @@ const HistoryManager = {
             let ok = 0, fail = 0;
             toMigrate.forEach((r, i) => {
                 if (results[i].status === 'fulfilled') { delete r.imageBase64s; ok++; }
-                else { delete r.imageBase64s; fail++; }
+                else {
+                    // 失败保留 base64 下次重试（#293）：删除会永久丢失答题卡图片
+                    fail++;
+                }
             });
             this.save();
             console.log(`[历史] 迁移完成: ${ok} 成功, ${fail} 失败`);
@@ -212,9 +225,15 @@ const HistoryManager = {
     },
 
     save() {
-        // 防御性剥离：确保 base64 数据不会泄漏到 GM_setValue
-        this.records.forEach(r => { delete r.imageBase64s; this._stripDataUrls(r); });
-        let json = JSON.stringify(this.records);
+        // 防御性剥离（#293）：序列化副本不含 base64（GM 存储不落图片），
+        // 内存保留 imageBase64s 供图片迁移重试——原实现在内存上 delete 会永久丢失迁移失败的图片
+        const ser = () => JSON.stringify(this.records.map(r => {
+            const c = Object.assign({}, r);
+            delete c.imageBase64s;
+            this._stripDataUrls(c);
+            return c;
+        }));
+        let json = ser();
         const sizeKB = (json.length / 1024).toFixed(1);
         const sizeMB = (json.length / 1024 / 1024).toFixed(2);
 
@@ -226,21 +245,28 @@ const HistoryManager = {
             while (json.length > SAFE_LIMIT && this.records.length > 10) {
                 const cutCount = Math.max(Math.floor(this.records.length * 0.2), 1);
                 this.records = this.records.slice(0, this.records.length - cutCount);
-                json = JSON.stringify(this.records);
+                json = ser();
             }
             console.warn(`[历史] 防御性清理完成: ${before} → ${this.records.length} 条，当前 ${(json.length / 1024 / 1024).toFixed(2)}MB`);
         }
 
         try {
+            if (this._writeDisabled) {
+                console.warn('[历史] 存储处于只读降级，跳过保存以保护原历史（#293）');
+                if (typeof showToast === 'function') showToast('⚠️ 历史记录存储异常：本次批改历史未保存（原历史已保护）');
+                return;
+            }
             GM_setValue('ai-grading-history', json);
             console.log(`[历史] 💾 保存成功: ${this.records.length} 条, ${sizeKB}KB`);
         } catch (e) {
             console.warn(`[历史] ❌ 保存失败 (${sizeMB}MB)，尝试截断旧记录...`, e);
+            // 截断是破坏性操作：先完整留底到 rescue（#293）
+            try { GM_setValue('ai-grading-history-rescue', json); } catch (_) {}
             while (this.records.length > 10) {
                 this.records = this.records.slice(0, Math.floor(this.records.length / 2));
-                json = JSON.stringify(this.records);
+                json = ser();
                 try {
-                    GM_setValue('ai-grading-history', json);
+                    if (!this._writeDisabled) GM_setValue('ai-grading-history', json); // #293 只读降级不覆写
                     console.warn(`[历史] ⚠️ 已截断至 ${this.records.length} 条 (${(json.length / 1024).toFixed(1)}KB) 后保存成功`);
                     return;
                 } catch (_) { /* 继续截断 */ }

@@ -4,34 +4,59 @@ const PresetManager = {
     // 对全部方案做字段迁移/补全。init 启动时调用，导入方案后也调用，
     // 保证旧版本数据（含导入的旧文件）都能自动升级到当前结构。
     migrateAll() {
-        this._migrateGradingMode();
-        this._migrateProvider();
-        this._migrateWorkflow();
-        this._migrateBlankDetection();
-        this._migrateHumanPacing();
+        // 迁移逐项隔离（#293）：单项抛异常不丢主数据、不中断其余迁移
+        ['_migrateGradingMode', '_migrateProvider', '_migrateWorkflow', '_migrateBlankDetection', '_migrateHumanPacing'].forEach(fn => {
+            try {
+                this[fn]();
+            } catch (e) {
+                console.error(`[preset] 迁移 ${fn} 失败（保留已加载数据继续）:`, e);
+            }
+        });
     },
     init() {
+        this._writeDisabled = false;
+        let raw = null;
         try {
-            let saved = GM_getValue('ai-grading-presets');
-            if (saved) {
-                this.data = JSON.parse(saved);
-                this.migrateAll();
-            } else {
-                let oldConfigStr = GM_getValue('ai-grading-config');
-                let defaultCfg = oldConfigStr ? JSON.parse(oldConfigStr) : {
-                    provider: '5plus1', endpoint: SCRIPT_CONFIG.DEFAULT_ENDPOINT, model: SCRIPT_CONFIG.DEFAULT_MODEL
-                };
-                this.data = {
-                    list: { "默认配置": defaultCfg },
-                    active: "默认配置",
-                    bindings: {}
-                };
-                this.save();
-            }
+            raw = GM_getValue('ai-grading-presets');
         } catch (e) {
-            console.error('❌ PresetManager init failed, using defaults:', e);
-            this.data = { list: { "默认配置": {} }, active: "默认配置", bindings: {} };
+            // 读取异常（标签休眠/存储瞬态故障）：只读降级，存储原数据不被触碰（#293）
+            console.error('❌ PresetManager init 读取失败，进入只读降级:', e);
+            this._enterReadOnly(null);
+            return;
         }
+        if (raw) {
+            try {
+                this.data = JSON.parse(raw);
+                this.migrateAll();
+            } catch (e) {
+                // 解析失败：救下原始字节并只读降级，绝不允许后续 save 覆写清空（#293）
+                this._enterReadOnly(raw, e);
+            }
+        } else {
+            // 首次使用（键不存在）：初始化默认并保存（语义不变）
+            let defaultCfg = {
+                provider: '5plus1', endpoint: SCRIPT_CONFIG.DEFAULT_ENDPOINT, model: SCRIPT_CONFIG.DEFAULT_MODEL
+            };
+            try {
+                const oldConfigStr = GM_getValue('ai-grading-config');
+                if (oldConfigStr) defaultCfg = JSON.parse(oldConfigStr);
+            } catch (_) { /* 旧配置迁移失败用纯默认 */ }
+            this.data = {
+                list: { "默认配置": defaultCfg },
+                active: "默认配置",
+                bindings: {}
+            };
+            this.save();
+        }
+    },
+    // 只读降级（#293）：内存用最小默认运行，禁止保存覆写；原始字节存 rescue 键供恢复
+    _enterReadOnly(raw, err) {
+        if (err) console.error('❌ PresetManager 数据解析失败，进入只读降级:', err);
+        try {
+            if (raw != null) GM_setValue('ai-grading-presets-rescue', String(raw));
+        } catch (_) { /* rescue 写入失败也不能再动主键 */ }
+        this.data = { list: { "默认配置": {} }, active: "默认配置", bindings: {} };
+        this._writeDisabled = true;
     },
     _migrateGradingMode() {
         let changed = false;
@@ -240,7 +265,33 @@ const PresetManager = {
         return { valid: missingMaxScore.length === 0, missingMaxScore };
     },
     save() {
-        GM_setValue('ai-grading-presets', JSON.stringify(this.data));
+        if (this._writeDisabled) {
+            // 降级期保存被拦（#293）：可见提示 + 惰性探活（瞬态读取失败可自愈退出降级）
+            try {
+                const probe = GM_getValue('ai-grading-presets');
+                const recovered = probe ? JSON.parse(probe) : null;
+                if (recovered && recovered.list) {
+                    this.data = recovered;
+                    this._writeDisabled = false;
+                    if (typeof showToast === 'function') showToast('配置存储访问已恢复；保护期间的修改未保存，请核对后重新保存');
+                    return false;
+                }
+            } catch (_) { /* 仍不可读，维持降级 */ }
+            console.error('[preset] 存储处于只读降级，跳过保存以保护原数据（#293）');
+            if (typeof showToast === 'function') showToast('⚠️ 配置存储异常：本次修改未保存（原数据已保护，稍后自动重试）');
+            return false;
+        }
+        const json = JSON.stringify(this.data);
+        // 旋转备份（#293）：覆写前保留上一版到 -prev 键，误写可回滚（过大跳过）
+        try {
+            const prev = GM_getValue('ai-grading-presets');
+            if (prev && prev !== json) {
+                if (prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-presets-prev', prev);
+                else console.warn('[preset] 上一版过大（>2MB），跳过 -prev 备份');
+            }
+        } catch (_) { /* 备份失败不阻塞正常保存 */ }
+        GM_setValue('ai-grading-presets', json);
+        return true;
     },
     getCurrentConfig() {
         return this.data.list[this.data.active] || {};
