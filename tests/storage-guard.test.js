@@ -210,6 +210,17 @@ test('导入净化：危险 scoring 字段回落安全默认', () => {
     assert.strictEqual(JSON.stringify(pm.sanitizePreset([1, 2])), '{}', '数组不当方案');
 });
 
+test('导入净化：scoring.diligence 真字段净化（#315 G2，防 NaN 分）', () => {
+    const store = {};
+    const { PresetManager: pm } = load('preset.js', 'PresetManager', store);
+    const clean = pm.sanitizePreset({ scoring: { diligence: { enabled: 'x', maxBonus: 'big', decayPower: 'abc' } } });
+    assert.strictEqual(clean.scoring.diligence.enabled, false);
+    assert.strictEqual(clean.scoring.diligence.maxBonus, 3);
+    assert.strictEqual(clean.scoring.diligence.decayPower, 2, '真字段 decayPower 必须净化（NaN 分之源）');
+    const good = pm.sanitizePreset({ scoring: { diligence: { enabled: true, maxBonus: 5, decayPower: 3 } } });
+    assert.strictEqual(good.scoring.diligence.decayPower, 3, '合法值保留');
+});
+
 test('导入净化：diligence 非数值回落安全默认（#299 R3，防 NaN 分）', () => {
     const store = {};
     const { PresetManager: pm } = load('preset.js', 'PresetManager', store);

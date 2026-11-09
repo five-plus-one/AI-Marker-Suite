@@ -197,6 +197,8 @@
         // 旧考生号退出**且考生号图集非空**（新卷图已出现）才返回 true；窗口耗尽才 false 交 core 重试。
         // 此前的瞬时快照检查违反该契约：提交瞬间平台尚未换图 → 必报一次"等待超时"
         async waitForNextPaper(oldImageUrl) {
+            // 空旧图无从比较（#315 G5）：宁等勿错——fail-open 会同卷重复批改
+            if (!oldImageUrl) return false;
             const win = Number(window.__AI_MARKER_WAIT_WINDOW_MS__);
             const windowMs = (isFinite(win) && win > 0) ? win : 25000;
             const tick = Math.max(50, Math.min(500, Math.floor(windowMs / 5)));

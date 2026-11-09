@@ -82,9 +82,20 @@ const PresetManager = {
                     return unit;
                 });
             }
+            // 勤勉配置净化（#315 G2 修正字段位）：真身在 scoring.diligence（score.js 4 处消费），
+            // decayPower 非数值会产出 NaN 分直写平台
+            if (sc.diligence && typeof sc.diligence === 'object') {
+                const dg = Object.assign({}, sc.diligence);
+                dg.enabled = dg.enabled === true;
+                const mb = parseFloat(dg.maxBonus);
+                dg.maxBonus = (isFinite(mb) && mb >= 0 && mb <= 100) ? mb : 3;
+                const dp = parseFloat(dg.decayPower);
+                dg.decayPower = (isFinite(dp) && dp > 0 && dp <= 10) ? dp : 2;
+                sc.diligence = dg;
+            }
             out.scoring = sc;
         }
-        // 勤勉配置净化（#299 R3）：decayPower 非数值会产出 NaN 分直写平台
+        // 顶层 diligence 兜底（历史布局兼容；#315 G2）
         if (out.diligence && typeof out.diligence === 'object') {
             const dg = Object.assign({}, out.diligence);
             dg.enabled = dg.enabled === true;

@@ -131,8 +131,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
     ));
     // 原始（未转义）评语/小题保留给纠错/重显链路，避免转义文本入库累积（#299）
+    // #315 G4：入库/纠错/回评链一律用 raw——渲染边界（escHistDeep）已兜底，转义文本入库会逐轮累积
     const rawComment = comment;
     const rawSubScores = subScores;
+    const rawStudentAnswer = window.aiGradingState.currentStudentAnswer;
+    const rawExtraInfo = extraInfo;
     comment = escAi(comment);
     if (Array.isArray(subScores)) {
         subScores = subScores.map(s => (s && typeof s === 'object')
@@ -607,26 +610,26 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
             dialog.remove();
             showCorrectionPanel({
-                score, comment: rawComment, studentAnswer, imageUrls,
+                score, comment: rawComment, studentAnswer: rawStudentAnswer, imageUrls,
                 base64DataArray: window.aiGradingState.currentBase64DataArray || [],
                 config: PresetManager.getCurrentConfig(),
                 callConfig: PresetManager.getActiveCallConfig(),
-                subScores,
+                subScores: rawSubScores,
                 onAccept(finalScore, correctionInfo) {
-                    const correctedSubScores = correctionInfo.correctedSubScores || subScores;
+                    const correctedSubScores = correctionInfo.correctedSubScores || rawSubScores;
                     HistoryManager.add({
                         presetName: PresetManager.data.active,
                         gradingMode: mode,
-                        imageUrls, studentAnswer,
-                        aiScore: score, aiComment: comment,
+                        imageUrls, studentAnswer: rawStudentAnswer,
+                        aiScore: score, aiComment: rawComment,
                         finalScore, isCorrected: correctionInfo.isCorrected,
                         correctionReason: correctionInfo.correctionReason,
                         imageBase64s: window.aiGradingState.currentBase64DataArray || [],
                         subScores: correctedSubScores,
-                        dualEval: dualEval || null,
-                        diligenceLevel: diligence?.level || 0,
-                        diligenceBonus: diligence?.bonus || 0,
-                        diligenceReason: diligence?.reason || ''
+                        dualEval: (rawExtraInfo && rawExtraInfo.dualEval) || null,
+                        diligenceLevel: (rawExtraInfo && rawExtraInfo.diligence?.level) || 0,
+                        diligenceBonus: (rawExtraInfo && rawExtraInfo.diligence?.bonus) || 0,
+                        diligenceReason: (rawExtraInfo && rawExtraInfo.diligence?.reason) || ''
                     });
                     if (correctionInfo.newAnswer || correctionInfo.newRubric) {
                         const activeName = PresetManager.data.active;
@@ -650,7 +653,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             }
                         }
                     }
-                    fillScore(finalScore, comment, correctedSubScores);
+                    fillScore(finalScore, rawComment, correctedSubScores);
                 },
                 onCancel() {
                     showAutoSubmitDialog(score, rawComment, rawSubScores, { fillFailed: !!(extraInfo && extraInfo.fillFailed) });
@@ -726,7 +729,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 }
             }
             if (blankFillOk === false) {
-                showToast('⚠️ 0 分未成功填入，请在提交前确认分数框');
+                // 数据安全（#315 G8，CLAUDE.md 铁律）：填分失败必须显式失败——
+                // 不得静默续走提交（空分/旧分进平台=事故），中止自动提交转人工
+                showToast('⚠️ 0 分未成功填入，已中止自动提交，请手动给分并提交');
+                return;
             }
 
             // 更新批阅份数
@@ -927,15 +933,15 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             HistoryManager.add({
                 presetName: PresetManager.data.active,
                 gradingMode: mode,
-                imageUrls, studentAnswer,
-                aiScore: score, aiComment: comment,
+                imageUrls, studentAnswer: rawStudentAnswer,
+                aiScore: score, aiComment: rawComment,
                 finalScore: score, isCorrected: false, correctionReason: '',
                 imageBase64s: window.aiGradingState.currentBase64DataArray || [],
-                subScores: subScores,
-                dualEval: dualEval || null,
-                diligenceLevel: diligence?.level || 0,
-                diligenceBonus: diligence?.bonus || 0,
-                diligenceReason: diligence?.reason || '',
+                subScores: rawSubScores,
+                dualEval: (rawExtraInfo && rawExtraInfo.dualEval) || null,
+                diligenceLevel: (rawExtraInfo && rawExtraInfo.diligence?.level) || 0,
+                diligenceBonus: (rawExtraInfo && rawExtraInfo.diligence?.bonus) || 0,
+                diligenceReason: (rawExtraInfo && rawExtraInfo.diligence?.reason) || '',
                 durationMs: humanPacingRecordCfg.recordDuration !== false ? durationMs : null,
                 pacingDelayMs: hpState.lastDelayMs || 0
             });
