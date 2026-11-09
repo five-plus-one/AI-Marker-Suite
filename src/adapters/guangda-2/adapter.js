@@ -310,6 +310,17 @@ const Guangda2Adapter = {
         return '';
     },
 
+    // 稳定试卷标识（供答卷一致性校验做强信号比对，#285）：
+    // 包号换卷必变（waitForNextPaper 同信号）、同卷不变；
+    // 拿不到时返回 null 退回既有比对
+    getPaperIdentity() {
+        try {
+            return this._getCurrentPackage() || null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     // ========== 图片获取（仅 API 拦截） ==========
     async gatherAnswerImages() {
         console.log('🖼️ [诊断] 光大V2 — 开始获取答题卡图片...');
@@ -470,53 +481,71 @@ const Guangda2Adapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
-        // 记录所有小题的待填入分数
+        // 数据安全：两遍式全命中（#275 修复的同平台缺陷，#285）——先全量校验、
+        // 全部命中才记录，任一缺失/未命中整体拒绝并给出具体原因，不留半点击状态。
         // 光大V2系统会在点击分数选项后自动调用 commitKsGrade 提交
-        // 所以需要延迟到用户确认后再点击
-        this._pendingScores = [];
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-            this._pendingScores.push({ index: i, score: scores[i], container: inputs[i].element });
-            successCount++;
+        // 所以点击动作仍延迟到用户确认后的 submitGrade 执行
+        const planned = [];
+        for (let i = 0; i < inputs.length; i++) {
+            const input = inputs[i];
+            const score = scores[i];
+
+            if (score === null || score === undefined) {
+                console.warn(`⚠️ [诊断] 光大V2 ${input.label} 无 AI 分数（第 ${i + 1} 个小题缺失），拒绝填分`);
+                return false;
+            }
+            const target = this._findScoreItem(input.element, score);
+            if (!target) {
+                const opts = Array.from(input.element.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE))
+                    .map(li => li.textContent.trim()).join(',');
+                console.warn(`⚠️ [诊断] 光大V2 ${input.label} 分数 ${score} 不在给分档位 [${opts}] 内，拒绝填分`);
+                return false;
+            }
+            planned.push({ index: i, score, container: input.element });
         }
 
-        if (successCount > 0) {
-            console.log(`📝 [诊断] 光大V2 记录 ${successCount} 个小题待填入分数（等待用户确认后点击）`);
-        }
-        return successCount > 0;
+        this._pendingScores = planned;
+        console.log(`📝 [诊断] 光大V2 ${planned.length} 个小题全部命中给分档位（等待用户确认后点击）`);
+        return true;
     },
 
-    // 点击分数选项（在用户确认后调用）
+    // 两遍式第一遍：查找小题容器内匹配给分档位的目标项（只查不点）
+    _findScoreItem(container, score) {
+        if (!container) return null;
+        const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE);
+        for (const item of scoreItems) {
+            if (item.textContent.trim() === String(score)) {
+                return item;
+            }
+        }
+        return null;
+    },
+
+    // 点击分数选项（在用户确认后调用）：
+    // 先全量复查目标仍在（提交前校验），任一失效整体放弃，绝不半点击提交
     _clickScore() {
         if (!this._pendingScores || this._pendingScores.length === 0) {
             console.warn('⚠️ [诊断] 光大V2 没有待填入的分数');
             return false;
         }
 
-        const pendingScores = this._pendingScores;
-        this._pendingScores = [];
-
-        let successCount = 0;
-        for (const pending of pendingScores) {
-            const { score, container } = pending;
-            const scoreItems = container.querySelectorAll(GUANGDA2_SELECTORS.SCORE_ITEM_CLICKABLE);
-            let clicked = false;
-            for (const item of scoreItems) {
-                if (item.textContent.trim() === String(score)) {
-                    item.click();
-                    clicked = true;
-                    successCount++;
-                    console.log(`✅ [诊断] 光大V2 小题 ${pending.index + 1} 分数 ${score} 已点击`);
-                    break;
-                }
+        // 提交前复查：DOM 可能在确认等待期间变化，全部目标仍可点击才动手
+        const targets = [];
+        for (const pending of this._pendingScores) {
+            const target = this._findScoreItem(pending.container, pending.score);
+            if (!target) {
+                console.warn(`⚠️ [诊断] 光大V2 小题 ${pending.index + 1} 分数 ${pending.score} 的给分档位已失效，拒绝点击（不提交半状态）`);
+                return false;
             }
-            if (!clicked) {
-                console.warn(`⚠️ [诊断] 光大V2 小题 ${pending.index + 1} 未找到分数 ${score} 的选项`);
-            }
+            targets.push({ pending, target });
         }
 
-        return successCount > 0;
+        this._pendingScores = [];
+        for (const { pending, target } of targets) {
+            target.click();
+            console.log(`✅ [诊断] 光大V2 小题 ${pending.index + 1} 分数 ${pending.score} 已点击`);
+        }
+        return true;
     },
 
     // ========== 提交 ==========
@@ -524,8 +553,11 @@ const Guangda2Adapter = {
     async submitGrade() {
         console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
-        // 点击分数选项（触发给分详情弹窗）
-        this._clickScore();
+        // 点击分数选项（触发给分详情弹窗）；未完整点击必须显式失败，不得静默续走（#285）
+        if (!this._clickScore()) {
+            console.warn('⚠️ [诊断] 光大V2 分数未完整点击，放弃提交');
+            return false;
+        }
 
         // 启动弹窗监听器（同时处理"给分详情"和"修改账号信息"弹窗）
         this._startDialogWatcher();

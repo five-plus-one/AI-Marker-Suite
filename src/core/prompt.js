@@ -239,6 +239,20 @@ function parseStructuredResponse(text, maxScore) {
     let rawScore = extractScore(sections['得分'], maxScore);
     if (rawScore === null) rawScore = extractScore(sections['最终得分'], maxScore);
     if (rawScore === null) rawScore = extractScore(sections['总分'], maxScore);
+    // 回退：从【分数计算】提取（"0+4+4=8" / "总得分8分"，#287）——
+    // 仅认等号结果/总得分，不取裸首数字，避免误抓算式里的小题分
+    if (rawScore === null && sections['分数计算']) {
+        const calc = normalizeScoreText(sections['分数计算']);
+        const eq = calc.match(/=\s*(\d+\.?\d*)/g);
+        if (eq && eq.length > 0) {
+            const last = eq[eq.length - 1].match(/(\d+\.?\d*)/);
+            if (last) rawScore = parseFloat(last[1]);
+        }
+        if (rawScore === null) {
+            const ts = calc.match(/总得分[^0-9]*(\d+\.?\d*)/);
+            if (ts) rawScore = parseFloat(ts[1]);
+        }
+    }
     let finalScore = rawScore;
 
     // Level 4: 分数范围校验（截断到有效范围，避免因AI给分超出满分导致null）
@@ -282,8 +296,45 @@ function parseStructuredResponse(text, maxScore) {
     };
 }
 
+// 解析抗漂移（#287）：全角数字/小数点归一化、常见中文数字（0~99）转阿拉伯数字。
+// 模型偶发输出「８分」「八分」「２.５」等变体，直接 \d 匹配会解析为 null 导致批改停摆
+function normalizeScoreText(t) {
+    let s = String(t)
+        .replace(/[\uff10-\uff19]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+        .replace(/[\uff0e\u3002]/g, '.')
+        .replace(/[\uff1a]/g, ':')
+        .replace(/[\uff0d\u2212]/g, '-');
+    // 混合小数变体（"二.五分" → "2.5"）——必须先于「…分」转换
+    s = s.replace(/([零〇一二三四五六七八九])[\.．]([零〇一二三四五六七八九])/g, (m, a, b) => {
+        const na = cnScoreToNumber(a);
+        const nb = cnScoreToNumber(b);
+        return (na === null || nb === null) ? m : na + '.' + nb;
+    });
+    s = s.replace(/([零〇一二两三四五六七八九十]+)(?=\s*分)/g, m => {
+        const n = cnScoreToNumber(m);
+        return n === null ? m : String(n);
+    });
+    return s;
+}
+
+function cnScoreToNumber(cn) {
+    const digits = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+    if (!cn) return null;
+    if (cn.length === 1) return digits[cn] != null ? digits[cn] : null;
+    const tens = cn.indexOf('十');
+    if (tens === -1) return null;
+    const head = cn.slice(0, tens);
+    const tail = cn.slice(tens + 1);
+    const h = head ? (digits[head] != null ? digits[head] : null) : 1;
+    const t = tail ? (digits[tail] != null ? digits[tail] : null) : 0;
+    if (h === null || t === null) return null;
+    return h * 10 + t;
+}
+
 function extractScore(text, maxScore) {
     if (!text) return null;
+    // 抗格式漂移（#287）
+    text = normalizeScoreText(text);
     // 优先取等号后的结果（如 "2+2=4" → 4），避免误取算式中的第一个数
     let num = null;
     const eqMatches = text.match(/=\s*(\d+\.?\d*)/g);

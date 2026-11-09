@@ -70,6 +70,19 @@ const SipdAdapter = {
         return [window.location.pathname, keys].join('::');
     },
 
+    // 稳定试卷标识（供答卷一致性校验做强信号比对，#285）：
+    // data-stu 每生一换（与 waitForNextPaper 换卷信号同源），同卷不变；
+    // 过渡值 '0'/空视为不可用，返回 null 退回既有比对
+    getPaperIdentity() {
+        try {
+            const img = document.querySelector(SIPD_SELECTORS.ANSWER_IMAGE);
+            const stu = img ? (img.getAttribute('data-stu') || '').trim() : '';
+            return (stu && stu !== '0') ? stu : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     // 一次性迁移含 mtid 的旧绑定 key（pathname::mtid::datakey → pathname::datakey）
     // 旧标识同一道题会分裂成多条绑定，迁移时后插入的覆盖先插入的（后绑定的优先）
     _migrateLegacyBindings() {

@@ -321,11 +321,11 @@ const HuiXuexingAdapter = {
                 const currentImg = document.querySelector(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
                 const currentUrl = currentImg ? currentImg.src : null;
 
-                // 检查步骤输入框是否已清空
+                // 检查步骤输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
                 const firstInput = document.querySelector(HUIXUEXING_SELECTORS.STEP_INPUT_BY_INDEX(0));
                 const scoreInput = document.querySelector(HUIXUEXING_SELECTORS.SCORE_INPUT);
-                const inputCleared = (firstInput && (firstInput.value === '' || firstInput.value === '0')) ||
-                                     (scoreInput && (scoreInput.value === '' || scoreInput.value === '0'));
+                const inputCleared = (firstInput && String(firstInput.value).trim() === '') ||
+                                     (scoreInput && String(scoreInput.value).trim() === '');
 
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);

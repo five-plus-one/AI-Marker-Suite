@@ -284,9 +284,9 @@ const Xueba54Adapter = {
                     }
                 }
 
-                // 检查分数输入框是否已清空
+                // 检查分数输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
                 const firstInput = document.querySelector(XUEBA54_SELECTORS.SCORE_INPUT_BY_INDEX(0));
-                const inputCleared = firstInput && (firstInput.value === '' || firstInput.value === '0');
+                const inputCleared = firstInput && String(firstInput.value).trim() === '';
 
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);

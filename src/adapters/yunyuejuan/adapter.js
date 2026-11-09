@@ -153,9 +153,9 @@ const YunyuejuanAdapter = {
                     return;
                 }
 
-                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框）
+                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框；仅真清空算空，'0' 是合法分值，#285）
                 const scoreInput = document.querySelector(YUNYUEJUAN_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && (scoreInput.value === '' || scoreInput.value === '0');
+                const inputCleared = scoreInput && String(scoreInput.value).trim() === '';
                 if (inputCleared && checkTimes > 3) {
                     clearInterval(checkNextTimer);
                     console.log('✅ 新试卷已加载完毕（输入框清空）');
