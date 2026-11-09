@@ -169,26 +169,37 @@
             return HY_HELPERS.getVisibleAnswerImages().map(it => it.src);
         },
 
-        // 换卷判定（#306 集合退出语义）：可见图考生号集合中**旧考生号已退出**才判换卷——
-        // 过渡期新旧图并存时继续等（1 tick），旧图退场即判换卷；
-        // 判定成立时可见集只含新卷，杜绝新旧混图喂 AI（宁等勿错）
+        // 换卷判定（#306 集合退出语义 + #309 阻塞式窗口）：
+        // 全仓适配器契约为**阻塞式等待**——内部轮询至窗口结束（默认 25s 与全仓对齐），
+        // 旧考生号退出可见集即刻返回 true；窗口耗尽才返回 false 交 core 重试。
+        // 此前的瞬时快照检查违反该契约：提交瞬间平台尚未换图 → 必报一次"等待超时"
         async waitForNextPaper(oldImageUrl) {
-            const cur = HY_HELPERS.getVisibleAnswerImages();
-            if (cur.length === 0) return false; // 无图不误判，继续等
-            const oldKey = HY_HELPERS.extractStudentKey(oldImageUrl);
-            if (oldKey) {
-                for (const it of cur) {
-                    if (HY_HELPERS.extractStudentKey(it.src) === oldKey) return false; // 旧图仍可见 → 未换卷
+            const win = Number(window.__AI_MARKER_WAIT_WINDOW_MS__);
+            const windowMs = (isFinite(win) && win > 0) ? win : 25000;
+            const tick = Math.max(50, Math.min(500, Math.floor(windowMs / 5)));
+            const deadline = Date.now() + windowMs;
+            while (true) {
+                const cur = HY_HELPERS.getVisibleAnswerImages();
+                if (cur.length > 0) {
+                    const oldKey = HY_HELPERS.extractStudentKey(oldImageUrl);
+                    let oldStillThere = false;
+                    if (oldKey) {
+                        for (const it of cur) {
+                            if (HY_HELPERS.extractStudentKey(it.src) === oldKey) { oldStillThere = true; break; }
+                        }
+                    } else {
+                        // 兜底：考生号提取失败（非标准 URL）——按路径集合判定（拿不准宁可等待）
+                        const oldPath = HY_HELPERS.normalizePath(oldImageUrl);
+                        for (const it of cur) {
+                            if (HY_HELPERS.normalizePath(it.src) === oldPath) { oldStillThere = true; break; }
+                        }
+                    }
+                    // 旧考生号已退出可见集且集内仍有图 → 换卷成立（判定时可见集只含新卷，防新旧混图喂 AI）
+                    if (!oldStillThere) return true;
                 }
-                // 旧考生号已退出可见集；且集合非空（上面判过）→ 换卷成立
-                return true;
+                if (Date.now() >= deadline) return false;
+                await new Promise(r => setTimeout(r, tick));
             }
-            // 兜底：考生号提取失败（非标准 URL）——按路径集合判定（拿不准宁可等待）
-            const oldPath = HY_HELPERS.normalizePath(oldImageUrl);
-            for (const it of cur) {
-                if (HY_HELPERS.normalizePath(it.src) === oldPath) return false;
-            }
-            return true;
         },
 
         // 纸卷身份：考生号（换卷必变、同卷签名抖动不变）（#281 强信号）
