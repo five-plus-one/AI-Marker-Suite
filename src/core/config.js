@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.16.35',
+    VERSION: '1.21.16.36',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.16.36': [
+            '【修复】SPA 进入批改页配置窗不弹出（需刷新才弹）：阅卷 DOM 未就绪时任务切换不再被一次性消费，登记待重试并补跑新题引导流程（#304）',
+        ],
         '1.21.16.35': [
             '【新平台】适配华翰云云阅卷（yj.lcedu.net.cn 鹿城区部署）：单题块单分框批改流、OBS 题块裁剪图取图、考生号路径强换卷信号、给分提交（#301）',
         ],
