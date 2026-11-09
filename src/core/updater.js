@@ -267,11 +267,12 @@ function restoreConfigIfMissing() {
         if (!backup.presets && !backup.providers) return;
 
         console.log('[更新恢复] 检测到配置丢失，发现备份，正在恢复...');
-        if (backup.presets) GM_setValue('ai-grading-presets', backup.presets);
-        if (backup.providers) GM_setValue('ai-grading-providers-v2', backup.providers);
-        if (backup.workflows) GM_setValue('ai-grading-workflows', backup.workflows);
-        if (backup.channel) GM_setValue('ai-grading-channel', backup.channel);
-        if (backup.saveImages !== undefined) GM_setValue('ai-grading-save-images', backup.saveImages);
+        // 只补缺失键（#293）：绝不覆写现存配置，避免备份后的新改动被回滚
+        if (!hasPresets && backup.presets) GM_setValue('ai-grading-presets', backup.presets);
+        if (!hasProviders && backup.providers) GM_setValue('ai-grading-providers-v2', backup.providers);
+        if (!GM_getValue('ai-grading-workflows') && backup.workflows) GM_setValue('ai-grading-workflows', backup.workflows);
+        if (!GM_getValue('ai-grading-channel') && backup.channel) GM_setValue('ai-grading-channel', backup.channel);
+        if (GM_getValue('ai-grading-save-images') === undefined && backup.saveImages !== undefined) GM_setValue('ai-grading-save-images', backup.saveImages);
 
         // 设置标志，让 init() 中显示提示
         sessionStorage.setItem('ai-config-restored', backup.version || 'unknown');

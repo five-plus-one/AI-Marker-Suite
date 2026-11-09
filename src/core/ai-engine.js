@@ -2,26 +2,46 @@
 const ProviderManager = {
     data: null,
     init() {
+        this._writeDisabled = false;
+        let raw = null;
         try {
-            let saved = GM_getValue('ai-grading-providers-v2');
-            if (saved) {
-                this.data = JSON.parse(saved);
-                // 迁移：更新内置供应商的模型配置
-                this._migrateProviders();
-            } else {
-                // 尝试迁移旧格式
-                const oldSaved = GM_getValue('ai-grading-providers');
-                if (oldSaved) {
-                    this.data = this._migrateFromV1(JSON.parse(oldSaved));
-                } else {
-                    this.data = this._getDefault();
-                }
-                this.save();
-            }
+            raw = GM_getValue('ai-grading-providers-v2');
         } catch (e) {
-            console.error('❌ ProviderManager init failed, using defaults:', e);
-            this.data = this._getDefault();
+            console.error('❌ ProviderManager init 读取失败，进入只读降级:', e);
+            this._enterReadOnly(null);
+            return;
         }
+        if (raw) {
+            try {
+                this.data = JSON.parse(raw);
+            } catch (e) {
+                // 解析失败：救原始字节 + 只读降级，绝不覆写清空（#293）
+                this._enterReadOnly(raw, e);
+                return;
+            }
+            // 迁移隔离（#293）：失败保留已加载数据
+            try {
+                this._migrateProviders();
+            } catch (e) {
+                console.error('[providers] 迁移失败（保留原数据继续）:', e);
+            }
+        } else {
+            // 尝试迁移旧格式
+            try {
+                const oldSaved = GM_getValue('ai-grading-providers');
+                this.data = oldSaved ? this._migrateFromV1(JSON.parse(oldSaved)) : this._getDefault();
+            } catch (e) {
+                this.data = this._getDefault();
+            }
+            this.save();
+        }
+    },
+    // 只读降级（#293）：禁止保存覆写；原始字节存 rescue 键供恢复
+    _enterReadOnly(raw, err) {
+        if (err) console.error('❌ ProviderManager 数据解析失败，进入只读降级:', err);
+        try { if (raw != null) GM_setValue('ai-grading-providers-v2-rescue', String(raw)); } catch (_) {}
+        this.data = this._getDefault();
+        this._writeDisabled = true;
     },
     _migrateProviders() {
         let changed = false;
@@ -127,7 +147,27 @@ const ProviderManager = {
         return newData;
     },
     save() {
-        GM_setValue('ai-grading-providers-v2', JSON.stringify(this.data));
+        if (this._writeDisabled) {
+            // 惰性探活（#293）：瞬态读取失败可自愈
+            try {
+                const probe = GM_getValue('ai-grading-providers-v2');
+                if (probe && JSON.parse(probe)) {
+                    this._writeDisabled = false;
+                    if (typeof showToast === 'function') showToast('供应商配置存储已恢复；保护期间的修改未保存，请重新保存');
+                    return false;
+                }
+            } catch (_) { /* 维持降级 */ }
+            console.error('[providers] 存储处于只读降级，跳过保存以保护原数据（#293）');
+            if (typeof showToast === 'function') showToast('⚠️ 供应商配置存储异常：本次修改未保存（原数据已保护）');
+            return false;
+        }
+        const json = JSON.stringify(this.data);
+        try {
+            const prev = GM_getValue('ai-grading-providers-v2');
+            if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-providers-v2-prev', prev);
+        } catch (_) { /* 备份失败不阻塞保存 */ }
+        GM_setValue('ai-grading-providers-v2', json);
+        return true;
     },
     getProvider(name) {
         return this.data.providers[name] || null;
@@ -228,20 +268,38 @@ ProviderManager.init();
 const WorkflowManager = {
     data: null,
     init() {
+        this._writeDisabled = false;
+        let raw = null;
         try {
-            let saved = GM_getValue('ai-grading-workflows');
-            if (saved) {
-                this.data = JSON.parse(saved);
-                // 迁移：更新内置工作流的模型配置
-                this._migrateWorkflows();
-            } else {
-                this.data = this._getDefault();
-                this.save();
-            }
+            raw = GM_getValue('ai-grading-workflows');
         } catch (e) {
-            console.error('❌ WorkflowManager init failed, using defaults:', e);
-            this.data = this._getDefault();
+            console.error('❌ WorkflowManager init 读取失败，进入只读降级:', e);
+            this._enterReadOnly(null);
+            return;
         }
+        if (raw) {
+            try {
+                this.data = JSON.parse(raw);
+            } catch (e) {
+                this._enterReadOnly(raw, e);
+                return;
+            }
+            try {
+                this._migrateWorkflows();
+            } catch (e) {
+                console.error('[workflows] 迁移失败（保留原数据继续）:', e);
+            }
+        } else {
+            this.data = this._getDefault();
+            this.save();
+        }
+    },
+    // 只读降级（#293）：禁止保存覆写；原始字节存 rescue 键供恢复
+    _enterReadOnly(raw, err) {
+        if (err) console.error('❌ WorkflowManager 数据解析失败，进入只读降级:', err);
+        try { if (raw != null) GM_setValue('ai-grading-workflows-rescue', String(raw)); } catch (_) {}
+        this.data = this._getDefault();
+        this._writeDisabled = true;
     },
     _migrateWorkflows() {
         let changed = false;
@@ -340,7 +398,27 @@ const WorkflowManager = {
         };
     },
     save() {
-        GM_setValue('ai-grading-workflows', JSON.stringify(this.data));
+        if (this._writeDisabled) {
+            // 惰性探活（#293）：瞬态读取失败可自愈
+            try {
+                const probe = GM_getValue('ai-grading-workflows');
+                if (probe && JSON.parse(probe)) {
+                    this._writeDisabled = false;
+                    if (typeof showToast === 'function') showToast('工作流配置存储已恢复；保护期间的修改未保存，请重新保存');
+                    return false;
+                }
+            } catch (_) { /* 维持降级 */ }
+            console.error('[workflows] 存储处于只读降级，跳过保存以保护原数据（#293）');
+            if (typeof showToast === 'function') showToast('⚠️ 工作流配置存储异常：本次修改未保存（原数据已保护）');
+            return false;
+        }
+        const json = JSON.stringify(this.data);
+        try {
+            const prev = GM_getValue('ai-grading-workflows');
+            if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-workflows-prev', prev);
+        } catch (_) { /* 备份失败不阻塞保存 */ }
+        GM_setValue('ai-grading-workflows', json);
+        return true;
     },
     getWorkflow(id) {
         // 按 id 查找
