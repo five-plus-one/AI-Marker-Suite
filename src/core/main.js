@@ -109,7 +109,7 @@ async function scoreInputsTransitionedEmpty(adapter, snapshot) {
     }
 }
 
-async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot) {
+async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot, recordedPaperId) {
     try {
         if (!adapter || typeof adapter.gatherAnswerImages !== 'function') {
             return { unchanged: null, reason: '适配器不支持 gatherAnswerImages' };
@@ -126,7 +126,7 @@ async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot) {
         // 同卷 src 重设/裁切产物波动不改变标识，换卷必变
         try {
             const state = (typeof window !== 'undefined' && window.aiGradingState) ? window.aiGradingState : null;
-            const recordedId = state && state.currentPaperId;
+            const recordedId = recordedPaperId === undefined ? (state && state.currentPaperId) : recordedPaperId;
             if (recordedId && typeof adapter.getPaperIdentity === 'function') {
                 const pid = adapter.getPaperIdentity();
                 if (pid) {
@@ -239,6 +239,7 @@ function safeFillScores(adapter, scores, ctx) {
 // SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
 //「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
 function handleLeaveMarkingPage() {
+    invalidateGradingRun();
     // 1. 关闭新手引导弹窗
     if (typeof hideOnboardingDialog === 'function') hideOnboardingDialog();
 
@@ -265,7 +266,8 @@ function handleLeaveMarkingPage() {
 
 // ========== 主控流程 ==========
 async function startAutoGrading() {
-    window.aiGradingState.abortController = new AbortController();
+    if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
+    const runContext = createGradingContext();
     // 批改节奏：本卷用时计时起点（开始处理 → 提交，含随机延迟）
     // 已有起点（翻卷检测时刻）时不覆盖，保住「检测到→提交」的完整窗口
     if (!window.aiGradingState.cycleStartTime) {
@@ -275,7 +277,9 @@ async function startAutoGrading() {
 
     // 离开批改页（如退回列表页）：中性停止，绝不能报「所有试卷已批改完成」
     // 复查确认后才动手：DOM 型 isMarkingPage 在组件重载瞬间会短暂 false
-    if (await confirmLeftMarkingPage(window.__AI_MARKER_ADAPTER__)) {
+    const leftPage = await confirmLeftMarkingPage(runContext.adapter);
+    if (!isGradingContextCurrent(runContext)) return;
+    if (leftPage) {
         console.log('ℹ️ 已离开批改页面，停止本轮批改');
         handleLeaveMarkingPage();
         return;
@@ -283,7 +287,7 @@ async function startAutoGrading() {
 
     try {
         // 使用新的配置获取方式（优先工作流，回退直接配置）
-        const config = PresetManager.getActiveCallConfig();
+        const config = JSON.parse(JSON.stringify(PresetManager.getActiveCallConfig()));
         if (!config.apiKey) {
             openSettingsPanel();
             showToast('请先配置 AI 密钥');
@@ -291,7 +295,12 @@ async function startAutoGrading() {
             return;
         }
 
-        const presetConfig = PresetManager.getCurrentConfig();
+        const presetConfig = JSON.parse(JSON.stringify(PresetManager.getCurrentConfig()));
+        const effectiveUnits = PresetManager.getScoringUnits?.() || presetConfig.scoring?.units || [];
+        const gradingMaxScore = PresetManager.getMaxScore();
+        presetConfig.scoring = { ...presetConfig.scoring, maxScore: gradingMaxScore, units: JSON.parse(JSON.stringify(effectiveUnits)) };
+        config.scoring = presetConfig.scoring;
+        runContext.configuration = presetConfig;
         if (!extractFieldText(presetConfig.answer).trim() || !extractFieldText(presetConfig.rubric).trim()) {
             openSettingsPanel();
             showToast('请先填写参考答案和评卷标准');
@@ -311,7 +320,8 @@ async function startAutoGrading() {
 
         // 获取工作流信息（用于双评判断）
         const workflowId = presetConfig.workflowId;
-        const workflow = workflowId ? WorkflowManager.getWorkflow(workflowId) : null;
+        const sourceWorkflow = workflowId ? WorkflowManager.getWorkflow(workflowId) : null;
+        const workflow = sourceWorkflow ? JSON.parse(JSON.stringify(sourceWorkflow)) : null;
         const isDualEval = workflow && workflow.dualEval && workflow.dualEval.enabled;
 
         if (isDualEval) {
@@ -323,7 +333,7 @@ async function startAutoGrading() {
         const adapter = window.__AI_MARKER_ADAPTER__;
 
         // AI 失败重试时复用已下载的图片，避免重新抓取（拦截器缓冲可能已清空）
-        const isRetry = window.aiGradingState.errorRetryCount > 0
+        const isRetry = runContext.paperId && runContext.paperId === window.aiGradingState.currentPaperId && window.aiGradingState.errorRetryCount > 0
             && window.aiGradingState.currentBase64DataArray.length > 0;
 
         let imageUrls, base64DataArray;
@@ -335,11 +345,14 @@ async function startAutoGrading() {
         } else {
             console.log(`🔍 使用方案【${PresetManager.data.active}】查找答卷...`);
             imageUrls = adapter ? await adapter.gatherAnswerImages() : [];
+            requireCurrentGradingContext(runContext);
             console.log(`🖼️ [诊断] 找到答题卡图片数量: ${imageUrls.length}`);
 
             if (!imageUrls || imageUrls.length === 0) {
                 // 取图为空 ≠ 批完：复查确认是否已离开批改页（取图等待窗口内可能已导航离开）
-                if (await confirmLeftMarkingPage(adapter)) {
+                const hasLeft = await confirmLeftMarkingPage(adapter);
+                requireCurrentGradingContext(runContext);
+                if (hasLeft) {
                     console.log('ℹ️ 已离开批改页面，停止本轮批改');
                     handleLeaveMarkingPage();
                     return;
@@ -356,12 +369,16 @@ async function startAutoGrading() {
                 return;
             }
 
+            runContext.paperId ||= readGradingPaperIdentity(adapter);
+            requireGradingContextTarget(runContext);
             window.aiGradingState.currentImageUrls = imageUrls;
             // Canvas 型平台换卷判定的对照基准：AI 期间输入框若「非空→清空」才可疑
             window.aiGradingState.paperGuardInputSnapshot = snapshotScoreInputs(adapter);
+            runContext.imageUrls = imageUrls.slice();
+            runContext.inputSnapshot = window.aiGradingState.paperGuardInputSnapshot.slice();
             // 记录稳定试卷标识（如有），答卷校验优先做强信号比对（#281）
             if (adapter && typeof adapter.getPaperIdentity === 'function') {
-                window.aiGradingState.currentPaperId = adapter.getPaperIdentity();
+                window.aiGradingState.currentPaperId = runContext.paperId;
             }
 
             const gradeBtn = document.querySelector('.ai-grade-btn');
@@ -371,7 +388,8 @@ async function startAutoGrading() {
 
             console.log(`📥 [诊断] 开始下载 ${imageUrls.length} 张图片...`);
             const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
-            base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url)));
+            base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, runContext.controller.signal)));
+            requireCurrentGradingContext(runContext);
             // 废图闸（工单①）：942×4 裁剪残片类废图不得进 API/空白检测（进 API 会 400 整单暂停）
             const imgGate = filterUsableImagesForAI(base64DataArray);
             // 剔除计数登记（返修②）：本卷 AI 请求的提示词需注明「已剔除 N 张废图」，不得对残卷照常出分
@@ -397,7 +415,10 @@ async function startAutoGrading() {
             console.log(`✅ [诊断] 图片下载完成，各图片Base64大小: ${base64DataArray.map(b => Math.round(b.length / 1024) + 'KB').join(', ')}`);
         }
 
-        if (window.aiGradingState.isPaused) throw new Error('用户暂停');
+        requireCurrentGradingContext(runContext);
+        runContext.imageUrls = imageUrls.slice();
+        runContext.inputSnapshot = window.aiGradingState.paperGuardInputSnapshot || [];
+        runContext.base64DataArray = base64DataArray.slice();
 
         // ===== 空白答题卡检测 =====
         const blankConfig = presetConfig.blankDetection;
@@ -407,23 +428,28 @@ async function startAutoGrading() {
             if (refData) {
                 try {
                     const currentRatios = await BlankDetector.calcBatchRatios(base64DataArray, refData.thresholds);
+                    requireCurrentGradingContext(runContext);
                     blankDetectionResult = { currentRatios, refData }; // 缓存
                     const result = BlankDetector.isBlankSheet(currentRatios, refData, blankConfig.threshold);
                     if (result.isBlank) {
+                        await verifyGradingContext(runContext);
+                        requireGradingContextTarget(runContext);
                         console.log('⏭️ [空白检测] 检测到空白答题卡，自动跳过');
                         window.aiGradingState.blankDetection.blankCount++;
                         showToast(`⏭️ 空白答题卡已跳过（第${window.aiGradingState.blankDetection.blankCount}张）`);
 
                         // 填入 0 分（失败不静默：空分提交等于误判 0 分）
                         const scoringConfig = presetConfig.scoring || {};
-                        const maxScore = PresetManager.getMaxScore();
-                        let blankFillOk = true;
+                        const maxScore = gradingMaxScore;
+                        let blankFillOk = false;
                         if (adapter) {
                             const units = scoringConfig.units || [];
                             if (adapter.fillScores && units.length > 0) {
                                 blankFillOk = safeFillScores(adapter, units.map(() => 0), '空白卡填0');
                             } else if (adapter.fillScores) {
                                 blankFillOk = safeFillScores(adapter, [0], '空白卡填0');
+                            } else if (adapter.fillScore) {
+                                blankFillOk = adapter.fillScore({ total: 0, subScores: units.map(u => ({ ...u, score: 0 })) });
                             }
                         }
                         if (blankFillOk === false) {
@@ -435,6 +461,7 @@ async function startAutoGrading() {
                             label: u.label, score: 0, maxScore: u.maxScore
                         }));
                         showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
+                            runContext,
                             isBlankCard: true,
                             // 数据安全（#312 B1）：0 分填入失败必须禁倒计时自动提交，
                             // 否则无人模式 1 秒倒计时会把空框送进平台（空分提交=事故）
@@ -450,6 +477,7 @@ async function startAutoGrading() {
                         console.log(`🔍 [空白检测] 非空白卡 — ${result.reason}`);
                     }
                 } catch (e) {
+                    if (e.code === 'GRADING_CONTEXT_CHANGED') throw e;
                     console.warn('⚠️ [空白检测] 检测失败，继续正常批改:', e);
                 }
             }
@@ -476,24 +504,25 @@ async function startAutoGrading() {
             outputLimitEnabled: config.outputLimitEnabled !== false,
             maxOutputTokens: config.maxOutputTokens || 2048
         });
-        const gradingConfig = { ...config, workflowId, outputObservation, outputLimitKey,
+        const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
+            signal: runContext.controller.signal,
             imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
         const result = isDualEval
             ? await callDualEvaluation(base64DataArray, gradingConfig, (streamedText) => {
-                if (window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
+                if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
             })
             : await callAIGrading(base64DataArray, gradingConfig, (streamedText) => {
-                if (window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
+                if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
             });
 
+        requireCurrentGradingContext(runContext);
         hideStreamPanel();
-        if (window.aiGradingState.isPaused) throw new Error('用户暂停');
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
         if (result.score !== undefined && result.score !== null) {
             recordOutputLimitOutcome(gradingConfig);
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
-            const maxScore = PresetManager.getMaxScore();
+            const maxScore = gradingMaxScore;
 
             // 字数 ≤ 15 或未作答时，强制无勤勉分
             let diligenceLevel = result.diligenceLevel || 0;
@@ -511,7 +540,7 @@ async function startAutoGrading() {
                 : null;
 
             const calculated = ScoreCalculator.calculate({
-                aiScore: result.rawScore || result.score,
+                aiScore: result.rawScore ?? result.score,
                 diligenceLevel,
                 maxScore,
                 scoringConfig,
@@ -525,26 +554,8 @@ async function startAutoGrading() {
             // ===== 离开批改页检查（先于答卷校验：填分/提交必须在批改页上）=====
             // AI 请求期间教师可能退回列表页——这是离开页面，不是换卷，中性暂停即可
             // 复查确认：DOM 型 isMarkingPage 瞬时 false 不算离开
-            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
-            if (await confirmLeftMarkingPage(verifyAdapter)) {
-                console.warn('ℹ️ 已离开批改页面，暂停批改');
-                throw new Error('已离开批改页面（本次评分结果未提交）');
-            }
-            // ===== 答卷一致性校验（数据安全，实验性可关）=====
-            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷。
-            // 若用户遇到误报，可在设置面板「答卷校验」关闭此项。
-            if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
-                console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
-            } else {
-                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls, window.aiGradingState.paperGuardInputSnapshot);
-                if (paperCheck.unchanged === false) {
-                    console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
-                    throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
-                }
-                if (paperCheck.unchanged === null) {
-                    console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
-                }
-            }
+            await verifyGradingContext(runContext);
+            requireGradingContextTarget(runContext);
 
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
 
@@ -566,13 +577,14 @@ async function startAutoGrading() {
                         ? adapter.fillScore({ total: finalScore, subScores: finalUnitScores })
                         : false;
                 } else {
-                    fillOk = true; // 适配器无填分接口（理论上不存在），交由人工流程
+                    fillOk = false;
                 }
             }
             if (fillOk === false) {
                 console.warn('⚠️ [诊断] 分数填入失败，中止本次提交');
                 throw new Error('分数填入失败（分数框缺失或分数不可填），请手动输入分数后继续');
             }
+            runContext.inputSnapshot = snapshotScoreInputs(adapter);
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
             // 如果开启了空白卡检测且有范本，附带当前图的占比数据（复用之前缓存的结果）
             let blankRatiosData = null;
@@ -598,7 +610,9 @@ async function startAutoGrading() {
                     }
                 } catch (e) { /* 静默失败，不影响主流程 */ }
             }
+            requireCurrentGradingContext(runContext);
             showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
+                runContext,
                 scoringDetails: result._sections || null,
                 dualEval: result.dualEval || null,
                 rawScore: result.rawScore || result.score,
@@ -616,6 +630,8 @@ async function startAutoGrading() {
         }
 
     } catch (error) {
+        // 旧轮次的失败也不能暂停新轮次或清理新轮次的界面。
+        if (!isGradingContextCurrent(runContext)) return;
         hideStreamPanel();
         if (error.message === '用户主动暂停' || error.message === '用户暂停') {
             console.log('⏸️ 请求已被暂停');
@@ -856,12 +872,21 @@ async function runInitBody() {
             if (record) {
                 window.aiGradingState.isRegrading = true;
                 showToast('正在加载回评数据...');
+                const regradeContext = createGradingContext(true);
                 setTimeout(async () => {
+                    if (!isGradingContextCurrent(regradeContext)) return;
+                    try {
                     // 等待图片加载（strict-a C.4）：固定 3s 等待改 200ms 短轮询，就绪即继续，
                     // 探测总上限 3s 不变
                     const adapter = window.__AI_MARKER_ADAPTER__;
                     await waitForImagesReadyForRegrade(adapter, 3000, 200);
+                    requireCurrentGradingContext(regradeContext);
                     const imageUrls = adapter ? await adapter.gatherAnswerImages() : [];
+                    requireCurrentGradingContext(regradeContext);
+                    regradeContext.paperId ||= readGradingPaperIdentity(adapter);
+                    requireGradingContextTarget(regradeContext);
+                    regradeContext.imageUrls = imageUrls.slice();
+                    regradeContext.inputSnapshot = snapshotScoreInputs(adapter);
                     if (imageUrls.length === 0) {
                         showAlertModal('未找到答题卡图片，无法回评。').then(() => {
                             sessionStorage.removeItem('ai-grading-regrade');
@@ -870,7 +895,8 @@ async function runInitBody() {
                         return;
                     }
                     const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
-                    let base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url)));
+                    let base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, regradeContext.controller.signal)));
+                    requireCurrentGradingContext(regradeContext);
                     // 废图闸（工单①）：回评链路同样不得把尺寸异常残片送进 API
                     const regradeGate = filterUsableImagesForAI(base64DataArray);
                     // 回评/纠错链的剔除计数登记（返修②）：correction.js 自建 callConfig，
@@ -889,31 +915,36 @@ async function runInitBody() {
                         return;
                     }
                     window.aiGradingState.currentBase64DataArray = base64DataArray;
+                    regradeContext.base64DataArray = base64DataArray.slice();
+                    await verifyGradingContext(regradeContext);
 
                     showCorrectionPanel({
                         score: record.aiScore, comment: record.aiComment,
                         studentAnswer: record.studentAnswer, imageUrls,
-                        base64DataArray, config: PresetManager.getCurrentConfig(),
+                        base64DataArray, config: regradeContext.configuration,
                         callConfig: PresetManager.getActiveCallConfig(),
                         subScores: record.subScores,
-                        onAccept(finalScore, correctionInfo) {
+                        async onAccept(finalScore, correctionInfo) {
                             const correctedSubScores = correctionInfo.correctedSubScores || record.subScores;
-                            HistoryManager.update(id, {
-                                finalScore, isCorrected: correctionInfo.isCorrected,
-                                correctionReason: correctionInfo.correctionReason,
-                                subScores: correctedSubScores, status: 'submitted'
-                            });
-                            fillScore(finalScore, record.aiComment, correctedSubScores);
+                            if (!await fillScore(finalScore, record.aiComment, correctedSubScores, regradeContext, {
+                                regradeId: id,
+                                correction: { ...correctionInfo, aiScore: record.aiScore, aiComment: record.aiComment }
+                            })) return;
                             sessionStorage.removeItem('ai-grading-regrade');
                             window.aiGradingState.isRegrading = false;
-                            showToast('回评完成！分数已填入。');
+                            showToast('得分已填入，请确认提交');
                         },
                         onCancel() {
+                            if (isGradingContextCurrent(regradeContext)) invalidateGradingRun();
                             sessionStorage.removeItem('ai-grading-regrade');
                             window.aiGradingState.isRegrading = false;
                             showToast('已取消回评');
                         }
                     });
+                    } catch (error) {
+                        if (isGradingContextCurrent(regradeContext)) { invalidateGradingRun(); showToast(error.message); }
+                        window.aiGradingState.isRegrading = false;
+                    }
                 }, 0);
             }
         } catch (e) {

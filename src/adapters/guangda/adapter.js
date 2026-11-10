@@ -314,7 +314,8 @@ const GuangdaAdapter = {
         return false;
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         console.log('📤 [诊断] 光大阅卷 — 开始提交分数...');
 
         // 查找"提交分数"按钮
@@ -324,7 +325,7 @@ const GuangdaAdapter = {
             submitBtn.click();
 
             // 等待并处理"给分详情"二次确认弹窗
-            this._handleConfirmDialog();
+            this._handleConfirmDialog(guard);
 
             return true;
         }
@@ -335,7 +336,7 @@ const GuangdaAdapter = {
             if (btn.textContent.trim().includes('提交分数')) {
                 console.log('✅ [诊断] 找到包含"提交分数"的按钮，点击中...');
                 btn.click();
-                this._handleConfirmDialog();
+                this._handleConfirmDialog(guard);
                 return true;
             }
         }
@@ -347,7 +348,7 @@ const GuangdaAdapter = {
             if (painterVm && typeof painterVm.commitDxj === 'function') {
                 console.log('✅ [诊断] 调用组件方法 commitDxj 提交分数');
                 painterVm.commitDxj();
-                this._handleConfirmDialog();
+                this._handleConfirmDialog(guard);
                 return true;
             }
         } catch (e) {
@@ -376,25 +377,31 @@ const GuangdaAdapter = {
     },
 
     // 处理"给分详情"二次确认弹窗
-    _handleConfirmDialog() {
+    _handleConfirmDialog(guard) {
         console.log('⏳ [诊断] 等待给分详情弹窗...');
 
         // 立即检查一次
         const immediateBtn = document.querySelector('.dialog-btns .sure');
-        if (immediateBtn) {
+        if (immediateBtn && (!guard || guard.isCurrent())) {
             console.log('✅ [诊断] 立即找到给分详情弹窗，自动点击确认');
             immediateBtn.click();
             return;
         }
 
         // 等待弹窗出现并自动点击确认
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
+        let checkCount = 0, checking = false;
+        const checkInterval = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
+            if (checking) return;
             checkCount++;
 
             // 查找"确认"按钮（在 dialog-btns 容器中）
             const confirmBtn = document.querySelector('.dialog-btns .sure');
             if (confirmBtn) {
+                checking = true;
+                try { if (guard) await guard.verify(); }
+                catch (_) { clearInterval(checkInterval); return; }
+                if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
                 console.log('✅ [诊断] 找到给分详情弹窗，自动点击确认');
                 confirmBtn.click();
                 clearInterval(checkInterval);

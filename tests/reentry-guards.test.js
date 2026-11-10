@@ -23,38 +23,12 @@ function grab(src, re, name) {
 
 // ---------- C.2 confirmSubmitFn 重入闩 ----------
 function loadConfirmSubmit() {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ui-submit-dialog.js'), 'utf8');
-    const body = grab(src, /const runConfirmSubmitOnce = async \(\) => \{[\s\S]*?\n    \};/, 'runConfirmSubmitOnce');
-    const latch = grab(src, /let confirmSubmitting = false;[\s\S]*?const confirmSubmitFn = async \(\) => \{[\s\S]*?\n    \};/, 'confirmSubmitFn 重入闩');
-    const calls = { submit: 0, history: 0, progress: 0 };
-    const sandbox = {
-        console: { log: () => {}, warn: () => {}, error: () => {} },
-        Date, Math, JSON, Promise, setTimeout, clearTimeout,
-        dialog: { countdownTimer: null, remove: () => {} },
-        updateBatchProgress: () => { calls.progress++; },
-        window: {
-            __AI_MARKER_ADAPTER__: {
-                submitGrade: async () => { calls.submit++; await new Promise(r => setTimeout(r, 10)); return true; },
-                waitForNextPaper: async () => false,
-            },
-            aiGradingState: {
-                humanPacing: {}, cycleStartTime: 0, currentBase64DataArray: [], currentImageUrls: [],
-                isRunning: true, isPaused: false,
-            },
-        },
-        humanPacingCfg: {}, mode: 'normal', imageUrls: [], rawStudentAnswer: '', score: 5,
-        rawComment: '', rawSubScores: [], rawExtraInfo: null,
-        HistoryManager: { add: () => { calls.history++; } },
-        PresetManager: { data: { active: '默认配置' } },
-        waitForNextPaperWithRetry: async () => false,
-        pacingRestIfNeeded: async () => {},
-        startAutoGrading: () => {},
-        showToast: () => {},
-        document: { querySelector: () => null },
-    };
-    vm.createContext(sandbox);
-    vm.runInContext(body + '\n' + latch + '\n;__exports__ = { confirmSubmitFn };', sandbox);
-    return { confirmSubmitFn: sandbox.__exports__.confirmSubmitFn, calls };
+    const {env,load}=require('./_audit-harness');const e=env();
+    load(e,'src/core/main.js');load(e,'src/core/ui-submit-dialog.js');
+    e.sb.updateBatchProgress=()=>e.calls.progress++;
+    const dialog=e.sb.showAutoSubmitDialog(5,'test',null);
+    const calls={get submit(){return e.calls.submit.length},get history(){return e.calls.history.length},get progress(){return e.calls.progress}};
+    return {confirmSubmitFn:dialog.confirmSubmit,calls};
 }
 
 test('C.2 双连点只提交一次：点击×2 并发不得双跑 History.add / submitGrade', async () => {
@@ -75,12 +49,12 @@ test('C.2 三入口并发（点击×倒计时×auto-confirm）仍只提交一次
     assert.strictEqual(calls.history, 1);
 });
 
-test('C.2 闩为 in-flight 语义：完成后释放（异常路径由 finally 覆盖）', async () => {
+test('C.2 同一弹窗完成后不可再次提交', async () => {
     const { confirmSubmitFn, calls } = loadConfirmSubmit();
     await confirmSubmitFn();
     // 闩已释放：后续（无并发竞态的）调用不再被闩死——但生产入口此时已全部拆除
     await confirmSubmitFn();
-    assert.strictEqual(calls.submit, 2, 'finally 释放语义：完成后闩必须放行（锁死属回归）');
+    assert.strictEqual(calls.submit, 1, '迟到回调不能再次提交同一份试卷');
 });
 
 // ---------- C.1 + C.3：init 重入闩 / 回评面板消费 ----------
@@ -131,15 +105,32 @@ function loadMainInit({ session, panelCalls, buttonCalls } = {}) {
         waitForImagesReadyForRegrade: async () => {},
         filterUsableImagesForAI: (list) => ({ kept: list || [], removed: [] }),
         fetchImageAsBase64: async () => PNG_16x16,
-        showCorrectionPanel: () => { panels.n++; },
+        showCorrectionPanel: (context) => { panels.n++; panels.context = context; },
         fillScore: () => {},
+        createGradingContext: () => ({ controller: new AbortController(), imageUrls: [], base64DataArray: [] }),
+        requireCurrentGradingContext: () => {}, verifyGradingContext: async () => {},
+        readGradingPaperIdentity: () => null, requireGradingContextTarget: () => {},
+        isGradingContextCurrent: () => true, invalidateGradingRun: () => {}, snapshotScoreInputs: () => [],
     };
     sandbox.window.top = sandbox.window;   // window === window.top（非 iframe）
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
     vm.runInContext(body + '\n' + latch + '\n;__exports__ = { init };', sandbox);
-    return { init: sandbox.__exports__.init, panels, buttons };
+    return { init: sandbox.__exports__.init, panels, buttons, sandbox };
 }
+
+test('回评填分只进入确认步骤，提交前保留原历史状态', async () => {
+    const session = makeSessionStore({ 'ai-grading-regrade': JSON.stringify({ id: 'r1' }) });
+    const { init, panels, sandbox } = loadMainInit({ session });
+    const writes = [], fills = [];
+    sandbox.HistoryManager.update = (...args) => writes.push(args);
+    sandbox.fillScore = async (...args) => { fills.push(args); return true; };
+    await init(); await flushAsync();
+    await panels.context.onAccept(6, { isCorrected: true, correctionReason: '教师确认' });
+    assert.strictEqual(fills.length, 1);
+    assert.strictEqual(fills[0][4].regradeId, 'r1');
+    assert.strictEqual(writes.length, 0);
+});
 
 test('C.3 并发双 init 只建一次 UI（in-running 闩）', async () => {
     const { init, buttons } = loadMainInit();

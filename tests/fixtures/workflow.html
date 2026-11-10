@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><title>Workflow browser acceptance</title>
+<script>
+const storage={},notices=[],failures=[];
+window.GM_getValue=(k,d)=>storage[k]??d;window.GM_setValue=(k,v)=>storage[k]=v;
+window.getUIRoot=()=>document.body;window.showToast=(...x)=>notices.push(x);
+window.addEventListener('error',event=>failures.push(event.message));
+</script>
+<script src="../../src/core/config.js"></script>
+<script src="../../src/core/state.js"></script>
+<script src="../../src/core/runtime.js"></script>
+<script src="../../src/core/score.js"></script>
+<script src="../../src/core/ai-engine.js"></script>
+<script src="../../src/core/preset.js"></script>
+<script src="../../src/core/ui-modal.js"></script>
+<script src="../../src/core/ui-settings.js"></script>
+<script src="../../src/core/correction.js"></script>
+<body><pre id="result"></pre><script>
+(async()=>{
+ const assert=(ok,message)=>{if(!ok)throw Error(message)};
+ const runId=new URLSearchParams(location.search).get('run');
+ try {
+  window.showConfirmModal=async()=>true;
+  const wf=JSON.parse(JSON.stringify(WorkflowManager.getWorkflow('fast')));
+  showWorkflowEditModal(wf);
+  const el=id=>document.getElementById('wf-edit-'+id);
+  el('dual').click();
+  assert(el('sec-model').options.length>0 && el('sec-model').value,'副模型首次启用有有效选项');
+  assert(el('arb-model').options.length>0 && el('arb-model').value,'仲裁模型首次启用有有效选项');
+  el('threshold').value='0.5';await el('save').onclick();
+  const saved=WorkflowManager.getWorkflow('fast');
+  assert(saved.dualEval.secondary.model && saved.dualEval.arbitration.model,'保存的双评模型有效');
+  assert(saved.dualEval.threshold===0.5,'小数分差保留');
+  const source=storage['ai-grading-workflows'];
+  const obsolete=JSON.parse(JSON.stringify(saved));obsolete.model.model='removed-model';showWorkflowEditModal(obsolete);
+  await el('save').onclick();assert(storage['ai-grading-workflows']===source,'无效模型不能覆盖配置');
+  el('cancel').click();
+  obsolete.model.provider='Removed';obsolete.model.model='aimarker-fast';showWorkflowEditModal(obsolete);
+  await el('save').onclick();assert(storage['ai-grading-workflows']===source && !el('provider').value,'已删除供应商需重新选择');
+  const provider=el('provider');provider.focus();assert(document.activeElement===provider,'供应商可用键盘聚焦');
+  provider.value='OpenAI兼容';provider.dispatchEvent(new Event('change'));
+  assert(el('model').options.length>0 && el('model').value,'切换供应商后更新模型');
+  const rect=document.querySelector('.ai-modal-card').getBoundingClientRect();
+  assert(rect.width<=innerWidth+1,'编辑窗口在当前宽度内');
+  document.querySelectorAll('.ai-modal-overlay').forEach(x=>x.remove());
+  window.getChannelName=()=> 'dev';window.getBuildChannel=()=> 'dev';window.getBuildChannelLabel=()=> 'dev';
+  setupSettingsMenuLayout=()=>{};loadSettings=()=>{};renderChangelog=()=>{};renderPresetDropdown=()=>{};fillFormFromActivePreset=()=>{};
+  createSettingsPanel({deferOpen:true});
+  const imported={presets:{list:{Imported:{question:'q',answer:'a',rubric:'r',scoring:{roundStep:0.5,roundMethod:'round'}}},active:'Imported',bindings:{}}};
+  const previous=JSON.stringify(PresetManager.data),oldStored=storage['ai-grading-presets'];
+  window.showConfirmModal=async()=>false;
+  const change=()=>document.getElementById('import-config-file').onchange({target:{files:[{name:'configuration.json',text:async()=>JSON.stringify(imported)}]}});
+  await change();assert(JSON.stringify(PresetManager.data)===previous && storage['ai-grading-presets']===oldStored,'取消导入保持配置');
+  window.showConfirmModal=async()=>true;await change();
+  assert(PresetManager.data.active==='Imported' && PresetManager.data.list.Imported.workflowId==='fast','确认导入执行迁移');
+  document.querySelectorAll('.ai-modal-overlay').forEach(x=>x.remove());
+  window.extractFieldText=field=>typeof field==='string'?field:field?.text||'';
+  window.attachMarkdownEditor=()=>{};
+  let corrected;
+  showCorrectionPanel({score:1.2,config:{scoring:{roundStep:1,roundMethod:'round',maxScore:6,units:[{roundStep:0.25},{roundStep:0.5}]}},
+   subScores:[{id:'a',label:'A',score:0.6,maxScore:3},{id:'b',label:'B',score:0.6,maxScore:3}],
+   onAccept:(score,info)=>corrected={score,info}});
+  const inputs=document.querySelectorAll('.cor-sub-score-input');inputs[0].value='0.6';inputs[1].value='0.6';
+  document.getElementById('cor-skip-analysis').click();
+  assert(corrected?.score===1 && corrected.info.correctedSubScores.every(sq=>sq.score===0.5),'纠错遵循小题独立梯度并汇总实际得分');
+  WorkflowManager.addWorkflow('Browser',{id:'browser',model:{provider:'5plus1官方',model:'aimarker-fast'}});
+  const originalFast=JSON.stringify(WorkflowManager.getWorkflow('fast'));
+  showWorkflowEditModal(WorkflowManager.getWorkflow('browser'));el('name').value='快速批改(推荐)';await el('save').onclick();
+  assert(JSON.stringify(WorkflowManager.getWorkflow('fast'))===originalFast && WorkflowManager.getWorkflow('browser'),'重命名不能覆盖其他工作流');el('cancel').click();
+  showWorkflowEditModal(WorkflowManager.getWorkflow('fast'));
+  const originalSet=window.GM_setValue;window.GM_setValue=(key,value)=>{if(key==='ai-grading-workflows')throw Error('quota');originalSet(key,value)};
+  await el('save').onclick();assert(el('save').isConnected && notices.at(-1)[0].includes('暂时无法保存'),'保存失败保留编辑窗口');
+  window.GM_setValue=originalSet;el('cancel').click();
+  assert(failures.length===0,failures.join(';'));
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,dualModel:saved.dualEval.secondary.model,threshold:saved.dualEval.threshold,checks:13,notices}))));
+ } catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack,failures}))));}
+})();
+</script>

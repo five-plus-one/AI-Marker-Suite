@@ -363,7 +363,8 @@ const AmeqpAdapter = {
 
     // ---------- 提交 ----------
 
-    async submitGrade() {
+    async submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         // 重新灌一遍分 + 同步 hidden 字段，消除"填分→提交"间隔过短导致的"没给分"
         if (this._pendingScores && this._pendingScores.length > 0) {
             const inputs = this.getScoreInputs();
@@ -377,6 +378,8 @@ const AmeqpAdapter = {
 
         // 给平台事件处理留出处理时间，再触发 OnSubmit(1)
         await new Promise(r => setTimeout(r, 350));
+        if (guard) await guard.verify();
+        if (guard && !guard.isCurrent()) return false;
 
         // 提交前登记校验（#278）：任何一题未登记即显式失败，不静默续走提交
         const checkInputs = this.getScoreInputs();

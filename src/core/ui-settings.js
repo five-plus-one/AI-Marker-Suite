@@ -1320,43 +1320,17 @@ function createSettingsPanel(options) {
             const text = await file.text();
             const data = JSON.parse(text);
             if (!data.presets || !data.presets.list || typeof data.presets.list !== 'object') throw new Error('无效的配置文件');
-            await showConfirmModal(`确定要导入配置吗？\n文件：${file.name}\n将覆盖当前所有方案和服务商设置。`);
-            // 导入净化（#296）：逐方案清洗危险字段（如 roundMethod 被 Math[] 索引会打穿判分）
-            const cleanPresets = {
-                list: {},
-                active: String(data.presets.active || ''),
-                bindings: (data.presets.bindings && typeof data.presets.bindings === 'object') ? data.presets.bindings : {}
-            };
-            for (const name of Object.keys(data.presets.list)) {
-                // 原型污染护栏（#299 H3）：危险键名直接跳过
-                if (['__proto__', 'constructor', 'prototype'].includes(String(name))) continue;
-                const cfg = data.presets.list[name];
-                if (cfg && typeof cfg === 'object') cleanPresets.list[String(name)] = PresetManager.sanitizePreset(cfg);
-            }
-            const names = Object.keys(cleanPresets.list);
-            if (names.length === 0) throw new Error('配置文件中没有可用方案');
-            if (!cleanPresets.list[cleanPresets.active]) cleanPresets.active = names[0];
-            PresetManager.data = cleanPresets;
-            // 导入是用户显式恢复意图：解除只读降级（#293/#297）
-            PresetManager._writeDisabled = false;
-            PresetManager.save();
-            if (data.providers) {
-                ProviderManager.data = data.providers;
-                ProviderManager._writeDisabled = false;
-                ProviderManager.save();
-            }
-            if (data.workflows) {
-                WorkflowManager.data = data.workflows;
-                WorkflowManager._writeDisabled = false;
-                WorkflowManager.save();
-            }
+            if (!await showConfirmModal(`确定要导入配置吗？\n文件：${escapeSettingsHtml(file.name)}\n将覆盖当前所有方案和服务商设置。`)) return;
+            const prepared = prepareConfigurationImport(data);
+            persistConfigurationImport(prepared);
             renderPresetDropdown();
             fillFormFromActivePreset();
             showToast('配置导入成功');
         } catch (err) {
             if (err) showToast('导入失败：' + (err.message || '文件格式错误'));
+        } finally {
+            fileInput.value = '';
         }
-        fileInput.value = '';
     };
 
     // ===== 单方案导出/导入（含题目/答案/评分标准的插入图片）=====
@@ -2169,6 +2143,7 @@ function getScoringUnitsFromForm() {
         let roundStep = parseFloat(item.querySelector('.su-round-step')?.value);
         if (!isFinite(roundStep) || roundStep <= 0) roundStep = 1;
         roundStep = Math.round(roundStep * 100) / 100;
+        if (roundStep < 0.01 || roundStep > 10) roundStep = 1;
         units.push({
             label,
             maxScore: isNaN(maxScore) ? 0 : maxScore,
@@ -2698,8 +2673,8 @@ function showWorkflowEditModal(wf) {
             <div class="ai-modal-header">编辑工作流</div>
             <div class="ai-modal-body" style="overflow-y:auto;flex:1;min-height:0;">
                 ${reasoningEffortOptions}
-                <div class="form-group"><label>名称</label><input type="text" id="wf-edit-name" value="${wf.name}" ${wf.isBuiltin ? 'readonly' : ''}></div>
-                <div class="form-group"><label>描述</label><input type="text" id="wf-edit-desc" value="${wf.description || ''}"></div>
+                <div class="form-group"><label>名称</label><input type="text" id="wf-edit-name" value="${escapeSettingsHtml(wf.name)}" ${wf.isBuiltin ? 'readonly' : ''}></div>
+                <div class="form-group"><label>描述</label><input type="text" id="wf-edit-desc" value="${escapeSettingsHtml(wf.description || '')}"></div>
                 <div class="checkbox-group"><input type="checkbox" id="wf-edit-output-limit" ${wf.outputLimitEnabled !== false ? 'checked' : ''}><label for="wf-edit-output-limit">限制单次回答长度</label></div>
                 <div class="form-group" id="wf-output-limit-value"><label>回答长度上限 <span style="font-size:11px;color:#86868b;">(超出时会再尝试一次)</span></label><input type="number" id="wf-edit-max-output" min="1" step="1" value="${wf.maxOutputTokens || 2048}"></div>
                 <div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;margin-top:8px;">
@@ -2722,7 +2697,7 @@ function showWorkflowEditModal(wf) {
                         <div class="form-group"><label>供应商</label><select id="wf-edit-arb-provider">${providerOptions}</select></div>
                         <div class="form-group"><label>模型</label><select id="wf-edit-arb-model"></select></div>
                         <div class="form-group"><label>思考参数</label><input id="wf-edit-arb-reasoning" list="wf-reasoning-options" placeholder="留空则不发送"></div>
-                        <div class="form-group"><label>分差阈值 (分，设为0则两模型必须完全一致)</label><input type="number" id="wf-edit-threshold" value="${wf.dualEval?.threshold != null ? wf.dualEval.threshold : 2}" min="0" max="10"></div>
+                        <div class="form-group"><label>分差阈值 (分，设为0则两模型必须完全一致)</label><input type="number" id="wf-edit-threshold" value="${Number.isFinite(Number(wf.dualEval?.threshold)) ? Number(wf.dualEval.threshold) : 2}" min="0" step="0.01"></div>
                         <div class="form-group"><label>双评合并策略 <span style="font-size:11px;color:#86868b;">(两模型给分如何合成最终分)</span></label><select id="wf-edit-merge-mode">
                             <option value="round">平均后四舍五入</option>
                             <option value="floor">向下取整到梯度</option>
@@ -2758,12 +2733,14 @@ function showWorkflowEditModal(wf) {
     outputLimitToggle.onchange = syncOutputLimit;
     syncOutputLimit();
 
-    // 确保 provider 有效，若无效则回退到第一个可用 provider
-    const validProviders = Object.keys(ProviderManager.data.providers);
-    const fallbackProvider = validProviders[0] || '';
-
+    // 已删除的供应商保持待选择状态，避免保存时静默改用其他服务。
+    for (const select of [mainProvider, secProvider, arbProvider]) {
+        const placeholder = document.createElement('option');
+        placeholder.value = ''; placeholder.textContent = '请选择供应商';
+        select.prepend(placeholder);
+    }
     function resolveProvider(name) {
-        return (name && ProviderManager.data.providers[name]) ? name : fallbackProvider;
+        return ProviderManager.getProvider(name) ? name : '';
     }
 
     const resolvedMainProvider = resolveProvider(wf.model.provider);
@@ -2772,22 +2749,24 @@ function showWorkflowEditModal(wf) {
     mainModel.value = wf.model.model || '';
     mainReasoning.value = wf.model.reasoningEffort || '';
 
-    if (isDual) {
-        const resolvedSecProvider = resolveProvider(wf.dualEval.secondary.provider);
+    {
+        const secondary = wf.dualEval?.secondary || wf.model;
+        const arbitration = wf.dualEval?.arbitration || wf.model;
+        const resolvedSecProvider = resolveProvider(secondary.provider);
         secProvider.value = resolvedSecProvider;
         secModel.innerHTML = getModelOptions(resolvedSecProvider);
-        secModel.value = wf.dualEval.secondary.model || '';
-        secReasoning.value = wf.dualEval.secondary.reasoningEffort || '';
+        secModel.value = secondary.model || '';
+        secReasoning.value = secondary.reasoningEffort || '';
 
-        const resolvedArbProvider = resolveProvider(wf.dualEval.arbitration.provider);
+        const resolvedArbProvider = resolveProvider(arbitration.provider);
         arbProvider.value = resolvedArbProvider;
         arbModel.innerHTML = getModelOptions(resolvedArbProvider);
-        arbModel.value = wf.dualEval.arbitration.model || '';
-        arbReasoning.value = wf.dualEval.arbitration.reasoningEffort || '';
+        arbModel.value = arbitration.model || '';
+        arbReasoning.value = arbitration.reasoningEffort || '';
 
         // 双评合并策略（工单②）：旧配置缺字段 = round
         const mergeModeSel = document.getElementById('wf-edit-merge-mode');
-        const mm = wf.dualEval.mergeMode;
+        const mm = wf.dualEval?.mergeMode;
         mergeModeSel.value = ['round', 'floor', 'ceil', 'min', 'max'].includes(mm) ? mm : 'round';
     }
 
@@ -2821,6 +2800,16 @@ function showWorkflowEditModal(wf) {
     // 保存
     modal.querySelector('#wf-edit-save').onclick = async () => {
         const dualEnabled = document.getElementById('wf-edit-dual').checked;
+        const selections = [[mainProvider, mainModel], ...(dualEnabled ? [[secProvider, secModel], [arbProvider, arbModel]] : [])];
+        if (selections.some(([p, m]) => !m.value || !ProviderManager.getCallConfig(p.value, m.value))) {
+            showToast('请为每个模型选择有效的供应商和模型');
+            return;
+        }
+        const threshold = Number(document.getElementById('wf-edit-threshold').value);
+        if (dualEnabled && (!document.getElementById('wf-edit-threshold').value.trim() || !Number.isFinite(threshold) || threshold < 0)) {
+            showToast('请填写有效的分差阈值');
+            return;
+        }
         const maxOutputTokens = Number(maxOutputInput.value);
         if (outputLimitToggle.checked && (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1)) {
             showToast('请填写有效的回答长度上限');
@@ -2839,28 +2828,41 @@ function showWorkflowEditModal(wf) {
                 enabled: true,
                 secondary: { provider: secProvider.value, model: secModel.value, reasoningEffort: secReasoning.value.trim() },
                 arbitration: { provider: arbProvider.value, model: arbModel.value, reasoningEffort: arbReasoning.value.trim() },
-                threshold: (function () { var v = parseInt(document.getElementById('wf-edit-threshold').value); return isNaN(v) ? 2 : Math.max(0, v); })(),
+                threshold,
                 mergeMode: (function () { var v = document.getElementById('wf-edit-merge-mode').value; return ['round', 'floor', 'ceil', 'min', 'max'].includes(v) ? v : 'round'; })()
             } : null
         };
 
-        if (wf.isBuiltin) {
-            // 修改默认工作流需要确认
-            if (!await showConfirmModal(`确定要修改默认工作流【${escapeSettingsHtml(wf.name)}】吗？`)) return;
-            WorkflowManager.updateWorkflow(wf.name, config);
-        } else {
-            const newName = document.getElementById('wf-edit-name').value.trim();
-            if (newName && newName !== wf.name) {
-                // 重命名
-                delete WorkflowManager.data.workflows[wf.name];
-                WorkflowManager.data.workflows[newName] = { ...wf, ...config, name: undefined };
-                if (WorkflowManager.data.activeWorkflow === wf.id) {
-                    WorkflowManager.data.activeWorkflow = WorkflowManager.data.workflows[newName].id;
-                }
-                WorkflowManager.save();
+        try {
+            let saved;
+            if (wf.isBuiltin) {
+                // 修改默认工作流需要确认
+                if (!await showConfirmModal(`确定要修改默认工作流【${escapeSettingsHtml(wf.name)}】吗？`)) return;
+                saved = WorkflowManager.updateWorkflow(wf.name, config);
             } else {
-                WorkflowManager.updateWorkflow(wf.name, config);
+                const newName = document.getElementById('wf-edit-name').value.trim();
+                if (newName && newName !== wf.name) {
+                    if (['__proto__', 'constructor', 'prototype'].includes(newName) || Object.prototype.hasOwnProperty.call(WorkflowManager.data.workflows, newName)) {
+                        showToast('该工作流名称已存在，请换一个名称');
+                        return;
+                    }
+                    // 重命名
+                    delete WorkflowManager.data.workflows[wf.name];
+                    WorkflowManager.data.workflows[newName] = { ...wf, ...config, name: undefined };
+                    wf.name = newName;
+                    if (WorkflowManager.data.activeWorkflow === wf.id) {
+                        WorkflowManager.data.activeWorkflow = WorkflowManager.data.workflows[newName].id;
+                    }
+                    saved = WorkflowManager.save();
+                } else {
+                    saved = WorkflowManager.updateWorkflow(wf.name, config);
+                }
             }
+            if (saved === false) return;
+        } catch (error) {
+            console.error('[工作流] 保存失败:', error);
+            showToast('工作流暂时无法保存，请稍后重试');
+            return;
         }
 
         renderWorkflowDropdown();
