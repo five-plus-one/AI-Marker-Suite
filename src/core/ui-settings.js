@@ -2559,7 +2559,7 @@ async function handleAddModel() {
     document.getElementById('new-model-id').value = '';
     renderModelList();
     renderWorkflowInfo();
-    showToast(`模型「${modelId}」已添加`);
+    showToast(`模型「${modelId}」已添加到供应商「${currentProviderName}」（添加目标=设置页当前选中的供应商）`);
 }
 
 // ========== 工作流管理 ==========
@@ -2676,9 +2676,11 @@ function showWorkflowEditModal(wf) {
     function getModelOptions(providerName) {
         const provider = ProviderManager.data.providers[providerName];
         if (!provider) return '';
-        return Object.entries(provider.models || {}).map(([id, info]) =>
+        const opts = Object.entries(provider.models || {}).map(([id, info]) =>
             `<option value="${escapeSettingsHtml(id)}">${escapeSettingsHtml(info.label || id)}</option>`
         ).join('');
+        // 空态提示（#320）：模型为空时教师无从判断是没同步还是加错了供应商
+        return opts || '<option value="">（该供应商暂无模型——请到设置页「AI 配置」先选中该供应商再添加模型）</option>';
     }
 
     const isDual = wf.dualEval && wf.dualEval.enabled;

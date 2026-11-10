@@ -94,6 +94,7 @@ const ProviderManager = {
                     apiKey: "",
                     models: {
                         "aimarker-fast": { label: "快速批改", tags: ["轻量", "推荐"], isBuiltin: true },
+                        "deepseek-fast": { label: "DeepSeek Fast", tags: ["快速", "内置"], isBuiltin: true },
                         "aimarker-pro": { label: "高精度批改", tags: ["专业", "推荐"], isBuiltin: true }
                     },
                     isBuiltin: true
