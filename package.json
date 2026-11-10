@@ -1,9 +1,9 @@
 {
   "name": "zhixue-ai-marking",
 <<<<<<< HEAD
-  "version": "1.21.17.1",
+  "version": "1.21.18.1",
 =======
-  "version": "1.21.18.0",
+  "version": "1.21.18.1",
 >>>>>>> ff17345 (hotfix: 华翰云适配器注册加 shouldInitialize 守卫——修全平台劫持（P0） (#324))
   "description": "AI批改助手 - 基于多模态AI的在线阅卷自动批改工具",
   "scripts": {
