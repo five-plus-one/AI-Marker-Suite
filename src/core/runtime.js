@@ -3,6 +3,18 @@ function isConfigurationRecord(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function saveInitialConfiguration(manager, label) {
+    try {
+        const saved = manager.save();
+        manager._initialSaveFailed = saved === false;
+        return saved;
+    } catch (error) {
+        manager._initialSaveFailed = true;
+        console.error(`[配置] ${label}尚未保存，保留当前配置供重试:`, error);
+        return false;
+    }
+}
+
 function abortableGradingDelay(ms, signal) {
     return new Promise((resolve, reject) => {
         let timer;
@@ -178,7 +190,9 @@ function persistConfigurationImport(prepared) {
         configurationImportRecoveryBlocked = !rolledBack;
         throw error;
     }
-    [PresetManager, ProviderManager, WorkflowManager].forEach((manager, i) => { manager.data = values[i]; manager._writeDisabled = false; });
+    [PresetManager, ProviderManager, WorkflowManager].forEach((manager, i) => {
+        manager.data = values[i]; manager._writeDisabled = false; manager._initialSaveFailed = false;
+    });
 }
 
 // 中断的多键导入在各管理器读取前恢复整组配置。

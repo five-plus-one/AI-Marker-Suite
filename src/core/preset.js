@@ -48,7 +48,7 @@ const PresetManager = {
                 active: "默认配置",
                 bindings: {}
             };
-            this.save();
+            saveInitialConfiguration(this, '方案');
         }
     },
     // 只读降级（#293）：内存用最小默认运行，禁止保存覆写；原始字节存 rescue 键供恢复
@@ -123,7 +123,7 @@ const PresetManager = {
                 changed = true;
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     _migrateProvider() {
         const migration = { '5plus1': '5plus1官方', 'openai': 'OpenAI兼容' };
@@ -135,7 +135,7 @@ const PresetManager = {
                 changed = true;
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     _migrateWorkflow() {
         let changed = false;
@@ -192,7 +192,7 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     _migrateBlankDetection() {
         let changed = false;
@@ -207,7 +207,7 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     // 迁移：批改节奏（实验性）缺失时补默认值（关闭状态零行为变化，不覆盖用户已有配置）
     _migrateHumanPacing() {
@@ -251,7 +251,7 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     /**
      * 获取当前配置的评分单元列表
@@ -345,6 +345,7 @@ const PresetManager = {
             }
         } catch (_) { /* 备份失败不阻塞正常保存 */ }
         GM_setValue('ai-grading-presets', json);
+        this._initialSaveFailed = false;
         return true;
     },
     getCurrentConfig() {

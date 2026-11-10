@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.18.4',
+    VERSION: '1.21.18.5',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.18.5': [
+            '【修复】首次使用或升级时设置保存失败仍可打开批改工具，保留当前设置并支持重新保存',
+        ],
         '1.21.18.4': [
             '【修复】官方 DeepSeek Flash 模型配置与已有工作流升级，首次启用双评即可选择完整模型',
             '【修复】小数梯度取整、满分保留与勤勉加分分配，双评四舍五入策略与设置一致',
