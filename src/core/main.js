@@ -210,6 +210,31 @@ async function waitForImagesReadyForRegrade(adapter, timeoutMs, pollMs) {
     }
 }
 
+// ========== 分数数值闸（N5 坑审计收口）==========
+// 坑审计实锤：纠正流是唯一 NaN 入口（用户编辑/解析可注入 NaN/∞/负数），而 24 家
+// 全或无适配器无数值闸（仅 huahanyun/xkw/haofenshu 三遍式有）——core 在填分汇聚点
+// 统一收口：全部分数必须 isFinite 且非负；越界（超满分）留给各适配器 maxScore 语义。
+// 非法值显式拒绝 + warn（绝不静默替换成 0/跳过——空分提交=事故），落调用方既有失败通道。
+function validateScoresForFill(values, ctx) {
+    const bad = [];
+    (values || []).forEach((v, i) => {
+        if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+            bad.push(`#${i}=${v}`);
+        }
+    });
+    if (bad.length > 0) {
+        console.warn(`⚠️ [数值闸] ${ctx || '填分'}：拒绝非法分数（NaN/∞/负数/非数值）: ` + bad.join('；'));
+        return false;
+    }
+    return true;
+}
+
+// 填分统一汇聚点：adapter.fillScores 前置数值闸（一处收口覆盖全仓）
+function safeFillScores(adapter, scores, ctx) {
+    if (!validateScoresForFill(scores, ctx)) return false;
+    return adapter.fillScores(scores);
+}
+
 // ========== 离开批改页的生命周期清理 ==========
 // SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
 //「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
@@ -396,9 +421,9 @@ async function startAutoGrading() {
                         if (adapter) {
                             const units = scoringConfig.units || [];
                             if (adapter.fillScores && units.length > 0) {
-                                blankFillOk = adapter.fillScores(units.map(() => 0));
+                                blankFillOk = safeFillScores(adapter, units.map(() => 0), '空白卡填0');
                             } else if (adapter.fillScores) {
-                                blankFillOk = adapter.fillScores([0]);
+                                blankFillOk = safeFillScores(adapter, [0], '空白卡填0');
                             }
                         }
                         if (blankFillOk === false) {
@@ -529,14 +554,17 @@ async function startAutoGrading() {
             let fillOk = false;
             if (adapter) {
                 if (adapter.fillScores && finalUnitScores) {
-                    // 新接口：按评分单元顺序填入
-                    fillOk = adapter.fillScores(finalUnitScores.map(u => u.score));
+                    // 新接口：按评分单元顺序填入（数值闸 N5 前置）
+                    fillOk = safeFillScores(adapter, finalUnitScores.map(u => u.score), '主流程填分');
                 } else if (adapter.fillScores) {
                     // 单题模式
-                    fillOk = adapter.fillScores([finalScore]);
+                    fillOk = safeFillScores(adapter, [finalScore], '主流程填分');
                 } else if (adapter.fillScore) {
-                    // 旧接口兼容
-                    fillOk = adapter.fillScore({ total: finalScore, subScores: finalUnitScores });
+                    // 旧接口兼容（request 内含 total/subScores，数值闸覆盖两者）
+                    fillOk = validateScoresForFill(
+                        [finalScore].concat((finalUnitScores || []).map(u => u.score)), '主流程填分(旧接口)')
+                        ? adapter.fillScore({ total: finalScore, subScores: finalUnitScores })
+                        : false;
                 } else {
                     fillOk = true; // 适配器无填分接口（理论上不存在），交由人工流程
                 }

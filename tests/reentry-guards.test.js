@@ -11,6 +11,10 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
+// 过闸有效真 PNG（16×16，77 字节）：废图闸地板 <15px 剔除，1×1 会反走废图路径；
+// 真 PNG 保证闸的真实头解析路径被走到（'QUJD' 裸 base64 只落"未知格式不误杀"旁路）
+const PNG_16x16 = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR4nGP4TyJgGNUwqmH4agAAr639H708R/EAAAAASUVORK5CYII=';
+
 function grab(src, re, name) {
     const m = src.match(re);
     assert.ok(m, name + ' 未找到');
@@ -104,7 +108,7 @@ function loadMainInit({ session, panelCalls, buttonCalls } = {}) {
             aiGradingState: { isRunning: false, isPaused: false, errorRetryCount: 0, currentBase64DataArray: [] },
             __AI_MARKER_ADAPTER__: {
                 gatherAnswerImages: async () => ['https://x.com/a.png'],
-                fetchImageAsBase64: async () => 'QUJD',
+                fetchImageAsBase64: async () => PNG_16x16,
                 isMarkingPage: () => true,
             },
         },
@@ -126,7 +130,7 @@ function loadMainInit({ session, panelCalls, buttonCalls } = {}) {
         // 回评链依赖（stub/真实按需）
         waitForImagesReadyForRegrade: async () => {},
         filterUsableImagesForAI: (list) => ({ kept: list || [], removed: [] }),
-        fetchImageAsBase64: async () => 'QUJD',
+        fetchImageAsBase64: async () => PNG_16x16,
         showCorrectionPanel: () => { panels.n++; },
         fillScore: () => {},
     };

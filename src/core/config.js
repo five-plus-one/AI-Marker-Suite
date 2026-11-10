@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.18.2',
+    VERSION: '1.21.18.3',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,12 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.18.3': [
+            '【修复】学科网提交按钮识别（span.set-btn 形态）与 AI 弹窗图片渲染（ai-img 占位未解析裂图）——教师实测两项根因',
+            '【修复】core 填分数值闸统一收口（NaN/负数全调用点拦截，修纠正流注入残口）；双评取低/取高与满分钳制定序（钳制优先）',
+            '【修复】光大V2 单类名误注册（双特征+注册尾对称模板）；guangda 死代码清理',
+            '【优化】学科网双源新鲜度闸（旧卷图不喂 AI）、副作用移出判定谓词；懂你多设备弹窗迁移注册处；测试 W1-W15 弱断言清理',
+        ],
         '1.21.18.2': [
             '【新平台】适配懂你系统（dongni100.com 精准化教学）：题块制按题批改、答案图 URL 考号强换卷信号、档位/文本双形态全或无填分、提交后置验证（#326 系）',
             '【新平台】适配学科网 e卷通（yuejuan.xkw.com）：OSS 切题图四级兜底（宁可不取）、paperId/resultId 换卷强信号（同卷重记不误判）、三遍式填分、回评 API 强信号',

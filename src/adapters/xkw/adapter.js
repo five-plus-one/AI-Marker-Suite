@@ -34,17 +34,15 @@ const XkwAdapter = {
 
     // ---- 运行时状态 ----
     _lastItem: null,             // 最近一次 question-group/item 响应（resultId/paperId/cropUrls/fullUrls/isReview/at）
+    _lastSubmitAt: null,         // 最近一次成功点击「提交分数」的时刻（新鲜度闸基准）
     _interceptorInstalled: false,
 
     // ========== 生命周期 ==========
+    // 纯判定谓词（P3 规格）：绝不带副作用；API 拦截安装在注册 IIFE / onPageLoad
     shouldInitialize() {
         const h = window.location.hostname;
-        const onPlatform = h === 'ejt.xkw.com' || h.endsWith('.ejt.xkw.com')
+        return h === 'ejt.xkw.com' || h.endsWith('.ejt.xkw.com')
             || h === 'yuejuan.xkw.com' || h.endsWith('.yuejuan.xkw.com');
-        if (!onPlatform) return false;
-        // 尽早挂 API 拦截：SPA 路由切换不重载文档，门户阶段安装可覆盖批改页首次取题
-        this._installApiInterceptor();
-        return true;
     },
 
     async detectMarkingPage() {
@@ -79,6 +77,8 @@ const XkwAdapter = {
     },
 
     onPageLoad() {
+        // 幂等兜底（注：core 当前无 onPageLoad 调用点，安装主入口在注册 IIFE）
+        this._installApiInterceptor();
         console.log('🚀 [XKW] 学科网e卷通适配器已加载');
     },
 
@@ -205,13 +205,19 @@ const XkwAdapter = {
 
     // 当前卷判定：API 记录与 resource timing 取「绝对时间更晚」的一份证据。
     // 防两类错卷：① resource buffer 满后新图不再入账（旧证据）；② 拦截漏掉新 item（旧记录）。
-    _currentPaper() {
+    // since（新鲜度闸）：只认该时刻之后出现的证据——拦截源与 resource 源同持旧卷证据（双源同腐）时返回 null。
+    _currentPaper(since) {
         const res = this._latestOssPaperFromResources();
         const item = this._lastItem;
-        if (item && item.paperId && (!res || item.at >= res.at)) {
+        const itemOk = !!(item && item.paperId && (!since || item.at > since));
+        const resOk = !!(res && (!since || res.at > since));
+        if (itemOk && (!resOk || item.at >= res.at)) {
             return { paperId: item.paperId, at: item.at, source: 'api' };
         }
-        return res ? { paperId: res.paperId, at: res.at, source: 'resource' } : null;
+        if (resOk) {
+            return { paperId: res.paperId, at: res.at, source: 'resource' };
+        }
+        return null;
     },
 
     _cropUrlsFromResources(paperId) {
@@ -236,9 +242,18 @@ const XkwAdapter = {
 
     // ========== 图片获取 ==========
     async gatherAnswerImages() {
-        const cur = this._currentPaper();
+        // 新鲜度闸（双源同腐防护）：提交后只认提交时刻之后的证据——
+        // 拦截记录与 resource timing 同持旧卷证据时（如提交后 _lastItem 未刷新且
+        // resource buffer 已满不再入账新图），旧卷图绝不喂 AI，宁可不取
+        const cur = this._currentPaper(this._lastSubmitAt);
         const item = this._lastItem;
-        const itemFresh = !!(cur && item && item.paperId === cur.paperId);
+        const itemFresh = !!(cur && item && item.paperId === cur.paperId
+            && (!this._lastSubmitAt || item.at > this._lastSubmitAt));
+
+        if (!cur && this._lastSubmitAt) {
+            console.warn('⚠️ [XKW] 提交后未见新卷证据（双源同腐防护），旧卷图不喂 AI，宁可不取');
+            return [];
+        }
 
         // ① API 契约图（切题图，按 orderNum 排序）——最准
         if (itemFresh && item.cropUrls.length > 0) {
@@ -380,14 +395,22 @@ const XkwAdapter = {
             }
             return false;
         }
+        // 记录提交时刻：此后取图只认提交后的新证据（双源同腐防护）
+        this._lastSubmitAt = Date.now();
         btn.click();
         console.log('✅ [XKW] 已点击「提交分数」');
         return true;
     },
 
     _findSubmitButtons() {
-        return Array.from(document.querySelectorAll('button'))
-            .filter(b => b.textContent.trim() === XKW_SELECTORS.SUBMIT_BUTTON_TEXT);
+        // 提交控件实测为 <span class="set-btn">提交分数</span>（非 button 标签，教师实测"找不到提交按钮"）——
+        // 放宽到任意元素 + 叶子节点精确文本匹配（排除同文本的包裹容器），按钮/链接/span 通吃
+        const nodes = document.querySelectorAll('button, .set-btn, span, a, div');
+        return Array.from(nodes).filter(el => {
+            if (el.children && el.children.length > 0) return false; // 叶子节点（桩无 children 属性按叶子处理）
+            const t = (el.textContent || '').replace(/\s/g, '');
+            return t === XKW_SELECTORS.SUBMIT_BUTTON_TEXT.replace(/\s/g, '');
+        });
     },
 
     async waitForNextPaper(oldImageUrl) {
@@ -458,7 +481,10 @@ const XkwAdapter = {
     },
 };
 
-// 注册必须守卫（#324 教训：无守卫注册会劫持其他平台会话）
+// 注册必须守卫（#324 教训：无守卫注册会劫持其他平台会话）；
+// 初始化钩子副作用放这里（shouldInitialize 保持纯判定）：
+// 尽早装 API 拦截——SPA 路由切换不重载文档，装载即安装可覆盖批改页首次取题
 if (XkwAdapter.shouldInitialize()) {
+    XkwAdapter._installApiInterceptor();
     window.__AI_MARKER_ADAPTER__ = XkwAdapter;
 }

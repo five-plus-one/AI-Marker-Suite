@@ -123,6 +123,23 @@ test('min/max 外向吸附到步长网格（min→floor 只降不升、max→cei
     assert.strictEqual(clamped[0].score, 8);
 });
 
+test('N3 钳制最高优先：越界输入非法，钳制覆盖外向承诺（互斥可红）', () => {
+    const { mergeDualSubScores, mergeDualValue } = loadEngine().fx;
+    // max 侧 8.8 超单元满分 8：ceil 外向会给 9，但钳制最高优先 → 8
+    // （互斥：若钳制被外向"回抬"或去掉，结果 9/8.8 → 红）
+    const A = { subScores: [unit(8.8, 8)] };
+    const B = { subScores: [unit(8.6, 8)] };
+    const out = mergeDualSubScores(A, B, { roundStep: 1, roundMethod: 'round' }, 'max');
+    assert.strictEqual(out[0].score, 8, '钳制最高优先：宁可压回满分也不输出越界值');
+    // 合法输入（≤满分）的外向语义保持，钳制不干扰：min(1.5,2)→1、max(1.4,1.2)→2
+    const C = { subScores: [unit(1.5, 10)] };
+    const D = { subScores: [unit(2, 10)] };
+    assert.strictEqual(mergeDualSubScores(C, D, { roundStep: 1 }, 'min')[0].score, 1);
+    assert.strictEqual(mergeDualSubScores({ subScores: [unit(1.4, 10)] }, { subScores: [unit(1.2, 10)] }, { roundStep: 1 }, 'max')[0].score, 2);
+    // 总分口径同样钳制最高优先
+    assert.strictEqual(mergeDualValue(8.8, 8.6, { roundStep: 1, roundMethod: 'round' }, 8, 'max'), 8);
+});
+
 test('缺分语义不放松：单侧 null 直取对侧原值（不吸附），双侧 null → null', () => {
     const { mergeDualSubScores } = loadEngine().fx;
     for (const mode of ['round', 'floor', 'ceil', 'min', 'max']) {

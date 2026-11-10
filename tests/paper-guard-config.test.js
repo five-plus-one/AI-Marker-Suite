@@ -11,6 +11,10 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
+// 过闸有效真 PNG（16×16，77 字节）：废图闸地板是 <15px 剔除，1×1 会反走废图路径；
+// 真 PNG 保证闸的真实头解析路径被走到（'QUJD' 裸 base64 只落"未知格式不误杀"旁路）
+const PNG_16x16 = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR4nGP4TyJgGNUwqmH4agAAr639H708R/EAAAAASUVORK5CYII=';
+
 function loadPreset(initialList) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'preset.js'), 'utf8');
     const store = { 'ai-grading-presets': JSON.stringify({ list: initialList, active: Object.keys(initialList)[0] || '默认配置', bindings: {} }) };
@@ -91,6 +95,7 @@ async function runMainFlow({ paperGuard, changePaper }) {
         grabFrom(src, 'normalizePaperImageUrl'), grabFrom(src, 'paperUrlSetContains'),
         grabFrom(src, 'snapshotScoreInputs'), grabFrom(src, 'scoreInputsTransitionedEmpty'),
         grabFrom(src, 'verifyPaperUnchanged'), grabFrom(src, 'confirmLeftMarkingPage'),
+        grabFrom(src, 'validateScoresForFill'), grabFrom(src, 'safeFillScores'),   // N5 数值闸（startAutoGrading 填分依赖）
         grabFrom(src, 'startAutoGrading'),
     ];
     const calls = { gather: 0, fill: 0, fills: null, toasts: [], dialog: 0 };
@@ -101,7 +106,7 @@ async function runMainFlow({ paperGuard, changePaper }) {
             // 首次取基准图；校验复查（第 2+ 次）时可模拟换卷
             return (changePaper && calls.gather > 1) ? ['https://x.com/NEW.png'] : ['https://x.com/a.png'];
         },
-        fetchImageAsBase64: async () => 'QUJD',
+        fetchImageAsBase64: async () => PNG_16x16,
         getScoreInputs: () => [],
         fillScores: (scores) => { calls.fill++; calls.fills = scores; return true; },
     };
@@ -170,7 +175,7 @@ test('行为：enabled=false 时校验完全跳过——换卷也照常填分（
 
 test('行为：enabled=true 时校验执行——换卷必拦（不填分、可见提示）', async () => {
     const calls = await runMainFlow({ paperGuard: { enabled: true }, changePaper: true });
-    assert.strictEqual(calls.gather, 3, '初始取图 + 校验复查 + 复查确认，共 3 次');
+    assert.strictEqual(calls.gather, 3, '初始取图 + 校验取图 + 校验复查（verify 内 1500ms 后二次取图），共 3 次');
     assert.strictEqual(calls.fill, 0, '换卷时绝不能填分');
     assert.strictEqual(calls.dialog, 0, '换卷时绝不能弹自动提交框');
     assert.ok(calls.toasts.some(t => t.includes('答卷已切换')), '换卷拦截必须可见提示，实际: ' + calls.toasts.join(' | '));

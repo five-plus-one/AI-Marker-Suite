@@ -214,12 +214,16 @@ function _getGuangda2CandidateUrls(imagePath) {
 }
 
 // ========== 版本检测 ==========
-// V2 版本的特征：有 LI.f-csp 分数选项
+// V2 版本的特征（X02 / strict-a 附 B R4 ≥2 特征线）：LI.f-csp 是通用工具类名
+// （cursor:pointer 语义），任意 EasyUI/自研站都可能出现——单特征任意宿主误注册
+// （strict-b X02）。必须叠加平台专有特征：答题卡 canvas（canvas#1 起，#0 是 tainted
+// 不可导出）或 .dfBox .scores li 给分容器（selectors 注释：实际分数选项所在）
 function _isGuangdaV2() {
-    if (document.querySelector('LI.f-csp')) {
-        return true;
+    if (!document.querySelector('LI.f-csp')) {
+        return false;
     }
-    return false;
+    return !!(document.querySelector('canvas:not([id="0"])')
+        || document.querySelector('.dfBox .scores li'));
 }
 
 // ========== 适配器主体 ==========
@@ -801,22 +805,38 @@ const Guangda2Adapter = {
     },
 };
 
+// 注册守卫（#324 教训 + strict-a 附 A.0，X02 批两分支统一）：自查 shouldInitialize →
+// 先到先得（不覆盖）→ 已注册且我也认领本页 = 多命中冲突，console.error 红灯告警
+// （静默劫持变可见）→ 异常 fail-closed。返回 'no'=不认领本页 / 'registered'=已注册 /
+// 'conflict'=认领但让位先到者（或异常 fail-closed）
+function tryRegisterGuangda2() {
+    try {
+        if (!Guangda2Adapter.shouldInitialize()) return 'no';
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing) {
+            console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 光大阅卷(guangda-2) 也认领本页（疑似串台/劫持），保留先到者`);
+            return 'conflict';
+        }
+        window.__AI_MARKER_ADAPTER__ = Guangda2Adapter;
+        return 'registered';
+    } catch (e) {
+        console.warn('⚠️ [注册] 判定异常，fail-closed 不注册:', e);
+        return 'conflict';
+    }
+}
+
 // 注册适配器（等待DOM准备，SPA页面可能需要延迟检测）
 (function registerGuangda2Adapter() {
-    // 如果已经检测到，直接注册
-    if (Guangda2Adapter.shouldInitialize()) {
-        window.__AI_MARKER_ADAPTER__ = Guangda2Adapter;
-        return;
-    }
+    // 如果已经检测到，直接注册（守卫模板：不认领时才进入延迟观察）
+    if (tryRegisterGuangda2() !== 'no') return;
 
     // 使用 MutationObserver 等待特征元素出现
+    // （延迟分支同守卫：先到先得 + 冲突告警，原 #297 F12「注册前查已注册」语义并入模板）
     const observer = new MutationObserver(() => {
-        // 注册前查已注册（#297 F12）：延迟注册不得覆盖其他适配器已建立的注册，
-        // 防止 LI.f-csp 特征跨平台误判时劫持会话
-        if (Guangda2Adapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
-            window.__AI_MARKER_ADAPTER__ = Guangda2Adapter;
+        const r = tryRegisterGuangda2();
+        if (r !== 'no') {
             observer.disconnect();
-            console.log('🎯 [光大V2] 延迟注册适配器成功');
+            if (r === 'registered') console.log('🎯 [光大V2] 延迟注册适配器成功');
         }
     });
 

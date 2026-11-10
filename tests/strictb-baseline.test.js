@@ -5,11 +5,10 @@
 // 本文件转为**修复验收**：
 //   - ok 桩       → 严格断言 winner===expect、写集恰为 hits（正确命中或正确空槽）
 //   - FIXED 桩    → 修复转绿后翻为严格断言（原 RED/YELLOW，测试名留历史分类）
-//   - PERSISTENT  → 未修项锁现状（X02 guangda-2 单类名误注册=R4）
+//   - PERSISTENT  → 未修项锁现状（当前为空：X02 已由 guangda-2 双特征锚修复）
 //     修复落地后 PERSISTENT 桩必红 → 翻转为 expect 严格断言。
-//     （X08 campus 路径前缀正则吞 NormalReadPaper2 已补尾锚修复 → 移入 FIXED；
-//       X05 产品裁决=收紧：宿主白名单+精确路由+三特征、删无宿主兜底 → 移入 FIXED，
-//       严格断言「陌生同形 SPA 不得被 huahanyun 认领」）
+//     （X08 campus 路径尾锚修复 → FIXED；X05 收紧裁决删无宿主兜底 → FIXED；
+//       X02 guangda-2 LI.f-csp 叠加第二特征锚（R4 ≥2 特征线）+ 附 A.0 对称注册尾 → FIXED）
 // 语义等价映射：桩 domKeys（选择器精确字符串命中即存在）≡ _adapter-matrix.js dom 键控；
 // 注册写计数（writes）= 实际赋值次数。⚠️ 与 audit-sweep「命中集」口径差异：附 A.0 先到先得下
 // 冲突认领不再写注册槽（console.error 告警后让位），故 X07 写集为 [hanhan] 而非认领集 [hanhan,huahanyun]。
@@ -25,11 +24,9 @@ function dirOf(winner) {
 }
 
 // 修复转绿桩（原 RED/黄 → 附 A/附 B 修复后必须严格命中 expect）
-const FIXED = new Set(['S14', 'S15', 'S16', 'S17', 'S22', 'X03', 'X04', 'X05', 'X06', 'X07', 'X08']);
+const FIXED = new Set(['S14', 'S15', 'S16', 'S17', 'S22', 'X02', 'X03', 'X04', 'X05', 'X06', 'X07', 'X08']);
 // 未修项：锁现状写集（修复后此表必红 → 移入 FIXED 并翻严格断言）
-const PERSISTENT = {
-    X02: ['guangda-2'],        // R4：LI.f-csp 单类名任意宿主误注册（guangda-2 未修）
-};
+const PERSISTENT = {};
 
 const STUBS = [
     // ---- ok：正确命中 ----
@@ -64,7 +61,7 @@ const STUBS = [
     // ---- 原 YELLOW-multi：胜出正确但多命中靠位序 → 修复后严格单命中 ----
     { id: 'S17', name: '鑫考校园 /Marking/NormalReadPaper[原YELLOW-multi]', host: '10.0.0.11', path: '/Marking/NormalReadPaper', hash: '', dom: ['img.teaimg', 'input.fenshu', '#div-readPaper'], expect: 'xinkao-campus', v: 'YELLOW-multi', hits: ['yunyuejuan', 'xinkao-2', 'xinkao-campus'] },
     // ---- 原 RED-falsepos：未知形态误注册 ----
-    { id: 'X02', name: '未知平台·含 li.f-csp[未修·R4]', host: 'unknown2.example', path: '/x', hash: '', dom: ['LI.f-csp'], expect: null, v: 'RED-falsepos', hits: ['guangda-2'] },
+    { id: 'X02', name: '未知平台·含 li.f-csp[已修·X02 双特征锚：单类名不得认领]', host: 'unknown2.example', path: '/x', hash: '', dom: ['LI.f-csp'], expect: null, v: 'RED-falsepos', hits: [] },
     { id: 'X03', name: '未知平台·路径含 /Marking/[已修]', host: 'unknown3.example', path: '/Marking/Task', hash: '', dom: [], expect: null, v: 'RED-falsepos', hits: ['yunyuejuan'] },
     { id: 'X04', name: '未知平台·teaimg+fenshu(变体路径)[已修]', host: 'unknown4.example', path: '/paper/display2', hash: '', dom: ['img.teaimg', 'input.fenshu'], expect: null, v: 'RED-falsepos', hits: ['xinkao-2', 'xinkao-campus'] },
     { id: 'X05', name: '陌生 SPA·仿华翰云 hash+DOM[已修·X05 收紧裁决：陌生同形 SPA 不得被 huahanyun 认领]', host: 'anycorp.example', path: '/', hash: '#/marking/grading?x=1', dom: ['#compuinput', 'button.submitscorebtn'], expect: null, v: 'RED-falsepos', hits: [] },

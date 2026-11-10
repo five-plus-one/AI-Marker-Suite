@@ -78,15 +78,19 @@ test('migrateAll 可重复调用（幂等，导入后调用安全）', () => {
         }
     };
     const { PM } = loadPreset(old);
-    const first = JSON.stringify(PM.data.list['默认配置']);
+    const cfg = PM.data.list['默认配置'];
+    // W2：纯 JSON.stringify 比较对「字段被置 undefined」失明——补键形状比较（含 undefined 值的键）
+    const shapeOf = (o) => JSON.stringify(
+        Object.keys(o).sort().map(k => [k, o[k] && typeof o[k] === 'object' ? Object.keys(o[k]).sort() : typeof o[k]]));
+    const first = JSON.stringify(cfg);
+    const firstShape = shapeOf(cfg);
     PM.migrateAll();
     PM.migrateAll();
-    assert.strictEqual(JSON.stringify(PM.data.list['默认配置']), first, '重复迁移应无变化');
+    assert.strictEqual(JSON.stringify(cfg), first, '重复迁移值应无变化');
+    assert.strictEqual(shapeOf(cfg), firstShape, '重复迁移键形状不得变化（置 undefined 的字段也算变化）');
 });
 
-test('导出/导入整对象序列化，新字段保全', () => {
-    // 导出是 `preset: preset` 整对象 JSON.stringify；导入是 `list[name] = data.preset`。
-    // 这里固化「整对象往返后新字段仍在」这一性质。
+test('导出/导入经真实净化链后新字段保全（W4：走 sanitizePreset+migrateAll，非裸 JSON 往返）', () => {
     const preset = {
         question: { text: 'q', images: [], format: 'plain' },
         answer: { text: 'a', images: [], format: 'plain' },
@@ -97,12 +101,18 @@ test('导出/导入整对象序列化，新字段保全', () => {
         retryPolicy: { maxRetries: 2, retryOnTimeout: false, retryOnEmpty: true },
         scoring: { roundStep: 0.5, roundMethod: 'round', units: [{ label: '56(1)', maxScore: 2, roundStep: 0.5 }] }
     };
+    const { PM } = loadPreset({ '默认配置': { question: { text: '', images: [], format: 'plain' }, answer: { text: '', images: [], format: 'plain' }, rubric: { text: '', images: [], format: 'plain' }, scoring: {} } });
+    // 真实导入链：导出整对象 JSON 序列化 → 导入解析 → sanitizePreset（ui-settings 同链）→ migrateAll
     const exported = JSON.stringify({ type: 'ai-marker-preset', name: '测试方案', preset });
-    const imported = JSON.parse(exported).preset;
-    assert.strictEqual(imported.outputMode, 'score-only', 'outputMode 应保全');
-    assert.strictEqual(imported.retryPolicy.maxRetries, 2, 'retryPolicy.maxRetries 应保全');
-    assert.strictEqual(imported.retryPolicy.retryOnTimeout, false, 'retryPolicy.retryOnTimeout 应保全');
-    assert.strictEqual(imported.scoring.units[0].roundStep, 0.5, '小题步长应保全');
+    const clean = PM.sanitizePreset(JSON.parse(exported).preset);
+    PM.data.list['导入方案'] = clean;
+    PM.migrateAll();
+    const c = PM.data.list['导入方案'];
+    assert.strictEqual(c.outputMode, 'score-only', 'outputMode 应保全');
+    assert.strictEqual(c.retryPolicy.maxRetries, 2, 'retryPolicy.maxRetries 应保全');
+    assert.strictEqual(c.retryPolicy.retryOnTimeout, false, 'retryPolicy.retryOnTimeout 应保全');
+    assert.strictEqual(c.scoring.units[0].roundStep, 0.5, '小题步长应保全');
+    assert.strictEqual(c.scoring.units[0].maxScore, 2, '小题满分应保全');
 });
 
 test('导入旧版本文件后调用 migrateAll 可补齐缺失字段', () => {
@@ -162,7 +172,7 @@ test('批改节奏 humanPacing 不覆盖用户已有配置，缺失子字段自�
     assert.strictEqual(hp.recordDuration, true, '应补 recordDuration');
 });
 
-test('humanPacing 整对象导出/导入往返保全', () => {
+test('humanPacing 经真实净化链后保全（W4：走 sanitizePreset+migrateAll，非裸 JSON 往返）', () => {
     const preset = {
         question: { text: 'q', images: [], format: 'plain' },
         answer: { text: 'a', images: [], format: 'plain' },
@@ -176,11 +186,36 @@ test('humanPacing 整对象导出/导入往返保全', () => {
             recordDuration: false
         }
     };
+    const { PM } = loadPreset({ '默认配置': { question: { text: '', images: [], format: 'plain' }, answer: { text: '', images: [], format: 'plain' }, rubric: { text: '', images: [], format: 'plain' }, scoring: {} } });
     const exported = JSON.stringify({ type: 'ai-marker-preset', name: '节奏方案', preset });
-    const imported = JSON.parse(exported).preset;
-    assert.strictEqual(imported.humanPacing.enabled, true);
-    assert.deepStrictEqual(imported.humanPacing.normalDelay, { min: 8, max: 30 });
-    assert.deepStrictEqual(imported.humanPacing.unattendedDelay, { min: 2, max: 6 });
-    assert.deepStrictEqual(imported.humanPacing.rest, { enabled: true, everyCount: 15, restMin: 60, restMax: 240 });
-    assert.strictEqual(imported.humanPacing.recordDuration, false);
+    const clean = PM.sanitizePreset(JSON.parse(exported).preset);
+    PM.data.list['导入方案'] = clean;
+    PM.migrateAll();
+    const hp = PM.data.list['导入方案'].humanPacing;
+    assert.ok(hp, '净化链不得剥掉 humanPacing');
+    assert.strictEqual(hp.enabled, true);
+    assert.deepStrictEqual(hp.normalDelay, { min: 8, max: 30 });
+    assert.deepStrictEqual(hp.unattendedDelay, { min: 2, max: 6 });
+    assert.deepStrictEqual(hp.rest, { enabled: true, everyCount: 15, restMin: 60, restMax: 240 });
+    assert.strictEqual(hp.recordDuration, false);
+});
+
+test('变异自检 W4：净化链剥除 humanPacing → 保全断言必红（红度实证）', () => {
+    // 注入变异：sanitizePreset 丢弃 humanPacing —— 上一用例的保全断言会红，此处证明其可分辨
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'preset.js'), 'utf8');
+    const find = 'const out = Object.assign({}, cfg);';
+    assert.ok(src.includes(find), '变异目标未命中');
+    const mutated = src.replace(find, find + ' delete out.humanPacing;');
+    const store = {};
+    const sandbox = {
+        console: { log() {}, warn() {}, error() {} }, window: {},
+        SCRIPT_CONFIG: { DEFAULT_ENDPOINT: '', DEFAULT_MODEL: '' },
+        GM_getValue: (k, d) => (k in store ? store[k] : d), GM_setValue: (k, v) => { store[k] = v; },
+        JSON, Math, Date, Error, String, Number, Array, Object, parseFloat, parseInt, isNaN, setTimeout, clearTimeout,
+    };
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(mutated + ';__exports__ = PresetManager;', sandbox);
+    const clean = sandbox.__exports__.sanitizePreset({ humanPacing: { enabled: true }, scoring: {} });
+    assert.strictEqual(clean.humanPacing, undefined, '变异被检出：humanPacing 被剥除——保全用例的断言此时必红');
 });
