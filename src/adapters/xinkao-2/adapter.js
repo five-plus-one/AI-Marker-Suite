@@ -12,11 +12,15 @@ const Xinkao2Adapter = {
     iconUrl: '',
 
     shouldInitialize() {
-        // 内网裸 IP，不硬编码 hostname，靠路径 + DOM 特征识别（防串台）
+        // 内网裸 IP，不硬编码 hostname，靠路径 + DOM 专有锚识别（防串台）
         const path = window.location.pathname || '';
         if (/\/biluo\/display/i.test(path)) return true;
+        // DOM 兜底（strict-a 附 A.2）：fen 满分属性是 xinkao-2 专有判别（与 adapter 读取同源），
+        // 排 data-score 两家（xinkao-campus/yunyuejuan）——共享 img.teaimg+input.fenshu
+        // 不得单独作为命中证据（strict-b S16 互串教训）
         return !!(document.querySelector(XINKAO2_SELECTORS.ANSWER_IMAGE_CLASS)
-            && document.querySelector(XINKAO2_SELECTORS.SCORE_INPUTS));
+            && document.querySelector('input.fenshu[fen]')
+            && !document.querySelector('input.fenshu[data-score]'));
     },
 
     isMarkingPage() {
@@ -255,7 +259,18 @@ const Xinkao2Adapter = {
     },
 };
 
-// 注册适配器
-if (Xinkao2Adapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = Xinkao2Adapter;
-}
+// 注册守卫（#324 教训 + strict-a 附 A.0）：自查 shouldInitialize → 先到先得（不覆盖）→
+// 已注册且我也认领本页 = 多命中冲突，console.error 红灯告警（静默劫持变可见）→ 异常 fail-closed
+(function registerXinkao2Adapter() {
+    try {
+        if (!Xinkao2Adapter.shouldInitialize()) return;
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing) {
+            console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 鑫考(内网)(xinkao-2) 也认领本页（疑似串台/劫持），保留先到者`);
+            return;
+        }
+        window.__AI_MARKER_ADAPTER__ = Xinkao2Adapter;
+    } catch (e) {
+        console.warn('⚠️ [注册] 判定异常，fail-closed 不注册:', e);
+    }
+})();

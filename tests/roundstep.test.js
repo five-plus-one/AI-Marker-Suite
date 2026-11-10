@@ -81,11 +81,13 @@ test('mergeDualSubScores 默认配置下双评取平均与 Math.round 一致', (
     };
     // ai-engine.js 是浏览器脚本，这里只测 mergeDualSubScores，故单独抽出其源码执行
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ai-engine.js'), 'utf8');
-    const fnMatch = src.match(/function mergeDualSubScores\(detailA, detailB, scoringConfig\) \{[\s\S]*?\n\}/);
-    assert.ok(fnMatch, 'mergeDualSubScores 函数未找到');
+    const fnMatch = src.match(/function mergeDualValue\([^)]*\) \{[\s\S]*?\n\}/);
+    const mergeMatch = src.match(/function mergeDualSubScores\([^)]*\) \{[\s\S]*?\n\}/);
+    assert.ok(fnMatch, 'mergeDualValue 函数未找到');
+    assert.ok(mergeMatch, 'mergeDualSubScores 函数未找到');
     const sandbox = { ScoreCalculator: score.ScoreCalculator, console, Math, JSON };
     vm.createContext(sandbox);
-    vm.runInContext(fnMatch[0] + ';__m = mergeDualSubScores;', sandbox);
+    vm.runInContext(fnMatch[0] + '\n' + mergeMatch[0] + ';__m = mergeDualSubScores;', sandbox);
 
     const a = { subScores: [{ label: '56', score: 2, comment: '' }, { label: '57', score: 1, comment: '' }] };
     const b = { subScores: [{ label: '56', score: 1, comment: '' }, { label: '57', score: 2, comment: '' }] };

@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const source = fs.readFileSync('src/core/ai-engine.js', 'utf8');
-const transport = source.slice(source.indexOf('function callAIOnce('), source.indexOf('// ========== 双评引擎 =========='));
+// 切片从废图闸开始（callAIOnce 依赖 filterUsableImagesForAI，工单①）——
+// 切片加载器对源码结构的耦合点：新增被调函数时必须同步扩展起点
+const transport = source.slice(source.indexOf('function probeImageDimensions('), source.indexOf('// ========== 双评引擎 =========='));
 const config = { endpoint: 'https://example.test/chat/completions', apiKey: 'test', model: 'vision' };
 const event = (choice, usage) => `data: ${JSON.stringify({ choices: [choice], usage })}\n\n`;
 

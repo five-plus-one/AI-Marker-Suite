@@ -1,4 +1,6 @@
-// ========== 华翰云 DOM 选择器常量 ==========
+// ========== 华翰云（yunyuejuan.net 旧部署，id=hanhan）DOM 选择器常量 ==========
+// ⚠️ 命名防混淆：本文件属 hanhan（yunyuejuan.net 域的华翰云旧适配器），
+// 与 lcedu 域的「云阅卷(华翰云)」（huahanyun）是两个不同适配器，勿混
 
 const HANHAN_SELECTORS = {
     // 答题卡图片

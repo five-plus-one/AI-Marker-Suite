@@ -8,19 +8,19 @@ const XinkaoAdapter = {
     iconUrl: '',
 
     shouldInitialize() {
-        // URL 路径特征（IP 不固定，不能硬编码 hostname）
-        const pathname = window.location.pathname;
+        // 路径精确锚（IP 不固定，不能硬编码 hostname；路径即本系统专有锚）
+        const pathname = window.location.pathname || '';
         if (/\/Marking\/DisPlay/i.test(pathname)) {
             return true;
         }
 
-        // DOM 特征检测（兜底）
-        if (document.querySelector('img.teaimg') && document.querySelector('#fenshu0')) {
-            console.log('[鑫考] 通过 DOM 特征检测到鑫考网上阅卷系统');
-            return true;
-        }
-
-        return false;
+        // DOM 兜底（strict-a 附 A.1）：满分在 max/data-max 属性是 xinkao 专有判别
+        // （与 adapter 读取同源），且排他两家兄弟属性——家族共享 img.teaimg+input.fenshu
+        // 不得单独作为命中证据（strict-b S15 互串教训）
+        return !!(document.querySelector('img.teaimg')
+            && document.querySelector('input.fenshu[max], input.fenshu[data-max]')
+            && !document.querySelector('input.fenshu[fen]')
+            && !document.querySelector('input.fenshu[data-score]'));
     },
 
     // 快速页面检查（不等待 DOM），用于 URL 变化监听器
@@ -211,6 +211,18 @@ const XinkaoAdapter = {
     },
 };
 
-if (XinkaoAdapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = XinkaoAdapter;
-}
+// 注册守卫（#324 教训 + strict-a 附 A.0）：自查 shouldInitialize → 先到先得（不覆盖）→
+// 已注册且我也认领本页 = 多命中冲突，console.error 红灯告警（静默劫持变可见）→ 异常 fail-closed
+(function registerXinkaoAdapter() {
+    try {
+        if (!XinkaoAdapter.shouldInitialize()) return;
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing) {
+            console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 鑫考网上阅卷(xinkao) 也认领本页（疑似串台/劫持），保留先到者`);
+            return;
+        }
+        window.__AI_MARKER_ADAPTER__ = XinkaoAdapter;
+    } catch (e) {
+        console.warn('⚠️ [注册] 判定异常，fail-closed 不注册:', e);
+    }
+})();

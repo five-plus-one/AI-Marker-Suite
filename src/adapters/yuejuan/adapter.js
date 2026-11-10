@@ -19,7 +19,10 @@ const YuejuanAdapter = {
     iconUrl: '',
 
     shouldInitialize() {
-        return window.location.hostname.includes('yuejuan.com');
+        // hostMatches 精确姿势（strict-b S22）：includes('yuejuan.com') 是裸子串，
+        // 会吞掉 haoyuejuan.com（好阅卷被本适配器劫持）；精确域 + 子域级，禁子串
+        const h = (window.location.hostname || '').toLowerCase();
+        return h === 'yuejuan.com' || h.endsWith('.yuejuan.com');
     },
 
     // 快速页面检查（不等待 DOM），用于 URL 变化监听器
@@ -272,7 +275,18 @@ const YuejuanAdapter = {
     },
 };
 
-// 注册适配器
-if (YuejuanAdapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = YuejuanAdapter;
-}
+// 注册守卫（#324 教训 + strict-a 附 A.0）：自查 shouldInitialize → 先到先得（不覆盖）→
+// 已注册且我也认领本页 = 多命中冲突，console.error 红灯告警（静默劫持变可见）→ 异常 fail-closed
+(function registerYuejuanAdapter() {
+    try {
+        if (!YuejuanAdapter.shouldInitialize()) return;
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing) {
+            console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 正确阅卷(yuejuan) 也认领本页（疑似串台/劫持），保留先到者`);
+            return;
+        }
+        window.__AI_MARKER_ADAPTER__ = YuejuanAdapter;
+    } catch (e) {
+        console.warn('⚠️ [注册] 判定异常，fail-closed 不注册:', e);
+    }
+})();

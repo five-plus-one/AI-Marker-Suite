@@ -23,11 +23,13 @@ function loadCore(file) {
 function loadMergeDual() {
     const score = loadCore('score.js');
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ai-engine.js'), 'utf8');
-    const fnMatch = src.match(/function mergeDualSubScores\(detailA, detailB, scoringConfig\) \{[\s\S]*?\n\}/);
-    assert.ok(fnMatch, 'mergeDualSubScores 函数未找到');
+    const fnMatch = src.match(/function mergeDualValue\([^)]*\) \{[\s\S]*?\n\}/);
+    const mergeMatch = src.match(/function mergeDualSubScores\([^)]*\) \{[\s\S]*?\n\}/);
+    assert.ok(fnMatch, 'mergeDualValue 函数未找到');
+    assert.ok(mergeMatch, 'mergeDualSubScores 函数未找到');
     const sandbox = { ScoreCalculator: score.ScoreCalculator, console, Math, JSON };
     vm.createContext(sandbox);
-    vm.runInContext(fnMatch[0] + ';__m = mergeDualSubScores;', sandbox);
+    vm.runInContext(fnMatch[0] + '\n' + mergeMatch[0] + ';__m = mergeDualSubScores;', sandbox);
     return sandbox.__m;
 }
 
