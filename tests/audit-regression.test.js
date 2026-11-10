@@ -211,6 +211,32 @@ function configurationStore() {
     return { ...e, store };
 }
 
+test('首次保存失败保留默认或 v1 迁移数据，恢复写入后可直接重试', () => {
+    for (const legacy of [false, true]) {
+        const e = env(), store = legacy ? {
+            'ai-grading-providers': JSON.stringify({ active: '5plus1官方', list: {
+                '5plus1官方': { apiKey: 'legacy-credential', endpoint: 'https://custom.test/v1', model: 'legacy-model' }
+            } })
+        } : {};
+        e.sb.GM_getValue = (key, fallback) => store[key] ?? fallback;
+        e.sb.GM_setValue = () => { throw Error('quota'); };
+        load(e, 'src/core/ai-engine.js'); load(e, 'src/core/preset.js');
+        const managers = vm.runInContext('[PresetManager, ProviderManager, WorkflowManager]', e.sb);
+        for (const manager of managers) assert.equal(manager._initialSaveFailed, true);
+        if (legacy) {
+            assert.equal(managers[1].data.providers['5plus1官方'].apiKey, 'legacy-credential');
+            assert.equal(managers[1].data.activeModel, 'legacy-model');
+        }
+        e.sb.GM_setValue = (key, value) => { store[key] = value; };
+        for (const manager of managers) {
+            assert.equal(manager.save(), true);
+            assert.equal(manager._initialSaveFailed, false);
+        }
+        for (const key of ['ai-grading-presets','ai-grading-providers-v2','ai-grading-workflows']) assert.ok(store[key]);
+        if (legacy) assert.equal(JSON.parse(store['ai-grading-providers-v2']).providers['5plus1官方'].apiKey, 'legacy-credential');
+    }
+});
+
 test('整组导入写入失败回滚，重载恢复中断事务后保留原配置', () => {
     for (const failedKey of ['ai-grading-presets','ai-grading-providers-v2','ai-grading-workflows','commit-marker']) {
         const e = configurationStore();

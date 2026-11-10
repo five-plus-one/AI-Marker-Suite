@@ -53,7 +53,7 @@ const ProviderManager = {
                 this._enterReadOnly(null, e);
                 return;
             }
-            this.save();
+            saveInitialConfiguration(this, '供应商');
         }
     },
     // 只读降级（#293）：禁止保存覆写；原始字节存 rescue 键供恢复
@@ -113,7 +113,7 @@ const ProviderManager = {
         }
 
         if (changed) {
-            this.save();
+            saveInitialConfiguration(this, '供应商');
         }
     },
     _getDefault() {
@@ -203,6 +203,7 @@ const ProviderManager = {
             if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-providers-v2-prev', prev);
         } catch (_) { /* 备份失败不阻塞保存 */ }
         GM_setValue('ai-grading-providers-v2', json);
+        this._initialSaveFailed = false;
         return true;
     },
     getProvider(name) {
@@ -329,7 +330,7 @@ const WorkflowManager = {
             }
         } else {
             this.data = this._getDefault();
-            this.save();
+            saveInitialConfiguration(this, '工作流');
         }
     },
     // 只读降级（#293）：禁止保存覆写；原始字节存 rescue 键供恢复
@@ -410,7 +411,7 @@ const WorkflowManager = {
         if (changed || shouldMigrateDefaults) {
             this.data._migratedVersion = currentVersion;
             console.log('[WorkflowManager] 已迁移内置工作流配置');
-            this.save();
+            saveInitialConfiguration(this, '工作流');
         }
     },
     _getDefault() {
@@ -471,6 +472,7 @@ const WorkflowManager = {
             if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-workflows-prev', prev);
         } catch (_) { /* 备份失败不阻塞保存 */ }
         GM_setValue('ai-grading-workflows', json);
+        this._initialSaveFailed = false;
         return true;
     },
     getWorkflow(id) {

@@ -32,6 +32,7 @@ function loadEngine() {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(scoreSrc, sandbox);
     vm.runInContext(src + '\n;__exports__ = { mergeDualValue, mergeDualSubScores, buildDualEvalDetail, callDualEvaluation, WorkflowManager };', sandbox);
     return { fx: sandbox.__exports__, sandbox, store };
@@ -50,7 +51,7 @@ test('round 模式按四舍五入吸附，不受单评向下取整设置影响',
     assert.strictEqual(out[0].score, 2, '(2+1)/2=1.5 → Math.round=2');
     assert.strictEqual(out[1].score, 2);
 
-    // 存量用户 scoring.roundMethod='floor'：历史合并即 floor，mergeMode 缺省不得改变它
+    // 双评 round 策略按标签语义执行，与单评 floor 设置分别验证。
     const outFloorCfg = mergeDualSubScores(A, B, { roundStep: 1, roundMethod: 'floor' });
     assert.strictEqual(outFloorCfg[0].score, 2, 'round 模式按平均后四舍五入执行');
 });
@@ -300,6 +301,7 @@ test('迁移兼容：内置双评工作流缺 mergeMode 时补 round', () => {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(src + ';__exports__ = WorkflowManager;', sandbox);
     assert.strictEqual(sandbox.__exports__.data.workflows['双评模式(高精度)'].dualEval.mergeMode, 'round',
         '版本升级迁移应为旧双评配置补 mergeMode=round');

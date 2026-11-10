@@ -100,6 +100,7 @@ function loadMainInit({ session, panelCalls, buttonCalls } = {}) {
         initBatchProgress: () => {}, renderBatchProgress: () => {}, checkForUpdate: () => {},
         showToast: () => {}, toggleAutoGrading: () => {}, showAlertModal: () => Promise.resolve(),
         PresetManager: { data: { active: 'x' }, getCurrentConfig: () => ({}), getActiveCallConfig: () => ({}) },
+        ProviderManager: {}, WorkflowManager: {},
         HistoryManager: { getById: () => ({ aiScore: 5, aiComment: '', studentAnswer: '答', subScores: [] }) },
         // 回评链依赖（stub/真实按需）
         waitForImagesReadyForRegrade: async () => {},
@@ -139,6 +140,17 @@ test('C.3 并发双 init 只建一次 UI（in-running 闩）', async () => {
     await Promise.all([p1, p2]);
     assert.strictEqual(buttons.main, 1, '并发双 init 只能建一次主按钮（双 UI=缺陷）');
     assert.strictEqual(buttons.settings, 1, '设置面板只能建一次');
+});
+
+test('启动写入失败时仍创建界面并提示重新保存', async () => {
+    const { init, buttons, sandbox } = loadMainInit();
+    const notices = [];
+    sandbox.ProviderManager._initialSaveFailed = true;
+    sandbox.showToast = message => notices.push(message);
+    await init();
+    assert.strictEqual(buttons.main, 1);
+    assert.strictEqual(buttons.settings, 1);
+    assert.ok(notices.some(message => message.includes('重新保存')));
 });
 
 test('C.3 闩为 in-running 语义：完成后合法重跑（SPA 列表页→批改页需重建 UI）', async () => {

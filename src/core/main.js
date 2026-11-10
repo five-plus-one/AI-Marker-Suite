@@ -832,6 +832,10 @@ async function runInitBody() {
     }
     if (typeof updateMainButtonState === 'function') updateMainButtonState();
 
+    if ([PresetManager, ProviderManager, WorkflowManager].some(manager => manager._initialSaveFailed)) {
+        showToast('部分设置暂未保存，请在设置中重新保存');
+    }
+
     // 初始化批阅份数功能
     initBatchProgress();
     renderBatchProgress();
