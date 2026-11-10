@@ -158,7 +158,8 @@ const KzeduAdapter = {
         return true;
     },
 
-    async submitGrade() {
+    async submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         const score = this._pendingScore;
         if (score === null || score === undefined) {
             console.warn('⚠️ [诊断] 云阅卷(开州) — 没有待提交的分数');
@@ -181,6 +182,8 @@ const KzeduAdapter = {
             // 未勾选自动给分：点「给分」确认提交
             console.log(`✅ [诊断] 云阅卷(开州) — 已点击分数按钮「${btn.textContent.trim()}」，等待后点给分`);
             await new Promise(r => setTimeout(r, 250));
+            if (guard) await guard.verify();
+            if (guard && !guard.isCurrent()) return false;
             return this._clickGiveBtn();
         }
 

@@ -23,29 +23,17 @@ function sanitizeMarkdownHtml(text) {
     }).join('');
 }
 
-// 输出级白名单消毒（#315 G1）：豁免区可被反斜杠转义（\$、\`）击穿——marked 不消费
-// 被转义的定界符，原始 HTML 直通输出（PoC: \$<img onerror=...>$）。渲染出口是最后防线：
-// 非白名单标签转义、on* 事件属性剥离、javascript: URI 中和（与预转义构成双层）
+// 在浏览器解析后净化标签、属性和 URI，覆盖字符实体与命名空间语义。
 function sanitizeRenderedHtml(html) {
-    var ALLOWED = {
-        p: 1, br: 1, hr: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1,
-        strong: 1, em: 1, del: 1, s: 1, code: 1, pre: 1, blockquote: 1,
-        ul: 1, ol: 1, li: 1, a: 1, img: 1, span: 1, div: 1, sup: 1, sub: 1,
-        table: 1, thead: 1, tbody: 1, tr: 1, th: 1, td: 1, section: 1, annotation: 1, semantics: 1, mrow: 1, mfrac: 1, msup: 1, msub: 1, mi: 1, mn: 1, mo: 1, msqrt: 1, mroot: 1, mtable: 1, mtr: 1, mtd: 1
-    };
-    var out = String(html == null ? '' : html);
-    // 1) 危险容器整体移除（含配对闭合）
-    out = out.replace(/<(script|style|iframe|object|embed|link|meta|form|svg|math)\b[\s\S]*?<\/\1\s*>/gi, '');
-    out = out.replace(/<(script|style|iframe|object|embed|link|meta|form|svg|math)\b[^>]*\/?>/gi, '');
-    // 2) 非白名单标签整体转义（属性引号内不误伤）
-    out = out.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g, function (m, slash, tag) {
-        return ALLOWED[tag.toLowerCase()] ? m : m.replace(/</g, '&lt;');
-    });
-    // 3) on* 事件属性剥离（任何残余标签上）
-    out = out.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-    // 4) javascript: URI 中和（href/src）
-    out = out.replace(/\s(href|src)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]+)/gi, ' $1="#"');
-    return out;
+    const text = String(html == null ? '' : html);
+    if (typeof DOMPurify !== 'undefined' && DOMPurify.isSupported && typeof DOMPurify.sanitize === 'function') {
+        return DOMPurify.sanitize(text, {
+            USE_PROFILES: { html: true, svg: true, mathMl: true },
+            FORBID_TAGS: ['style', 'form', 'input', 'button', 'select', 'textarea'],
+            RETURN_TRUSTED_TYPE: false
+        });
+    }
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 
@@ -106,7 +94,7 @@ function createMarkdownRenderer() {
             try {
                 if (window.katex) {
                     return '<div class="katex-display">' +
-                        cachedKatexRender(token.text, { displayMode: true, throwOnError: false, trust: true, strict: false }) +
+                        cachedKatexRender(token.text, { displayMode: true, throwOnError: false, trust: false, strict: false }) +
                         '</div>';
                 }
             } catch (e) { /* fallback */ }
@@ -128,7 +116,7 @@ function createMarkdownRenderer() {
         renderer(token) {
             try {
                 if (window.katex) {
-                    return cachedKatexRender(token.text, { displayMode: false, throwOnError: false, trust: true, strict: false });
+                    return cachedKatexRender(token.text, { displayMode: false, throwOnError: false, trust: false, strict: false });
                 }
             } catch (e) { /* fallback */ }
             return '<code class="katex-fallback">' + escapeHtml(token.text) + '</code>';
@@ -502,7 +490,7 @@ function showFormulaPanel(textarea, anchorBtn, schedulePreview) {
         sec.items.forEach(function (item) {
             var preview = '';
             if (window.katex) {
-                try { preview = katex.renderToString(item.code, { displayMode: false, throwOnError: false, trust: true, strict: false }); } catch (e) { preview = item.code; }
+                try { preview = katex.renderToString(item.code, { displayMode: false, throwOnError: false, trust: false, strict: false }); } catch (e) { preview = item.code; }
             } else {
                 preview = item.code;
             }

@@ -141,7 +141,8 @@ const YuejuanAdapter = {
         return true;
     },
 
-    async submitGrade() {
+    async submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         const score = this._pendingScore;
         if (score === null || score === undefined) {
             console.warn('⚠️ [诊断] 正确阅卷 — 没有待提交的分数');
@@ -170,6 +171,8 @@ const YuejuanAdapter = {
             this._setInputPreview(document.querySelector(YUEJUAN_SELECTORS.SCORE_INPUT), score);
         }
 
+        if (guard) await guard.verify();
+        if (guard && !guard.isCurrent()) return false;
         return this._clickSubmitBtn();
     },
 

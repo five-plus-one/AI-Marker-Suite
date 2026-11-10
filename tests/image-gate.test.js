@@ -56,6 +56,7 @@ function loadGate() {
         Math, JSON, String, Number, Array, Object, Error, isFinite,
     };
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(grab('probeImageDimensions') + '\n' + grab('filterUsableImagesForAI') +
         '\n;__exports__ = { probeImageDimensions, filterUsableImagesForAI };', sandbox);
     return sandbox.__exports__;
@@ -141,6 +142,7 @@ function loadEngineForRequest() {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(src + ';__exports__ = { callAIOnce };', sandbox);
     return { callAIOnce: sandbox.__exports__.callAIOnce, requests, warns, win: sandbox.window };
 }
@@ -268,6 +270,7 @@ async function runMainFlowWithImages(base64List) {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(parts.join('\n') + '\n;__run = startAutoGrading;', sandbox);
     await sandbox.__run();
     calls.gateCount = sandbox.window.aiGradingState.imageGateRemovedCount;

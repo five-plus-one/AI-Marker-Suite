@@ -163,8 +163,9 @@ const JingdouyunAdapter = {
         return true;
     },
 
-    async submitGrade() {
-        const btn = document.querySelector(JINGDOUYUN_SELECTORS.SAVE_BUTTON);
+    async submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
+        let btn = document.querySelector(JINGDOUYUN_SELECTORS.SAVE_BUTTON);
         if (!btn) {
             console.warn('⚠️ [诊断] 精斗云 — 未找到保存按钮');
             return false;
@@ -177,10 +178,13 @@ const JingdouyunAdapter = {
             if (inputs.length && this._pendingScores[0] != null) {
                 this._setScoreValue(inputs[0].element, this._pendingScores[0]);
                 await new Promise(r => setTimeout(r, 200));
+                if (guard) await guard.verify();
+                if (guard && !guard.isCurrent()) return false;
+                btn = document.querySelector(JINGDOUYUN_SELECTORS.SAVE_BUTTON);
             }
         }
 
-        if (btn.disabled) {
+        if (!btn || btn.disabled) {
             console.warn('⚠️ [诊断] 精斗云 — 保存按钮仍禁用（分数未通过平台校验），放弃提交');
             return false;
         }

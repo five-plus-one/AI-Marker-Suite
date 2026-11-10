@@ -32,8 +32,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=low
+
+      - name: Test release commit
+        run: npm test
+
       - name: Build (dev channel)
         run: npm run build -- --channel=dev
+
+      - name: Verify bundled platform initialization
+        run: npm run verify:bundle
+
+      - name: Verify workflow forms in browser
+        run: npm run verify:browser
 
       - name: Create redirect page
         run: |

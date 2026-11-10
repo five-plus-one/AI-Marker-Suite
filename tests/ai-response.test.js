@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync('src/core/ai-engine.js', 'utf8');
@@ -52,6 +53,7 @@ function setup(responses, cfg) {
         }
     };
     vm.createContext(context);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), context);
     vm.runInContext(transport, context);
     return {
         call: () => context.callAI('题目', ['image'], cfg || config, (text) => updates.push(text)),

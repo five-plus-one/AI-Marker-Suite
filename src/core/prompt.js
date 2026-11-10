@@ -835,7 +835,7 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     const fieldImages = collectFieldImages(config);
 
     // 计算总满分
-    const maxScore = PresetManager.getMaxScore();
+    const maxScore = config.scoring?.maxScore ?? PresetManager.getMaxScore();
 
     if (hasSub) {
         console.log(`📋 [诊断] 评分单元配置 — 共 ${subQuestions.length} 个: ${subQuestions.map(sq => `${sq.label}(满分${sq.maxScore ?? '未设置'})`).join(', ')}`);

@@ -28,6 +28,7 @@ function loadPreset(initialList) {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext('var restoreConfigIfMissing = undefined;' + src + ';__exports__ = PresetManager;', sandbox);
     return sandbox.__exports__;
 }
@@ -160,6 +161,7 @@ async function runMainFlow({ paperGuard, changePaper }) {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(parts.join('\n') + '\n;__run = startAutoGrading;', sandbox);
     await sandbox.__run();
     return calls;

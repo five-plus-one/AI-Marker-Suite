@@ -1,8 +1,25 @@
+function isOfficialModelProvider(provider) {
+    try { return new URL(provider?.endpoint || '').hostname === new URL(SCRIPT_CONFIG.DEFAULT_ENDPOINT).hostname; }
+    catch (_) { return false; }
+}
+
+function isProviderDataValid(data) {
+    const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
+    return record(data?.providers) && Object.values(data.providers).every(provider => record(provider) &&
+        (provider.models === undefined || record(provider.models)));
+}
+
+function isWorkflowDataValid(data) {
+    const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
+    return record(data?.workflows) && Object.values(data.workflows).every(record);
+}
+
 // ========== 供应商管理器 ==========
 const ProviderManager = {
     data: null,
     init() {
         this._writeDisabled = false;
+        if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) { this._enterReadOnly(null); return; }
         let raw = null;
         try {
             raw = GM_getValue('ai-grading-providers-v2');
@@ -14,6 +31,7 @@ const ProviderManager = {
         if (raw) {
             try {
                 this.data = JSON.parse(raw);
+                if (!isProviderDataValid(this.data)) throw new Error('供应商数据格式不正确');
             } catch (e) {
                 // 解析失败：救原始字节 + 只读降级，绝不覆写清空（#293）
                 this._enterReadOnly(raw, e);
@@ -30,8 +48,10 @@ const ProviderManager = {
             try {
                 const oldSaved = GM_getValue('ai-grading-providers');
                 this.data = oldSaved ? this._migrateFromV1(JSON.parse(oldSaved)) : this._getDefault();
+                this._migrateProviders();
             } catch (e) {
-                this.data = this._getDefault();
+                this._enterReadOnly(null, e);
+                return;
             }
             this.save();
         }
@@ -41,6 +61,7 @@ const ProviderManager = {
         if (err) console.error('❌ ProviderManager 数据解析失败，进入只读降级:', err);
         try { if (raw != null) GM_setValue('ai-grading-providers-v2-rescue', String(raw)); } catch (_) {}
         this.data = this._getDefault();
+        this._degradedBase = JSON.parse(JSON.stringify(this.data));
         this._writeDisabled = true;
     },
     _migrateProviders() {
@@ -60,6 +81,15 @@ const ProviderManager = {
                 continue;
             }
 
+            if (!provider.models || typeof provider.models !== 'object' || Array.isArray(provider.models)) {
+                provider.models = {};
+                changed = true;
+            }
+            if (name === '5plus1官方' && isOfficialModelProvider(provider) && provider.models['deepseek-fast']) {
+                delete provider.models['deepseek-fast'];
+                if (this.data.activeProvider === name && this.data.activeModel === 'deepseek-fast') this.data.activeModel = 'deepseek-flash';
+                changed = true;
+            }
             // 确保内置模型存在
             for (const [modelId, modelInfo] of Object.entries(defaultProvider.models)) {
                 if (!provider.models[modelId]) {
@@ -94,7 +124,7 @@ const ProviderManager = {
                     apiKey: "",
                     models: {
                         "aimarker-fast": { label: "快速批改", tags: ["轻量", "推荐"], isBuiltin: true },
-                        "deepseek-fast": { label: "DeepSeek Fast", tags: ["快速", "内置"], isBuiltin: true },
+                        "deepseek-flash": { label: "DeepSeek Flash", tags: ["快速", "内置"], isBuiltin: true },
                         "aimarker-pro": { label: "高精度批改", tags: ["专业", "推荐"], isBuiltin: true }
                     },
                     isBuiltin: true
@@ -121,6 +151,8 @@ const ProviderManager = {
         };
     },
     _migrateFromV1(oldData) {
+        const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
+        if (!record(oldData?.list) || Object.values(oldData.list).some(value => !record(value))) throw new Error('旧供应商数据格式不正确');
         const newData = this._getDefault();
         if (oldData.list) {
             for (const [name, config] of Object.entries(oldData.list)) {
@@ -131,6 +163,8 @@ const ProviderManager = {
                         models: {}
                     };
                 }
+                newData.providers[name].endpoint = config.endpoint || newData.providers[name].endpoint;
+                newData.providers[name].apiKey = config.apiKey || '';
                 if (config.model) {
                     newData.providers[name].models[config.model] = { label: config.model, tags: [] };
                 }
@@ -140,20 +174,20 @@ const ProviderManager = {
             newData.activeProvider = oldData.active;
             const provider = newData.providers[oldData.active];
             const modelKeys = Object.keys(provider.models);
-            if (modelKeys.length > 0) {
-                newData.activeModel = modelKeys[0];
-            }
+            newData.activeModel = oldData.list?.[oldData.active]?.model || modelKeys[0] || '';
         }
         console.log('[ProviderManager] 已从 v1 格式迁移');
         return newData;
     },
     save() {
+        if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) return false;
         if (this._writeDisabled) {
-            // 惰性探活（#293/#297）：瞬态读取失败可自愈；成功不覆盖内存数据（与 preset 对齐）
+            // 惰性探活：读取恢复后合并原数据与保护期编辑（与 preset 对齐）。
             try {
                 const probe = GM_getValue('ai-grading-providers-v2');
                 const recovered = probe ? JSON.parse(probe) : null;
-                if (recovered && recovered.providers) {
+                if (isProviderDataValid(recovered)) {
+                    this.data = mergeRecoveredData(recovered, this.data, this._degradedBase);
                     this._writeDisabled = false;
                     if (typeof showToast === 'function') showToast('供应商配置存储已恢复，请再次点击保存');
                     return false;
@@ -172,7 +206,7 @@ const ProviderManager = {
         return true;
     },
     getProvider(name) {
-        return this.data.providers[name] || null;
+        return Object.prototype.hasOwnProperty.call(this.data.providers, name) ? this.data.providers[name] : null;
     },
     getCurrentProvider() {
         return this.data.providers[this.data.activeProvider] || {};
@@ -192,8 +226,8 @@ const ProviderManager = {
     },
     // 获取完整调用配置
     getCallConfig(providerName, modelId) {
-        const provider = this.data.providers[providerName];
-        if (!provider) return null;
+        const provider = this.getProvider(providerName);
+        if (!provider || !modelId || !Object.prototype.hasOwnProperty.call(provider.models || {}, modelId)) return null;
         return {
             endpoint: provider.endpoint,
             apiKey: provider.apiKey,
@@ -271,6 +305,7 @@ const WorkflowManager = {
     data: null,
     init() {
         this._writeDisabled = false;
+        if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) { this._enterReadOnly(null); return; }
         let raw = null;
         try {
             raw = GM_getValue('ai-grading-workflows');
@@ -282,6 +317,7 @@ const WorkflowManager = {
         if (raw) {
             try {
                 this.data = JSON.parse(raw);
+                if (!isWorkflowDataValid(this.data)) throw new Error('工作流数据格式不正确');
             } catch (e) {
                 this._enterReadOnly(raw, e);
                 return;
@@ -301,9 +337,10 @@ const WorkflowManager = {
         if (err) console.error('❌ WorkflowManager 数据解析失败，进入只读降级:', err);
         try { if (raw != null) GM_setValue('ai-grading-workflows-rescue', String(raw)); } catch (_) {}
         this.data = this._getDefault();
+        this._degradedBase = JSON.parse(JSON.stringify(this.data));
         this._writeDisabled = true;
     },
-    _migrateWorkflows() {
+    _migrateWorkflows(providerMap = ProviderManager.data.providers) {
         let changed = false;
         const defaults = this._getDefault();
         const currentVersion = SCRIPT_CONFIG.VERSION;
@@ -312,7 +349,17 @@ const WorkflowManager = {
         // 仅在版本升级时重置内置工作流的模型配置，避免覆盖用户手动修改
         const shouldMigrateDefaults = lastMigratedVersion !== currentVersion;
 
+        for (const [name, wf] of Object.entries(defaults.workflows)) {
+            if (!this.data.workflows[name]) { this.data.workflows[name] = wf; changed = true; }
+        }
         for (const [name, wf] of Object.entries(this.data.workflows)) {
+            for (const model of [wf.model, wf.dualEval?.secondary, wf.dualEval?.arbitration]) {
+                if (model?.provider === '5plus1官方' && model.model === 'deepseek-fast' &&
+                    isOfficialModelProvider(providerMap[model.provider])) {
+                    model.model = 'deepseek-flash';
+                    changed = true;
+                }
+            }
             if (wf.isBuiltin && defaults.workflows[name]) {
                 const defaultWf = defaults.workflows[name];
                 // 迁移 reasoningEffort 字段（始终执行，因为旧数据可能缺少此字段）
@@ -401,12 +448,14 @@ const WorkflowManager = {
         };
     },
     save() {
+        if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) return false;
         if (this._writeDisabled) {
-            // 惰性探活（#293/#297）：瞬态读取失败可自愈；成功不覆盖内存数据（与 preset 对齐）
+            // 惰性探活：读取恢复后合并原数据与保护期编辑（与 preset 对齐）。
             try {
                 const probe = GM_getValue('ai-grading-workflows');
                 const recovered = probe ? JSON.parse(probe) : null;
-                if (recovered && recovered.workflows) {
+                if (isWorkflowDataValid(recovered)) {
+                    this.data = mergeRecoveredData(recovered, this.data, this._degradedBase);
                     this._writeDisabled = false;
                     if (typeof showToast === 'function') showToast('工作流配置存储已恢复，请再次点击保存');
                     return false;
@@ -468,8 +517,7 @@ const WorkflowManager = {
     updateWorkflow(name, config) {
         if (!this.data.workflows[name]) return false;
         Object.assign(this.data.workflows[name], config);
-        this.save();
-        return true;
+        return this.save();
     },
     deleteWorkflow(name) {
         const wf = this.data.workflows[name];
@@ -590,7 +638,10 @@ function filterUsableImagesForAI(list) {
 
 // ========== 通用 AI 请求函数 ==========
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
+    const signal = config.signal || window.aiGradingState.abortController?.signal;
+    let abortRequest;
     return new Promise((resolve, reject) => {
+        if (signal?.aborted) return reject(new Error('用户主动暂停'));
         // 合并额外图片（来自题目/答案/评分标准）+ 学生答题卡图片
         var allImages = (extraImages && extraImages.length) ? extraImages.concat(base64DataArray) : base64DataArray;
         // 废图闸（请求组装汇聚点，工单①）：剔除尺寸异常的裁剪残片，防止 API 400 整单暂停。
@@ -783,16 +834,17 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             }
         });
 
-        if (window.aiGradingState.abortController) {
-            window.aiGradingState.abortController.signal.addEventListener('abort', () => {
+        if (signal) {
+            abortRequest = () => {
                 if (!settled) {
                     settled = true;
                     request.abort();
                     reject(new Error('用户主动暂停'));
                 }
-            });
+            };
+            signal.addEventListener('abort', abortRequest, { once: true });
         }
-    });
+    }).finally(() => { if (abortRequest) signal?.removeEventListener('abort', abortRequest); });
 }
 
 // ========== 带重试的 AI 请求包装 ==========
@@ -850,9 +902,11 @@ function classifyTransientError(error, policy) {
 }
 
 async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
+    config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
     const policy = getRetryPolicy(config);
     for (let i = 0; i <= policy.maxRetries; i++) {
         try {
+            if (config.signal?.aborted) throw new Error('用户主动暂停');
             return await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
         } catch (error) {
             const kind = classifyTransientError(error, policy);
@@ -860,13 +914,14 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
             const delay = policy.backoffBaseMs * (i + 1);
             console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
             if (onStreamUpdate) onStreamUpdate(`⏳ ${kind}，${Math.round(delay / 1000)}s 后自动重试（第${i + 1}/${policy.maxRetries}次）…`);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            await abortableGradingDelay(delay, config.signal);
         }
     }
 }
 
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
+    config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
     const budget = config.requestBudget || { remaining: 3 };
     const policy = getOutputLimitPolicy(config.outputLimitKey);
     const configuredLimit = Number(config.maxOutputTokens);
@@ -875,7 +930,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
     let upgraded = false;
     let serverRetried = 0;
     for (let attempt = 0; attempt < 3; attempt++) {
-        if (window.aiGradingState.abortController?.signal.aborted) throw new Error('用户主动暂停');
+        if (config.signal?.aborted) throw new Error('用户主动暂停');
         if (budget.remaining <= 0) throw new Error('AI请求次数已达到上限');
         budget.remaining--;
         try {
@@ -895,7 +950,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 serverRetried++;
                 const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
                 console.warn(`⚠️ [callAI] 服务端错误 ${error.status}，${delay}ms 后重试（第${serverRetried}次）`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await abortableGradingDelay(delay, config.signal);
                 continue;
             }
             throw error;
@@ -910,7 +965,7 @@ async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, 
 
 // ========== 双评引擎 ==========
 // 双评合并取整策略（工单②）：wf.dualEval.mergeMode ∈ round | floor | ceil | min | max
-//   round（默认；旧配置缺字段即此值）= 现行为逐值不变：平均后按 scoring.roundMethod 吸附步长
+//   round（默认）= 平均后四舍五入到评分梯度
 //   floor / ceil = 平均后向下/向上取整到评分梯度（强制取整方法，不受 scoring.roundMethod 影响）
 //   min / max = 取两模型低分/高分（不平均），外向吸附：min→floor（只降不升）、max→ceil（只升不降）
 //     ——「取低分」绝不输出高于低分的值、「取高分」绝不输出低于高分的值（返修①，教师语义优先）
@@ -923,7 +978,7 @@ async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, 
 function mergeDualValue(scoreA, scoreB, snap, maxScore, mergeMode) {
     const mode = mergeMode || 'round';
     let raw;
-    let method = (snap && snap.roundMethod) || 'round';
+    let method = 'round';
     if (mode === 'min') {
         raw = Math.min(scoreA, scoreB);
         // 外向吸附（返修①）：「取低分」只降不升 —— floor 到梯度，
@@ -993,32 +1048,33 @@ function buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore, merge
 }
 
 async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
-    const workflow = WorkflowManager.getWorkflow(config.workflowId);
+    const sourceWorkflow = config.workflowSnapshot || WorkflowManager.getWorkflow(config.workflowId);
+    const workflow = sourceWorkflow ? JSON.parse(JSON.stringify(sourceWorkflow)) : null;
     if (!workflow || !workflow.dualEval || !workflow.dualEval.enabled) {
         // 非双评模式，走普通流程
         return callAIGrading(base64DataArray, config, onStreamUpdate);
     }
 
     const dualConfig = workflow.dualEval;
+    const arbitrationSnapshot = ProviderManager.getCallConfig(dualConfig.arbitration?.provider, dualConfig.arbitration?.model);
     const threshold = dualConfig.threshold != null ? dualConfig.threshold : 2;
 
     // 获取主模型和副模型配置
     const primaryConfig = ProviderManager.getCallConfig(
         workflow.model.provider, workflow.model.model
     );
-    if (workflow.model.reasoningEffort) {
+    if (primaryConfig && workflow.model.reasoningEffort) {
         primaryConfig.reasoningEffort = workflow.model.reasoningEffort;
     }
     const secondaryConfig = ProviderManager.getCallConfig(
-        dualConfig.secondary.provider, dualConfig.secondary.model
+        dualConfig.secondary?.provider, dualConfig.secondary?.model
     );
-    if (dualConfig.secondary.reasoningEffort) {
+    if (secondaryConfig && dualConfig.secondary.reasoningEffort) {
         secondaryConfig.reasoningEffort = dualConfig.secondary.reasoningEffort;
     }
 
     if (!primaryConfig || !secondaryConfig) {
-        console.warn('⚠️ [双评] 模型配置不完整，回退到单模型模式');
-        return callAIGrading(base64DataArray, config, onStreamUpdate);
+        throw new Error('双评模型配置不完整，请重新选择主模型和副模型');
     }
 
     console.log(`🔄 [双评] 启动双评模式 — 主模型: ${primaryConfig.model}, 副模型: ${secondaryConfig.model}, 阈值: ${threshold}分`);
@@ -1123,10 +1179,8 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     console.log(`⚠️ [双评] 分差超阈值(${diff} > ${threshold})，启动三评仲裁...`);
     if (onStreamUpdate) onStreamUpdate(`⚠️ 分差 ${diff} 分超阈值，正在进行三评仲裁...`);
 
-    const arbConfig = ProviderManager.getCallConfig(
-        dualConfig.arbitration.provider, dualConfig.arbitration.model
-    );
-    if (dualConfig.arbitration.reasoningEffort) {
+    const arbConfig = arbitrationSnapshot;
+    if (arbConfig && dualConfig.arbitration.reasoningEffort) {
         arbConfig.reasoningEffort = dualConfig.arbitration.reasoningEffort;
     }
     if (!arbConfig) {

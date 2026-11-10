@@ -156,7 +156,8 @@ const HaiyunAdapter = {
         return true;
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         const submitBtn = document.querySelector(HAIYUN_SELECTORS.SUBMIT_BUTTON);
         if (!submitBtn) {
             console.warn('⚠️ [海云智评] 未找到提交按钮');
@@ -165,20 +166,26 @@ const HaiyunAdapter = {
         console.log('📤 [海云智评] 点击提交按钮');
         submitBtn.click();
         // 提交后弹二次确认对话框，自动点「提交」
-        this._handleConfirmDialog();
+        this._handleConfirmDialog(guard);
         return true;
     },
 
     // 处理二次确认弹窗（el-dialog，按钮 ID 固定）
-    _handleConfirmDialog() {
+    _handleConfirmDialog(guard) {
+        let checking = false;
         console.log('⏳ [海云智评] 等待确认弹窗...');
         let checkCount = 0;
-        const checkInterval = setInterval(() => {
+        const checkInterval = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
+            if (checking) return;
             checkCount++;
 
             const confirmBtn = document.querySelector(HAIYUN_SELECTORS.CONFIRM_SUBMIT);
             if (confirmBtn && confirmBtn.offsetParent !== null) {
                 console.log('✅ [海云智评] 找到确认弹窗，自动点击提交');
+                checking = true;
+                try { if (guard) await guard.verify(); } catch (_) { clearInterval(checkInterval); return; }
+                if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
                 confirmBtn.click();
                 clearInterval(checkInterval);
                 return;

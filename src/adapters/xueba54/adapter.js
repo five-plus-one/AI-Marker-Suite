@@ -202,7 +202,8 @@ const Xueba54Adapter = {
         return true;
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         // 查找"立即提交"按钮
         const buttons = document.querySelectorAll(XUEBA54_SELECTORS.SUBMIT_BUTTON);
         for (const btn of buttons) {
@@ -210,7 +211,7 @@ const Xueba54Adapter = {
             if (text.includes('立即提交') || text.includes('提交')) {
                 btn.click();
                 // 自动点击确认弹窗
-                this._autoConfirmDialog();
+                this._autoConfirmDialog(guard);
                 return true;
             }
         }
@@ -222,7 +223,7 @@ const Xueba54Adapter = {
             if (text === '立即提交') {
                 btn.click();
                 // 自动点击确认弹窗
-                this._autoConfirmDialog();
+                this._autoConfirmDialog(guard);
                 return true;
             }
         }
@@ -232,11 +233,14 @@ const Xueba54Adapter = {
     },
 
     // 自动点击确认弹窗（layui-layer）
-    _autoConfirmDialog() {
+    _autoConfirmDialog(guard) {
+        let checking = false;
         const maxAttempts = 30; // 最多检测 30 次（6秒）
         let attempts = 0;
 
-        const checkDialog = setInterval(() => {
+        const checkDialog = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(checkDialog); return; }
+            if (checking) return;
             attempts++;
 
             // 查找 layui-layer 弹窗中的"确认"按钮
@@ -245,6 +249,9 @@ const Xueba54Adapter = {
                 const text = (btn.textContent || '').trim();
                 if (text === '确认' || text === '确定') {
                     console.log('[54学霸] 自动点击确认按钮');
+                    checking = true;
+                    try { if (guard) await guard.verify(); } catch (_) { clearInterval(checkDialog); return; }
+                    if (guard && !guard.isCurrent()) { clearInterval(checkDialog); return; }
                     btn.click();
                     clearInterval(checkDialog);
                     return;
@@ -257,6 +264,9 @@ const Xueba54Adapter = {
                 const text = (btn.textContent || '').trim();
                 if (text === '确认' || text === '确定') {
                     console.log('[54学霸] 自动点击确认按钮');
+                    checking = true;
+                    try { if (guard) await guard.verify(); } catch (_) { clearInterval(checkDialog); return; }
+                    if (guard && !guard.isCurrent()) { clearInterval(checkDialog); return; }
                     btn.click();
                     clearInterval(checkDialog);
                     return;

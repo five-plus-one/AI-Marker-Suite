@@ -23,6 +23,7 @@ function loadPreset(initialList) {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     // 拦截 init 里的 restoreConfigIfMissing（不存在于沙箱）
     vm.runInContext('var restoreConfigIfMissing = undefined;' + src + ';__exports__ = PresetManager;', sandbox);
     return { PM: sandbox.__exports__, store };

@@ -36,18 +36,21 @@ const NODE_MODULES_DIR = path.join(__dirname, 'node_modules');
 
 // 外部库（内联打包，按依赖顺序）
 const VENDOR_LIBS = [
+    { name: 'dompurify', path: path.join(NODE_MODULES_DIR, 'dompurify/dist/purify.min.js') },
     { name: 'marked', path: path.join(NODE_MODULES_DIR, 'marked/lib/marked.umd.js') },
     { name: 'katex',  path: path.join(NODE_MODULES_DIR, 'katex/dist/katex.min.js') },
 ];
 
 // KaTeX CSS（注入为 <style> 标签，字体 URL 改为 CDN 绝对路径）
 const KATEX_CSS_PATH = path.join(NODE_MODULES_DIR, 'katex/dist/katex.min.css');
-const KATEX_FONTS_CDN = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/fonts/';
+const KATEX_VERSION = JSON.parse(fs.readFileSync(path.join(NODE_MODULES_DIR, 'katex/package.json'), 'utf8')).version;
+const KATEX_FONTS_CDN = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/fonts/`;
 
 // 核心模块加载顺序（顺序很重要：被依赖的模块先加载）
 const CORE_MODULES = [
     'config.js',
     'state.js',
+    'runtime.js',
     'preset.js',
     'score.js',           // ScoreCalculator (需在 prompt.js 之前)
     'ui-toast.js',
