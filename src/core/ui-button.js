@@ -187,6 +187,9 @@ function undockFloatingButtons() {
 // ========== 创建主按钮 ==========
 function createMainButton() {
     if (document.querySelector('.ai-grade-btn')) return;
+    document.querySelector('.ai-history-btn')?.remove();
+    document.querySelector('.ai-settings-btn')?.remove();
+    document.getElementById('ai-history-only-style')?.remove();
     const btn = document.createElement('button');
     btn.className = 'ai-grade-btn';
     btn.innerHTML = 'AI 批改';
@@ -289,6 +292,7 @@ function createMainButton() {
 function createHistoryOnlyButton() {
     if (document.querySelector('.ai-history-btn')) return;
     const style = document.createElement('style');
+    style.id = 'ai-history-only-style';
     style.textContent = `
         .ai-history-btn {
             all: initial;
