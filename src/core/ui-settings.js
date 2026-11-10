@@ -2559,7 +2559,7 @@ async function handleAddModel() {
     document.getElementById('new-model-id').value = '';
     renderModelList();
     renderWorkflowInfo();
-    showToast(`模型「${modelId}」已添加`);
+    showToast(`模型「${modelId}」已添加到供应商「${currentProviderName}」（添加目标=设置页当前选中的供应商）`);
 }
 
 // ========== 工作流管理 ==========
@@ -2600,6 +2600,8 @@ function renderWorkflowInfo() {
             html += `<div style="margin-bottom:4px;"><strong>副模型：</strong>${safe(sec.provider)} / ${safe(sec.model)}${sec.reasoningEffort ? ' <span style="font-size:11px;color:#86868b;">(' + safe(reasoningLabel[sec.reasoningEffort] || sec.reasoningEffort) + ')</span>' : ''}</div>`;
             html += `<div style="margin-bottom:4px;"><strong>仲裁模型：</strong>${safe(arb.provider)} / ${safe(arb.model)}${arb.reasoningEffort ? ' <span style="font-size:11px;color:#86868b;">(' + safe(reasoningLabel[arb.reasoningEffort] || arb.reasoningEffort) + ')</span>' : ''}</div>`;
             html += `<div><strong>分差阈值：</strong>${wf.dualEval.threshold}分</div>`;
+            const mergeModeLabels = { round: '平均后四舍五入', floor: '向下取整到梯度', ceil: '向上取整到梯度', min: '取低分', max: '取高分' };
+            html += `<div><strong>合并策略：</strong>${safe(mergeModeLabels[wf.dualEval.mergeMode] || mergeModeLabels.round)}</div>`;
         }
         infoEl.innerHTML = html;
     }
@@ -2676,9 +2678,11 @@ function showWorkflowEditModal(wf) {
     function getModelOptions(providerName) {
         const provider = ProviderManager.data.providers[providerName];
         if (!provider) return '';
-        return Object.entries(provider.models || {}).map(([id, info]) =>
+        const opts = Object.entries(provider.models || {}).map(([id, info]) =>
             `<option value="${escapeSettingsHtml(id)}">${escapeSettingsHtml(info.label || id)}</option>`
         ).join('');
+        // 空态提示（#320）：模型为空时教师无从判断是没同步还是加错了供应商
+        return opts || '<option value="">（该供应商暂无模型——请到设置页「AI 配置」先选中该供应商再添加模型）</option>';
     }
 
     const isDual = wf.dualEval && wf.dualEval.enabled;
@@ -2719,6 +2723,13 @@ function showWorkflowEditModal(wf) {
                         <div class="form-group"><label>模型</label><select id="wf-edit-arb-model"></select></div>
                         <div class="form-group"><label>思考参数</label><input id="wf-edit-arb-reasoning" list="wf-reasoning-options" placeholder="留空则不发送"></div>
                         <div class="form-group"><label>分差阈值 (分，设为0则两模型必须完全一致)</label><input type="number" id="wf-edit-threshold" value="${wf.dualEval?.threshold != null ? wf.dualEval.threshold : 2}" min="0" max="10"></div>
+                        <div class="form-group"><label>双评合并策略 <span style="font-size:11px;color:#86868b;">(两模型给分如何合成最终分)</span></label><select id="wf-edit-merge-mode">
+                            <option value="round">平均后四舍五入</option>
+                            <option value="floor">向下取整到梯度</option>
+                            <option value="ceil">向上取整到梯度</option>
+                            <option value="min">取低分</option>
+                            <option value="max">取高分</option>
+                        </select></div>
                     </div>
                 </div>
             </div>
@@ -2773,6 +2784,11 @@ function showWorkflowEditModal(wf) {
         arbModel.innerHTML = getModelOptions(resolvedArbProvider);
         arbModel.value = wf.dualEval.arbitration.model || '';
         arbReasoning.value = wf.dualEval.arbitration.reasoningEffort || '';
+
+        // 双评合并策略（工单②）：旧配置缺字段 = round
+        const mergeModeSel = document.getElementById('wf-edit-merge-mode');
+        const mm = wf.dualEval.mergeMode;
+        mergeModeSel.value = ['round', 'floor', 'ceil', 'min', 'max'].includes(mm) ? mm : 'round';
     }
 
     // 供应商变化时更新模型列表
@@ -2823,7 +2839,8 @@ function showWorkflowEditModal(wf) {
                 enabled: true,
                 secondary: { provider: secProvider.value, model: secModel.value, reasoningEffort: secReasoning.value.trim() },
                 arbitration: { provider: arbProvider.value, model: arbModel.value, reasoningEffort: arbReasoning.value.trim() },
-                threshold: (function () { var v = parseInt(document.getElementById('wf-edit-threshold').value); return isNaN(v) ? 2 : Math.max(0, v); })()
+                threshold: (function () { var v = parseInt(document.getElementById('wf-edit-threshold').value); return isNaN(v) ? 2 : Math.max(0, v); })(),
+                mergeMode: (function () { var v = document.getElementById('wf-edit-merge-mode').value; return ['round', 'floor', 'ceil', 'min', 'max'].includes(v) ? v : 'round'; })()
             } : null
         };
 

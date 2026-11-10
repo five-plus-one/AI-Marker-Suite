@@ -84,7 +84,10 @@ function grabFrom(src, name) {
 
 async function runMainFlow({ paperGuard, changePaper }) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
+    const engineSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ai-engine.js'), 'utf8');
     const parts = [
+        // startAutoGrading 依赖废图闸（工单①，实现在 ai-engine.js）；沙箱无 atob 时闸不误杀
+        grabFrom(engineSrc, 'probeImageDimensions'), grabFrom(engineSrc, 'filterUsableImagesForAI'),
         grabFrom(src, 'normalizePaperImageUrl'), grabFrom(src, 'paperUrlSetContains'),
         grabFrom(src, 'snapshotScoreInputs'), grabFrom(src, 'scoreInputsTransitionedEmpty'),
         grabFrom(src, 'verifyPaperUnchanged'), grabFrom(src, 'confirmLeftMarkingPage'),

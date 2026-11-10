@@ -14,15 +14,23 @@ const XinkaoCampusAdapter = {
     iconUrl: '',
 
     shouldInitialize() {
-        // 内网裸 IP:端口部署，不硬编码 hostname，靠路径 + DOM 特征识别（防串台）
+        // 内网裸 IP:端口部署，不硬编码 hostname，靠路径 + DOM 专有锚识别（防串台）
         const path = window.location.pathname || '';
-        if (/\/Marking\/NormalReadPaper/i.test(path)) return true;
+        if (/\/Marking\/NormalReadPaper(\.\w+)?\/?$/i.test(path)) {
+            // 同路径与 yunyuejuan 重叠（strict-b S17）——按提交形态分叉：yunyuejuan 有独立
+            // 提交按钮 button.btn-standard-pri.phr15，campus 走 inputkey(']') 无此按钮（附 A.3）
+            return !document.querySelector('button.btn-standard-pri');
+        }
+        // DOM 兜底（strict-a 附 A.3）：data-score 满分语义 + inputkey 提交契约是 campus 专有
+        // 组合（与 adapter 读取同源），排 yunyuejuan 的独立提交按钮（strict-b S15/S16 教训）
         return !!(document.querySelector(XINKAO_CAMPUS_SELECTORS.ANSWER_IMAGE)
-            && document.querySelector(XINKAO_CAMPUS_SELECTORS.SCORE_INPUTS));
+            && document.querySelector('input.fenshu[data-score]')
+            && typeof window.inputkey === 'function'
+            && !document.querySelector('button.btn-standard-pri'));
     },
 
     isMarkingPage() {
-        return /\/Marking\/NormalReadPaper/i.test(window.location.pathname);
+        return /\/Marking\/NormalReadPaper(\.\w+)?\/?$/i.test(window.location.pathname);
     },
 
     async detectMarkingPage() {
@@ -258,7 +266,18 @@ const XinkaoCampusAdapter = {
     },
 };
 
-// 注册适配器
-if (XinkaoCampusAdapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = XinkaoCampusAdapter;
-}
+// 注册守卫（#324 教训 + strict-a 附 A.0）：自查 shouldInitialize → 先到先得（不覆盖）→
+// 已注册且我也认领本页 = 多命中冲突，console.error 红灯告警（静默劫持变可见）→ 异常 fail-closed
+(function registerXinkaoCampusAdapter() {
+    try {
+        if (!XinkaoCampusAdapter.shouldInitialize()) return;
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing) {
+            console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 鑫考校园(xinkao-campus) 也认领本页（疑似串台/劫持），保留先到者`);
+            return;
+        }
+        window.__AI_MARKER_ADAPTER__ = XinkaoCampusAdapter;
+    } catch (e) {
+        console.warn('⚠️ [注册] 判定异常，fail-closed 不注册:', e);
+    }
+})();

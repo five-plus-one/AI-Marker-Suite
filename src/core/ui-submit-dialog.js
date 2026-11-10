@@ -912,7 +912,8 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         });
     }
 
-    const confirmSubmitFn = async () => {
+    // 确认提交主体（原 confirmSubmitFn；重入闩见下方包装）
+    const runConfirmSubmitOnce = async () => {
         if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
         dialog.remove();
 
@@ -1000,6 +1001,21 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 btn.classList.add('paused');
             }
             showToast('⚠️ 未找到提交按钮，请手动提交后点击"继续批改"');
+        }
+    };
+
+    // 重入闩（strict-a C.2，🔴 数据安全）：「确认提交」按钮双击、点击×倒计时到期、
+    // auto-confirm（countdownSeconds<=0）三入口并发时会双跑 HistoryManager.add + 双
+    // submitGrade（双提交）。三入口统一经本闩：同一确认链只允许一次提交；
+    // finally 释放覆盖全部早退/异常路径（#299 填分失败中止分支同样被闩住）。
+    let confirmSubmitting = false;
+    const confirmSubmitFn = async () => {
+        if (confirmSubmitting) return;
+        confirmSubmitting = true;
+        try {
+            return await runConfirmSubmitOnce();
+        } finally {
+            confirmSubmitting = false;
         }
     };
 

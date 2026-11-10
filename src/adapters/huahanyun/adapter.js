@@ -77,15 +77,19 @@
         version: '1.0.0',
 
         shouldInitialize() {
-            const h = location.hostname;
-            // 华翰云多区部署（本例 yj.lcedu.net.cn = 鹿城区）；域名不到时看 DOM 签名（防串台三特征）
-            if (h.includes('lcedu.net.cn')) return true;
-            return this._hasDomSignature();
+            // X05 产品裁决（#324 铁律：宁可保守不劫持）：三条件全必要，宿主无关兜底已删除——
+            //   ① 已知宿主边界匹配（hostMatches：精确域或 .lcedu.net.cn 子域，粘连域出局）
+            //   ② 精确批改路由 #/marking/grading(\?|$)（gradingList 子串页不得认领）
+            //   ③ DOM 三特征（分数框 + 给分按钮，_hasDomSignature 含②）
+            // 改名部署需加宿主白名单（docs 已写明支持路径），不再走无宿主 DOM 兜底
+            const h = (location.hostname || '').toLowerCase();
+            const hostKnown = h === 'lcedu.net.cn' || h.endsWith('.lcedu.net.cn');
+            return hostKnown && this._hasDomSignature();
         },
 
         // 三特征识别（#284 防串台）：批改路由 + 分数框 + 给分按钮
         _hasDomSignature() {
-            return location.hash.indexOf('/marking/grading') >= 0
+            return /#\/marking\/grading(\?|$)/.test(location.hash)
                 && !!document.querySelector(window.HUAHANYUN_SELECTORS.SCORE_INPUT)
                 && !!document.querySelector(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON);
         },
@@ -251,9 +255,42 @@
         },
     };
 
-    // 注册守卫（#324 P0）：必须与其余 38 个适配器一致——只有 shouldInitialize 命中才注册。
-    // 此前无条件注册且本模块在 bundle 末位，导致所有平台页面被本适配器劫持
-    if (adapter.shouldInitialize()) {
-        window.__AI_MARKER_ADAPTER__ = adapter;
+    // 注册守卫（#324 P0 + strict-a 附 A.0）：自查 shouldInitialize → 先到先得（不覆盖）→
+    // 已注册且我也认领本页 = 多命中冲突，console.error 红灯告警（静默劫持变可见）→ 异常 fail-closed。
+    // 此前无条件注册且本模块在 bundle 末位，导致所有平台页面被本适配器劫持。
+    // 返回值：true=已处置（认领/让位/异常），false=不认领本页
+    function tryRegisterHuahanyun() {
+        try {
+            if (!adapter.shouldInitialize()) return false;
+            const existing = window.__AI_MARKER_ADAPTER__;
+            if (existing) {
+                console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 云阅卷(华翰云)(huahanyun) 也认领本页（疑似串台/劫持），保留先到者`);
+                return true;
+            }
+            window.__AI_MARKER_ADAPTER__ = adapter;
+            return true;
+        } catch (e) {
+            console.warn('⚠️ [注册] 判定异常，fail-closed 不注册:', e);
+            return true;
+        }
+    }
+
+    if (!tryRegisterHuahanyun()) {
+        // DOM 时序兜底（X05 三条件下 SPA 渲染可能晚于脚本注入）：已知宿主 + 精确路由已命中、
+        // 但 DOM 三特征未就绪时，短窗观察 DOM 出现后补注册——注册条件仍是三者全必要，
+        // 只是把「DOM 就绪」从注入瞬间放宽到有限窗口（10s，guangda-2 延迟注册同款；
+        // 先到先得 + 冲突告警语义不变）。窗口耗尽仍不注册（宁可保守不劫持）
+        try {
+            const h = (location.hostname || '').toLowerCase();
+            const hostKnown = h === 'lcedu.net.cn' || h.endsWith('.lcedu.net.cn');
+            const routeOk = /#\/marking\/grading(\?|$)/.test(location.hash);
+            if (hostKnown && routeOk && typeof MutationObserver === 'function') {
+                const obs = new MutationObserver(() => {
+                    if (tryRegisterHuahanyun()) obs.disconnect();
+                });
+                obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+                setTimeout(() => obs.disconnect(), 10000);
+            }
+        } catch (e) { /* fail-closed：观察失败即不注册 */ }
     }
 })();
