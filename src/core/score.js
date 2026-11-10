@@ -16,23 +16,26 @@ const ScoreCalculator = {
      */
     round(score, scoringConfig, maxScore) {
         if (score === null || score === undefined || !scoringConfig) return score;
-        const step = scoringConfig.roundStep || 1;
+        if (!Number.isFinite(score)) return score;
+        const configuredStep = Number(scoringConfig.roundStep);
+        const step = Number.isFinite(configuredStep) && configuredStep > 0 ? configuredStep : 1;
         // roundMethod 白名单（#296）：导入配置可携带任意字符串，Math[method] 索引会被打穿
         // （如 "random"/"sqrt" 静默改写每一份分数）。使用点兜底 + 导入点净化双层防御。
         const method = ['round', 'floor', 'ceil'].includes(scoringConfig.roundMethod) ? scoringConfig.roundMethod : 'round';
-        let rounded;
-        if (step === 1) {
-            rounded = Math[method](score);
-        } else {
-            rounded = Math[method](score / step) * step;
-            rounded = Math.round(rounded * 100) / 100;
-        }
-        if (maxScore !== null && maxScore !== undefined && isFinite(maxScore) && maxScore >= 0) {
-            const max = Math.round(maxScore * 100) / 100;
-            if (rounded > max) rounded = max;
-            if (rounded < 0) rounded = 0;
-        }
-        return rounded;
+        const hasMax = maxScore !== null && maxScore !== undefined && Number.isFinite(Number(maxScore)) && maxScore >= 0;
+        const max = hasMax ? Math.round(Number(maxScore) * 100) / 100 : Infinity;
+        if (hasMax && score >= max) return max;
+        if (hasMax && score <= 0) return 0;
+        const quotient = score / step;
+        const tolerance = Number.EPSILON * Math.max(1, Math.abs(quotient)) * 4;
+        const clean = v => { const n = Math.round(v * 1e8) / 1e8; return Object.is(n, -0) ? 0 : n; };
+        const lower = clean(Math.floor(quotient + tolerance) * step);
+        const upper = Math.min(clean(Math.ceil(quotient - tolerance) * step), max);
+        if (method === 'floor') return lower;
+        if (method === 'ceil') return upper;
+        // 默认整数取整保留 Math.round 的负零语义。
+        if (!hasMax && step === 1) return Math.round(score);
+        return score - lower < upper - score - step * tolerance ? lower : upper;
     },
 
     /**
@@ -47,7 +50,7 @@ const ScoreCalculator = {
         if (!diligenceConfig || !diligenceConfig.enabled || !diligenceLevel || diligenceLevel <= 0 || maxScore <= 0) {
             return { bonus: 0, decayFactor: 0, rawBonus: 0, finalScore: accuracyScore };
         }
-        const maxBonus = diligenceConfig.maxBonus || 3;
+        const maxBonus = diligenceConfig.maxBonus ?? 3;
         const decayPower = diligenceConfig.decayPower || 2;
         const perLevel = 1;
         const ratio = Math.min(accuracyScore / maxScore, 1);
@@ -66,24 +69,34 @@ const ScoreCalculator = {
      * @param {Function} roundFn - 取整函数
      * @returns {Array} 分配后的单元分数
      */
-    distributeBonus(unitScores, bonus, roundFn) {
+    distributeBonus(unitScores, bonus, roundFn, scoringConfig) {
         if (!bonus || bonus <= 0 || !unitScores || unitScores.length === 0) return unitScores;
         const totalMax = unitScores.reduce((s, u) => s + (u.maxScore || 1), 0);
         if (totalMax <= 0) return unitScores;
-        const round = roundFn || (v => Math.round(v * 100) / 100);
+        const clean = n => Math.round(n * 1e8) / 1e8;
+        const out = unitScores.map(u => ({ ...u }));
+        const allocated = unitScores.map(() => 0);
         let remaining = bonus;
-        return unitScores.map((u, i) => {
-            const max = u.maxScore || Infinity;
-            if (i === unitScores.length - 1) {
-                const added = Math.min(remaining, max - (u.score || 0));
-                return { ...u, score: Math.min(round(u.score + added), max) };
-            }
-            const share = Math.round(bonus * (u.maxScore || 1) / totalMax * 10) / 10;
-            const maxAdd = max - (u.score || 0);
-            const added = Math.min(share, maxAdd, remaining);
-            remaining -= added;
-            return { ...u, score: Math.min(round(u.score + added), max) };
-        });
+        // 每次只分配一个真实可填的梯度，扣减实际增量。不能先分小数再逐题四舍五入。
+        for (let count = 0; count < 100000; count++) {
+            let best = -1, bestDelta = 0, bestNeed = -Infinity;
+            out.forEach((u, i) => {
+                if (u.score == null) return;
+                const step = u.roundStep || scoringConfig?.roundStep || 0.01;
+                const max = u.maxScore ?? Infinity;
+                const next = Math.min(clean((Math.floor(u.score / step + 1e-9) + 1) * step), max);
+                const delta = clean(next - u.score);
+                const need = bonus * (u.maxScore || 1) / totalMax - allocated[i];
+                if (delta > 0 && delta <= remaining + 1e-8 && need > bestNeed) {
+                    best = i; bestDelta = delta; bestNeed = need;
+                }
+            });
+            if (best < 0) break;
+            out[best].score = clean(out[best].score + bestDelta);
+            allocated[best] = clean(allocated[best] + bestDelta);
+            remaining = clean(remaining - bestDelta);
+        }
+        return out;
     },
 
     /**
@@ -106,10 +119,11 @@ const ScoreCalculator = {
         // 2. 勤勉加分（基于原始分数计算衰减，不受取整影响）
         const diligenceResult = this.calcDiligenceBonus(aiScore, diligenceLevel, maxScore, scoringConfig.diligence);
         // 勤勉加分本身也取整
-        const roundedBonus = this.round(diligenceResult.bonus, scoringConfig);
+        let roundedBonus = this.round(diligenceResult.bonus, scoringConfig);
 
         // 3. 最终总分 = min(取整(准确性 + 勤勉), 满分)
-        let finalScore = Math.min(this.round(accuracyScore + roundedBonus, scoringConfig), maxScore);
+        let finalScore = this.round(accuracyScore + roundedBonus, scoringConfig, maxScore);
+        roundedBonus = Math.max(0, Math.round((finalScore - accuracyScore) * 100) / 100);
 
         if (roundedBonus > 0) {
             console.log(`🌟 [分数计算] 勤勉等级${diligenceLevel}/5, 衰减${diligenceResult.decayFactor.toFixed(2)}, 加分+${roundedBonus}, 最终${finalScore}`);
@@ -126,26 +140,20 @@ const ScoreCalculator = {
                     score: u.score !== null && u.score !== undefined ? this.round(u.score, unitConfig, u.maxScore) : null
                 };
             });
-            // 勤勉加分按比例分配；单元独立步长时分配结果可能脱网格，
-            // 分配后按单元步长+满分再吸附（#289 二轮审计 A-3）
+            // 按单元比例与可填写梯度分配，实际增量合计不超过加分预算。
             finalUnitScores = roundedBonus > 0
-                ? this.distributeBonus(rounded, roundedBonus, s => this.round(s, scoringConfig)).map(u => {
-                    const unitConfig = u.roundStep ? { ...scoringConfig, roundStep: u.roundStep } : scoringConfig;
-                    return { ...u, score: u.score !== null && u.score !== undefined ? this.round(u.score, unitConfig, u.maxScore) : u.score };
-                })
-                : rounded;
+                ? this.distributeBonus(rounded, roundedBonus, null, scoringConfig) : rounded;
+            roundedBonus = Math.round(finalUnitScores.reduce((sum, u, i) => sum +
+                (u.score == null ? 0 : u.score - rounded[i].score), 0) * 100) / 100;
 
             // 校验：各单元之和应等于总分；不一致时以小题之和为准（小题是明细、最终按小题填入平台）
-            const unitSum = finalUnitScores.reduce((s, u) => s + (u.score || 0), 0);
-            if (Math.abs(unitSum - finalScore) > 0.01) {
-                // 仅当所有单元均有分数时才覆盖，避免部分单元缺分时误改总分
-                const allScored = finalUnitScores.every(u => u.score !== null && u.score !== undefined);
-                if (allScored) {
-                    console.warn(`⚠️ [分数计算] 各单元之和(${unitSum})与总分(${finalScore})不一致，以小题之和为准`);
-                    finalScore = Math.min(unitSum, maxScore);
-                } else {
+            const unitSum = Math.round(finalUnitScores.reduce((s, u) => s + (u.score || 0), 0) * 1e8) / 1e8;
+            const allScored = finalUnitScores.every(u => u.score !== null && u.score !== undefined);
+            if (allScored) {
+                if (Math.abs(unitSum - finalScore) > 1e-8) console.warn(`⚠️ [分数计算] 各单元之和(${unitSum})与总分(${finalScore})不一致，以小题之和为准`);
+                finalScore = Math.min(unitSum, maxScore);
+            } else if (Math.abs(unitSum - finalScore) > 0.01) {
                     console.warn(`⚠️ [分数计算] 各单元之和(${unitSum})与总分(${finalScore})不一致（部分单元缺分，保留原总分）`);
-                }
             }
         }
 

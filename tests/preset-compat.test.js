@@ -23,6 +23,7 @@ function loadPreset(initialList) {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     // 拦截 init 里的 restoreConfigIfMissing（不存在于沙箱）
     vm.runInContext('var restoreConfigIfMissing = undefined;' + src + ';__exports__ = PresetManager;', sandbox);
     return { PM: sandbox.__exports__, store };
@@ -215,6 +216,7 @@ test('变异自检 W4：净化链剥除 humanPacing → 保全断言必红（红
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(mutated + ';__exports__ = PresetManager;', sandbox);
     const clean = sandbox.__exports__.sanitizePreset({ humanPacing: { enabled: true }, scoring: {} });
     assert.strictEqual(clean.humanPacing, undefined, '变异被检出：humanPacing 被剥除——保全用例的断言此时必红');

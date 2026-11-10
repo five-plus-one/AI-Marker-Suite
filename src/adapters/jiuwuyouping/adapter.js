@@ -278,7 +278,8 @@ const JiuwuyoupingAdapter = {
         return false;
     },
 
-    async submitGrade() {
+    async submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         const doc = this._getFrameDoc();
         const win = this._getFrameWin();
         if (!doc) {
@@ -293,6 +294,8 @@ const JiuwuyoupingAdapter = {
 
         // 限速未冷却时 tjfs 会拒绝，先等
         await this._waitRateLimit(win);
+        if (guard) await guard.verify();
+        if (guard && !guard.isCurrent()) return false;
 
         btn.click();
         console.log('📤 [九五优评] 已点击提交按钮');
@@ -300,6 +303,11 @@ const JiuwuyoupingAdapter = {
         // 确认弹窗通常在 1 秒内出现，轮询 2 秒自动确认
         for (let i = 0; i < 10; i++) {
             await new Promise(r => setTimeout(r, 200));
+            if (guard) {
+                if (!guard.isCurrent()) break;
+                try { await guard.verify(); } catch (_) { break; }
+                if (!guard.isCurrent()) break;
+            }
             if (this._confirmOnce(doc, win)) break;
         }
         return true;

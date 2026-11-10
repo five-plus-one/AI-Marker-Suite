@@ -264,6 +264,7 @@
             if (!adapter.shouldInitialize()) return false;
             const existing = window.__AI_MARKER_ADAPTER__;
             if (existing) {
+                if (existing === adapter) return true;
                 console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 云阅卷(华翰云)(huahanyun) 也认领本页（疑似串台/劫持），保留先到者`);
                 return true;
             }
@@ -276,20 +277,21 @@
     }
 
     if (!tryRegisterHuahanyun()) {
-        // DOM 时序兜底（X05 三条件下 SPA 渲染可能晚于脚本注入）：已知宿主 + 精确路由已命中、
-        // 但 DOM 三特征未就绪时，短窗观察 DOM 出现后补注册——注册条件仍是三者全必要，
-        // 只是把「DOM 就绪」从注入瞬间放宽到有限窗口（10s，guangda-2 延迟注册同款；
-        // 先到先得 + 冲突告警语义不变）。窗口耗尽仍不注册（宁可保守不劫持）
+        // 已知宿主的列表页可通过 SPA 进入阅卷页；路由与 DOM 就绪后再按完整条件注册。
         try {
             const h = (location.hostname || '').toLowerCase();
             const hostKnown = h === 'lcedu.net.cn' || h.endsWith('.lcedu.net.cn');
-            const routeOk = /#\/marking\/grading(\?|$)/.test(location.hash);
-            if (hostKnown && routeOk && typeof MutationObserver === 'function') {
-                const obs = new MutationObserver(() => {
-                    if (tryRegisterHuahanyun()) obs.disconnect();
-                });
+            if (hostKnown && typeof MutationObserver === 'function') {
+                const tryLater = () => {
+                    if (tryRegisterHuahanyun()) {
+                        obs.disconnect(); window.removeEventListener('hashchange', tryLater);
+                    }
+                };
+                const obs = new MutationObserver(tryLater);
                 obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
-                setTimeout(() => obs.disconnect(), 10000);
+                // 列表页可能停留很久；路由和 DOM 每次仍由 shouldInitialize 严格验证。
+                window.addEventListener('hashchange', tryLater);
+                tryLater();
             }
         } catch (e) { /* fail-closed：观察失败即不注册 */ }
     }

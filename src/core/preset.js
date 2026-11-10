@@ -15,6 +15,7 @@ const PresetManager = {
     },
     init() {
         this._writeDisabled = false;
+        if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) { this._enterReadOnly(null); return; }
         let raw = null;
         try {
             raw = GM_getValue('ai-grading-presets');
@@ -27,6 +28,7 @@ const PresetManager = {
         if (raw) {
             try {
                 this.data = JSON.parse(raw);
+                if (!this.data || !isConfigurationRecord(this.data.list) || Object.values(this.data.list).some(cfg => !isConfigurationRecord(cfg))) throw new Error('方案数据格式不正确');
                 this.migrateAll();
             } catch (e) {
                 // 解析失败：救下原始字节并只读降级，绝不允许后续 save 覆写清空（#293）
@@ -46,7 +48,7 @@ const PresetManager = {
                 active: "默认配置",
                 bindings: {}
             };
-            this.save();
+            saveInitialConfiguration(this, '方案');
         }
     },
     // 只读降级（#293）：内存用最小默认运行，禁止保存覆写；原始字节存 rescue 键供恢复
@@ -56,6 +58,7 @@ const PresetManager = {
             if (raw != null) GM_setValue('ai-grading-presets-rescue', String(raw));
         } catch (_) { /* rescue 写入失败也不能再动主键 */ }
         this.data = { list: { "默认配置": {} }, active: "默认配置", bindings: {} };
+        this._degradedBase = JSON.parse(JSON.stringify(this.data));
         this._writeDisabled = true;
     },
 
@@ -68,12 +71,12 @@ const PresetManager = {
             const sc = Object.assign({}, out.scoring);
             if (!['round', 'floor', 'ceil'].includes(sc.roundMethod)) sc.roundMethod = 'round';
             const step = parseFloat(sc.roundStep);
-            sc.roundStep = (isFinite(step) && step > 0 && step <= 10) ? Math.round(step * 100) / 100 : 1;
+            sc.roundStep = (isFinite(step) && step >= 0.01 && step <= 10) ? Math.round(step * 100) / 100 : 1;
             if (Array.isArray(sc.units)) {
                 sc.units = sc.units.map(u => {
                     const unit = (u && typeof u === 'object' && !Array.isArray(u)) ? Object.assign({}, u) : {};
                     const us = parseFloat(unit.roundStep);
-                    if (!isFinite(us) || us <= 0 || us > 10) delete unit.roundStep;
+                    if (!isFinite(us) || us < 0.01 || us > 10) delete unit.roundStep;
                     else unit.roundStep = Math.round(us * 100) / 100;
                     const ms = parseFloat(unit.maxScore);
                     unit.maxScore = isFinite(ms) && ms >= 0 ? ms : 0;
@@ -120,7 +123,7 @@ const PresetManager = {
                 changed = true;
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     _migrateProvider() {
         const migration = { '5plus1': '5plus1官方', 'openai': 'OpenAI兼容' };
@@ -132,7 +135,7 @@ const PresetManager = {
                 changed = true;
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     _migrateWorkflow() {
         let changed = false;
@@ -172,7 +175,7 @@ const PresetManager = {
                         label: sq.label || `第${i + 1}题`,
                         maxScore: sq.maxScore || 0,
                         index: i,
-                        roundStep: 1
+                        roundStep: sq.roundStep || cfg.scoring.roundStep || 1
                     }));
                     changed = true;
                 }
@@ -189,7 +192,7 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     _migrateBlankDetection() {
         let changed = false;
@@ -204,7 +207,7 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     // 迁移：批改节奏（实验性）缺失时补默认值（关闭状态零行为变化，不覆盖用户已有配置）
     _migrateHumanPacing() {
@@ -248,7 +251,7 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) this.save();
+        if (changed) saveInitialConfiguration(this, '方案');
     },
     /**
      * 获取当前配置的评分单元列表
@@ -314,13 +317,15 @@ const PresetManager = {
         return { valid: missingMaxScore.length === 0, missingMaxScore };
     },
     save() {
+        if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) return false;
         if (this._writeDisabled) {
             // 降级期保存被拦（#293）：可见提示 + 惰性探活（瞬态读取失败可自愈退出降级）
-            // 注意（#297）：探活成功**不覆盖内存数据**——用户在保护期的修改必须保留
+            // 恢复原数据并合并保护期编辑，未编辑的默认值不能覆盖原配置。
             try {
                 const probe = GM_getValue('ai-grading-presets');
                 const recovered = probe ? JSON.parse(probe) : null;
-                if (recovered && recovered.list) {
+                if (recovered && isConfigurationRecord(recovered.list) && Object.values(recovered.list).every(isConfigurationRecord)) {
+                    this.data = mergeRecoveredData(recovered, this.data, this._degradedBase);
                     this._writeDisabled = false;
                     if (typeof showToast === 'function') showToast('配置存储访问已恢复，请再次点击保存');
                     return false;
@@ -340,6 +345,7 @@ const PresetManager = {
             }
         } catch (_) { /* 备份失败不阻塞正常保存 */ }
         GM_setValue('ai-grading-presets', json);
+        this._initialSaveFailed = false;
         return true;
     },
     getCurrentConfig() {
@@ -365,6 +371,7 @@ const PresetManager = {
                     ...wfConfig
                 };
             }
+            throw new Error('当前工作流的模型不可用，请在设置中重新选择供应商和模型');
         }
 
         // 回退到直接配置（兼容旧版）

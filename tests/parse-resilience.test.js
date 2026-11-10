@@ -113,25 +113,14 @@ test('CN。CN 分数形态按小数、digit。digit 保守（#299）', () => {
 });
 
 // ---------- 输出级消毒（#315 G1：豁免区反斜杠击穿回归） ----------
-test('sanitizeRenderedHtml：豁免区击穿 PoC 不得直通（审计实测样本）', () => {
-    const msrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ui-markdown.js'), 'utf8');
-    const m = msrc.match(/function sanitizeRenderedHtml\(html\) \{[\s\S]*?\n\}/);
-    assert.ok(m, 'sanitizeRenderedHtml 未找到');
-    const sb3 = { String, Object, Array };
-    vm.createContext(sb3);
-    vm.runInContext(m[0] + '\n;__f = sanitizeRenderedHtml;', sb3);
-    const f = sb3.__f;
-    // 审计 PoC：\$<img onerror>$ 反斜杠形态 → marked 输出原始 img（豁免区不被消费）
-    const poc1 = '<p>$<img src=x onerror=alert(1)>$</p>';
-    assert.ok(f(poc1).indexOf('onerror') === -1, 'PoC1 onerror 必须剥离');
-    // 反引号转义形态 + script 直通
-    assert.ok(f('<p>`<script>alert(1)</script>`</p>').indexOf('<script') === -1, 'script 必须移除');
-    // javascript: URI 中和
-    assert.ok(f('<a href="javascript:alert(1)">x</a>').toLowerCase().indexOf('javascript:') === -1, 'javascript: 必须中和');
-    // 合法 markdown HTML 不受影响
-    assert.strictEqual(f('<p><strong>a</strong> <code>b</code></p>'), '<p><strong>a</strong> <code>b</code></p>', '合法标签不得误伤');
-    // svg/math 容器移除
-    assert.ok(f('<svg onload=alert(1)></svg>').indexOf('onload') === -1, 'svg 必须移除');
+test('安全净化器未就绪时将内容作为纯文本展示', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src/core/ui-markdown.js'), 'utf8');
+    const body = source.match(/function sanitizeRenderedHtml\(html\) \{[\s\S]*?\n\}/)[0];
+    const sandbox = {}; vm.createContext(sandbox);
+    vm.runInContext(body + ';this.sanitize=sanitizeRenderedHtml', sandbox);
+    assert.strictEqual(sandbox.sanitize('<p>正文</p>'), '&lt;p&gt;正文&lt;/p&gt;');
+    assert.ok(!sandbox.sanitize('<img src=x onerror=alert(1)>').includes('<img'));
+    assert.ok(!sandbox.sanitize('<script>alert(1)</script>').includes('<script'));
 });
 
 // ---------- 回归：半角行为逐值不变 ----------

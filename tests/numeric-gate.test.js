@@ -31,6 +31,7 @@ function loadGate(spies) {
         adapter: spies && spies.adapter,
     };
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(GATE + '\n;__exports__ = { validateScoresForFill, safeFillScores };', sandbox);
     return { ...sandbox.__exports__, warns };
 }
@@ -69,52 +70,58 @@ test('safeFillScores：合法值原样下传并透传适配器返回值', () => 
 // ---------- 纠正流 NaN 注入被拦（坑审计：唯一 NaN 入口） ----------
 function loadFillScoreWrapper(spy) {
     const uiSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ui-submit-dialog.js'), 'utf8');
-    const wrapper = grab(uiSrc, /function fillScore\([^)]*\) \{[\s\S]*?\n\}/, 'fillScore 包装器');
+    const wrapper = grab(uiSrc, /async function fillScore\([^)]*\) \{[\s\S]*?\n\}/, 'fillScore 包装器');
     const alerts = [];
     const dialogs = [];
     const sandbox = {
         console: { log: () => {}, warn: () => {}, error: () => {} },
         Math, JSON, Number, Array, Object, String, isFinite,
-        window: { __AI_MARKER_ADAPTER__: spy.adapter },
+        window: { __AI_MARKER_ADAPTER__: spy.adapter, aiGradingState: {activeRun:{}} },
+        verifyGradingContext: async()=>{}, isGradingContextCurrent:()=>true,
+        snapshotScoreInputs: () => [],
         safeAlert: (m) => alerts.push(String(m)),
         showAutoSubmitDialog: (score, comment, subScores, extra) => dialogs.push({ score, extra }),
     };
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
+    sandbox.verifyGradingContext = async () => {};
+    sandbox.isGradingContextCurrent = () => true;
+    sandbox.requireGradingContextTarget = () => {};
     vm.runInContext(GATE + '\n' + wrapper + '\n;__exports__ = { fillScore };', sandbox);
     return { fillScore: sandbox.__exports__.fillScore, alerts, dialogs };
 }
 
-test('纠正流 NaN 注入被拦：小题分含 NaN → 不填入，显式人工通道', () => {
+test('纠正流 NaN 注入被拦：小题分含 NaN → 不填入，显式人工通道', async () => {
     let filled = 0;
     const { fillScore, alerts, dialogs } = loadFillScoreWrapper({
         adapter: { fillScores: () => { filled++; return true; }, fillScore: () => { filled++; return true; } },
     });
-    fillScore(5, '评语', [{ label: '56(1)', score: 2 }, { label: '56(2)', score: NaN }]);
+    await fillScore(5, '评语', [{ label: '56(1)', score: 2 }, { label: '56(2)', score: NaN }]);
     assert.strictEqual(filled, 0, 'NaN 小题分绝不能进适配器');
     assert.ok(alerts.some(a => a.includes('非法数值')), '必须显式告警，实际: ' + alerts.join(' | '));
     assert.strictEqual(dialogs.length, 1, '仍弹确认框转人工');
     assert.strictEqual(dialogs[0].extra && dialogs[0].extra.fillFailed, true, '走 fillFailed 显式失败语义');
 });
 
-test('纠正流 NaN 注入被拦：总分 NaN（无小题）→ 不填入', () => {
+test('纠正流 NaN 注入被拦：总分 NaN（无小题）→ 不填入', async () => {
     let filled = 0;
     const { fillScore, alerts } = loadFillScoreWrapper({
         adapter: { fillScores: () => { filled++; return true; } },
     });
-    fillScore(NaN, '评语', null);
+    await fillScore(NaN, '评语', null);
     assert.strictEqual(filled, 0);
     assert.ok(alerts.some(a => a.includes('非法数值')));
 });
 
-test('纠正流合法值照常填入（闸零影响）', () => {
+test('纠正流合法值照常填入（闸零影响）', async () => {
     let got = null;
     const { fillScore, dialogs } = loadFillScoreWrapper({
         adapter: { fillScores: (s) => { got = s; return true; } },
     });
-    fillScore(5, '评语', [{ label: '56(1)', score: 2 }, { label: '56(2)', score: 3 }]);
+    await fillScore(5, '评语', [{ label: '56(1)', score: 2 }, { label: '56(2)', score: 3 }]);
     assert.deepStrictEqual([...got], [2, 3]);
     assert.strictEqual(dialogs.length, 1);
-    assert.ok(!dialogs[0].extra, '正常路径不得带 fillFailed');
+    assert.ok(!dialogs[0].extra.fillFailed, '正常路径不得带 fillFailed');
 });
 
 // ---------- 主流程接线（startAutoGrading 真实链路） ----------
@@ -147,6 +154,7 @@ async function runMainFlowWithScore(finalScore) {
     const sandbox = {
         console: { log: () => {}, warn: () => {}, error: () => {} },
         window: {
+            location: { pathname: '/', hash: '' },
             __AI_MARKER_ADAPTER__: adapter,
             aiGradingState: {
                 isRunning: true, isPaused: false, gradingMode: 'normal',
@@ -182,6 +190,7 @@ async function runMainFlowWithScore(finalScore) {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(parts.join('\n') + '\n;__run = startAutoGrading;', sandbox);
     await sandbox.__run();
     return calls;

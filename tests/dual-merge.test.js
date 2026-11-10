@@ -1,7 +1,6 @@
 // ========== 工单②：双评合并取整策略（mergeMode）回归测试 ==========
 // 语义体检结论（先质疑再固化，改前已核对 ai-engine.js mergeDualSubScores 全函数）：
-//   - round（默认/缺字段）必须与历史行为逐值不变：平均后按 scoring.roundMethod 吸附步长
-//     （含 scoring.roundMethod='floor' 的存量用户——其合并历史就是 floor，不得变）
+//   - round（默认/缺字段）= 平均后四舍五入到评分梯度
 //   - floor / ceil = 平均后强制向下/向上取整到评分梯度
 //   - min / max = 取低分/取高分（不平均），外向吸附（返修① 教师语义）：
 //     min→floor 只降不升（min(1.5,2)→1，绝不输出高于低分的值）、max→ceil 只升不降
@@ -33,6 +32,7 @@ function loadEngine() {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(scoreSrc, sandbox);
     vm.runInContext(src + '\n;__exports__ = { mergeDualValue, mergeDualSubScores, buildDualEvalDetail, callDualEvaluation, WorkflowManager };', sandbox);
     return { fx: sandbox.__exports__, sandbox, store };
@@ -43,7 +43,7 @@ function unit(score, maxScore, extra) { return { id: 'x', label: '56', score, ma
 const host = (arr) => [...arr];
 
 // ---------- mergeDualSubScores：五模式 ----------
-test('round 缺省 = 历史行为逐值不变（平均 + scoring.roundMethod 吸附）', () => {
+test('round 模式按四舍五入吸附，不受单评向下取整设置影响', () => {
     const { mergeDualSubScores } = loadEngine().fx;
     const A = { subScores: [unit(2, 4), unit(1, 4)] };
     const B = { subScores: [unit(1, 4), unit(2, 4)] };
@@ -51,9 +51,9 @@ test('round 缺省 = 历史行为逐值不变（平均 + scoring.roundMethod 吸
     assert.strictEqual(out[0].score, 2, '(2+1)/2=1.5 → Math.round=2');
     assert.strictEqual(out[1].score, 2);
 
-    // 存量用户 scoring.roundMethod='floor'：历史合并即 floor，mergeMode 缺省不得改变它
+    // 双评 round 策略按标签语义执行，与单评 floor 设置分别验证。
     const outFloorCfg = mergeDualSubScores(A, B, { roundStep: 1, roundMethod: 'floor' });
-    assert.strictEqual(outFloorCfg[0].score, 1, 'round 模式必须继续尊重 scoring.roundMethod');
+    assert.strictEqual(outFloorCfg[0].score, 2, 'round 模式按平均后四舍五入执行');
 });
 
 test('floor：平均后向下取整到评分梯度（变异可红：与 round/ceil/min/max 结果均不同）', () => {
@@ -301,6 +301,7 @@ test('迁移兼容：内置双评工作流缺 mergeMode 时补 round', () => {
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
     vm.runInContext(src + ';__exports__ = WorkflowManager;', sandbox);
     assert.strictEqual(sandbox.__exports__.data.workflows['双评模式(高精度)'].dualEval.mergeMode, 'round',
         '版本升级迁移应为旧双评配置补 mergeMode=round');

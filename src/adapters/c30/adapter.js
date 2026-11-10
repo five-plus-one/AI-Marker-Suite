@@ -424,7 +424,8 @@ const C30Adapter = {
         return null;
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         console.log('📤 [C30] submitGrade...');
         if (this._pendingScore === null || this._pendingScore === undefined) {
             console.warn('⚠️ [C30] 没有待提交的分数 → 拒绝提交');
@@ -437,7 +438,7 @@ const C30Adapter = {
             console.warn('⚠️ [C30] 分数写入失败（快捷按钮与输入框均未命中）→ 拒绝提交');
             return false;
         }
-        this._handleConfirmDialog();
+        this._handleConfirmDialog(guard);
 
         setTimeout(() => {
             const inp = document.querySelector(C30_SELECTORS.SCORE_INPUT);
@@ -447,13 +448,19 @@ const C30Adapter = {
         return true;
     },
 
-    _handleConfirmDialog() {
-        let count = 0;
-        const iv = setInterval(() => {
+    _handleConfirmDialog(guard) {
+        let count = 0, checking = false;
+        const iv = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(iv); return; }
+            if (checking) return;
             count++;
             for (const btn of document.querySelectorAll('.el-message-box__btns button, .el-dialog__footer button')) {
                 const t = btn.textContent.trim();
                 if (['确认', '确定', 'OK', '保存'].includes(t)) {
+                    checking = true;
+                    try { if (guard) await guard.verify(); }
+                    catch (_) { clearInterval(iv); return; }
+                    if (guard && !guard.isCurrent()) { clearInterval(iv); return; }
                     console.log(`✅ [C30] 自动确认: "${t}"`);
                     btn.click();
                     clearInterval(iv);

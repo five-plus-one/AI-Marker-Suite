@@ -266,14 +266,15 @@ const HuiXuexingAdapter = {
         return false;
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         // 查找"提交分数"按钮
         const submitBtn = document.querySelector(HUIXUEXING_SELECTORS.SUBMIT_BUTTON);
         if (submitBtn) {
             console.log('[慧学星] 点击提交分数按钮');
             submitBtn.click();
             // 处理可能的确认弹窗
-            this._handleConfirmDialog();
+            this._handleConfirmDialog(guard);
             return true;
         }
 
@@ -284,7 +285,7 @@ const HuiXuexingAdapter = {
             if (text.includes('提交分数') || text === '提交') {
                 console.log('[慧学星] 点击提交按钮（文字匹配）');
                 btn.click();
-                this._handleConfirmDialog();
+                this._handleConfirmDialog(guard);
                 return true;
             }
         }
@@ -294,9 +295,12 @@ const HuiXuexingAdapter = {
     },
 
     // 处理确认弹窗
-    _handleConfirmDialog() {
+    _handleConfirmDialog(guard) {
+        let checking = false;
         let checkCount = 0;
-        const checkInterval = setInterval(() => {
+        const checkInterval = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
+            if (checking) return;
             checkCount++;
 
             // 查找弹窗中的确认/确定按钮
@@ -305,6 +309,9 @@ const HuiXuexingAdapter = {
                 const text = (btn.textContent || '').trim();
                 if (text === '确认' || text === '确定' || text === '提交') {
                     console.log('[慧学星] 自动点击确认按钮');
+                    checking = true;
+                    try { if (guard) await guard.verify(); } catch (_) { clearInterval(checkInterval); return; }
+                    if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
                     btn.click();
                     clearInterval(checkInterval);
                     return;
