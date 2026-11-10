@@ -251,5 +251,9 @@
         },
     };
 
-    window.__AI_MARKER_ADAPTER__ = adapter;
+    // 注册守卫（#324 P0）：必须与其余 38 个适配器一致——只有 shouldInitialize 命中才注册。
+    // 此前无条件注册且本模块在 bundle 末位，导致所有平台页面被本适配器劫持
+    if (adapter.shouldInitialize()) {
+        window.__AI_MARKER_ADAPTER__ = adapter;
+    }
 })();
