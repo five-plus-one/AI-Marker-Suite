@@ -9,6 +9,7 @@
 // ========== 弹窗状态监测（Frame 感知） ==========
 let _huiyuejuanMarkingActive = false;
 let _huiyuejuanObserver = null;
+let _huiyuejuanInnerObserver = null;
 
 if (window.location.hostname.includes('17yuejuan.cn')) {
     // 获取 frame 内部的 document
@@ -69,10 +70,11 @@ if (window.location.hostname.includes('17yuejuan.cn')) {
 
                 // 在 frame 内部也挂载 observer，监测弹窗变化
                 try {
-                    const innerObserver = new MutationObserver(() => {
+                    // 存引用供页面卸载时清理（#297）：防止长驻监听泄漏
+                    _huiyuejuanInnerObserver = new MutationObserver(() => {
                         _huiCheckMarkingPanel();
                     });
-                    innerObserver.observe(frameDoc.body || frameDoc.documentElement, {
+                    _huiyuejuanInnerObserver.observe(frameDoc.body || frameDoc.documentElement, {
                         childList: true,
                         subtree: true
                     });
@@ -95,6 +97,14 @@ if (window.location.hostname.includes('17yuejuan.cn')) {
         }
     }
     _huiInitObserver();
+
+    // 页面卸载/停止时清理 observer（#297）：防止长驻监听在会话结束后泄漏
+    window.addEventListener('pagehide', () => {
+        try {
+            if (_huiyuejuanObserver) { _huiyuejuanObserver.disconnect(); _huiyuejuanObserver = null; }
+            if (_huiyuejuanInnerObserver) { _huiyuejuanInnerObserver.disconnect(); _huiyuejuanInnerObserver = null; }
+        } catch (e) { /* ignore */ }
+    });
 }
 
 // ========== 适配器定义 ==========
@@ -336,10 +346,38 @@ const HuiyuejuanAdapter = {
     fillScores(scores) {
         if (!scores || scores.length === 0) return false;
 
-        // 保存所有小题的分数
-        this._pendingScores = scores.filter(s => s !== null && s !== undefined);
+        // 数据安全：两遍式全或无（#296）——暂存前全量校验（null/错位显式拒绝），
+        // 真实给分在 submitGrade（慧阅卷点击分数即自动提交，不能提前点）
+        const inputs = this.getScoreInputs();
+        if (inputs.length === 0) return false;
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [慧阅卷] 分数个数(${scores.length})多于小题数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [慧阅卷] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
+        this._pendingScores = scores.slice(0, inputs.length);
         console.log(`📝 [慧阅卷] 记录待填入分数: [${this._pendingScores.join(', ')}]（等待用户确认后点击）`);
         return true;
+    },
+
+    // 预检：该小题面板是否存在给分路径（零分钮/满分钮/分数钮/自定义框之一）。
+    // 慧阅卷点击分数即自动提交，必须先全量预检再动手（#296）
+    _hasScorePath(panel, score, maxScore) {
+        if (score === 0 && panel.querySelector(HUIYUEJUAN_SELECTORS.ZERO_SCORE_BUTTON)) return true;
+        if (maxScore > 0 && score === maxScore && panel.querySelector(HUIYUEJUAN_SELECTORS.FULL_SCORE_BUTTON)) return true;
+        const scoreBtns = panel.querySelectorAll('.ui-input-number-target[ng-repeat]');
+        for (const btn of scoreBtns) {
+            const text = btn.textContent.trim();
+            const btnScore = text.startsWith('+') ? parseInt(text.slice(1)) : parseInt(text);
+            if (btnScore === score) return true;
+        }
+        return !!panel.querySelector(HUIYUEJUAN_SELECTORS.CUSTOM_SCORE_INPUT);
     },
 
     // 点击分数按钮（在用户确认后由 submitGrade 调用）
@@ -350,7 +388,6 @@ const HuiyuejuanAdapter = {
         }
 
         const scores = [...this._pendingScores];
-        this._pendingScores = [];
         console.log(`📝 [慧阅卷] 用户确认，填入分数: [${scores.join(', ')}]`);
 
         const frameDoc = this._getFrameDoc();
@@ -367,13 +404,33 @@ const HuiyuejuanAdapter = {
             return false;
         }
 
-        // 为每个小题填入对应的分数
-        let successCount = 0;
-        for (let i = 0; i < Math.min(panels.length, scores.length); i++) {
+        // 两遍式第一遍（#296）：点击即自动提交，必须先全量预检所有小题都存在给分路径，
+        // 任一未命中即整体拒绝——绝不能点到一半把半状态丢给自动提交
+        if (scores.length !== panels.length) {
+            console.warn(`⚠️ [慧阅卷] 分数个数(${scores.length})与小题面板数(${panels.length})不一致（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < panels.length; i++) {
+            const score = scores[i];
+            if (score === null || score === undefined) {
+                console.warn(`⚠️ [慧阅卷] 第${i + 1}小题无 AI 分数（分数缺失）→ 拒绝`);
+                return false;
+            }
+            const titleEl = panels[i].querySelector('.ui-exam-teacher-correct-score-panel-title');
+            const maxMatch = (titleEl ? titleEl.textContent : '').match(/(\d+)分/);
+            const maxScore = maxMatch ? parseInt(maxMatch[1]) : 0;
+            if (!this._hasScorePath(panels[i], score, maxScore)) {
+                console.warn(`⚠️ [慧阅卷] 第${i + 1}小题分数 ${score} 无给分路径（零/满分钮、分数钮、自定义框均未命中）→ 拒绝`);
+                return false;
+            }
+        }
+        this._pendingScores = [];
+
+        // 两遍式第二遍：全部命中，逐个给分
+        for (let i = 0; i < panels.length; i++) {
             const score = scores[i];
             const panel = panels[i];
-
-            if (score === null || score === undefined) continue;
+            let given = false;
 
             // 获取该小题的满分
             const titleEl = panel.querySelector('.ui-exam-teacher-correct-score-panel-title');
@@ -387,58 +444,63 @@ const HuiyuejuanAdapter = {
                 if (zeroBtn) {
                     zeroBtn.click();
                     console.log(`✅ [慧阅卷] 第${i+1}小题: 已点击"零分"按钮`);
-                    successCount++;
-                    continue;
+                    given = true;
                 }
             }
-            if (maxScore > 0 && score === maxScore) {
+            if (!given && maxScore > 0 && score === maxScore) {
                 const fullBtn = panel.querySelector(HUIYUEJUAN_SELECTORS.FULL_SCORE_BUTTON);
                 if (fullBtn) {
                     fullBtn.click();
                     console.log(`✅ [慧阅卷] 第${i+1}小题: 已点击"满分"按钮`);
-                    successCount++;
-                    continue;
+                    given = true;
                 }
             }
 
             // 策略2: 点击分数按钮
-            const scoreBtns = panel.querySelectorAll('.ui-input-number-target[ng-repeat]');
-            let clicked = false;
-            for (const btn of scoreBtns) {
-                const text = btn.textContent.trim();
-                const btnScore = text.startsWith('+') ? parseInt(text.slice(1)) : parseInt(text);
-                if (btnScore === score) {
-                    btn.click();
-                    console.log(`✅ [慧阅卷] 第${i+1}小题: 已点击分数按钮 ${text}`);
-                    clicked = true;
-                    successCount++;
-                    break;
+            if (!given) {
+                const scoreBtns = panel.querySelectorAll('.ui-input-number-target[ng-repeat]');
+                for (const btn of scoreBtns) {
+                    const text = btn.textContent.trim();
+                    const btnScore = text.startsWith('+') ? parseInt(text.slice(1)) : parseInt(text);
+                    if (btnScore === score) {
+                        btn.click();
+                        console.log(`✅ [慧阅卷] 第${i+1}小题: 已点击分数按钮 ${text}`);
+                        given = true;
+                        break;
+                    }
                 }
             }
-            if (clicked) continue;
 
             // 策略3: 使用自定义分值输入框
-            const customInput = panel.querySelector(HUIYUEJUAN_SELECTORS.CUSTOM_SCORE_INPUT);
-            if (customInput) {
-                const frameWin = this._getFrameWindow();
-                const InputProto = frameWin ? frameWin.HTMLInputElement.prototype : window.HTMLInputElement.prototype;
-                const setter = Object.getOwnPropertyDescriptor(InputProto, 'value').set;
-                setter.call(customInput, String(score));
-                customInput.dispatchEvent(new Event('input', { bubbles: true }));
-                customInput.dispatchEvent(new Event('change', { bubbles: true }));
-                customInput.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'Enter', keyCode: 13, which: 13, bubbles: true
-                }));
-                customInput.dispatchEvent(new KeyboardEvent('keyup', {
-                    key: 'Enter', keyCode: 13, which: 13, bubbles: true
-                }));
-                console.log(`✅ [慧阅卷] 第${i+1}小题: 已通过自定义输入框填入分数 ${score}`);
-                successCount++;
+            if (!given) {
+                const customInput = panel.querySelector(HUIYUEJUAN_SELECTORS.CUSTOM_SCORE_INPUT);
+                if (customInput) {
+                    const frameWin = this._getFrameWindow();
+                    const InputProto = frameWin ? frameWin.HTMLInputElement.prototype : window.HTMLInputElement.prototype;
+                    const setter = Object.getOwnPropertyDescriptor(InputProto, 'value').set;
+                    setter.call(customInput, String(score));
+                    customInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    customInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    customInput.dispatchEvent(new KeyboardEvent('keydown', {
+                        key: 'Enter', keyCode: 13, which: 13, bubbles: true
+                    }));
+                    customInput.dispatchEvent(new KeyboardEvent('keyup', {
+                        key: 'Enter', keyCode: 13, which: 13, bubbles: true
+                    }));
+                    console.log(`✅ [慧阅卷] 第${i+1}小题: 已通过自定义输入框填入分数 ${score}`);
+                    given = true;
+                }
+            }
+
+            if (!given) {
+                // 预检通过后仍未命中（DOM 瞬变）：显式失败，不静默吞（#296）
+                console.warn(`⚠️ [慧阅卷] 第${i+1}小题分数 ${score} 给分失败（预检后 DOM 变化）→ 拒绝`);
+                return false;
             }
         }
 
-        console.log(`📝 [慧阅卷] 分数填入完成: ${successCount}/${scores.length} 个小题成功`);
-        return successCount > 0;
+        console.log(`📝 [慧阅卷] 分数填入完成: ${panels.length}/${panels.length} 个小题成功`);
+        return true;
     },
 
     // 获取 frame 的 window 对象
@@ -454,8 +516,12 @@ const HuiyuejuanAdapter = {
     submitGrade() {
         console.log('📤 [慧阅卷] 开始提交分数...');
 
-        // 用户确认后才点击分数按钮（慧阅卷点击分数即自动提交）
-        this._clickScore();
+        // 用户确认后才点击分数按钮（慧阅卷点击分数即自动提交）；
+        // 给分失败必须显式失败，不得静默续走（#296）
+        if (!this._clickScore()) {
+            console.warn('⚠️ [慧阅卷] 分数未完整给入 → 拒绝提交');
+            return false;
+        }
 
         const frameDoc = this._getFrameDoc();
         if (!frameDoc) {

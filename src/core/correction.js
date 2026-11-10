@@ -354,12 +354,12 @@ function showCorrectionPanel(context) {
     // ---------- 确认得分并退出（仅修改分数 / 应用修改共用） ----------
     function confirmScore(fb, newAnswer, newRubric) {
         const scoringConfig = PresetManager.getCurrentConfig().scoring || { roundStep: 1, roundMethod: 'round' };
-        const roundedTeacherScore = ScoreCalculator.round(fb.teacherScore, scoringConfig);
+        const roundedTeacherScore = ScoreCalculator.round(fb.teacherScore, scoringConfig, scoringConfig.maxScore);
         let correctedSubScores = context.subScores;
         if (fb.subScoreCorrections && context.subScores) {
             correctedSubScores = context.subScores.map((sq, i) => {
                 const t = fb.subScoreCorrections[i]?.teacherScore;
-                return { ...sq, score: t != null ? ScoreCalculator.round(t, scoringConfig) : sq.score };
+                return { ...sq, score: t != null ? ScoreCalculator.round(t, scoringConfig, sq.maxScore) : sq.score };
             });
         }
         const correctionInfo = {
@@ -390,8 +390,8 @@ function showCorrectionPanel(context) {
                     <div class="cor-score-label" style="margin-bottom:10px;">各小题 AI 得分</div>
                     ${context.subScores.map((sq, i) => `
                     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(0,0,0,0.02);border-radius:8px;border:1px solid rgba(0,0,0,0.04);margin-bottom:6px;">
-                        <span style="font-size:13px;color:#1d1d1f;font-weight:500;">${sq.label || '第(' + (i+1) + ')题'}</span>
-                        <span style="font-size:14px;font-weight:600;color:#1d1d1f;">${sq.score !== null ? sq.score : '—'}<span style="font-size:11px;color:#86868b;font-weight:normal;">/${sq.maxScore || '—'}</span></span>
+                        <span style="font-size:13px;color:#1d1d1f;font-weight:500;min-width:0;overflow-wrap:anywhere;">${sq.label || '第(' + (i+1) + ')题'}</span>
+                        <span style="font-size:14px;font-weight:600;color:#1d1d1f;flex-shrink:0;white-space:nowrap;">${sq.score !== null ? sq.score : '—'}<span style="font-size:11px;color:#86868b;font-weight:normal;">/${sq.maxScore || '—'}</span></span>
                     </div>
                     ${sq.comment ? `<div style="font-size:12px;color:#666;padding:0 12px 4px;margin-bottom:4px;">${sq.comment}</div>` : ''}
                     `).join('')}
@@ -723,7 +723,7 @@ function showCorrectionPanel(context) {
             }
         } catch (err) {
             if (streamEl) {
-                streamEl.innerHTML = `<div style="color:#D93025;margin-bottom:10px;">分析失败：${err.message}</div>
+                streamEl.innerHTML = `<div style="color:#D93025;margin-bottom:10px;">分析失败：${String(err.message == null ? '' : err.message).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
                     <button class="ai-modal-btn-confirm" id="cor-retry-analysis" style="margin-right:8px;">重试分析</button>
                     <button class="ai-modal-btn-cancel" id="cor-back-step1">返回修改</button>`;
                 streamEl.querySelector('#cor-retry-analysis').onclick = e => {

@@ -2,10 +2,153 @@
 // 在 <frameset> 文档中，document.body 是 <frameset> 元素，不会渲染非 frame 子元素。
 // 此时改用 document.documentElement (<html>) 作为挂载点。
 function getUIRoot() {
+    ensureUIIsolation();
     if (document.body && document.body.tagName === 'FRAMESET') {
         return document.documentElement;
     }
     return document.body;
+}
+
+// ========== UI 隔离（键盘 + 样式） ==========
+// 宿主平台常见两类污染：
+//   1. document/body 级全局快捷键（如阅卷平台数字键盘：Backspace=清除分数、数字键=输分），
+//      会拦截脚本弹窗输入框里的编辑按键；
+//   2. 全局 button/布局 CSS（Bootstrap 等）压窄脚本按钮导致文字竖排、网格错位
+//      —— 对脚本 UI 根节点注入防御性 !important 样式（作用域仅限脚本 UI，不触碰平台 DOM）。
+const AI_UI_ROOTS = [
+    '#auto-submit-dialog', '#asd-minimized-bar',
+    '.ai-modal-overlay', '#correction-panel',
+    '#ai-settings-overlay', '#ai-grading-settings',
+    '#ai-md-editor-overlay', '#ai-md-editor', '.md-formula-panel',
+    '#ai-crop-overlay', '.ai-img-choice-overlay', '.ai-recog-overlay',
+    '#ai-history-overlay', '#ai-history-panel', '#ai-history-detail',
+    '#ai-tools-page',
+    '.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn',
+    '#ai-batch-progress',
+];
+const AI_UI_ROOT_SELECTOR = AI_UI_ROOTS.join(', ');
+// 按钮防御规则的作用域：
+//   - 容器根节点 -> 命中其内部 button（拼成「X button」）
+//   - 浮动按钮本身就是 button -> 必须命中自身（不能拼成「.ai-grade-btn button」，那是在找它的子孙）
+// 同样注意 CSS 逗号列表里「A, B, C button」的 button 后缀只作用于 C，必须逐项拼接。
+const AI_UI_SELF_BUTTONS = ['.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn'];
+const AI_UI_BUTTON_SELECTOR = AI_UI_ROOTS
+    .map(s => (AI_UI_SELF_BUTTONS.indexOf(s) !== -1 ? s : s + ' button'))
+    .join(', ');
+
+// 判断事件源是否位于脚本 UI 内
+function isAIUIEvent(e) {
+    const t = e.target;
+    return !!(t && t.closest && t.closest(AI_UI_ROOT_SELECTOR));
+}
+
+let _aiUIIsolationInstalled = false;
+function ensureUIIsolation() {
+    if (_aiUIIsolationInstalled) return;
+    _aiUIIsolationInstalled = true;
+
+    // ---- 1. 键盘隔离 ----
+    // 实测（2026-10-23 y.ajia.cn）：平台用 jQuery 把全局打分快捷键绑在 body 上：
+    //   body keydown [reset]：Backspace/Delete 且 target 非 <input> -> 触发清分数 + return false（取消删字）
+    //   body keypress       ：非数字键 -> return false（吞掉空格/回车等默认行为）
+    // 由于平台处理器与我们的隔离监听器挂在同一个 body 节点上，stopPropagation()
+    // 挡不住同节点的其他监听器，必须用 stopImmediatePropagation()；
+    // 且要区分两种时机，才能既掐死平台处理器、又不误伤脚本 UI 自身的按键处理器：
+    //
+    //  (a) body 捕获阶段 - 拦 keypress/keyup 和 Backspace/Delete 的 keydown。
+    //      这几类不需要脚本 UI 自身的 JS 处理器（删字/输入走浏览器默认行为，
+    //      stopImmediatePropagation 不取消默认行为），在到达 target 前就掐断，
+    //      平台处理器无论注册先后都收不到。
+    //  (b) body 冒泡阶段 - 拦其余 keydown（Enter、Ctrl+B、可打印字符等）。
+    //      此时 target 上的处理器（Enter 关弹窗、Ctrl+B 加粗等）已执行完，
+    //      再掐断后续 body 同节点的平台处理器。
+    const shieldIfOurs = (e) => {
+        if (!isAIUIEvent(e)) return;
+        // IME 组字过程中不干预（keyCode 229 / isComposing）
+        if (e.isComposing || e.keyCode === 229) return;
+        const isEditKey = e.key === 'Backspace' || e.key === 'Delete'
+            || e.keyCode === 8 || e.keyCode === 46;
+        if (e.type === 'keypress' || e.type === 'keyup' || (e.type === 'keydown' && isEditKey)) {
+            e.stopImmediatePropagation();
+        }
+    };
+    const stopIfOurs = (e) => {
+        if (!isAIUIEvent(e)) return;
+        if (e.isComposing || e.keyCode === 229) return;
+        e.stopImmediatePropagation();
+    };
+    const mount = (document.body && document.body.tagName === 'FRAMESET') ? document.documentElement : document.body;
+    if (mount) {
+        ['keydown', 'keypress', 'keyup'].forEach(type => {
+            mount.addEventListener(type, shieldIfOurs, true);
+            mount.addEventListener(type, stopIfOurs, false);
+        });
+    }
+
+    // ---- 2. 样式防御 ----
+    // (a) 按钮反制「压窄导致文字竖排」；
+    // (b) 批改完成弹窗的布局保护：平台全局 CSS 会概率性打乱弹窗尺寸/网格/底部按钮排布
+    //     （弹窗超出视口、按钮被挤变形、倒计时圆环错位）。只保布局，不碰 transform/定位——
+    //     拖拽、最小化由 JS 管理 transform 与尺寸，加 !important 会锁死它们。
+    //     弹窗的 width/max-width 用 !important 时，最小化需用 setProperty(..., 'important') 内联覆盖。
+    if (document.getElementById('ai-ui-hardening-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'ai-ui-hardening-styles';
+    style.textContent = `
+        ${AI_UI_ROOT_SELECTOR} {
+            box-sizing: border-box !important;
+        }
+        ${AI_UI_BUTTON_SELECTOR} {
+            min-width: max-content !important;
+            white-space: nowrap !important;
+            word-break: keep-all !important;
+            writing-mode: horizontal-tb !important;
+            text-orientation: mixed !important;
+            float: none !important;
+            flex-shrink: 0 !important;
+        }
+        /* 批改完成弹窗：尺寸与布局保护（不含 transform/position，拖拽最小化自行管理） */
+        #auto-submit-dialog {
+            width: 880px !important;
+            max-width: 94vw !important;
+            max-height: 90vh !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
+        }
+        #auto-submit-dialog .asd-grid {
+            display: grid !important;
+        }
+        #auto-submit-dialog .asd-footer {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+        }
+        #auto-submit-dialog .asd-buttons {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
+            flex-shrink: 0 !important;
+        }
+        #auto-submit-dialog .asd-countdown {
+            position: relative !important;
+            min-width: 36px !important;
+            height: 36px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-shrink: 0 !important;
+            white-space: nowrap !important;
+        }
+        #auto-submit-dialog .asd-countdown-ring {
+            width: 36px !important;
+            height: 36px !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+        }
+    `;
+    document.head.appendChild(style);
 }
 
 // ========== 浮动按钮让位（设置面板打开时避免遮挡） ==========

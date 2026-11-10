@@ -131,15 +131,25 @@ const WuyuetongAdapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [威科姆] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [威科姆] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
 
         // 确保键盘打分模式激活
         this._ensureKeyboardMode();
 
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-
+        for (let i = 0; i < inputs.length; i++) {
             const input = inputs[i].element;
             const score = scores[i];
 
@@ -152,11 +162,9 @@ const WuyuetongAdapter = {
             input.dispatchEvent(new Event('blur', { bubbles: true }));
             // 触发 jQuery 的 keyup 事件（平台使用 onkeyup 验证）
             input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-
-            successCount++;
         }
 
-        return successCount > 0;
+        return true;
     },
 
     submitGrade() {
@@ -198,9 +206,9 @@ const WuyuetongAdapter = {
                 return true;
             }
 
-            // 检查分数输入框是否已清空
+            // 检查分数输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
             const firstInput = document.querySelector(WUYUETONG_SELECTORS.SCORE_INPUT);
-            if (firstInput && (firstInput.value === '' || firstInput.value === '0')) {
+            if (firstInput && String(firstInput.value).trim() === '') {
                 console.log('[威科姆] 检测到输入框已清空');
                 return true;
             }

@@ -30,10 +30,216 @@ async function detectMarkingPage() {
     return false;
 }
 
+// ========== 答卷一致性校验（数据安全） ==========
+// AI 请求耗时期间若用户翻卷，AI 返回的是旧卷分数，而填分按当前页面 DOM 填，
+// 会把旧卷分数填进新卷并自动提交。这里在填分前校验答卷是否仍是原来那份。
+//
+// 判定策略（既要拦住错卷、又不能误拦）：
+//   - 未变化  -> 返回 unchanged:true，主流程零影响（绝大多数情况）
+//   - 明确变了 -> 返回 unchanged:false，由调用方抛错进入既有暂停流程
+//   - 无法判定 -> 返回 unchanged:null，放行并打告警（不阻塞）
+// 任何异常都归入「无法判定」，绝不因校验本身破坏正常批改。
+//
+// 平台差异处理（实测踩到的两个误拦坑，均已覆盖）：
+//   1. 多图平台按加载态过滤取图（img.complete/naturalWidth），翻卷过渡期只能取到
+//      已加载的部分 —— 张数/首图会与基准不同，不能据此判「已切换」。
+//   2. 平台图片 URL 带 cachebuster（如 ?_=xxx，酷鱼网），同一份卷两次取图 URL 必不同。
+//   3. c30/lehua 等 Canvas 型平台返回 canvas.toDataURL() 的 data: URL，每次可能不同
+//      且 gatherAnswerImages 内含 0.5~1s 等待 —— 直接跳过图片比对。
+//
+// 因此比对时做两件事：① 归一化 URL（去掉 query/hash，只留路径）；
+// ② 不比张数/首图是否相等，而是看「基准首图（归一化）是否仍在当前集合中」。
+function normalizePaperImageUrl(u) {
+    if (typeof u !== 'string' || !u) return '';
+    let s = u;
+    const q = s.indexOf('?');
+    if (q !== -1) s = s.slice(0, q);
+    const h = s.indexOf('#');
+    if (h !== -1) s = s.slice(0, h);
+    return s;
+}
+
+// normalizedList 为「归一化后的基准 URL 集合」；判定当前集合是否含其中任一个
+function paperUrlSetContains(urls, normalizedList) {
+    const set = normalizedList || [];
+    return (urls || []).some(u => {
+        const n = normalizePaperImageUrl(u);
+        return n && set.indexOf(n) !== -1;
+    });
+}
+
+// 快照当前评分输入框的值（Canvas 型平台换卷判定的对照基准）。
+// 只有真实 input/textarea 参与（有 value 属性）；点击式分数容器记 null。
+// 注意 value 可能是数字 0（合法分值，非空），不能用 ||'' 判空
+function snapshotScoreInputs(adapter) {
+    try {
+        if (!adapter || typeof adapter.getScoreInputs !== 'function') return [];
+        return (adapter.getScoreInputs() || []).map(x => {
+            const el = x && x.element;
+            return (el && typeof el === 'object' && 'value' in el)
+                ? (el.value == null ? '' : String(el.value)) : null;
+        });
+    } catch (e) {
+        return [];
+    }
+}
+
+// Canvas 型平台（data: 基准图）的换卷证据只有一种可靠形态：
+// 「取图时非空 → 校验时全空」的跃变。
+// 「空 → 空」是填分前的正常状态（校验本就发生在填分之前），绝不能判换卷——
+// 那是 #253 误报的根源；点击式分数容器（无 value）永远不参与判定。
+async function scoreInputsTransitionedEmpty(adapter, snapshot) {
+    try {
+        if (!adapter || typeof adapter.getScoreInputs !== 'function') return false;
+        if (!snapshot || !snapshot.length) return false; // 无快照 = 不可判定，放行
+        const hadValue = snapshot.some(v => v != null && String(v).trim() !== '');
+        if (!hadValue) return false; // 取图时就没有值 → 现在为空是常态
+        const inputs = adapter.getScoreInputs() || [];
+        let realCount = 0;
+        for (const x of inputs) {
+            const el = x && x.element;
+            if (!el || typeof el !== 'object' || !('value' in el)) continue;
+            realCount++;
+            const v = el.value == null ? '' : String(el.value);
+            if (v.trim() !== '') return false; // 还有值（含 0 分），未被清空
+        }
+        return realCount > 0;
+    } catch (e) {
+        return false;
+    }
+}
+
+async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot) {
+    try {
+        if (!adapter || typeof adapter.gatherAnswerImages !== 'function') {
+            return { unchanged: null, reason: '适配器不支持 gatherAnswerImages' };
+        }
+        // 已离开批改页（如退回列表页）≠ 换卷：跳过比对，绝不能误报「基准图不再出现」
+        if (typeof adapter.isMarkingPage === 'function' && !adapter.isMarkingPage()) {
+            return { unchanged: null, reason: '已离开批改页面，跳过答卷校验' };
+        }
+        if (!recordedUrls || !recordedUrls.length) {
+            return { unchanged: null, reason: '未记录基准图片' };
+        }
+
+        // 稳定试卷标识比对（最强信号，#281）：适配器提供标识（如考号）时优先使用——
+        // 同卷 src 重设/裁切产物波动不改变标识，换卷必变
+        try {
+            const state = (typeof window !== 'undefined' && window.aiGradingState) ? window.aiGradingState : null;
+            const recordedId = state && state.currentPaperId;
+            if (recordedId && typeof adapter.getPaperIdentity === 'function') {
+                const pid = adapter.getPaperIdentity();
+                if (pid) {
+                    if (pid === recordedId) {
+                        return { unchanged: true };
+                    }
+                    return { unchanged: false, reason: '试卷标识已变化（' + recordedId + ' → ' + pid + '）' };
+                }
+            }
+        } catch (e) { /* 标识不可用时退回既有比对 */ }
+
+        const baseline = recordedUrls[0];
+
+        // Canvas 型平台（data: URL）：图片不可比对，跳过重取以免误判与额外耗时。
+        // 换卷证据只认「取图时非空 → 现在全空」的跃变（见 scoreInputsTransitionedEmpty）
+        if (typeof baseline === 'string' && baseline.indexOf('data:') === 0) {
+            if (await scoreInputsTransitionedEmpty(adapter, inputSnapshot)) {
+                return { unchanged: false, reason: '分数输入框由非空变为清空（Canvas 型平台，疑似换卷）' };
+            }
+            return { unchanged: null, reason: 'Canvas 型平台，图片不可比对，按原流程继续' };
+        }
+
+        // 归一化基准集合（去 cachebuster；过滤空值，空 URL 不能作为比对依据）
+        const normBaselineSet = recordedUrls.map(normalizePaperImageUrl).filter(Boolean);
+        if (!normBaselineSet.length) {
+            return { unchanged: null, reason: '基准图片 URL 为空，无法比对' };
+        }
+
+        const newUrls = await adapter.gatherAnswerImages();
+        if (!newUrls || !newUrls.length) {
+            return { unchanged: null, reason: '重新获取图片为空' };
+        }
+
+        // 任一基准图（归一化后）仍在当前集合中 —— 仍是同一份。
+        // 用「任一」而非「首图」：翻卷过渡期首图可能恰好未加载被过滤掉，
+        // 用首图会误判；用任一基准图在集合中则稳得多。
+        // 这同时容忍：翻卷过渡期张数不齐、URL 带 cachebuster 每次不同。
+        if (paperUrlSetContains(newUrls, normBaselineSet)) {
+            return { unchanged: true };
+        }
+
+        // 基准图都不见了 —— 可能真换卷，也可能这些图此刻恰好都未加载完被过滤。
+        // 等待片刻复查一次再判定，避免把加载过渡期误判成换卷。
+        await new Promise(r => setTimeout(r, 1500));
+        const retryUrls = await adapter.gatherAnswerImages();
+        if (!retryUrls || !retryUrls.length) {
+            return { unchanged: null, reason: '复查时未取到图片，无法判定' };
+        }
+        if (paperUrlSetContains(retryUrls, normBaselineSet)) {
+            return { unchanged: null, reason: '图片加载过渡期，复查后基准图仍在，按原流程继续' };
+        }
+
+        // 两次取图都不含任何基准图 —— 确实换了卷
+        return { unchanged: false, reason: '答题卡图片已变化（基准图不再出现）' };
+    } catch (e) {
+        return { unchanged: null, reason: '校验异常: ' + (e && e.message) };
+    }
+}
+
+// 离开批改页的判定必须「复查确认」：DOM 型 isMarkingPage（frame/组件重载）
+// 会短暂返回 false，瞬时 false 绝不能触发清理（会误杀进行中的批改）
+async function confirmLeftMarkingPage(adapter) {
+    if (!adapter || typeof adapter.isMarkingPage !== 'function') return false;
+    if (adapter.isMarkingPage()) return false;
+    await new Promise(r => setTimeout(r, 800));
+    return !adapter.isMarkingPage();
+}
+
+// ========== 离开批改页的生命周期清理 ==========
+// SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
+//「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
+function handleLeaveMarkingPage() {
+    // 1. 关闭新手引导弹窗
+    if (typeof hideOnboardingDialog === 'function') hideOnboardingDialog();
+
+    // 2. 关闭提交确认弹窗（取消倒计时，防止在非批改页误触发提交）
+    const dialog = document.getElementById('auto-submit-dialog');
+    if (dialog) {
+        if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
+        dialog.remove();
+    }
+
+    // 3. 批改循环中性停止——绝不能报「所有试卷已批改完成」
+    if (window.aiGradingState.isRunning) {
+        window.aiGradingState.isRunning = false;
+        window.aiGradingState.isPaused = true;
+        const btn = document.querySelector('.ai-grade-btn');
+        if (btn) {
+            btn.textContent = '继续批改';
+            btn.classList.remove('running', 'unattended', 'trial');
+            btn.classList.add('paused');
+        }
+        showToast('已离开批改页面，批改已暂停');
+    }
+}
+
 // ========== 主控流程 ==========
 async function startAutoGrading() {
     window.aiGradingState.abortController = new AbortController();
+    // 批改节奏：本卷用时计时起点（开始处理 → 提交，含随机延迟）
+    // 已有起点（翻卷检测时刻）时不覆盖，保住「检测到→提交」的完整窗口
+    if (!window.aiGradingState.cycleStartTime) {
+        window.aiGradingState.cycleStartTime = Date.now();
+    }
     console.log('▶️ [诊断] startAutoGrading 开始执行');
+
+    // 离开批改页（如退回列表页）：中性停止，绝不能报「所有试卷已批改完成」
+    // 复查确认后才动手：DOM 型 isMarkingPage 在组件重载瞬间会短暂 false
+    if (await confirmLeftMarkingPage(window.__AI_MARKER_ADAPTER__)) {
+        console.log('ℹ️ 已离开批改页面，停止本轮批改');
+        handleLeaveMarkingPage();
+        return;
+    }
 
     try {
         // 使用新的配置获取方式（优先工作流，回退直接配置）
@@ -92,9 +298,17 @@ async function startAutoGrading() {
             console.log(`🖼️ [诊断] 找到答题卡图片数量: ${imageUrls.length}`);
 
             if (!imageUrls || imageUrls.length === 0) {
+                // 取图为空 ≠ 批完：复查确认是否已离开批改页（取图等待窗口内可能已导航离开）
+                if (await confirmLeftMarkingPage(adapter)) {
+                    console.log('ℹ️ 已离开批改页面，停止本轮批改');
+                    handleLeaveMarkingPage();
+                    return;
+                }
                 if (window.aiGradingState.gradingMode === 'unattended') {
                     stopAutoGrading();
-                    safeAlert('✅ 所有试卷已批改完成！');
+                    // 取图为空 ≠ 一定是批完（也可能是取图被防批错卷策略拒绝），
+                    // 文案保持诚实，不谎报「全部完成」（#246/#253 同一原则）
+                    safeAlert('未取到答题卡图片（可能已全部批完，或平台暂未提供图片），批改已暂停，请核对后继续。');
                     return;
                 }
                 safeAlert('❌ 未找到答题卡图片！');
@@ -103,6 +317,12 @@ async function startAutoGrading() {
             }
 
             window.aiGradingState.currentImageUrls = imageUrls;
+            // Canvas 型平台换卷判定的对照基准：AI 期间输入框若「非空→清空」才可疑
+            window.aiGradingState.paperGuardInputSnapshot = snapshotScoreInputs(adapter);
+            // 记录稳定试卷标识（如有），答卷校验优先做强信号比对（#281）
+            if (adapter && typeof adapter.getPaperIdentity === 'function') {
+                window.aiGradingState.currentPaperId = adapter.getPaperIdentity();
+            }
 
             const gradeBtn = document.querySelector('.ai-grade-btn');
             if (gradeBtn && window.aiGradingState.gradingMode !== 'unattended') {
@@ -133,16 +353,20 @@ async function startAutoGrading() {
                         window.aiGradingState.blankDetection.blankCount++;
                         showToast(`⏭️ 空白答题卡已跳过（第${window.aiGradingState.blankDetection.blankCount}张）`);
 
-                        // 填入 0 分
+                        // 填入 0 分（失败不静默：空分提交等于误判 0 分）
                         const scoringConfig = presetConfig.scoring || {};
                         const maxScore = PresetManager.getMaxScore();
+                        let blankFillOk = true;
                         if (adapter) {
                             const units = scoringConfig.units || [];
                             if (adapter.fillScores && units.length > 0) {
-                                adapter.fillScores(units.map(() => 0));
+                                blankFillOk = adapter.fillScores(units.map(() => 0));
                             } else if (adapter.fillScores) {
-                                adapter.fillScores([0]);
+                                blankFillOk = adapter.fillScores([0]);
                             }
+                        }
+                        if (blankFillOk === false) {
+                            showToast('⚠️ 0 分未成功填入，请在提交前确认分数框');
                         }
 
                         // 显示提交对话框
@@ -151,6 +375,9 @@ async function startAutoGrading() {
                         }));
                         showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
                             isBlankCard: true,
+                            // 数据安全（#312 B1）：0 分填入失败必须禁倒计时自动提交，
+                            // 否则无人模式 1 秒倒计时会把空框送进平台（空分提交=事故）
+                            fillFailed: blankFillOk === false,
                             blankRatios: {
                                 current: currentRatios.map(r => ({ ratio: r.ratio, skipped: r.skipped })),
                                 reference: refData.ratios,
@@ -233,21 +460,53 @@ async function startAutoGrading() {
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
+            // ===== 离开批改页检查（先于答卷校验：填分/提交必须在批改页上）=====
+            // AI 请求期间教师可能退回列表页——这是离开页面，不是换卷，中性暂停即可
+            // 复查确认：DOM 型 isMarkingPage 瞬时 false 不算离开
+            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
+            if (await confirmLeftMarkingPage(verifyAdapter)) {
+                console.warn('ℹ️ 已离开批改页面，暂停批改');
+                throw new Error('已离开批改页面（本次评分结果未提交）');
+            }
+            // ===== 答卷一致性校验（数据安全，实验性可关）=====
+            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷。
+            // 若用户遇到误报，可在设置面板「答卷校验」关闭此项。
+            if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
+                console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
+            } else {
+                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls, window.aiGradingState.paperGuardInputSnapshot);
+                if (paperCheck.unchanged === false) {
+                    console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
+                    throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
+                }
+                if (paperCheck.unchanged === null) {
+                    console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
+                }
+            }
+
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
 
             // 填分：优先使用新接口 fillScores，回退到旧接口 fillScore
+            // 填分失败绝不能静默续走提交——那会把空分/旧分送进平台（#253 同类缺陷）
             const adapter = window.__AI_MARKER_ADAPTER__;
+            let fillOk = false;
             if (adapter) {
                 if (adapter.fillScores && finalUnitScores) {
                     // 新接口：按评分单元顺序填入
-                    adapter.fillScores(finalUnitScores.map(u => u.score));
+                    fillOk = adapter.fillScores(finalUnitScores.map(u => u.score));
                 } else if (adapter.fillScores) {
                     // 单题模式
-                    adapter.fillScores([finalScore]);
+                    fillOk = adapter.fillScores([finalScore]);
                 } else if (adapter.fillScore) {
                     // 旧接口兼容
-                    adapter.fillScore({ total: finalScore, subScores: finalUnitScores });
+                    fillOk = adapter.fillScore({ total: finalScore, subScores: finalUnitScores });
+                } else {
+                    fillOk = true; // 适配器无填分接口（理论上不存在），交由人工流程
                 }
+            }
+            if (fillOk === false) {
+                console.warn('⚠️ [诊断] 分数填入失败，中止本次提交');
+                throw new Error('分数填入失败（分数框缺失或分数不可填），请手动输入分数后继续');
             }
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
             // 如果开启了空白卡检测且有范本，附带当前图的占比数据（复用之前缓存的结果）
@@ -569,8 +828,77 @@ if (document.readyState === 'loading') {
     setTimeout(init, 1000);
 }
 
+// 新题引导流程（#304 抽取）：方案绑定切换 + API Key 引导 + 新试题 OOBE + 配置下拉同步。
+// 从任务切换轮询抽出，供「切换即命中」与「SPA 渲染竞态重试」两条路径复用。
+// #312 防重入：并发生 tick 双跑会双弹 OOBE
+async function runNewTaskOnboardingFlow(currentUrlId) {
+    if (newTaskFlowInFlight) return;
+    newTaskFlowInFlight = true;
+    try {
+    // SPA 导航到阅卷页面时，先确保 UI 已创建（按钮 + 设置面板）
+    // 必须在 early return 之前调用，否则新题目引导/无 API Key 时面板不会出现
+    // init 内部有防重复创建的 guard，不会产生重复 UI
+    setTimeout(init, 1000);
+
+    const boundPreset = PresetManager.data.bindings[currentUrlId];
+
+    // ========== OOBE调试日志 ==========
+    console.log('🔍 [OOBE调试] currentUrlId:', currentUrlId);
+    console.log('🔍 [OOBE调试] boundPreset:', boundPreset);
+    console.log('🔍 [OOBE调试] 所有绑定:', JSON.stringify(PresetManager.data.bindings));
+    console.log('🔍 [OOBE调试] 活动配置:', PresetManager.data.active);
+    console.log('🔍 [OOBE调试] 配置列表:', Object.keys(PresetManager.data.list).join(', '));
+    // ========== OOBE调试日志结束 ==========
+
+    if (boundPreset && PresetManager.data.list[boundPreset]) {
+        PresetManager.data.active = boundPreset;
+        PresetManager.save();
+        showToast(`✨ 检测到新试题，已自动切换至【${PresetManager.data.active}】方案`);
+    } else if (PresetManager.data.active !== "默认配置" && PresetManager.data.list["默认配置"]) {
+        PresetManager.data.active = "默认配置";
+        PresetManager.save();
+        showToast(`📝 未找到当前题目的专属方案，已恢复为【默认配置】`);
+    }
+
+    // 检查 API KEY 是否配置
+    const apiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
+    console.log('🔍 [OOBE调试] apiKey存在:', !!apiKey);
+    if (!apiKey) {
+        console.log('🔍 [OOBE调试] 无API Key，弹出首次启动OOBE');
+        showOnboardingDialog(true, 'first-launch');
+        return;
+    }
+
+    // 检查是否是新试题（未绑定配置）
+    console.log('🔍 [OOBE调试] 检查新试题条件: boundPreset=', boundPreset, ', 存在配置=', !!PresetManager.data.list[boundPreset]);
+    if (!boundPreset || !PresetManager.data.list[boundPreset]) {
+        console.log('🔍 [OOBE调试] 条件满足，弹出新试题OOBE');
+        showOnboardingDialog(true, 'new-question');
+        return;
+    } else {
+        console.log('🔍 [OOBE调试] 条件不满足，不弹出OOBE');
+    }
+
+    const select = document.getElementById('preset-select');
+    if (select) {
+        select.value = PresetManager.data.active;
+        select.dispatchEvent(new Event('change'));
+    }
+    } finally {
+        newTaskFlowInFlight = false;
+    }
+}
+
+// #304 SPA 渲染竞态防护：登记的待重试任务与当前一致、且未在批改/暂停态才补跑
+// （#315 G7：迟到 pending 不得在暂停期换活动方案）
+function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning, isPaused) {
+    return !!pendingId && pendingId === currentUrlId && !isRunning && !isPaused;
+}
+
 // URL 及 题号变化监听器 (轻量级轮询)
 let lastUrlId = PresetManager.getTaskIdentifier();
+let pendingNewTaskFlowId = null;
+let newTaskFlowInFlight = false; // #312 防重入：并发生 tick 不得双跑新题引导（双弹窗）
 setInterval(async () => {
     const currentUrlId = PresetManager.getTaskIdentifier();
     if (currentUrlId !== lastUrlId) {
@@ -593,64 +921,70 @@ setInterval(async () => {
 
         if (adapter.isRegradeMode ? adapter.isRegradeMode() : window.aiGradingState.isRegrading) return;
 
+        // SPA 导航离开批改页（如退回列表页）：统一清理
+        // 复查确认后才动手：DOM 型 isMarkingPage（frame 重载）瞬时 false 会误杀进行中的批改
+        if (typeof adapter.isMarkingPage === 'function' && !adapter.isMarkingPage()) {
+            if (await confirmLeftMarkingPage(adapter)) {
+                handleLeaveMarkingPage();
+            } else {
+                // #312：复查结论"未离开"= 可能是 DOM 型检测瞬时 false 或 SPA 正进入新批改页——
+                // 登记待重试补跑新题引导（裸 return 会像 #304 一样丢掉本次任务切换）
+                pendingNewTaskFlowId = currentUrlId;
+            }
+            return;
+        }
+
+        // 适配器声明的「不支持的批改模式」（如九科星按学生批阅多题页）：
+        // 弹提示横幅、停止批改、跳过方案切换与 OOBE——typeof 门控，未实现该钩子的适配器零影响
+        if (typeof adapter.isUnsupportedMarkingMode === 'function' && adapter.isUnsupportedMarkingMode()) {
+            console.log('[诊断] 当前为不支持的批改模式，跳过方案配置');
+            if (typeof adapter.showUnsupportedModeNotice === 'function') {
+                adapter.showUnsupportedModeNotice();
+            }
+            if (window.aiGradingState.isRunning) {
+                window.aiGradingState.isRunning = false;
+                window.aiGradingState.isPaused = true;
+                const stopBtn = document.querySelector('.ai-grade-btn');
+                if (stopBtn) {
+                    stopBtn.textContent = '继续批改';
+                    stopBtn.classList.remove('running', 'unattended', 'trial');
+                    stopBtn.classList.add('paused');
+                }
+                showToast('当前批改模式暂不支持自动批改，批改已暂停');
+            }
+            return;
+        }
+
         if (!window.aiGradingState.isRunning) {
             // 非阅卷页面不弹窗，直接返回
             // 优先使用快速检查（不等待 DOM），回退到完整检测
             const onMarkingPage = adapter.isMarkingPage
                 ? adapter.isMarkingPage()
                 : (adapter.detectMarkingPage ? await adapter.detectMarkingPage() : true);
-            if (!onMarkingPage) return;
-
-            // SPA 导航到阅卷页面时，先确保 UI 已创建（按钮 + 设置面板）
-            // 必须在 early return 之前调用，否则新题目引导/无 API Key 时面板不会出现
-            // init 内部有防重复创建的 guard，不会产生重复 UI
-            setTimeout(init, 1000);
-
-            const boundPreset = PresetManager.data.bindings[currentUrlId];
-
-            // ========== OOBE调试日志 ==========
-            console.log('🔍 [OOBE调试] currentUrlId:', currentUrlId);
-            console.log('🔍 [OOBE调试] boundPreset:', boundPreset);
-            console.log('🔍 [OOBE调试] 所有绑定:', JSON.stringify(PresetManager.data.bindings));
-            console.log('🔍 [OOBE调试] 活动配置:', PresetManager.data.active);
-            console.log('🔍 [OOBE调试] 配置列表:', Object.keys(PresetManager.data.list).join(', '));
-            // ========== OOBE调试日志结束 ==========
-
-            if (boundPreset && PresetManager.data.list[boundPreset]) {
-                PresetManager.data.active = boundPreset;
-                PresetManager.save();
-                showToast(`✨ 检测到新试题，已自动切换至【${PresetManager.data.active}】方案`);
-            } else if (PresetManager.data.active !== "默认配置" && PresetManager.data.list["默认配置"]) {
-                PresetManager.data.active = "默认配置";
-                PresetManager.save();
-                showToast(`📝 未找到当前题目的专属方案，已恢复为【默认配置】`);
-            }
-
-            // 检查 API KEY 是否配置
-            const apiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
-            console.log('🔍 [OOBE调试] apiKey存在:', !!apiKey);
-            if (!apiKey) {
-                console.log('🔍 [OOBE调试] 无API Key，弹出首次启动OOBE');
-                showOnboardingDialog(true, 'first-launch');
+            if (!onMarkingPage) {
+                // #304 SPA 渲染竞态：URL 先变、阅卷 DOM 后渲染——登记待重试，
+                // 下个 tick 补跑新题引导流程（一次性消费会导致配置窗丢失，需刷新才弹）
+                pendingNewTaskFlowId = currentUrlId;
                 return;
             }
-
-            // 检查是否是新试题（未绑定配置）
-            console.log('🔍 [OOBE调试] 检查新试题条件: boundPreset=', boundPreset, ', 存在配置=', !!PresetManager.data.list[boundPreset]);
-            if (!boundPreset || !PresetManager.data.list[boundPreset]) {
-                console.log('🔍 [OOBE调试] 条件满足，弹出新试题OOBE');
-                showOnboardingDialog(true, 'new-question');
-                return;
-            } else {
-                console.log('🔍 [OOBE调试] 条件不满足，不弹出OOBE');
-            }
-
-            const select = document.getElementById('preset-select');
-            if (select) {
-                select.value = PresetManager.data.active;
-                select.dispatchEvent(new Event('change'));
-            }
+            pendingNewTaskFlowId = null;
+            await runNewTaskOnboardingFlow(currentUrlId);
+        } else {
+            // #312：批改运行中消费了任务切换——登记待补跑（否则批改停止后永不补跑，
+            // 可能拿旧方案继续批新题）；重试分支要求 !isRunning，停止后自动补跑
+            pendingNewTaskFlowId = currentUrlId;
         }
+    } else if (shouldRetryPendingTaskFlow(pendingNewTaskFlowId, currentUrlId, window.aiGradingState.isRunning, window.aiGradingState.isPaused)) {
+        // #304 重试：仅补跑新题引导流程（不重入清理/横幅等副作用分支）
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        const onMarkingPage = adapter
+            ? (adapter.isMarkingPage
+                ? adapter.isMarkingPage()
+                : (adapter.detectMarkingPage ? await adapter.detectMarkingPage() : true))
+            : false;
+        if (!onMarkingPage) return; // DOM 仍未就绪，继续等
+        pendingNewTaskFlowId = null;
+        await runNewTaskOnboardingFlow(currentUrlId);
     }
 }, 1000);
 

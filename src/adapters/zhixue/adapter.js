@@ -395,15 +395,15 @@ const ZhixueAdapter = {
                     return;
                 }
 
-                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框）
+                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框；仅真清空算空，'0' 是合法分值，#285）
                 // 旧版输入框
                 const scoreInputOld = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
                                    searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
-                const inputClearedOld = scoreInputOld && (scoreInputOld.value === '' || scoreInputOld.value === '0');
+                const inputClearedOld = scoreInputOld && String(scoreInputOld.value).trim() === '';
                 // 新版输入框
                 const scoreInputNew = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW) ||
                                    searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_NEW);
-                const inputClearedNew = scoreInputNew && (scoreInputNew.value === '' || scoreInputNew.value === '0');
+                const inputClearedNew = scoreInputNew && String(scoreInputNew.value).trim() === '';
 
                 if ((inputClearedOld || inputClearedNew) && checkTimes > 3) {
                     clearInterval(checkNextTimer);
@@ -483,19 +483,30 @@ const ZhixueAdapter = {
     fillScores(scores) {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
+
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [智学网] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [智学网] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
+        for (let i = 0; i < inputs.length; i++) {
             const input = inputs[i];
             setter.call(input.element, scores[i]);
             input.element.dispatchEvent(new Event('input', { bubbles: true }));
             input.element.dispatchEvent(new Event('change', { bubbles: true }));
             input.element.dispatchEvent(new Event('blur', { bubbles: true }));
-            successCount++;
             console.log(`✅ [诊断] ${input.label} 分数 ${scores[i]} 已填入`);
         }
-        return successCount > 0;
+        return true;
     },
 
     detectSubQuestions() {

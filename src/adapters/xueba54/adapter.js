@@ -162,12 +162,22 @@ const Xueba54Adapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [54学霸] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [54学霸] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
 
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-
+        for (let i = 0; i < inputs.length; i++) {
             const input = inputs[i].element;
             const score = scores[i];
 
@@ -187,11 +197,9 @@ const Xueba54Adapter = {
                     // 忽略
                 }
             }
-
-            successCount++;
         }
 
-        return successCount > 0;
+        return true;
     },
 
     submitGrade() {
@@ -284,9 +292,9 @@ const Xueba54Adapter = {
                     }
                 }
 
-                // 检查分数输入框是否已清空
+                // 检查分数输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
                 const firstInput = document.querySelector(XUEBA54_SELECTORS.SCORE_INPUT_BY_INDEX(0));
-                const inputCleared = firstInput && (firstInput.value === '' || firstInput.value === '0');
+                const inputCleared = firstInput && String(firstInput.value).trim() === '';
 
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);

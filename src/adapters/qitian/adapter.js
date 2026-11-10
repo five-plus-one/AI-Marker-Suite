@@ -4,14 +4,16 @@
 const QitianAdapter = {
     name: '七天网络',
     id: 'qitian',
-    urlPatterns: ['*://*.7net.cc/*', '*://*.qt7.net/*'],
+    urlPatterns: ['*://*.7net.cc/*', '*://*.qt7.net/*', '*://*.qt7.cn/*'],
     iconUrl: '',
 
     shouldInitialize() {
         const h = window.location.hostname;
         // yj5.7net.cc 是新 UI，由 qitian-new 适配器处理
         if (h.includes('yj5.')) return false;
-        return h.includes('7net.cc') || h.includes('qt7.net');
+        // qt7.cn 为七天网络新域名（#296 声明与实现对齐）；
+        // DOM 形态沿用 7net.cc 检测链（detectMarkingPage 三特征兜底），形态不一致时检测自然不通过
+        return h.includes('7net.cc') || h.includes('qt7.net') || h.includes('qt7.cn');
     },
 
     async detectMarkingPage() {
@@ -50,53 +52,16 @@ const QitianAdapter = {
     },
 
     async gatherAnswerImages() {
-        const imgElements = document.querySelectorAll(QITIAN_SELECTORS.ANSWER_IMAGE);
-        console.log(`🖼️ [诊断] 七天网络 — 找到答题卡图片数量: ${imgElements.length}`);
-        return Array.from(imgElements).map(img => img.src);
+        // 只取可见题块图（#284）：平台会残留上一卷的隐藏裁切图（rect=0），
+        // 混入取图会让 AI 从旧图判分（"未填写答案"误判的根源）
+        const imgElements = Array.from(document.querySelectorAll(QITIAN_SELECTORS.ANSWER_IMAGE))
+            .filter(img => img.getClientRects().length > 0);
+        console.log(`🖼️ [诊断] 七天网络 — 可见答题卡图片: ${imgElements.length}（已排除隐藏残留图）`);
+        return imgElements.map(img => img.src);
     },
 
     async fetchImageAsBase64(url) {
         return fetchImageAsBase64(url);
-    },
-
-    fillScore(request) {
-        const { total, subScores } = request;
-
-        // 分小题填入
-        if (subScores && subScores.length > 0) {
-            const detected = this.detectSubQuestions();
-            if (detected.length > 0) {
-                for (const sq of subScores) {
-                    const target = detected.find(d =>
-                        d.label === sq.label || sq.label.includes(d.label) || d.label.includes(sq.label)
-                    );
-                    if (target && sq.score !== null) {
-                        target.element.value = sq.score;
-                        target.element.dispatchEvent(new Event('input', { bubbles: true }));
-                        target.element.dispatchEvent(new Event('change', { bubbles: true }));
-                        target.element.dispatchEvent(new Event('blur', { bubbles: true }));
-                        console.log(`✅ [诊断] 小题 ${sq.label} 分数 ${sq.score} 已填入`);
-                    }
-                }
-                return true;
-            }
-        }
-
-        // 回退：填总分到 #tbs1
-        const scoreInput = document.querySelector(QITIAN_SELECTORS.SCORE_INPUT);
-        console.log(`🔎 [诊断] 七天网络 fillScore — 分数: ${total}, 输入框: ${!!scoreInput}`);
-
-        if (scoreInput) {
-            scoreInput.value = total;
-            scoreInput.focus();
-            scoreInput.dispatchEvent(new Event('input', { bubbles: true }));
-            scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
-            scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log(`✅ [诊断] 分数已填入 #tbs1`);
-            return true;
-        }
-        console.warn('⚠️ [诊断] 未找到分数输入框 #tbs1');
-        return false;
     },
 
     submitGrade() {
@@ -121,7 +86,10 @@ const QitianAdapter = {
         return new Promise((resolve) => {
             const timer = setInterval(() => {
                 checkTimes++;
-                const currentImg = document.querySelector(QITIAN_SELECTORS.ANSWER_IMAGE);
+                // 只看可见题块图（#284）：隐藏残留图会让旧 src 误判/漏判
+                const visible = Array.from(document.querySelectorAll(QITIAN_SELECTORS.ANSWER_IMAGE))
+                    .filter(x => x.getClientRects().length > 0);
+                const currentImg = visible[0];
                 if (currentImg && currentImg.src !== oldImageUrl) {
                     clearInterval(timer);
                     console.log('✅ 七天网络 — 新试卷已加载');
@@ -144,6 +112,17 @@ const QitianAdapter = {
 
     getScoreInputs() {
         const inputs = [];
+        // 平台每题一个输入框 #tbs1..N，位于 #dutailBot .timuArea 行内（#284）。
+        // 行序 = 题序，与评分单元顺序对齐；旧行为只认 #tbs1 导致仅第一题被填。
+        document.querySelectorAll('#dutailBot .timuArea').forEach((row, i) => {
+            const el = row.querySelector('input[id^="tbs"]');
+            if (!el) return;
+            const p = row.querySelector('p');
+            const label = p ? p.textContent.replace(/[|\s]/g, '').trim() : `分数${i + 1}`;
+            inputs.push({ element: el, label, index: inputs.length });
+        });
+        if (inputs.length > 0) return inputs;
+        // 回退：旧形态只有 #tbs1
         const scoreInput = document.querySelector(QITIAN_SELECTORS.SCORE_INPUT);
         if (scoreInput) {
             inputs.push({ element: scoreInput, label: '总分', index: 0 });
@@ -154,17 +133,40 @@ const QitianAdapter = {
     fillScores(scores) {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
-            inputs[i].element.value = scores[i];
-            inputs[i].element.dispatchEvent(new Event('input', { bubbles: true }));
-            inputs[i].element.dispatchEvent(new Event('change', { bubbles: true }));
-            inputs[i].element.dispatchEvent(new Event('blur', { bubbles: true }));
-            successCount++;
-            console.log(`✅ [诊断] ${inputs[i].label} 分数 ${scores[i]} 已填入`);
+
+        // 数据安全：全或无（#284）——任一题缺分即整体拒绝，不提交半份分
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [诊断] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失），拒绝填分`);
+                return false;
+            }
         }
-        return successCount > 0;
+        for (let i = 0; i < inputs.length; i++) {
+            const el = inputs[i].element;
+            const v = String(scores[i]);
+            el.value = v;
+            ['input', 'change', 'keyup', 'blur'].forEach(t => {
+                el.dispatchEvent(new Event(t, { bubbles: true }));
+            });
+            console.log(`✅ [诊断] ${inputs[i].label} 分数 ${v} 已填入`);
+        }
+        // 登记校验：全部输入框必须落值，否则显式失败
+        for (let i = 0; i < inputs.length; i++) {
+            if (String(inputs[i].element.value).trim() === '') {
+                console.error(`❌ [诊断] ${inputs[i].label} 填分校验失败（输入框为空），拒绝提交`);
+                return false;
+            }
+        }
+        return true;
+    },
+
+    fillScore(request) {
+        // 旧接口兼容：统一走 fillScores 的全或无语义（#284）
+        const { total, subScores } = request;
+        if (subScores && subScores.length > 0) {
+            return this.fillScores(subScores.map(s => s.score));
+        }
+        return this.fillScores([total]);
     },
 
     detectSubQuestions() {
@@ -178,7 +180,8 @@ const QitianAdapter = {
                 subs.push({ label, element: input, index: i });
             }
         });
-        return subs.length > 1 ? subs : [];
+        // 单题任务也要返回（#284：旧行为 >1 才返回，单题页检测为空）
+        return subs.length > 0 ? subs : [];
     }
 };
 

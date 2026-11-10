@@ -22,6 +22,25 @@ const AmeqpAdapter = {
         return (url || '').split('?')[0];
     },
 
+    // 从图片 src 提取稳定试卷标识：文件名首段即考号（如 7720272115_00_1_0.PNG → 7720272115）。
+    // 同卷 src 偶发重设（缓存戳/渲染重载/路径变体）不改变考号，换卷必变（#281）
+    _paperIdFromSrc(src) {
+        const file = (this._stripQuery(src).split('/').pop() || '');
+        const m = file.match(/^(\d+)/) || file.match(/^([^_]+)/);
+        return (m && m[1]) ? m[1] : this._stripQuery(src);
+    },
+
+    // 稳定试卷标识（供答卷一致性校验做强信号比对）
+    getPaperIdentity() {
+        try {
+            const img = this._answerImages()[0];
+            const src = (img && (img.src || img.getAttribute('src'))) || '';
+            return src ? this._paperIdFromSrc(src) : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     _answerImages() {
         return Array.from(document.querySelectorAll(AMEQP_SELECTORS.ANSWER_IMAGE));
     },
@@ -30,9 +49,10 @@ const AmeqpAdapter = {
         return Array.from(document.querySelectorAll(AMEQP_SELECTORS.SCORE_INPUT));
     },
 
-    // 从 txt_que_N 提取内部序号 N
+    // 从 txt_que_N / txt_que_1_1 提取内部序号（必须抓全双段编号，#278：
+    // 旧正则 /txt_que_(\d+)/ 对 txt_que_1_1 只截到 "1"，导致隐藏字段同步成为空操作）
     _indexOf(el) {
-        const m = (el.name || el.id || '').match(/txt_que_(\d+)/);
+        const m = (el.name || el.id || '').match(/txt_que_(\d+(?:_\d+)?)/);
         return m ? m[1] : null;
     },
 
@@ -52,28 +72,64 @@ const AmeqpAdapter = {
         return /\/AMEQP\/Webroot\/mar\//i.test(window.location.pathname);
     },
 
-    // 将单个分数写入输入框并触发平台事件
+    // 平台记分值的规范格式：与给分列表一致的 X.X（"4.0"）。实测写 "4" 不被记分登记（#278）
+    _fmt(v) {
+        const num = Number(v);
+        return isFinite(num) ? num.toFixed(1) : String(v);
+    },
+
+    // 点击平台给分列表对应档位（span.sco_list[value="4.0"]）——
+    // 这是人手打分的原生记分链路，会触发平台自己的登记处理（#278）
+    _clickScoreOption(n, v) {
+        if (!n) return false;
+        try {
+            const span = document.querySelector(`#Mark_scoList_${n} span.sco_list[value="${this._fmt(v)}"]`);
+            if (span) {
+                span.click();
+                return true;
+            }
+        } catch (e) {
+            console.warn('[AMEQP] 给分列表点击失败:', e);
+        }
+        return false;
+    },
+
+    // 将单个分数写入输入框并触发平台记分事件（含按键事件，#278：
+    // 平台登记处理可能绑定 keyup 等按键事件，旧实现只发 input/change/blur 不够）
     _setInputValue(el, v) {
+        const fmt = this._fmt(v);
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        setter.call(el, String(v));
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        el.dispatchEvent(new Event('blur', { bubbles: true }));
+        setter.call(el, fmt);
+        const types = ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur'];
+        types.forEach(t => {
+            try {
+                const ev = (t.indexOf('key') === 0)
+                    ? new KeyboardEvent(t, { bubbles: true, cancelable: true, key: fmt })
+                    : new Event(t, { bubbles: true, cancelable: true });
+                el.dispatchEvent(ev);
+            } catch (e) { /* 旧内核兜底 */ }
+        });
         if (window.jQuery) {
             try {
-                window.jQuery(el).val(String(v)).trigger('input').trigger('change').trigger('blur');
+                const $el = window.jQuery(el);
+                $el.val(fmt);
+                types.forEach(t => { $el.trigger(t); });
             } catch (e) {
                 console.warn('[AMEQP] jQuery trigger 失败:', e);
             }
         }
     },
 
-    // 同步平台内部状态字段（OnSubmit 靠这些判断"已给分"）
+    // 同步平台内部状态字段与记分视觉态（OnSubmit 靠这些判断"已给分"，#278）
     _syncPlatformState(n, v) {
+        const fmt = this._fmt(v);
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         if (n) {
             const sub = document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${n}`);
-            if (sub) setter.call(sub, String(v));
+            if (sub) setter.call(sub, fmt);
+            // 镜像平台记分视觉态：隐藏"本题尚未给分"红字
+            const msg = document.querySelector(`#${AMEQP_SELECTORS.SCORE_MSG}${n}`);
+            if (msg) msg.style.display = 'none';
         }
         // 重算总分显示
         let total = 0;
@@ -85,6 +141,13 @@ const AmeqpAdapter = {
         const t = String(Math.round(total * 10) / 10);
         if (queVal) setter.call(queVal, t);
         if (queValOld) setter.call(queValOld, t);
+    },
+
+    // 单题登记校验：隐藏状态字段必须非空（捕捉选择器/编号失效类故障，#278）
+    _isRegistered(n) {
+        if (!n) return false;
+        const sub = document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${n}`);
+        return !!(sub && String(sub.value).trim() !== '');
     },
 
     // 把 img 在 .img_box 视口内的可视区域裁成 dataURL（题块图，而非整张答题卡）
@@ -265,21 +328,37 @@ const AmeqpAdapter = {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
+        // 数据安全：全或无（#278）——任一题缺分即整体拒绝，不留半登记状态
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`[AMEQP] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失），拒绝填分`);
+                return false;
+            }
+        }
+
         // 先暂存：submitGrade 时会重新灌一遍，防止填分与提交间隔太短导致平台没记录
         this._pendingScores = scores.slice();
 
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
+        for (let i = 0; i < inputs.length; i++) {
             const v = scores[i];
-            if (v === null || v === undefined) continue;
             const el = inputs[i].element;
+            const n = this._indexOf(el);
+            // 三路记分（#278）：平台给分列表原生链路 → 输入框写值+全事件 → 隐藏字段同步
+            this._clickScoreOption(n, v);
             this._setInputValue(el, v);
-            // 同步平台 hidden 字段（OnSubmit 校验点）
-            this._syncPlatformState(this._indexOf(el), v);
-            successCount++;
+            this._syncPlatformState(n, v);
         }
-        console.log(`[AMEQP] 填分完成: ${successCount}/${inputs.length}`, scores);
-        return successCount > 0;
+
+        // 登记校验：隐藏状态字段必须全部落上（能捕捉 #278 这类选择器/编号失效故障）
+        for (let i = 0; i < inputs.length; i++) {
+            const n = this._indexOf(inputs[i].element);
+            if (!this._isRegistered(n)) {
+                console.error(`[AMEQP] ${inputs[i].label} 记分登记校验失败（MarQueSubSco_${n} 为空），拒绝提交`);
+                return false;
+            }
+        }
+        console.log(`[AMEQP] 填分完成并通过登记校验: ${inputs.length}/${inputs.length}`, scores);
+        return true;
     },
 
     // ---------- 提交 ----------
@@ -299,45 +378,76 @@ const AmeqpAdapter = {
         // 给平台事件处理留出处理时间，再触发 OnSubmit(1)
         await new Promise(r => setTimeout(r, 350));
 
+        // 提交前登记校验（#278）：任何一题未登记即显式失败，不静默续走提交
+        const checkInputs = this.getScoreInputs();
+        for (let i = 0; i < checkInputs.length; i++) {
+            const n = this._indexOf(checkInputs[i].element);
+            if (!this._isRegistered(n)) {
+                console.error(`[AMEQP] 提交前校验失败：${checkInputs[i].label} 未登记（MarQueSubSco_${n} 为空），中止提交`);
+                return false;
+            }
+        }
+
+        // 钩住 alert，捕获平台 OnSubmit 的"没给分"类提示并显式失败（#278）
+        let platformWarn = null;
+        const origAlert = window.alert;
+        window.alert = function (msg) {
+            platformWarn = String(msg || '');
+            console.warn('[AMEQP] 平台弹窗:', platformWarn);
+        };
+
         const btn = document.querySelector(AMEQP_SELECTORS.SUBMIT_BUTTON);
         if (btn && !btn.disabled) {
             btn.click();
             console.log('[AMEQP] 已点击提交');
             this._pendingScores = null;
+            await new Promise(r => setTimeout(r, 800));
+            window.alert = origAlert;
+            if (platformWarn && /没给分|尚未给分|给分/.test(platformWarn)) {
+                console.error('[AMEQP] 平台提示记分异常，提交未完成:', platformWarn);
+                return false;
+            }
             return true;
         }
+        window.alert = origAlert;
         console.warn('[AMEQP] 未找到可用的提交按钮');
         return false;
     },
 
     async waitForNextPaper(oldImageUrl) {
-        // oldImageUrl 可能是裁切 dataURL 或整图 URL；换卷检测以 DOM 信号为主
-        const oldPath = (oldImageUrl && !oldImageUrl.startsWith('data:'))
-            ? this._stripQuery(oldImageUrl)
-            : this._stripQuery((this._answerImages()[0] || {}).src);
+        // 换卷检测以「试卷标识（考号）」为主信号（#281）：
+        // 旧信号（图片路径变化/分数框清空）在平台切换窗口期会抖动误判，
+        // 导致下一轮取到旧卷图、随后被答卷校验正确拦截并暂停（偶发"批改已暂停"）。
+        // 考号换卷必变、同卷 src 抖动不变，竞态窗口随之消除。
+        const oldId = this.getPaperIdentity();
         let checkTimes = 0;
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
                 checkTimes++;
 
-                // 信号1：答题卡图片路径变化（去缓存戳）
+                // 信号1（强）：试卷标识（考号）变化
+                const curId = this.getPaperIdentity();
+                const idMoved = oldId && curId && curId !== oldId;
+
+                // 信号2（弱，仅在拿不到标识时兜底）：答题卡图片路径变化（去缓存戳）
                 const imgPaths = this._answerImages()
                     .map(img => this._stripQuery(img.src))
                     .filter(Boolean);
-                const imgMoved = oldPath && imgPaths.length > 0 && !imgPaths.includes(oldPath);
+                const imgMoved = !oldId && imgPaths.length > 0 && oldImageUrl
+                    && !imgPaths.includes(this._stripQuery(oldImageUrl));
 
-                // 信号2：所有分数框被清空（平台换卷重置）
+                // 信号3：所有分数框被清空（平台换卷重置）
                 const inputs = this._scoreInputs();
                 const allEmpty = inputs.length > 0 && inputs.every(el => !el.value);
 
-                // 信号3：平台总分显示归零且分数框已清（提交成功后的重置）
+                // 信号4：平台总分显示归零且分数框已清（提交成功后的重置）
                 const queVal = document.querySelector(AMEQP_SELECTORS.QUE_VAL);
                 const queReset = queVal && (queVal.value === '' || parseFloat(queVal.value) === 0);
 
-                if (imgMoved || (allEmpty && queReset && checkTimes >= 4) || (allEmpty && checkTimes >= 5)) {
+                if (idMoved || imgMoved || (!oldId && ((allEmpty && queReset && checkTimes >= 4) || (allEmpty && checkTimes >= 5)))) {
                     clearInterval(timer);
-                    console.log('[AMEQP] 检测到下一份答卷', { imgMoved, allEmpty, queReset, checkTimes });
+                    console.log('[AMEQP] 检测到下一份答卷', { idMoved, imgMoved, allEmpty, queReset, checkTimes, oldId, curId });
                     resolve(true);
                 } else if (checkTimes > 100) {
                     // 20s 超时

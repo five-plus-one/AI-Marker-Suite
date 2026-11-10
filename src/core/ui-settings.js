@@ -236,15 +236,18 @@ function createSettingsPanel(options) {
             }
             .checkbox-group label { margin: 0; font-size: 13px; color: #1a1a1a; font-weight: 500; }
 
-            .preset-controls { display: flex; gap: 6px; margin-bottom: 12px; }
+            /* flex 子项默认 min-width:auto，select 最小宽度随最长 option 撑开，
+               长方案名会把同排按钮挤出容器——必须 min-width:0 限宽 + wrap 兜底（#268） */
+            .preset-controls { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
             .preset-controls select {
-                flex: 1; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1);
+                flex: 1 1 auto; min-width: 0; max-width: 100%;
+                padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1);
                 background: rgba(0,0,0,0.02); font-size: 13px;
             }
             .preset-btn {
                 background: transparent; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px;
                 padding: 0 12px; cursor: pointer; font-size: 12px; font-weight: 500; color: #444; transition: all 0.2s;
-                height: 34px; display: flex; align-items: center;
+                height: 34px; display: flex; align-items: center; flex-shrink: 0; white-space: nowrap;
             }
             .preset-btn:hover { background: rgba(0,0,0,0.03); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
             .preset-btn.danger:hover { color: #D93025; border-color: rgba(217,48,37,0.3); background: rgba(217,48,37,0.04); }
@@ -396,6 +399,12 @@ function createSettingsPanel(options) {
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
             }
+            /* 长方案名单独省略号限宽，避免把行尾「未保存」徽标一起裁掉（#268） */
+            #ai-grading-settings .settings-current-line #settings-current-preset {
+                display: inline-block; max-width: 55%;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                vertical-align: bottom;
+            }
             #ai-grading-settings .settings-unsaved-chip {
                 display: none !important;
                 margin-left: 6px !important;
@@ -405,6 +414,7 @@ function createSettingsPanel(options) {
                 color: #c2352b !important;
                 font-size: 11px !important;
                 font-weight: 700 !important;
+                flex-shrink: 0;
             }
             #ai-grading-settings .settings-unsaved-chip.visible {
                 display: inline-flex !important;
@@ -768,6 +778,84 @@ function createSettingsPanel(options) {
                 </div>
 
                 <div class="form-section">
+                    <div class="section-header"><h4>输出模式</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="mode-segmented">
+                            <input type="radio" name="output-mode" value="detailed" id="output-mode-detailed">
+                            <label for="output-mode-detailed">详细（默认）</label>
+                            <input type="radio" name="output-mode" value="score-only" id="output-mode-score-only">
+                            <label for="output-mode-score-only">精简（仅分数）<span style="color:#E67E22;font-size:10px;font-weight:600;">实验性</span></label>
+                        </div>
+                        <div class="mode-desc" id="output-mode-desc">输出答案复述、评分依据、分数计算与评语，可解释性强。</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="section-header"><h4>自动重试</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
+                            <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
+                        <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="section-header"><h4>答卷校验<span style="color:#E67E22;font-size:10px;font-weight:600;">实验性</span></h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group"><input type="checkbox" id="paper-guard-enabled" checked><label for="paper-guard-enabled">填分前校验答卷一致性</label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">
+                            AI 请求期间若翻卷，防止把旧卷分数填进新卷并误提交。<br>
+                            <b>若遇到误报</b>（被「答卷已切换」拦下、但实际并未换卷），可先<b>取消勾选此项</b>继续批改，并把日志反馈给我们。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="section-header"><h4>批改节奏<span style="color:#E67E22;font-size:10px;font-weight:600;">实验性</span></h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <div class="section-body">
+                        <div class="checkbox-group"><input type="checkbox" id="human-pacing-enabled"><label for="human-pacing-enabled">启用拟人化随机提交延迟</label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">
+                            关闭时行为不变（普通 5 秒 / 无人 1 秒倒计时）。开启后提交前等待时间在下方区间内随机，使批改节奏更接近人工。<br>
+                            <b>仅普通模式与无人模式生效</b>（试改模式已是人工确认节奏，不参与）。生效时提交弹窗会显示「拟人节奏」标注。
+                        </div>
+                        <div class="form-group"><label>普通模式延迟区间（秒）</label>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <input type="number" id="human-pacing-normal-min" min="0" max="300" step="1" value="5" style="width:90px;">
+                                <span style="color:#86868b;">~</span>
+                                <input type="number" id="human-pacing-normal-max" min="0" max="300" step="1" value="15" style="width:90px;">
+                            </div>
+                        </div>
+                        <div class="mode-desc" id="human-pacing-normal-warn" style="font-size:11px;color:#E67E22;margin-top:4px;display:none;">
+                            普通模式下限低于 5 秒可能来不及查看评分结果。来不及看时可点「暂停」冻结倒计时；要求逐份审阅请用试改模式。
+                        </div>
+                        <div class="form-group"><label>无人模式延迟区间（秒）</label>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <input type="number" id="human-pacing-unattended-min" min="0" max="300" step="1" value="0" style="width:90px;">
+                                <span style="color:#86868b;">~</span>
+                                <input type="number" id="human-pacing-unattended-max" min="0" max="300" step="1" value="8" style="width:90px;">
+                            </div>
+                        </div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:4px;">
+                            无人模式区间较短，侧重保留挂机吞吐；对日志拟真度要求高时建议用普通模式或加大区间。
+                        </div>
+                        <div class="checkbox-group" style="margin-top:10px;"><input type="checkbox" id="human-pacing-rest-enabled"><label for="human-pacing-rest-enabled">随机休息<span style="color:#E67E22;font-size:10px;font-weight:600;">实验性</span></label></div>
+                        <div class="form-group"><label>每批改
+                            <input type="number" id="human-pacing-rest-every" min="1" max="500" step="1" value="20" style="width:70px;"> 份后，随机休息
+                            <input type="number" id="human-pacing-rest-min" min="1" max="3600" step="1" value="30" style="width:80px;"> ~
+                            <input type="number" id="human-pacing-rest-max" min="1" max="3600" step="1" value="180" style="width:80px;"> 秒
+                        </label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:4px;">
+                            休息期间显示固定横幅与倒计时，可点「立即继续」跳过。
+                        </div>
+                        <div class="checkbox-group" style="margin-top:10px;"><input type="checkbox" id="human-pacing-record-duration" checked><label for="human-pacing-record-duration">记录每卷实际用时</label></div>
+                        <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:4px;">
+                            在历史记录中显示「检测到 → 提交」耗时与随机延迟时长，便于核对拟真效果（脚本测量，与平台记录可能有 1~2 秒差异）。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
                     <div class="section-header"><h4>分数设置</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
                         <div id="scoring-units-container">
@@ -791,6 +879,7 @@ function createSettingsPanel(options) {
                                 </thead>
                                 <tbody id="scoring-units-list"></tbody>
                             </table>
+                            <datalist id="su-step-presets"><option value="1"></option><option value="0.5"></option><option value="0.25"></option><option value="0.1"></option></datalist>
                             <div class="scoring-table-footer">
                                 <span>总分</span>
                                 <span><span class="scoring-total-value" id="scoring-total-score">0</span> 分</span>
@@ -849,7 +938,7 @@ function createSettingsPanel(options) {
                             <label>模型列表</label>
                             <div id="model-list" style="margin-bottom:8px;"></div>
                             <div style="display:flex;gap:8px;">
-                                <input type="text" id="new-model-id" placeholder="模型ID (如 doubao-seed-2-0-mini)" style="flex:1;">
+                                <input type="text" id="new-model-id" placeholder="模型ID (如 doubao-seed-2-0-mini)" style="flex:1 1 auto;min-width:0;">
                                 <button class="preset-btn" id="btn-add-model">添加</button>
                             </div>
                         </div>
@@ -1218,7 +1307,8 @@ function createSettingsPanel(options) {
         a.download = `ai-marker-config_${ts}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showToast('配置已导出');
+        // 密钥提示（#297）：导出文件含明文 API Key
+        showToast('⚠️ 配置已导出（含明文 API Key），请勿公开分享');
     };
     // 配置导入
     const fileInput = panel.querySelector('#import-config-file');
@@ -1229,16 +1319,35 @@ function createSettingsPanel(options) {
         try {
             const text = await file.text();
             const data = JSON.parse(text);
-            if (!data.presets || !data.presets.list) throw new Error('无效的配置文件');
+            if (!data.presets || !data.presets.list || typeof data.presets.list !== 'object') throw new Error('无效的配置文件');
             await showConfirmModal(`确定要导入配置吗？\n文件：${file.name}\n将覆盖当前所有方案和服务商设置。`);
-            PresetManager.data = data.presets;
+            // 导入净化（#296）：逐方案清洗危险字段（如 roundMethod 被 Math[] 索引会打穿判分）
+            const cleanPresets = {
+                list: {},
+                active: String(data.presets.active || ''),
+                bindings: (data.presets.bindings && typeof data.presets.bindings === 'object') ? data.presets.bindings : {}
+            };
+            for (const name of Object.keys(data.presets.list)) {
+                // 原型污染护栏（#299 H3）：危险键名直接跳过
+                if (['__proto__', 'constructor', 'prototype'].includes(String(name))) continue;
+                const cfg = data.presets.list[name];
+                if (cfg && typeof cfg === 'object') cleanPresets.list[String(name)] = PresetManager.sanitizePreset(cfg);
+            }
+            const names = Object.keys(cleanPresets.list);
+            if (names.length === 0) throw new Error('配置文件中没有可用方案');
+            if (!cleanPresets.list[cleanPresets.active]) cleanPresets.active = names[0];
+            PresetManager.data = cleanPresets;
+            // 导入是用户显式恢复意图：解除只读降级（#293/#297）
+            PresetManager._writeDisabled = false;
             PresetManager.save();
             if (data.providers) {
                 ProviderManager.data = data.providers;
+                ProviderManager._writeDisabled = false;
                 ProviderManager.save();
             }
             if (data.workflows) {
                 WorkflowManager.data = data.workflows;
+                WorkflowManager._writeDisabled = false;
                 WorkflowManager.save();
             }
             renderPresetDropdown();
@@ -1273,7 +1382,8 @@ function createSettingsPanel(options) {
         a.download = `ai-marker-preset_${safeName}_${ts}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showToast(`方案「${presetName}」已导出（含图片）`);
+        // 密钥提示（#297）：方案含明文 API Key
+        showToast(`⚠️ 方案「${presetName}」已导出（含图片与明文 API Key），请勿公开分享`);
     }
 
     const presetFileInput = panel.querySelector('#import-preset-file');
@@ -1289,14 +1399,20 @@ function createSettingsPanel(options) {
             }
             const importName = String(data.name).trim();
             if (!importName) throw new Error('方案名称为空');
+            // 原型污染护栏（#299 H3）
+            if (['__proto__', 'constructor', 'prototype'].includes(importName)) throw new Error('非法方案名称');
             const exists = !!PresetManager.data.list[importName];
             if (exists) {
-                const ok = await showConfirmModal(`方案「${importName}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
+                const ok = await showConfirmModal(`方案「${escapeSettingsHtml(importName)}」已存在。\n确定要覆盖它吗？\n\n选择「取消」则跳过导入，不影响现有方案。`);
                 if (!ok) { presetFileInput.value = ''; return; }
             }
             // 合并导入：只写入该方案，不影响其他方案/供应商/工作流
-            PresetManager.data.list[importName] = data.preset;
+            // 导入净化（#296）+ 显式恢复意图解除只读降级（#297）
+            PresetManager.data.list[importName] = PresetManager.sanitizePreset(data.preset);
             PresetManager.data.active = importName;
+            // 导入旧版本方案时补全新字段（outputMode/retryPolicy 等），与启动时迁移同源
+            if (typeof PresetManager.migrateAll === 'function') PresetManager.migrateAll();
+            PresetManager._writeDisabled = false;
             PresetManager.save();
             renderPresetDropdown();
             fillFormFromActivePreset();
@@ -1478,6 +1594,8 @@ function setupSettingsMenuLayout(panel) {
     moveSection('grading', '运行模式');
     moveSection('grading', '批改上下文');
     moveSection('grading', '分数设置');
+    moveSection('grading', '输出模式');
+    moveSection('grading', '答卷校验');
     moveSection('grading', '勤勉加分');
     moveSection('grading', '空白答题卡检测');
     const presetIOShortcut = document.createElement('div');
@@ -1498,6 +1616,8 @@ function setupSettingsMenuLayout(panel) {
     const apiWarning = configTab.querySelector('#api-key-warning');
     if (apiWarning) pages.ai.appendChild(apiWarning);
     moveSection('automation', '批阅份数');
+    moveSection('automation', '自动重试');
+    moveSection('automation', '批改节奏');
     moveSection('data', '历史记录');
     const historyShortcut = document.createElement('div');
     historyShortcut.className = 'form-section';
@@ -1538,6 +1658,9 @@ function renderChangelogContent(container, changelog) {
     const arrowSVG = '<svg class="changelog-toggle" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
     let html = '';
+    const escCl = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
     versions.forEach((ver, idx) => {
         const items = changelog[ver];
         const collapsedClass = idx === 0 ? '' : ' collapsed'; // 最新版本展开，其余折叠
@@ -1545,11 +1668,12 @@ function renderChangelogContent(container, changelog) {
         html += `<div class="changelog-version${collapsedClass}">`;
         html += `<div class="changelog-version-header">`;
         html += arrowSVG;
-        html += `<span class="changelog-ver">v${ver}</span>`;
+        html += `<span class="changelog-ver">v${escCl(ver)}</span>`;
         html += `</div>`;
         html += `<ul class="changelog-items">`;
         items.forEach(item => {
-            html += `<li>${item}</li>`;
+            // 远端 changelog 文本转义（#299）
+            html += `<li>${escCl(item)}</li>`;
         });
         html += `</ul></div>`;
     });
@@ -1835,6 +1959,73 @@ function fillFormFromActivePreset() {
     const desc = document.getElementById('mode-desc');
     if (desc) { desc.textContent = modeDescs[gradingMode]; desc.className = 'mode-desc ' + (modeDescClasses[gradingMode] || ''); }
 
+    // 答卷校验（实验性开关）
+    const paperGuardCfg = config.paperGuard || {};
+    const paperGuardInput = document.getElementById('paper-guard-enabled');
+    if (paperGuardInput) paperGuardInput.checked = paperGuardCfg.enabled !== false;
+
+    // 批改节奏（实验性开关）
+    const humanPacingCfg = config.humanPacing || {};
+    const hpEnabledInput = document.getElementById('human-pacing-enabled');
+    if (hpEnabledInput) hpEnabledInput.checked = humanPacingCfg.enabled === true;
+    const hpNormalMin = document.getElementById('human-pacing-normal-min');
+    const hpNormalMax = document.getElementById('human-pacing-normal-max');
+    const hpUnattendedMin = document.getElementById('human-pacing-unattended-min');
+    const hpUnattendedMax = document.getElementById('human-pacing-unattended-max');
+    const hpNormalDelay = humanPacingCfg.normalDelay || { min: 5, max: 15 };
+    const hpUnattendedDelay = humanPacingCfg.unattendedDelay || { min: 0, max: 8 };
+    if (hpNormalMin) hpNormalMin.value = hpNormalDelay.min ?? 5;
+    if (hpNormalMax) hpNormalMax.value = hpNormalDelay.max ?? 15;
+    if (hpUnattendedMin) hpUnattendedMin.value = hpUnattendedDelay.min ?? 0;
+    if (hpUnattendedMax) hpUnattendedMax.value = hpUnattendedDelay.max ?? 8;
+    const hpRestCfg = humanPacingCfg.rest || {};
+    const hpRestEnabledInput = document.getElementById('human-pacing-rest-enabled');
+    if (hpRestEnabledInput) hpRestEnabledInput.checked = hpRestCfg.enabled === true;
+    const hpRestEvery = document.getElementById('human-pacing-rest-every');
+    const hpRestMin = document.getElementById('human-pacing-rest-min');
+    const hpRestMax = document.getElementById('human-pacing-rest-max');
+    if (hpRestEvery) hpRestEvery.value = hpRestCfg.everyCount ?? 20;
+    if (hpRestMin) hpRestMin.value = hpRestCfg.restMin ?? 30;
+    if (hpRestMax) hpRestMax.value = hpRestCfg.restMax ?? 180;
+    const hpRecordDurationInput = document.getElementById('human-pacing-record-duration');
+    if (hpRecordDurationInput) hpRecordDurationInput.checked = humanPacingCfg.recordDuration !== false;
+
+    // 普通模式下限过短时的提示
+    const updateHumanPacingWarn = () => {
+        const warn = document.getElementById('human-pacing-normal-warn');
+        if (!warn || !hpNormalMin) return;
+        warn.style.display = (parseInt(hpNormalMin.value, 10) < 5) ? 'block' : 'none';
+    };
+    if (hpNormalMin) {
+        hpNormalMin.addEventListener('input', updateHumanPacingWarn);
+        updateHumanPacingWarn();
+    }
+
+    // 输出模式
+    const outputModeVal = config.outputMode === 'score-only' ? 'score-only' : 'detailed';
+    const outputModeRadio = document.querySelector(`input[name="output-mode"][value="${outputModeVal}"]`);
+    if (outputModeRadio) outputModeRadio.checked = true;
+    const outputModeDescs = {
+        detailed: '输出答案复述、评分依据、分数计算与评语，可解释性强。（推荐）',
+        'score-only': '【实验性】只输出各小题分数与总分，批改速度更快（教师实测约 3 倍）。注意：纠错面板的「提示词优化」需要识别答案，此模式下不可用。'
+    };
+    const outputDescEl = document.getElementById('output-mode-desc');
+    if (outputDescEl) outputDescEl.textContent = outputModeDescs[outputModeVal];
+
+    // 自动重试配置
+    document.querySelectorAll('input[name="output-mode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const d = document.getElementById('output-mode-desc');
+            if (d) d.textContent = outputModeDescs[radio.value] || '';
+        });
+    });
+
+    const retryPolicyCfg = config.retryPolicy || {};
+    const retryMaxInput = document.getElementById('retry-max-retries');
+    if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
+    const retryTimeoutInput = document.getElementById('retry-on-timeout');
+    if (retryTimeoutInput) retryTimeoutInput.checked = retryPolicyCfg.retryOnTimeout !== false;
+
     document.getElementById('bind-url-checkbox').checked = (PresetManager.data.bindings[currentUrlId] === PresetManager.data.active);
 
     // 分数设置
@@ -1939,7 +2130,7 @@ function addScoringUnitItem(data) {
     item.innerHTML = `
         <td><span class="su-label-text" title="${escapeSettingsHtml(label)}">${escapeSettingsHtml(label)}</span><input type="hidden" class="su-label" value="${escapeSettingsHtml(label)}"></td>
         <td><input type="number" class="su-max-score" min="0.1" step="0.1" placeholder="必填" value="${data?.maxScore || ''}"><div class="field-error">必填</div></td>
-        <td><select class="su-round-step"><option value="1" ${stepVal===1?'selected':''}>整数</option><option value="0.5" ${stepVal===0.5?'selected':''}>0.5分</option><option value="0.1" ${stepVal===0.1?'selected':''}>0.1分</option></select></td>
+        <td><input type="number" class="su-round-step" list="su-step-presets" min="0.01" step="0.01" style="width:74px;" value="${stepVal}"></td>
         <td><button class="preset-btn danger su-del-btn" title="删除">×</button></td>
     `;
     item.querySelector('.su-del-btn').onclick = () => {
@@ -1974,7 +2165,10 @@ function getScoringUnitsFromForm() {
     items.forEach((item, i) => {
         const label = item.querySelector('.su-label')?.value?.trim() || `第${i + 1}题`;
         const maxScore = parseFloat(item.querySelector('.su-max-score')?.value);
-        const roundStep = parseFloat(item.querySelector('.su-round-step')?.value) || 1;
+        // 步长支持自定义多种值（1.5/2/2.5…，#273）：归一化为正数且不超过 2 位小数
+        let roundStep = parseFloat(item.querySelector('.su-round-step')?.value);
+        if (!isFinite(roundStep) || roundStep <= 0) roundStep = 1;
+        roundStep = Math.round(roundStep * 100) / 100;
         units.push({
             label,
             maxScore: isNaN(maxScore) ? 0 : maxScore,
@@ -2217,7 +2411,7 @@ async function handleDeletePreset() {
         showAlertModal("必须至少保留一个配置方案！");
         return;
     }
-    if (await showConfirmModal(`确定要删除配置方案【${name}】吗？`)) {
+    if (await showConfirmModal(`确定要删除配置方案【${escapeSettingsHtml(name)}】吗？`)) {
         delete PresetManager.data.list[name];
         for (const url in PresetManager.data.bindings) {
             if (PresetManager.data.bindings[url] === name) delete PresetManager.data.bindings[url];
@@ -2263,8 +2457,8 @@ function renderModelList() {
         const tags = (info.tags || []).map(t => `<span style="display:inline-block;padding:1px 6px;margin-left:4px;font-size:10px;border-radius:3px;background:${t === '推荐' ? 'rgba(0,82,255,0.1)' : 'rgba(0,0,0,0.05)'};color:${t === '推荐' ? '#0052FF' : '#666'};">${t}</span>`).join('');
         const isBuiltin = info.isBuiltin;
         html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;margin-bottom:4px;border-radius:6px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);">`;
-        html += `<div><span style="font-size:12px;font-weight:500;">${info.label || id}</span>${tags}${isBuiltin ? '<span style="display:inline-block;padding:1px 6px;margin-left:4px;font-size:10px;border-radius:3px;background:rgba(217,48,37,0.08);color:#D93025;">内置</span>' : ''}</div>`;
-        html += `<div style="display:flex;align-items:center;gap:6px;">`;
+        html += `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><span style="font-size:12px;font-weight:500;">${info.label || id}</span>${tags}${isBuiltin ? '<span style="display:inline-block;padding:1px 6px;margin-left:4px;font-size:10px;border-radius:3px;background:rgba(217,48,37,0.08);color:#D93025;">内置</span>' : ''}</div>`;
+        html += `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">`;
         if (!isBuiltin) {
             html += `<button class="preset-btn danger" style="padding:2px 6px;font-size:10px;" onclick="event.stopPropagation();deleteModel('${id}')">删除</button>`;
         }
@@ -2340,7 +2534,7 @@ async function handleDeleteProvider() {
         showAlertModal("必须至少保留一个供应商！");
         return;
     }
-    if (await showConfirmModal(`确定要删除供应商【${name}】吗？`)) {
+    if (await showConfirmModal(`确定要删除供应商【${escapeSettingsHtml(name)}】吗？`)) {
         ProviderManager.deleteProvider(name);
         renderProviderDropdown();
         handleProviderChange();
@@ -2435,7 +2629,7 @@ async function handleDeleteWorkflow() {
         showAlertModal("默认工作流不允许删除！");
         return;
     }
-    if (await showConfirmModal(`确定要删除工作流【${wf.name}】吗？`)) {
+    if (await showConfirmModal(`确定要删除工作流【${escapeSettingsHtml(wf.name)}】吗？`)) {
         WorkflowManager.deleteWorkflow(wf.name);
         renderWorkflowDropdown();
         showToast(`工作流「${wf.name}」已删除`);
@@ -2477,13 +2671,13 @@ function showWorkflowEditModal(wf) {
     ensureModalStyles();
 
     const providers = Object.keys(ProviderManager.data.providers);
-    const providerOptions = providers.map(p => `<option value="${p}">${p}</option>`).join('');
+    const providerOptions = providers.map(p => `<option value="${escapeSettingsHtml(p)}">${escapeSettingsHtml(p)}</option>`).join('');
 
     function getModelOptions(providerName) {
         const provider = ProviderManager.data.providers[providerName];
         if (!provider) return '';
         return Object.entries(provider.models || {}).map(([id, info]) =>
-            `<option value="${id}">${info.label || id}</option>`
+            `<option value="${escapeSettingsHtml(id)}">${escapeSettingsHtml(info.label || id)}</option>`
         ).join('');
     }
 
@@ -2599,7 +2793,7 @@ function showWorkflowEditModal(wf) {
     const deleteBtn = modal.querySelector('#wf-edit-delete');
     if (deleteBtn) {
         deleteBtn.onclick = async () => {
-            if (await showConfirmModal(`确定要删除工作流【${wf.name}】吗？`)) {
+            if (await showConfirmModal(`确定要删除工作流【${escapeSettingsHtml(wf.name)}】吗？`)) {
                 WorkflowManager.deleteWorkflow(wf.name);
                 renderWorkflowDropdown();
                 close();
@@ -2635,7 +2829,7 @@ function showWorkflowEditModal(wf) {
 
         if (wf.isBuiltin) {
             // 修改默认工作流需要确认
-            if (!await showConfirmModal(`确定要修改默认工作流【${wf.name}】吗？`)) return;
+            if (!await showConfirmModal(`确定要修改默认工作流【${escapeSettingsHtml(wf.name)}】吗？`)) return;
             WorkflowManager.updateWorkflow(wf.name, config);
         } else {
             const newName = document.getElementById('wf-edit-name').value.trim();
@@ -2687,6 +2881,15 @@ function saveAISettings() {
         WorkflowManager.setActive(workflowId);
     }
 
+    // 满分非步长整数倍时提醒（不拦截保存：满分将作为特例允许给到，#273）
+    try {
+        const oddUnits = scoringUnits.filter(u => u.maxScore > 0 && u.roundStep > 0
+            && Math.abs(u.maxScore / u.roundStep - Math.round(u.maxScore / u.roundStep)) > 1e-9);
+        if (oddUnits.length > 0) {
+            showToast('提示：' + oddUnits.map(u => u.label).join('、') + ' 的满分不是步长的整数倍，满分将作为特例允许');
+        }
+    } catch (e) { /* 提示失败不影响保存 */ }
+
     // 保存取整配置
     const roundStep = scoringUnits.length > 0
         ? Math.min(...scoringUnits.map(u => u.roundStep || 1))
@@ -2703,10 +2906,39 @@ function saveAISettings() {
     const batchEnabled = document.getElementById('batch-enabled-checkbox')?.checked || false;
     const batchTargetCount = parseInt(document.getElementById('batch-target-count')?.value) || 0;
 
+    // 保存答卷校验开关
+    const paperGuardEnabled = document.getElementById('paper-guard-enabled')?.checked !== false;
+
+    // 保存输出模式
+    const outputMode = document.querySelector('input[name="output-mode"]:checked')?.value || 'detailed';
+
+    // 保存自动重试配置
+    const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
+    const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
+
     // 保存空白答题卡检测配置
     const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
     const blankThresholdPct = parseFloat(document.getElementById('blank-threshold')?.value) || 1;
     const blankThreshold = blankThresholdPct / 100;  // 转为小数
+
+    // 保存批改节奏配置（实验性）
+    const clampDelayPair = (minId, maxId, defMin, defMax) => {
+        let min = parseInt(document.getElementById(minId)?.value, 10);
+        let max = parseInt(document.getElementById(maxId)?.value, 10);
+        if (isNaN(min)) min = defMin;
+        if (isNaN(max)) max = defMax;
+        min = Math.min(Math.max(min, 0), 300);
+        max = Math.min(Math.max(max, 0), 300);
+        if (min > max) { const t = min; min = max; max = t; }
+        return { min, max };
+    };
+    const humanPacingEnabled = document.getElementById('human-pacing-enabled')?.checked === true;
+    const humanPacingNormalDelay = clampDelayPair('human-pacing-normal-min', 'human-pacing-normal-max', 5, 15);
+    const humanPacingUnattendedDelay = clampDelayPair('human-pacing-unattended-min', 'human-pacing-unattended-max', 0, 8);
+    const humanPacingRestEnabled = document.getElementById('human-pacing-rest-enabled')?.checked === true;
+    const humanPacingRestEvery = Math.min(Math.max(parseInt(document.getElementById('human-pacing-rest-every')?.value, 10) || 20, 1), 500);
+    const humanPacingRestRange = clampDelayPair('human-pacing-rest-min', 'human-pacing-rest-max', 30, 180);
+    const humanPacingRecordDuration = document.getElementById('human-pacing-record-duration')?.checked !== false;
 
     // 从 Markdown 数据读取（兼容旧格式）
     var mdData = window.__aiMarkdownData || {};
@@ -2733,9 +2965,27 @@ function saveAISettings() {
                 criteria: diligenceCriteria
             }
         },
+        paperGuard: { enabled: paperGuardEnabled },
+        outputMode: outputMode,
+        retryPolicy: {
+            maxRetries: retryMaxRetries,
+            retryOnTimeout: retryOnTimeout
+        },
         blankDetection: {
             enabled: blankDetectionEnabled,
             threshold: blankThreshold
+        },
+        humanPacing: {
+            enabled: humanPacingEnabled,
+            normalDelay: humanPacingNormalDelay,
+            unattendedDelay: humanPacingUnattendedDelay,
+            rest: {
+                enabled: humanPacingRestEnabled,
+                everyCount: humanPacingRestEvery,
+                restMin: humanPacingRestRange.min,
+                restMax: humanPacingRestRange.max
+            },
+            recordDuration: humanPacingRecordDuration
         },
         batchConfig: {
             enabled: batchEnabled,
@@ -2755,7 +3005,17 @@ function saveAISettings() {
         ...oldConfig,
         ...config,
         scoring: { ...oldConfig?.scoring, ...config.scoring },
-        batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig }
+        batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig },
+        retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy },
+        paperGuard: { ...oldConfig?.paperGuard, ...config.paperGuard },
+        humanPacing: {
+            ...oldConfig?.humanPacing,
+            ...config.humanPacing,
+            normalDelay: { ...oldConfig?.humanPacing?.normalDelay, ...config.humanPacing.normalDelay },
+            unattendedDelay: { ...oldConfig?.humanPacing?.unattendedDelay, ...config.humanPacing.unattendedDelay },
+            rest: { ...oldConfig?.humanPacing?.rest, ...config.humanPacing.rest }
+        },
+        outputMode: config.outputMode
     };
 
     const currentUrlId = PresetManager.getTaskIdentifier();
@@ -2768,7 +3028,12 @@ function saveAISettings() {
         }
     }
 
-    PresetManager.save();
+    // 保存结果真实化（#297）：只读降级/保存失败不得报"已保存"
+    const savedOk = PresetManager.save();
+    if (!savedOk) {
+        safeAlert(`⚠️ 「${activeName}」保存失败：存储异常，本次修改未持久化。\n请勿刷新页面，稍后再次点击保存（会自动重试恢复）。`);
+        return;
+    }
     clearUnsavedChanges();
     const modeLabel = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode];
     safeAlert(`「${activeName}」已保存 — ${modeLabel}`);
@@ -2800,6 +3065,19 @@ function saveAISettings() {
 
 // ========== 新手引导 ==========
 let _onboardingDialogOpen = false; // 防止重复弹出
+let _onboardingOverlayEl = null;   // 引导弹窗根元素（SPA 导航离开批改页时需主动关闭）
+
+// 关闭新手引导弹窗（供「离开批改页」生命周期清理调用）
+function hideOnboardingDialog() {
+    if (_onboardingOverlayEl) {
+        _onboardingOverlayEl.remove();
+        _onboardingOverlayEl = null;
+    }
+    if (_onboardingDialogOpen) {
+        _onboardingDialogOpen = false;
+        console.log('[OOBE] 已关闭引导弹窗');
+    }
+}
 
 function showOnboardingDialog(forceShow, mode) {
     if (_onboardingDialogOpen) return; // 已打开，跳过
@@ -2817,6 +3095,7 @@ function showOnboardingDialog(forceShow, mode) {
     const overlay = document.createElement('div');
     overlay.className = 'ai-modal-overlay';
     overlay.style.setProperty('z-index', '2147483647', 'important');
+    _onboardingOverlayEl = overlay;
 
     let currentStep = 1;
     let presetName = '';
@@ -2938,9 +3217,9 @@ function showOnboardingDialog(forceShow, mode) {
                         <div style="width:40px;height:40px;border-radius:10px;background:${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;transition:all 0.2s;">
                             ${w.icon}
                         </div>
-                        <div style="flex:1;">
-                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;">${w.name}</div>
-                            <div style="font-size:12px;color:#86868b;margin-top:2px;">${w.desc}</div>
+                        <div style="flex:1 1 auto;min-width:0;">
+                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</div>
+                            <div style="font-size:12px;color:#86868b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.desc}</div>
                         </div>
                         <div style="width:20px;height:20px;border-radius:50%;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.15)'};display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s;">
                             ${selectedWorkflow===w.id?`<div style="width:10px;height:10px;border-radius:50%;background:${w.id==='fast'?'#0052FF':w.id==='normal'?'#1d1d1f':'#7c3aed'};"></div>`:''}

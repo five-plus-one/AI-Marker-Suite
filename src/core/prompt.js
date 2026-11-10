@@ -89,11 +89,42 @@ function buildDiligencePromptSection(config) {
 
 // ---------- 通用约束片段（所有评分 Prompt 共用） ----------
 // startNum: 起始编号，避免各 Prompt 手动拼编号出错
-function buildCommonConstraints(startNum) {
-    const n = startNum || 5;
-    return `${n}. 如果无法识别学生答案，在【答案复述】写"未能识别"
-${n + 1}. 严格按照评分标准打分，不要随意给分
-${n + 2}. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
+// 小题分取整步长的文字描述（供提示词使用）
+// step=1 时输出与历史完全一致（「一个整数」），保证默认配置下提示词逐字不变
+// 是否启用「仅输出分数」精简输出模式
+// 默认（undefined / 'detailed'）为详细模式，提示词与历史逐字一致
+function isScoreOnlyMode(config) {
+    return !!(config && (config.outputMode === 'score-only' || (config.scoring && config.scoring.outputMode === 'score-only')));
+}
+
+function describeScoreStep(step, maxScore) {
+    const s = parseFloat(step) || 1;
+    let text;
+    if (s === 1) text = '（一个整数）';
+    else if (s === 0.5) text = '（0.5 的倍数，如 0、0.5、1、1.5、2）';
+    else if (s === 0.25) text = '（0.25 的倍数，如 0、0.25、0.5、0.75、1）';
+    else text = '（' + s + ' 的倍数，如 0、' + s + '、' + (Math.round(s * 2 * 100) / 100) + '）';
+    // 满分不整除步长时（如步长 1.5 / 满分 10），满分作为特例明确告知（#273）
+    const max = parseFloat(maxScore);
+    if (isFinite(max) && max > 0 && s > 0) {
+        const ratio = max / s;
+        if (Math.abs(ratio - Math.round(ratio)) > 1e-9) {
+            text = text.slice(0, -1) + '，可给满分 ' + max + '）';
+        }
+    }
+    return text;
+}
+
+function buildCommonConstraints(startNum, scoreOnly) {
+    let n = startNum || 5;
+    const lines = [];
+    // 精简模式不输出【答案复述】，该约束会自相矛盾，须去掉
+    if (!scoreOnly) {
+        lines.push(n++ + '. 如果无法识别学生答案，在【答案复述】写"未能识别"');
+    }
+    lines.push(n++ + '. 严格按照评分标准打分，不要随意给分');
+    lines.push(n++ + '. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案');
+    return lines.join('\n');
 }
 
 // ---------- 取总满分（units 优先，回退 scoring.maxScore） ----------
@@ -126,7 +157,22 @@ function buildStructuredPrompt(config) {
     if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
     prompt += `\n【满分】\n${maxScoreText}`;
 
-    prompt += `
+    if (isScoreOnlyMode(config)) {
+        // 精简模式：只输出分数，省去答案复述/评分依据/分数计算（教师实测约 3 倍提速）
+        prompt += `
+
+===== 输出要求 =====
+只输出分数，不要输出任何分析、评语或计算过程。严格按照以下格式：
+
+【得分】
+（一个数字，可以是小数，表示准确性得分）${buildDiligencePromptSection(config)}
+
+===== 重要约束 =====
+1. 只输出【得分】一行数字，不要任何其他内容
+2. 【得分】必须只有一行，只包含数字，可以是小数
+${buildCommonConstraints(3, true)}`;
+    } else {
+        prompt += `
 
 ===== 输出要求 =====
 你必须严格按照以下格式输出，不得添加任何额外内容：
@@ -148,6 +194,7 @@ function buildStructuredPrompt(config) {
 2. 【得分】必须只有一行，只包含数字，可以是小数
 3. 可以在内容中使用 Markdown 格式（如 **加粗**、列表、$公式$），但【】段落标记必须保留
 ${buildCommonConstraints(4)}`;
+    }
     return prompt;
 }
 
@@ -192,6 +239,20 @@ function parseStructuredResponse(text, maxScore) {
     let rawScore = extractScore(sections['得分'], maxScore);
     if (rawScore === null) rawScore = extractScore(sections['最终得分'], maxScore);
     if (rawScore === null) rawScore = extractScore(sections['总分'], maxScore);
+    // 回退：从【分数计算】提取（"0+4+4=8" / "总得分8分"，#287）——
+    // 仅认等号结果/总得分，不取裸首数字，避免误抓算式里的小题分
+    if (rawScore === null && sections['分数计算']) {
+        const calc = normalizeScoreText(sections['分数计算']);
+        const eq = calc.match(/=\s*(\d+\.?\d*)/g);
+        if (eq && eq.length > 0) {
+            const last = eq[eq.length - 1].match(/(\d+\.?\d*)/);
+            if (last) rawScore = parseFloat(last[1]);
+        }
+        if (rawScore === null) {
+            const ts = calc.match(/总得分[^0-9]*(\d+\.?\d*)/);
+            if (ts) rawScore = parseFloat(ts[1]);
+        }
+    }
     let finalScore = rawScore;
 
     // Level 4: 分数范围校验（截断到有效范围，避免因AI给分超出满分导致null）
@@ -235,8 +296,48 @@ function parseStructuredResponse(text, maxScore) {
     };
 }
 
+// 解析抗漂移（#287）：全角数字/小数点归一化、常见中文数字（0~99）转阿拉伯数字。
+// 模型偶发输出「８分」「八分」「２.５」等变体，直接 \d 匹配会解析为 null 导致批改停摆。
+// 注意（#297）：中文句号「。」**不做**小数点转换——实测「25(1)：3。4分」被并成 3.4 分属错分，
+// 保守取整（3）优于错分（3.4）；仅全角点 U+FF0E 转半角
+function normalizeScoreText(t) {
+    let s = String(t)
+        .replace(/[\uff10-\uff19]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+        .replace(/\uff0e/g, '.')
+        .replace(/[\uff1a]/g, ':')
+        .replace(/[\uff0d\u2212]/g, '-');
+    // 混合小数变体（"二.五分" → "2.5"；中文句号形态"三。五分"同样按小数处理，#299）
+    // 注意：数字。数字（"3。4"）**不**转换（#297 实测该形态是断句不是小数）
+    s = s.replace(/([零〇一二三四五六七八九])[\.．。]([零〇一二三四五六七八九])/g, (m, a, b) => {
+        const na = cnScoreToNumber(a);
+        const nb = cnScoreToNumber(b);
+        return (na === null || nb === null) ? m : na + '.' + nb;
+    });
+    s = s.replace(/([零〇一二两三四五六七八九十]+)(?=\s*分)/g, m => {
+        const n = cnScoreToNumber(m);
+        return n === null ? m : String(n);
+    });
+    return s;
+}
+
+function cnScoreToNumber(cn) {
+    const digits = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+    if (!cn) return null;
+    if (cn.length === 1) return digits[cn] != null ? digits[cn] : null;
+    const tens = cn.indexOf('十');
+    if (tens === -1) return null;
+    const head = cn.slice(0, tens);
+    const tail = cn.slice(tens + 1);
+    const h = head ? (digits[head] != null ? digits[head] : null) : 1;
+    const t = tail ? (digits[tail] != null ? digits[tail] : null) : 0;
+    if (h === null || t === null) return null;
+    return h * 10 + t;
+}
+
 function extractScore(text, maxScore) {
     if (!text) return null;
+    // 抗格式漂移（#287）
+    text = normalizeScoreText(text);
     // 优先取等号后的结果（如 "2+2=4" → 4），避免误取算式中的第一个数
     let num = null;
     const eqMatches = text.match(/=\s*(\d+\.?\d*)/g);
@@ -392,9 +493,12 @@ ${resultB.calculation ? `老师B分数计算：${resultB.calculation}` : ''}
 （抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）`;
 
     if (hasSub) {
-        for (const sq of subQuestions) {
-            prompt += `\n\n${sq.label}分数：（一个整数）`;
-        }
+        // resultA.subScores 不带 roundStep，从 scoring.units 按序取
+        const arbUnits = config.scoring?.units || [];
+        subQuestions.forEach((sq, i) => {
+            const step = arbUnits[i]?.roundStep || config.scoring?.roundStep || 1;
+            prompt += `\n\n${sq.label}分数：${describeScoreStep(step, arbUnits[i]?.maxScore)}`;
+        });
     }
 
     prompt += `
@@ -477,7 +581,8 @@ function buildSubQuestionPrompt(config) {
         prompt += '\n';
     }
 
-    prompt += `
+    if (!isScoreOnlyMode(config)) {
+        prompt += `
 ===== 输出要求 =====
 你必须严格按照以下格式输出，不得添加任何额外内容：
 
@@ -489,21 +594,32 @@ function buildSubQuestionPrompt(config) {
 
 【分数计算】
 （写出各小题计算公式）`;
+    } else {
+        prompt += `
+===== 输出要求 =====
+只输出各小题分数和总分，不要输出任何分析、评语或计算过程。`;
+    }
 
     for (const sq of config.subQuestions) {
-        prompt += `\n\n${sq.label}分数：（一个整数）`;
-        prompt += `\n${sq.label}评语：（简短评语）`;
+        prompt += `\n\n${sq.label}分数：${describeScoreStep(sq.roundStep, sq.maxScore)}`;
+        if (!isScoreOnlyMode(config)) {
+            prompt += `\n${sq.label}评语：（简短评语）`;
+        }
     }
 
     prompt += `\n\n【得分】
 （各小题分数之和，一个数字）${buildDiligencePromptSection(config)}
 
 ===== 重要约束 =====
-1. 必须使用【】作为段落标记
+${isScoreOnlyMode(config)
+        ? `1. 只输出各小题分数和【得分】，不要输出分析、评语或计算过程
+2. 各小题分数和【得分】必须各只有一行，只包含数字
+3. 各小题分数之和应等于【得分】`
+        : `1. 必须使用【】作为段落标记
 2. 各小题分数和【得分】必须各只有一行，只包含数字
 3. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
-4. 各小题分数之和应等于【得分】
-${buildCommonConstraints(5)}`;
+4. 各小题分数之和应等于【得分】`}
+${buildCommonConstraints(isScoreOnlyMode(config) ? 4 : 5, isScoreOnlyMode(config))}`;
     return prompt;
 }
 
@@ -519,12 +635,15 @@ function parseSubQuestionResponse(text, config) {
     // 如果结构化解析成功提取到分数
     if (structured.score !== null) {
         // 尝试提取各小题分数
-        const clean = text.replace(/\*\*/g, '').replace(/\*/g, '');
+        // 抗格式漂移（#287/#289 二轮审计 A-5）：小题行的全角/中文数字同样归一化
+        const clean = normalizeScoreText(text.replace(/\*\*/g, '').replace(/\*/g, ''));
         const subScores = [];
         let calculatedTotal = 0;
 
         for (const sq of config.subQuestions) {
-            const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // 双侧归一（#297）：label 与正文都过 normalizeScoreText，防止"五分题/5分题"类改写漂移
+            const normLabel = normalizeScoreText(sq.label);
+            const escapedLabel = normLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             let score = null;
 
             // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
@@ -543,7 +662,7 @@ function parseSubQuestionResponse(text, config) {
                 const bracketMatch = clean.match(bracketPattern);
                 if (bracketMatch) {
                     // 找到了括号格式，使用完整的 label（包括括号）进行匹配
-                    const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
+                    const fullLabel = normLabel + '(' + bracketMatch[1] + ')';
                     const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
                     // 尝试匹配 "25(1)分数：2"
@@ -698,7 +817,12 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     // 从 scoring.units 派生 subQuestions（唯一数据源）
     const units = config.scoring?.units || [];
     const subQuestions = units.length > 1
-        ? units.map((u, i) => ({ id: String.fromCharCode(97 + i), label: u.label, maxScore: u.maxScore }))
+        ? units.map((u, i) => ({
+            id: String.fromCharCode(97 + i),
+            label: u.label,
+            maxScore: u.maxScore,
+            roundStep: u.roundStep || config.scoring?.roundStep || 1
+        }))
         : [];
     const hasSub = subQuestions.length > 0;
 

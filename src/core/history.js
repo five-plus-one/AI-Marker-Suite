@@ -1,3 +1,22 @@
+// 渲染点转义（#299）：历史记录含 #298 前落库的未转义 AI/学生文本，且数据须保持原样入库
+// （入口转义会随保存逐轮累积）——在 HTML 渲染边界统一深转义字符串字段
+function escHistDeep(obj) {
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+    const walk = (v) => {
+        if (typeof v === 'string') return esc(v);
+        if (Array.isArray(v)) return v.map(walk);
+        if (v && typeof v === 'object') {
+            const o = {};
+            for (const k of Object.keys(v)) o[k] = walk(v[k]);
+            return o;
+        }
+        return v;
+    };
+    return walk(obj);
+}
+
 // ========== IndexedDB 图片存储 ==========
 const ImageStore = {
     DB_NAME: 'ai-marker-images',
@@ -168,14 +187,24 @@ const HistoryManager = {
 
     async init() {
         let saved;
+        this._writeDisabled = false;
         try {
             saved = GM_getValue('ai-grading-history');
         } catch (e) {
-            console.warn('[历史] GM_getValue 读取失败，重置存储:', e);
-            try { GM_setValue('ai-grading-history', '[]'); } catch (_) {}
-            saved = '[]';
+            // 读取失败只读降级（#293）：绝不重置存储，原始历史保持原样
+            console.warn('[历史] GM_getValue 读取失败，进入只读降级（不重置存储）:', e);
+            this._writeDisabled = true;
+            saved = null;
         }
-        this.records = saved ? JSON.parse(saved) : [];
+        try {
+            this.records = saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            // 解析失败：救下原始字节 + 只读降级（#293），旧历史优先于新写入
+            console.warn('[历史] 历史数据解析失败，进入只读降级:', e);
+            try { if (saved) GM_setValue('ai-grading-history-rescue', String(saved)); } catch (_) {}
+            this._writeDisabled = true;
+            this.records = [];
+        }
 
         // 迁移旧记录的 base64 到 IndexedDB + 清理 imageUrls 中的 data:URL
         const toMigrate = this.records.filter(r => r.imageBase64s && r.imageBase64s.length > 0);
@@ -188,7 +217,10 @@ const HistoryManager = {
             let ok = 0, fail = 0;
             toMigrate.forEach((r, i) => {
                 if (results[i].status === 'fulfilled') { delete r.imageBase64s; ok++; }
-                else { delete r.imageBase64s; fail++; }
+                else {
+                    // 失败保留 base64 下次重试（#293）：删除会永久丢失答题卡图片
+                    fail++;
+                }
             });
             this.save();
             console.log(`[历史] 迁移完成: ${ok} 成功, ${fail} 失败`);
@@ -212,9 +244,15 @@ const HistoryManager = {
     },
 
     save() {
-        // 防御性剥离：确保 base64 数据不会泄漏到 GM_setValue
-        this.records.forEach(r => { delete r.imageBase64s; this._stripDataUrls(r); });
-        let json = JSON.stringify(this.records);
+        // 防御性剥离（#293）：序列化副本不含 base64（GM 存储不落图片），
+        // 内存保留 imageBase64s 供图片迁移重试——原实现在内存上 delete 会永久丢失迁移失败的图片
+        const ser = () => JSON.stringify(this.records.map(r => {
+            const c = Object.assign({}, r);
+            delete c.imageBase64s;
+            this._stripDataUrls(c);
+            return c;
+        }));
+        let json = ser();
         const sizeKB = (json.length / 1024).toFixed(1);
         const sizeMB = (json.length / 1024 / 1024).toFixed(2);
 
@@ -226,21 +264,28 @@ const HistoryManager = {
             while (json.length > SAFE_LIMIT && this.records.length > 10) {
                 const cutCount = Math.max(Math.floor(this.records.length * 0.2), 1);
                 this.records = this.records.slice(0, this.records.length - cutCount);
-                json = JSON.stringify(this.records);
+                json = ser();
             }
             console.warn(`[历史] 防御性清理完成: ${before} → ${this.records.length} 条，当前 ${(json.length / 1024 / 1024).toFixed(2)}MB`);
         }
 
         try {
+            if (this._writeDisabled) {
+                console.warn('[历史] 存储处于只读降级，跳过保存以保护原历史（#293）');
+                if (typeof showToast === 'function') showToast('⚠️ 历史记录存储异常：本次批改历史未保存（原历史已保护）');
+                return;
+            }
             GM_setValue('ai-grading-history', json);
             console.log(`[历史] 💾 保存成功: ${this.records.length} 条, ${sizeKB}KB`);
         } catch (e) {
             console.warn(`[历史] ❌ 保存失败 (${sizeMB}MB)，尝试截断旧记录...`, e);
+            // 截断是破坏性操作：先完整留底到 rescue（#293）
+            try { GM_setValue('ai-grading-history-rescue', json); } catch (_) {}
             while (this.records.length > 10) {
                 this.records = this.records.slice(0, Math.floor(this.records.length / 2));
-                json = JSON.stringify(this.records);
+                json = ser();
                 try {
-                    GM_setValue('ai-grading-history', json);
+                    if (!this._writeDisabled) GM_setValue('ai-grading-history', json); // #293 只读降级不覆写
                     console.warn(`[历史] ⚠️ 已截断至 ${this.records.length} 条 (${(json.length / 1024).toFixed(1)}KB) 后保存成功`);
                     return;
                 } catch (_) { /* 继续截断 */ }
@@ -305,11 +350,14 @@ const HistoryManager = {
 
     exportCSV(records) {
         records = records || this.records;
-        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析\n';
+        // 注意：新列一律追加在末尾，避免破坏既有列序（下游按列号解析的用户不受影响）
+        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析,用时(秒),随机延迟(秒)\n';
         const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const esc = s => '"' + String(s || '').replace(/"/g, '""') + '"';
             const d = r.dualEval;
+            const durSec = (r.durationMs !== null && r.durationMs !== undefined) ? (r.durationMs / 1000).toFixed(1) : '';
+            const delaySec = (r.pacingDelayMs !== null && r.pacingDelayMs !== undefined) ? (r.pacingDelayMs / 1000).toFixed(1) : '';
             return [time, r.presetName, r.gradingMode, r.aiScore, r.finalScore,
                 r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(r.studentAnswer), esc(r.aiComment),
                 r.diligenceLevel || 0, r.diligenceBonus || 0, esc(r.diligenceReason || ''),
@@ -318,7 +366,8 @@ const HistoryManager = {
                 d?.scoreB ?? '', esc(d?.detailB?.['评分依据'] ?? ''), esc(d?.detailB?.['分数计算'] ?? ''),
                 d?.diff ?? '',
                 d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'average-fallback' ? '取平均' : '',
-                d?.arbScore ?? '', esc(d?.arbAnalysis ?? '')
+                d?.arbScore ?? '', esc(d?.arbAnalysis ?? ''),
+                durSec, delaySec
             ].join(',');
         }).join('\n');
         this._download(header + rows, '评阅历史_' + this._fileTimestamp() + '.csv', 'text/csv;charset=utf-8');
@@ -583,7 +632,8 @@ HistoryManager.init().catch(e => console.error('[历史] 初始化失败:', e));
     console.log('--- AI批改存储诊断 ---');
     console.log('脚本版本:', SCRIPT_CONFIG.VERSION);
     console.log('原始数据大小:', (raw.length / 1024 / 1024).toFixed(2), 'MB');
-    const records = typeof data === 'string' ? JSON.parse(data) : (data || []);
+    let records;
+    try { records = typeof data === 'string' ? JSON.parse(data) : (data || []); } catch (e) { console.warn('⚠️ 导入记录解析失败:', e); records = []; }
     console.log('记录数:', records.length);
     const withBase64 = records.filter(r => r.imageBase64s && r.imageBase64s.length > 0);
     console.log('含imageBase64s的记录:', withBase64.length, '条');
@@ -1175,11 +1225,12 @@ function showHistoryPanel() {
 
         // 渲染当前页记录
         listEl.innerHTML = pageRecords.map(r => {
+            r = escHistDeep(r); // #299 渲染点转义（含存量记录）
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[r.gradingMode] || r.gradingMode;
             const scoreHtml = r.isCorrected
-                ? `<span>${escapeHtml(r.aiScore)}</span><span class="arrow">&rarr;</span><span class="corrected">${escapeHtml(r.finalScore)}</span>`
-                : `<span>${escapeHtml(r.finalScore)}</span>`;
+                ? `<span>${r.aiScore}</span><span class="arrow">&rarr;</span><span class="corrected">${r.finalScore}</span>`
+                : `<span>${r.finalScore}</span>`;
             const markedTag = r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
             const correctedTag = r.isCorrected ? '<span class="hist-tag corrected">已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span class="hist-tag ${r.dualEval.result === 'arbitration' ? 'arbitration' : 'dual'}">双评</span>` : '';
@@ -1202,9 +1253,9 @@ function showHistoryPanel() {
                         <div class="hist-item-top">
                             <label class="hist-item-check"><input type="checkbox" data-id="${r.id}" ${selectedIds.has(r.id) ? 'checked' : ''}></label>
                             <span class="hist-item-time">${time}</span>
-                            <span class="hist-item-meta">${escapeHtml(presetName)} · ${escapeHtml(modeLabel)}模式</span>
+                            <span class="hist-item-meta">${presetName} · ${modeLabel}模式</span>
                         </div>
-                        <p class="hist-item-text">答案：${escapeHtml(answerPreview)}</p>
+                        <p class="hist-item-text">答案：${answerPreview}</p>
                         <div class="hist-item-tags">${dualTag}${diligenceTag}${imageTag}${markedTag}${correctedTag}</div>
                     </div>
                     <div class="hist-item-side">
@@ -1335,8 +1386,15 @@ function showHistoryDetail(record) {
         overflow:hidden;
     `;
 
+    record = escHistDeep(record); // #299 渲染点转义（含存量记录，数据层保持原样）
     const time = new Date(record.timestamp).toLocaleString('zh-CN');
     const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[record.gradingMode] || record.gradingMode;
+    // 批改节奏用时（脚本测量：开始处理 → 提交，含随机延迟）
+    const durSec = (record.durationMs !== null && record.durationMs !== undefined) ? (record.durationMs / 1000).toFixed(1) : null;
+    const delaySec = (record.pacingDelayMs) ? (record.pacingDelayMs / 1000).toFixed(1) : null;
+    const durationCell = durSec !== null
+        ? `<div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">用时</div><div style="font-size:13px;">${durSec}s${delaySec !== null ? ` <span style="color:#0f7b6c;font-size:11px;">(延迟 ${delaySec}s)</span>` : ''}<div style="font-size:10px;color:#999;margin-top:2px;">脚本测量，与平台记录可能差 1~2 秒</div></div></div>`
+        : '';
 
     drawer.innerHTML = `
         <div style="padding:18px 24px 14px;border-bottom:1px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
@@ -1347,6 +1405,7 @@ function showHistoryDetail(record) {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">时间</div><div style="font-size:13px;">${time}</div></div>
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">方案 / 模式</div><div style="font-size:13px;">${record.presetName} &middot; ${modeLabel}</div></div>
+                ${durationCell}
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">AI评分</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;">${record.aiScore}</div></div>
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">最终分数</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:${record.isCorrected ? '#0052FF' : '#1d1d1f'};">${record.finalScore}${record.isCorrected ? ' &#10003;' : ''}</div></div>
             </div>

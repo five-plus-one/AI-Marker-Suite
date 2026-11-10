@@ -1,6 +1,13 @@
 // ========== 填充分数及弹窗 ==========
 function fillScore(score, comment, subScores) {
     const adapter = window.__AI_MARKER_ADAPTER__;
+    // 数据安全闸门（#296）：小题缺分不得进入填分/提交链（空分进平台=事故），显式失败待人工
+    if (Array.isArray(subScores) && subScores.some(sq => sq && (sq.score === null || sq.score === undefined))) {
+        console.error('❌ [填分] 小题分存在空值，拒绝自动填分（#296 null 闸门）');
+        safeAlert('⚠️ AI 小题分不完整（存在空值），已拒绝自动填分。\n请人工核对后手动给分，或点「分数有误」重评。');
+        showAutoSubmitDialog(score, comment, subScores, { fillFailed: true });
+        return;
+    }
     let filled = false;
     if (adapter) {
         if (adapter.fillScores && subScores && subScores.length > 0) {
@@ -12,8 +19,11 @@ function fillScore(score, comment, subScores) {
         }
     }
     if (!filled) {
-        console.warn('未找到分数输入框，将直接弹出确认窗口');
-        safeAlert(`AI打分结果：\n分数：${score}\n请手动输入分数！`);
+        // 拒绝原因透出（#297）：适配器具体拒绝原因见上方控制台日志
+        console.warn('未找到分数输入框或填分被拒绝（详见上方适配器日志），将直接弹出确认窗口');
+        safeAlert(`⚠️ 自动填分未完成（具体原因见控制台日志）。\nAI打分结果：\n分数：${score}\n请手动输入分数！`);
+        showAutoSubmitDialog(score, comment, subScores, { fillFailed: true });
+        return;
     }
     showAutoSubmitDialog(score, comment, subScores);
 }
@@ -42,7 +52,117 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3) {
     return false;
 }
 
+// 批改节奏：按「每 N 份」计数，到点则随机休息（均在「下一份已出现」之后调用）
+async function pacingRestIfNeeded() {
+    const hpCfg = (typeof PresetManager !== 'undefined' && PresetManager.getCurrentConfig)
+        ? PresetManager.getCurrentConfig().humanPacing : null;
+    if (!hpCfg || !hpCfg.enabled || !hpCfg.rest || !hpCfg.rest.enabled) return;
+
+    const hpState = window.aiGradingState.humanPacing = window.aiGradingState.humanPacing || {};
+    hpState.paperCount = (hpState.paperCount || 0) + 1;
+    const every = Math.max(1, Math.floor(hpCfg.rest.everyCount) || 20);
+    if (hpState.paperCount < every) return;
+
+    hpState.paperCount = 0;
+    const rMin = Math.max(1, Math.floor(hpCfg.rest.restMin) || 30);
+    const rMax = Math.max(rMin, Math.floor(hpCfg.rest.restMax) || 180);
+    const restSec = rMin + Math.floor(Math.random() * (rMax - rMin + 1));
+    console.log(`☕ [批改节奏] 拟人休息 ${restSec}s`);
+    await showPacingRestBanner(restSec);
+}
+
+// 拟人休息横幅（批改节奏 · 实验性）：固定顶栏显示剩余时间，可点「立即继续」跳过
+// 停止/暂停批改时自动收起。休息放在下一份已出现之后，平台会把休息时间计入下一份用时
+function showPacingRestBanner(seconds) {
+    return new Promise((resolve) => {
+        const old = document.getElementById('human-pacing-rest-banner');
+        if (old) old.remove();
+
+        let remain = Math.max(0, Math.floor(seconds));
+        const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+        const banner = document.createElement('div');
+        banner.id = 'human-pacing-rest-banner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647 !important;' +
+            'background:#fff8e6;border-bottom:2px solid #f0c36d;color:#7a5b1e;' +
+            'padding:12px 20px;display:flex;align-items:center;justify-content:center;gap:16px;' +
+            'font-size:14px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+            'box-shadow:0 4px 16px rgba(122,91,30,0.18);';
+        banner.innerHTML = `
+            <span>☕ 拟人休息中</span>
+            <span style="font-family:'SF Mono',monospace;font-size:16px;" id="hpr-remain">${fmt(remain)}</span>
+            <span style="font-weight:400;font-size:12px;color:#9a7a3a;">后自动继续</span>
+            <button id="hpr-continue" style="padding:6px 16px;border:1px solid #d4a94e;background:#fff3d6;
+                color:#7a5b1e;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">立即继续</button>
+        `;
+        getUIRoot().appendChild(banner);
+
+        let timer = null;
+        const finish = () => {
+            if (timer) clearInterval(timer);
+            timer = null;
+            if (banner.parentNode) banner.remove();
+            resolve();
+        };
+        banner.querySelector('#hpr-continue').addEventListener('click', () => {
+            console.log('☕ [批改节奏] 用户跳过休息');
+            finish();
+        });
+        timer = setInterval(() => {
+            // 停止/暂停批改时收起横幅（调用方会检查状态决定是否继续）
+            if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) {
+                finish();
+                return;
+            }
+            remain--;
+            const el = banner.querySelector('#hpr-remain');
+            if (el) el.textContent = fmt(Math.max(0, remain));
+            if (remain <= 0) {
+                console.log('☕ [批改节奏] 休息结束');
+                finish();
+            }
+        }, 1000);
+    });
+}
+
 function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
+    // XSS 防御（#296）：AI 产出（学生答案/评语/评分依据/小题评语）均为不可信文本，
+    // 模板插值进 innerHTML 前统一转义——入口一次性处理，覆盖全部下游插值点
+    const escAi = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+    // 原始（未转义）评语/小题保留给纠错/重显链路，避免转义文本入库累积（#299）
+    // #315 G4：入库/纠错/回评链一律用 raw——渲染边界（escHistDeep）已兜底，转义文本入库会逐轮累积
+    const rawComment = comment;
+    const rawSubScores = subScores;
+    const rawStudentAnswer = window.aiGradingState.currentStudentAnswer;
+    const rawExtraInfo = extraInfo;
+    comment = escAi(comment);
+    if (Array.isArray(subScores)) {
+        subScores = subScores.map(s => (s && typeof s === 'object')
+            ? Object.assign({}, s, { comment: escAi(s.comment), label: escAi(s.label) })
+            : s);
+    }
+    if (extraInfo && typeof extraInfo === 'object') {
+        const escVals = (obj) => {
+            if (!obj || typeof obj !== 'object') return obj;
+            const out = Object.assign({}, obj);
+            for (const k of Object.keys(out)) { if (typeof out[k] === 'string') out[k] = escAi(out[k]); }
+            return out;
+        };
+        extraInfo = Object.assign({}, extraInfo);
+        if (extraInfo.scoringDetails) extraInfo.scoringDetails = escVals(extraInfo.scoringDetails);
+        if (extraInfo.dualEval) {
+            extraInfo.dualEval = Object.assign({}, extraInfo.dualEval, {
+                detailA: escVals(extraInfo.dualEval.detailA),
+                detailB: escVals(extraInfo.dualEval.detailB),
+                // 仲裁分析（AI 文本）此前漏转义（#299 H1）
+                arbAnalysis: escAi(extraInfo.dualEval.arbAnalysis),
+            });
+        }
+        if (extraInfo.diligence) {
+            extraInfo.diligence = Object.assign({}, extraInfo.diligence, { reason: escAi(extraInfo.diligence.reason) });
+        }
+    }
     const oldDialog = document.getElementById('auto-submit-dialog');
     if (oldDialog) oldDialog.remove();
 
@@ -62,17 +182,40 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const scoreMismatch = subSum !== null && Math.abs(subSum - score) > 0.01;
 
     window.aiGradingState.countdownPaused = false;
-    const studentAnswer = window.aiGradingState.currentStudentAnswer;
+    const studentAnswer = escAi(window.aiGradingState.currentStudentAnswer);
     const imageUrls = window.aiGradingState.currentImageUrls || [];
     const isUnattended = mode === 'unattended';
     const isTrial = mode === 'trial';
-    const countdownSeconds = isUnattended ? 1 : 5;
-    const showCountdown = !isTrial;
+
+    // ===== 批改节奏（实验性）=====
+    // 关闭时零行为变化（普通 5s / 无人 1s）；开启后普通/无人模式在配置区间内随机延迟，试改不参与
+    const humanPacingCfg = (typeof PresetManager !== 'undefined' && PresetManager.getCurrentConfig)
+        ? (PresetManager.getCurrentConfig().humanPacing || {}) : {};
+    const pacingActive = humanPacingCfg.enabled === true && !isTrial;
+    let countdownSeconds = isUnattended ? 1 : 5;
+    let pacingDelaySeconds = 0;
+    if (pacingActive) {
+        const range = isUnattended ? humanPacingCfg.unattendedDelay : humanPacingCfg.normalDelay;
+        const defMin = isUnattended ? 0 : 5;
+        const defMax = isUnattended ? 8 : 15;
+        const min = Math.max(0, Math.floor(range?.min ?? defMin));
+        const max = Math.max(min, Math.floor(range?.max ?? defMax));
+        pacingDelaySeconds = min + Math.floor(Math.random() * (max - min + 1));
+        countdownSeconds = pacingDelaySeconds;
+    }
+    window.aiGradingState.humanPacing = window.aiGradingState.humanPacing || {};
+    window.aiGradingState.humanPacing.lastDelayMs = pacingActive ? pacingDelaySeconds * 1000 : 0;
+
+    // 填分失败/含缺分的弹窗不得自动倒计时提交（#299：无人模式 1s 倒计时曾自动提交空分）
+    const showCountdown = !isTrial && !(extraInfo && extraInfo.fillFailed);
     const showCorrectionBtn = !isUnattended;
 
     const headerLabel = isTrial ? '试改确认' : '批改完成';
     const modeTag = isUnattended ? '<span style="color:#888;font-weight:normal;font-size:12px;margin-left:8px;">[自动模式]</span>'
                    : isTrial ? '<span style="color:#7c3aed;font-weight:normal;font-size:12px;margin-left:8px;">[试改模式]</span>' : '';
+    const pacingTag = pacingActive
+        ? `<span style="color:#0f7b6c;font-weight:normal;font-size:12px;margin-left:8px;">[拟人节奏 · 延迟 ${pacingDelaySeconds}s]</span>`
+        : '';
     const isBlankCard = extraInfo?.isBlankCard || false;
     const blankRatios = extraInfo?.blankRatios || null;
     const blankTag = isBlankCard ? '<span style="color:#E67E22;font-weight:normal;font-size:12px;margin-left:8px;">[空白卡]</span>' : '';
@@ -253,7 +396,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         </style>
         <div class="asd-overlay"></div>
         <div class="asd-header" id="asd-drag-handle" style="cursor:move;">
-            <span>${headerLabel} ${modeTag}${blankTag}</span>
+            <span>${headerLabel} ${modeTag}${pacingTag}${blankTag}</span>
             <div style="display:flex;gap:6px;margin-left:auto;">
                 <button id="minimize-btn" style="background:none;border:1px solid #d8dee8;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;color:#666;display:flex;align-items:center;justify-content:center;" title="最小化">—</button>
             </div>
@@ -467,26 +610,26 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
             dialog.remove();
             showCorrectionPanel({
-                score, comment, studentAnswer, imageUrls,
+                score, comment: rawComment, studentAnswer: rawStudentAnswer, imageUrls,
                 base64DataArray: window.aiGradingState.currentBase64DataArray || [],
                 config: PresetManager.getCurrentConfig(),
                 callConfig: PresetManager.getActiveCallConfig(),
-                subScores,
+                subScores: rawSubScores,
                 onAccept(finalScore, correctionInfo) {
-                    const correctedSubScores = correctionInfo.correctedSubScores || subScores;
+                    const correctedSubScores = correctionInfo.correctedSubScores || rawSubScores;
                     HistoryManager.add({
                         presetName: PresetManager.data.active,
                         gradingMode: mode,
-                        imageUrls, studentAnswer,
-                        aiScore: score, aiComment: comment,
+                        imageUrls, studentAnswer: rawStudentAnswer,
+                        aiScore: score, aiComment: rawComment,
                         finalScore, isCorrected: correctionInfo.isCorrected,
                         correctionReason: correctionInfo.correctionReason,
                         imageBase64s: window.aiGradingState.currentBase64DataArray || [],
                         subScores: correctedSubScores,
-                        dualEval: dualEval || null,
-                        diligenceLevel: diligence?.level || 0,
-                        diligenceBonus: diligence?.bonus || 0,
-                        diligenceReason: diligence?.reason || ''
+                        dualEval: (rawExtraInfo && rawExtraInfo.dualEval) || null,
+                        diligenceLevel: (rawExtraInfo && rawExtraInfo.diligence?.level) || 0,
+                        diligenceBonus: (rawExtraInfo && rawExtraInfo.diligence?.bonus) || 0,
+                        diligenceReason: (rawExtraInfo && rawExtraInfo.diligence?.reason) || ''
                     });
                     if (correctionInfo.newAnswer || correctionInfo.newRubric) {
                         const activeName = PresetManager.data.active;
@@ -510,10 +653,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             }
                         }
                     }
-                    fillScore(finalScore, comment, correctedSubScores);
+                    fillScore(finalScore, rawComment, correctedSubScores);
                 },
                 onCancel() {
-                    showAutoSubmitDialog(score, comment, subScores);
+                    showAutoSubmitDialog(score, rawComment, rawSubScores, { fillFailed: !!(extraInfo && extraInfo.fillFailed) });
                 }
             });
         });
@@ -526,7 +669,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 window.aiGradingState.countdownPaused = true;
                 dialog.querySelector('#pause-cancel-btn').textContent = '撤销并退出';
                 const cdDisplay = dialog.querySelector('#countdown-display');
-                if (cdDisplay) cdDisplay.innerHTML = '<span style="font-size:12px;color:#86868b;">已暂停</span>';
+                if (cdDisplay) {
+                    // 倒计时容器固定 36px 是给圆环用的，「已暂停」三个字会被挤成竖排
+                    cdDisplay.style.setProperty('width', 'auto', 'important');
+                    cdDisplay.innerHTML = '<span style="font-size:12px;color:#86868b;">已暂停</span>';
+                }
             } else {
                 if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
                 dialog.remove();
@@ -569,16 +716,23 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 }
             }
 
-            // 填入 0 分
+            // 填入 0 分（失败不静默：空分提交等于误判 0 分）
             const config = PresetManager.getCurrentConfig();
             const adapter = window.__AI_MARKER_ADAPTER__;
+            let blankFillOk = true;
             if (adapter) {
                 const units = config.scoring?.units || [];
                 if (adapter.fillScores && units.length > 0) {
-                    adapter.fillScores(units.map(() => 0));
+                    blankFillOk = adapter.fillScores(units.map(() => 0));
                 } else if (adapter.fillScores) {
-                    adapter.fillScores([0]);
+                    blankFillOk = adapter.fillScores([0]);
                 }
+            }
+            if (blankFillOk === false) {
+                // 数据安全（#315 G8，CLAUDE.md 铁律）：填分失败必须显式失败——
+                // 不得静默续走提交（空分/旧分进平台=事故），中止自动提交转人工
+                showToast('⚠️ 0 分未成功填入，已中止自动提交，请手动给分并提交');
+                return;
             }
 
             // 更新批阅份数
@@ -594,7 +748,9 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     finalScore: 0, isCorrected: false, correctionReason: '',
                     imageBase64s: base64Arr,
                     subScores: (config.scoring?.units || []).map(u => ({ label: u.label, score: 0, maxScore: u.maxScore })),
-                    dualEval: null, diligenceLevel: 0, diligenceBonus: 0, diligenceReason: ''
+                    dualEval: null, diligenceLevel: 0, diligenceBonus: 0, diligenceReason: '',
+                    durationMs: window.aiGradingState.cycleStartTime ? (Date.now() - window.aiGradingState.cycleStartTime) : null,
+                    pacingDelayMs: 0
                 });
             } catch (e) {
                 console.error('⚠️ 历史记录保存失败:', e);
@@ -608,8 +764,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
                     const oldImgUrl = window.aiGradingState.currentImageUrls[0];
                     if (adapter && adapter.waitForNextPaper) {
-                        waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
+                        waitForNextPaperWithRetry(adapter, oldImgUrl).then(async (hasNext) => {
                             if (hasNext && window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+                                await pacingRestIfNeeded();
+                                if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
+                                window.aiGradingState.cycleStartTime = Date.now();
                                 setTimeout(startAutoGrading, 500);
                             } else if (!hasNext) {
                                 window.aiGradingState.isRunning = false;
@@ -657,14 +816,17 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
     dialog.querySelector('#minimize-btn').addEventListener('click', () => {
         // 隐藏主对话框内容
-        overlay.style.display = 'none';
-        dialog.querySelector('.asd-header').style.display = 'none';
-        if (grid) grid.style.display = 'none';
-        if (footer) footer.style.display = 'none';
-        dialog.style.width = 'auto';
-        dialog.style.maxWidth = 'none';
+        // 防御样式（#ai-ui-hardening-styles）对 width/maxWidth 以及 .asd-grid/.asd-footer 的 display
+        // 都用了 !important，普通内联 display:none 会被碾压（表现为最小化后仍显示全尺寸内容），
+        // 必须同样带 important 覆盖（#271）
+        overlay.style.setProperty('display', 'none', 'important');
+        dialog.querySelector('.asd-header').style.setProperty('display', 'none', 'important');
+        if (grid) grid.style.setProperty('display', 'none', 'important');
+        if (footer) footer.style.setProperty('display', 'none', 'important');
+        dialog.style.setProperty('width', 'auto', 'important');
+        dialog.style.setProperty('max-width', 'none', 'important');
+        dialog.style.setProperty('overflow', 'visible', 'important');
         dialog.style.borderRadius = '16px';
-        dialog.style.overflow = 'visible';
         dialog.style.top = 'auto';
         dialog.style.left = '50%';
         dialog.style.transform = 'translateX(-50%)';
@@ -679,15 +841,15 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
     if (minimizedBar) {
         minimizedBar.querySelector('#restore-btn').addEventListener('click', () => {
-            // 恢复主对话框
-            overlay.style.display = '';
-            dialog.querySelector('.asd-header').style.display = '';
-            if (grid) grid.style.display = '';
-            if (footer) footer.style.display = '';
-            dialog.style.width = '';
-            dialog.style.maxWidth = '';
+            // 恢复主对话框（removeProperty 清除最小化写入的 important 内联，回落防御/基础样式）
+            overlay.style.removeProperty('display');
+            dialog.querySelector('.asd-header').style.removeProperty('display');
+            if (grid) grid.style.removeProperty('display');
+            if (footer) footer.style.removeProperty('display');
+            dialog.style.removeProperty('width');
+            dialog.style.removeProperty('max-width');
+            dialog.style.removeProperty('overflow');
             dialog.style.borderRadius = '';
-            dialog.style.overflow = '';
             dialog.style.top = '';
             dialog.style.left = '';
             dialog.style.transform = '';
@@ -763,22 +925,30 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         }
 
         try {
+            // 批改节奏：记录本卷用时（开始处理 → 提交，含随机延迟）与延迟时长
+            const hpState = window.aiGradingState.humanPacing || {};
+            const humanPacingRecordCfg = humanPacingCfg || {};
+            const durationMs = window.aiGradingState.cycleStartTime
+                ? (Date.now() - window.aiGradingState.cycleStartTime) : null;
             HistoryManager.add({
                 presetName: PresetManager.data.active,
                 gradingMode: mode,
-                imageUrls, studentAnswer,
-                aiScore: score, aiComment: comment,
+                imageUrls, studentAnswer: rawStudentAnswer,
+                aiScore: score, aiComment: rawComment,
                 finalScore: score, isCorrected: false, correctionReason: '',
                 imageBase64s: window.aiGradingState.currentBase64DataArray || [],
-                subScores: subScores,
-                dualEval: dualEval || null,
-                diligenceLevel: diligence?.level || 0,
-                diligenceBonus: diligence?.bonus || 0,
-                diligenceReason: diligence?.reason || ''
+                subScores: rawSubScores,
+                dualEval: (rawExtraInfo && rawExtraInfo.dualEval) || null,
+                diligenceLevel: (rawExtraInfo && rawExtraInfo.diligence?.level) || 0,
+                diligenceBonus: (rawExtraInfo && rawExtraInfo.diligence?.bonus) || 0,
+                diligenceReason: (rawExtraInfo && rawExtraInfo.diligence?.reason) || '',
+                durationMs: humanPacingRecordCfg.recordDuration !== false ? durationMs : null,
+                pacingDelayMs: hpState.lastDelayMs || 0
             });
         } catch (e) {
             console.error('⚠️ [诊断] 历史记录保存失败（不影响批阅进度）:', e);
         }
+        window.aiGradingState.cycleStartTime = null;
 
         const adapter = window.__AI_MARKER_ADAPTER__;
         const submitted = adapter && adapter.submitGrade ? await adapter.submitGrade() : false;
@@ -789,9 +959,14 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 const oldImgUrl = window.aiGradingState.currentImageUrls[0];
 
                 if (adapter && adapter.waitForNextPaper) {
-                    waitForNextPaperWithRetry(adapter, oldImgUrl).then(hasNext => {
+                    waitForNextPaperWithRetry(adapter, oldImgUrl).then(async (hasNext) => {
                         if (hasNext && window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+                            // 批改节奏：随机休息（实验性）——休息放在下一份已出现之后，
+                            // 平台侧会把休息时间计入下一份的「批改用时」，拟真度更高
+                            await pacingRestIfNeeded();
+                            if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
                             console.log('继续批改...');
+                            window.aiGradingState.cycleStartTime = Date.now();
                             setTimeout(startAutoGrading, 500);
                         } else if (!hasNext) {
                             // 不停止，改为暂停让用户决定
@@ -830,18 +1005,22 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
     dialog.querySelector('#confirm-submit-btn').addEventListener('click', confirmSubmitFn);
 
-    // 倒计时（环形进度）
+    // 倒计时（环形进度）。拟人节奏抽到 0 秒时无等待直接提交
     if (showCountdown) {
-        let countdown = countdownSeconds;
-        const ringFill = dialog.querySelector('#countdown-ring-fill');
-        const totalDash = 100.53; // 2 * PI * 16
-        dialog.countdownTimer = setInterval(() => {
-            if (window.aiGradingState.countdownPaused) return;
-            countdown--;
-            const span = dialog.querySelector('#countdown-number');
-            if (span) span.textContent = countdown;
-            if (ringFill) ringFill.style.strokeDashoffset = totalDash * (1 - countdown / countdownSeconds);
-            if (countdown <= 0) confirmSubmitFn();
-        }, 1000);
+        if (countdownSeconds <= 0) {
+            confirmSubmitFn();
+        } else {
+            let countdown = countdownSeconds;
+            const ringFill = dialog.querySelector('#countdown-ring-fill');
+            const totalDash = 100.53; // 2 * PI * 16
+            dialog.countdownTimer = setInterval(() => {
+                if (window.aiGradingState.countdownPaused) return;
+                countdown--;
+                const span = dialog.querySelector('#countdown-number');
+                if (span) span.textContent = countdown;
+                if (ringFill) ringFill.style.strokeDashoffset = totalDash * (1 - countdown / countdownSeconds);
+                if (countdown <= 0) confirmSubmitFn();
+            }, 1000);
+        }
     }
 }

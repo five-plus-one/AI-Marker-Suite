@@ -2,26 +2,46 @@
 const ProviderManager = {
     data: null,
     init() {
+        this._writeDisabled = false;
+        let raw = null;
         try {
-            let saved = GM_getValue('ai-grading-providers-v2');
-            if (saved) {
-                this.data = JSON.parse(saved);
-                // 迁移：更新内置供应商的模型配置
-                this._migrateProviders();
-            } else {
-                // 尝试迁移旧格式
-                const oldSaved = GM_getValue('ai-grading-providers');
-                if (oldSaved) {
-                    this.data = this._migrateFromV1(JSON.parse(oldSaved));
-                } else {
-                    this.data = this._getDefault();
-                }
-                this.save();
-            }
+            raw = GM_getValue('ai-grading-providers-v2');
         } catch (e) {
-            console.error('❌ ProviderManager init failed, using defaults:', e);
-            this.data = this._getDefault();
+            console.error('❌ ProviderManager init 读取失败，进入只读降级:', e);
+            this._enterReadOnly(null);
+            return;
         }
+        if (raw) {
+            try {
+                this.data = JSON.parse(raw);
+            } catch (e) {
+                // 解析失败：救原始字节 + 只读降级，绝不覆写清空（#293）
+                this._enterReadOnly(raw, e);
+                return;
+            }
+            // 迁移隔离（#293）：失败保留已加载数据
+            try {
+                this._migrateProviders();
+            } catch (e) {
+                console.error('[providers] 迁移失败（保留原数据继续）:', e);
+            }
+        } else {
+            // 尝试迁移旧格式
+            try {
+                const oldSaved = GM_getValue('ai-grading-providers');
+                this.data = oldSaved ? this._migrateFromV1(JSON.parse(oldSaved)) : this._getDefault();
+            } catch (e) {
+                this.data = this._getDefault();
+            }
+            this.save();
+        }
+    },
+    // 只读降级（#293）：禁止保存覆写；原始字节存 rescue 键供恢复
+    _enterReadOnly(raw, err) {
+        if (err) console.error('❌ ProviderManager 数据解析失败，进入只读降级:', err);
+        try { if (raw != null) GM_setValue('ai-grading-providers-v2-rescue', String(raw)); } catch (_) {}
+        this.data = this._getDefault();
+        this._writeDisabled = true;
     },
     _migrateProviders() {
         let changed = false;
@@ -127,7 +147,28 @@ const ProviderManager = {
         return newData;
     },
     save() {
-        GM_setValue('ai-grading-providers-v2', JSON.stringify(this.data));
+        if (this._writeDisabled) {
+            // 惰性探活（#293/#297）：瞬态读取失败可自愈；成功不覆盖内存数据（与 preset 对齐）
+            try {
+                const probe = GM_getValue('ai-grading-providers-v2');
+                const recovered = probe ? JSON.parse(probe) : null;
+                if (recovered && recovered.providers) {
+                    this._writeDisabled = false;
+                    if (typeof showToast === 'function') showToast('供应商配置存储已恢复，请再次点击保存');
+                    return false;
+                }
+            } catch (_) { /* 维持降级 */ }
+            console.error('[providers] 存储处于只读降级，跳过保存以保护原数据（#293）');
+            if (typeof showToast === 'function') showToast('⚠️ 供应商配置存储异常：本次修改未保存（原数据已保护）');
+            return false;
+        }
+        const json = JSON.stringify(this.data);
+        try {
+            const prev = GM_getValue('ai-grading-providers-v2');
+            if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-providers-v2-prev', prev);
+        } catch (_) { /* 备份失败不阻塞保存 */ }
+        GM_setValue('ai-grading-providers-v2', json);
+        return true;
     },
     getProvider(name) {
         return this.data.providers[name] || null;
@@ -228,20 +269,38 @@ ProviderManager.init();
 const WorkflowManager = {
     data: null,
     init() {
+        this._writeDisabled = false;
+        let raw = null;
         try {
-            let saved = GM_getValue('ai-grading-workflows');
-            if (saved) {
-                this.data = JSON.parse(saved);
-                // 迁移：更新内置工作流的模型配置
-                this._migrateWorkflows();
-            } else {
-                this.data = this._getDefault();
-                this.save();
-            }
+            raw = GM_getValue('ai-grading-workflows');
         } catch (e) {
-            console.error('❌ WorkflowManager init failed, using defaults:', e);
-            this.data = this._getDefault();
+            console.error('❌ WorkflowManager init 读取失败，进入只读降级:', e);
+            this._enterReadOnly(null);
+            return;
         }
+        if (raw) {
+            try {
+                this.data = JSON.parse(raw);
+            } catch (e) {
+                this._enterReadOnly(raw, e);
+                return;
+            }
+            try {
+                this._migrateWorkflows();
+            } catch (e) {
+                console.error('[workflows] 迁移失败（保留原数据继续）:', e);
+            }
+        } else {
+            this.data = this._getDefault();
+            this.save();
+        }
+    },
+    // 只读降级（#293）：禁止保存覆写；原始字节存 rescue 键供恢复
+    _enterReadOnly(raw, err) {
+        if (err) console.error('❌ WorkflowManager 数据解析失败，进入只读降级:', err);
+        try { if (raw != null) GM_setValue('ai-grading-workflows-rescue', String(raw)); } catch (_) {}
+        this.data = this._getDefault();
+        this._writeDisabled = true;
     },
     _migrateWorkflows() {
         let changed = false;
@@ -340,7 +399,28 @@ const WorkflowManager = {
         };
     },
     save() {
-        GM_setValue('ai-grading-workflows', JSON.stringify(this.data));
+        if (this._writeDisabled) {
+            // 惰性探活（#293/#297）：瞬态读取失败可自愈；成功不覆盖内存数据（与 preset 对齐）
+            try {
+                const probe = GM_getValue('ai-grading-workflows');
+                const recovered = probe ? JSON.parse(probe) : null;
+                if (recovered && recovered.workflows) {
+                    this._writeDisabled = false;
+                    if (typeof showToast === 'function') showToast('工作流配置存储已恢复，请再次点击保存');
+                    return false;
+                }
+            } catch (_) { /* 维持降级 */ }
+            console.error('[workflows] 存储处于只读降级，跳过保存以保护原数据（#293）');
+            if (typeof showToast === 'function') showToast('⚠️ 工作流配置存储异常：本次修改未保存（原数据已保护）');
+            return false;
+        }
+        const json = JSON.stringify(this.data);
+        try {
+            const prev = GM_getValue('ai-grading-workflows');
+            if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-workflows-prev', prev);
+        } catch (_) { /* 备份失败不阻塞保存 */ }
+        GM_setValue('ai-grading-workflows', json);
+        return true;
     },
     getWorkflow(id) {
         // 按 id 查找
@@ -614,6 +694,56 @@ function recordOutputLimitOutcome(config) {
     }
 }
 
+// ========== 瞬态错误退避重试（#211） ==========
+// 超时 / 模型返回空内容 / 流式未完整结束，此前是零重试直接抛错 -> 主流程暂停，
+// 无人值守形同虚设。这里做退避重试（默认 5s/10s/15s），次数与开关可配置。
+//
+// 设计约束（保证不影响既有流程与适配器）：
+//   - 只覆盖原先「零重试」的瞬态错误；截断升级、5xx/429 重试仍走 callAI 原有逻辑
+//   - 不消耗 requestBudget（那是主逻辑的请求预算，瞬态重试由 retryPolicy 单独限额）
+//   - 答卷一致性由填分前的 verifyPaperUnchanged 兜底（#212），重试本身不校验
+function getRetryPolicy(config) {
+    const p = (config && config.retryPolicy) || {};
+    const mr = Number(p.maxRetries);
+    return {
+        retryOnEmpty: p.retryOnEmpty !== false,
+        retryOnTimeout: p.retryOnTimeout !== false,
+        maxRetries: Number.isInteger(mr) ? Math.min(Math.max(mr, 0), 5) : 3,
+        backoffBaseMs: Number(p.backoffBaseMs) > 0 ? Number(p.backoffBaseMs) : 5000
+    };
+}
+
+function classifyTransientError(error, policy) {
+    const msg = (error && error.message) || '';
+    if (msg.indexOf('用户主动暂停') !== -1) return null;              // 用户操作，不重试
+    if (msg.indexOf('被拦截') !== -1) return null;                    // 跨域配置问题，重试无意义
+    if (msg.indexOf('请求超时') !== -1) {
+        // 超时时服务端可能仍在生成，重试会重复计费 —— 由 retryOnTimeout 控制
+        return policy.retryOnTimeout ? '请求超时' : null;
+    }
+    if (msg.indexOf('AI未返回可用内容') !== -1) {
+        return policy.retryOnEmpty ? '模型返回空内容' : null;
+    }
+    if (msg.indexOf('未完整结束') !== -1) return '响应未完整结束';
+    return null;
+}
+
+async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
+    const policy = getRetryPolicy(config);
+    for (let i = 0; i <= policy.maxRetries; i++) {
+        try {
+            return await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
+        } catch (error) {
+            const kind = classifyTransientError(error, policy);
+            if (!kind || i >= policy.maxRetries) throw error;
+            const delay = policy.backoffBaseMs * (i + 1);
+            console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
+            if (onStreamUpdate) onStreamUpdate(`⏳ ${kind}，${Math.round(delay / 1000)}s 后自动重试（第${i + 1}/${policy.maxRetries}次）…`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     const budget = config.requestBudget || { remaining: 3 };
@@ -628,7 +758,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         if (budget.remaining <= 0) throw new Error('AI请求次数已达到上限');
         budget.remaining--;
         try {
-            const result = await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
+            const result = await callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
             if (upgraded && config.outputObservation) config.outputObservation.upgraded = true;
             return result;
         } catch (error) {
@@ -659,15 +789,19 @@ async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, 
 
 // ========== 双评引擎 ==========
 // 双评小题分数合并（逐题取平均；评语有差异时并列两份）
-function mergeDualSubScores(detailA, detailB) {
+function mergeDualSubScores(detailA, detailB, scoringConfig) {
     if (!detailA?.subScores || !detailB?.subScores ||
         detailA.subScores.length !== detailB.subScores.length) {
         return detailA?.subScores || null;
     }
     return detailA.subScores.map((sqA, i) => {
         const sqB = detailB.subScores[i];
+        // 按小题取整步长取平均（默认 step=1 且 method=round 时与原先 Math.round 完全一致）
+        const roundStep = sqA.roundStep || scoringConfig?.units?.[i]?.roundStep || scoringConfig?.roundStep || 1;
+        const roundMethod = scoringConfig?.roundMethod || 'round';
+        const unitMax = sqA.maxScore ?? sqB.maxScore;
         const avgScore = (sqA.score !== null && sqA.score !== undefined && sqB.score !== null && sqB.score !== undefined)
-            ? Math.round((sqA.score + sqB.score) / 2)
+            ? ScoreCalculator.round((sqA.score + sqB.score) / 2, { roundStep, roundMethod }, unitMax)
             : (sqA.score ?? sqB.score);
         // 按评语内容决定是否并列（与给分是否相同无关）：措辞不同就都展示
         const cA = (sqA.comment || '').trim();
@@ -746,6 +880,29 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     let detailA = resultA.status === 'fulfilled' ? resultA.value : null;
     let detailB = resultB.status === 'fulfilled' ? resultB.value : null;
 
+    // 单侧解析为 null 时重试该侧一次（#287）：模型偶发格式漂移/漏段落不应让整批批改停摆。
+    // 仅对「调用成功但解析失败」重试（rejected 的模型异常已走 callAIGrading 内部重试，不重复打）；
+    // 重试仍不可解析则保留下方显式抛错，数据安全门不放松
+    async function retryUnparsedSide(cfg, label) {
+        console.warn(`⚠️ [双评] ${label} 结果不可解析（score=null），重试一次...`);
+        if (onStreamUpdate) onStreamUpdate(`🔄 双评：${label}结果不可解析，正在重试...`);
+        try {
+            const r = await callAIGrading(base64DataArray, { ...config, ...cfg }, null);
+            return (r && r.score !== null && r.score !== undefined) ? r : null;
+        } catch (e) {
+            console.warn(`⚠️ [双评] ${label} 重试失败:`, e && e.message);
+            return null;
+        }
+    }
+    if (scoreA === null && resultA.status === 'fulfilled') {
+        detailA = await retryUnparsedSide(primaryConfig, '主模型');
+        scoreA = detailA ? detailA.score : null;
+    }
+    if (scoreB === null && resultB.status === 'fulfilled') {
+        detailB = await retryUnparsedSide(secondaryConfig, '副模型');
+        scoreB = detailB ? detailB.score : null;
+    }
+
     if (scoreA === null || scoreB === null) {
         const failure = resultA.status === 'rejected' ? resultA.reason : resultB.status === 'rejected' ? resultB.reason : null;
         throw failure || new Error('双评结果不完整，请检查两个模型的回答后继续批改');
@@ -756,11 +913,15 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
 
     // 分差在阈值内
     if (diff <= threshold) {
-        let finalScore = Math.round((scoreA + scoreB) / 2);
+        // 总分取整同步走 roundStep/roundMethod（默认配置下与原 Math.round 一致）；传满分钳制（#273）
+        let finalScore = ScoreCalculator.round((scoreA + scoreB) / 2, {
+            roundStep: config.scoring?.roundStep || 1,
+            roundMethod: config.scoring?.roundMethod || 'round'
+        }, config.scoring?.maxScore);
         console.log(`✅ [双评] 分差在阈值内，取平均分: ${finalScore}`);
 
         // 处理分小题分数：对每个小题分别取平均
-        const finalSubScores = mergeDualSubScores(detailA, detailB);
+        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
         if (finalSubScores && detailA?.subScores && detailB?.subScores &&
             detailA.subScores.length === detailB.subScores.length) {
             console.log(`✅ [双评] 分小题平均: ${finalSubScores.map(s => s.label + '=' + s.score).join(', ')}`);
@@ -815,8 +976,12 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
     if (!arbConfig) {
         console.warn('⚠️ [三评] 仲裁模型配置不完整，取平均分');
-        const finalScore = Math.round((scoreA + scoreB) / 2);
-        const finalSubScores = mergeDualSubScores(detailA, detailB);
+        // 仲裁降级取 A/B 平均同步走 roundStep/roundMethod + 满分钳制（#289 二轮审计 A-1）
+        const finalScore = ScoreCalculator.round((scoreA + scoreB) / 2, {
+            roundStep: config.scoring?.roundStep || 1,
+            roundMethod: config.scoring?.roundMethod || 'round'
+        }, config.scoring?.maxScore);
+        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
         const detail = buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore);
         const avgLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
         return {
@@ -855,7 +1020,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     // 小题分兜底：仲裁漏给部分小题分时，用 A/B 合并结果补齐
     let arbSubScores = arbParsed.subScores || null;
     if (arbHasSub) {
-        const fallbackSubScores = mergeDualSubScores(detailA, detailB);
+        const fallbackSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
         if (!arbSubScores && fallbackSubScores) {
             arbSubScores = fallbackSubScores;
             console.warn('⚠️ [三评] 仲裁未返回小题分，使用 A/B 合并结果兜底');

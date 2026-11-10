@@ -1,0 +1,146 @@
+// ========== #287 解析抗格式漂移：全角/中文数字 + 分数计算回退 ==========
+// 双评偶发「双评结果不完整」的根因是 extractScore 只认半角数字；
+// 模型输出「８分」「八分」「２.５」等变体时解析为 null 导致批改停摆
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+function loadPrompt() {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'prompt.js'), 'utf8');
+    const scoreSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'score.js'), 'utf8');
+    const sandbox = {
+        console: { log: () => {}, warn: () => {} },
+        window: {}, document: null,
+        Math, JSON, Date, Error, RegExp, String, Number, Array, Object, parseFloat, parseInt, isNaN,
+    };
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(scoreSrc + '\n;globalThis.ScoreCalculator = typeof ScoreCalculator !== "undefined" ? ScoreCalculator : null;', sandbox);
+    vm.runInContext(src + '\n;__exports__ = { extractScore, parseStructuredResponse, normalizeScoreText, parseSubQuestionResponse };', sandbox);
+    return sandbox.__exports__;
+}
+
+const { extractScore, parseStructuredResponse, normalizeScoreText, parseSubQuestionResponse } = loadPrompt();
+
+// ---------- 全角数字 ----------
+test('全角数字/小数点归一化后可解析', () => {
+    assert.strictEqual(extractScore('８分', 24), 8);
+    assert.strictEqual(extractScore('８.５分', 24), 8.5);
+    assert.strictEqual(extractScore('得分：２４', 24), 24);
+});
+
+// ---------- 中文数字 ----------
+test('中文数字（0~99）在"…分"语境下可解析', () => {
+    assert.strictEqual(extractScore('八分', 24), 8);
+    assert.strictEqual(extractScore('十五分', 24), 15);
+    assert.strictEqual(extractScore('二十四分', 24), 24);
+    assert.strictEqual(extractScore('二.五分', 24), 2.5, '混合小数变体（中文整数+小数点+中文小数）');
+});
+
+// ---------- 分数计算段回退 ----------
+test('得分段提不出数时回退【分数计算】（等号/总得分，且不抓裸首数字）', () => {
+    const text = '【答案复述】x\n【得分】：见计算\n【分数计算】0+4+4=8\n【评语】y';
+    assert.strictEqual(parseStructuredResponse(text, 24).score, 8);
+
+    const t2 = '【答案复述】x\n【得分】：-\n【分数计算】各小题 0+0+4，总得分4分';
+    assert.strictEqual(parseStructuredResponse(t2, 24).score, 4);
+
+    // 无等号无总得分：不得误抓算式里的小题分
+    const t3 = '【答案复述】x\n【得分】：-\n【分数计算】第1题0分，第2题4分';
+    assert.strictEqual(parseStructuredResponse(t3, 24).score, null);
+});
+
+// ---------- 组合变体（教师实测形态） ----------
+test('【得分】为全角/中文数字时整体解析成功（#287 实测场景）', () => {
+    const p1 = parseStructuredResponse('【答案复述】学生答对\n【得分】：８分\n【评分依据】ok', 24);
+    assert.strictEqual(p1.score, 8);
+    assert.strictEqual(p1.studentAnswer, '学生答对');
+
+    const p2 = parseStructuredResponse('【答案复述】x\n【得分】：八分\n【评分依据】ok', 24);
+    assert.strictEqual(p2.score, 8);
+});
+
+// ---------- 小题行变体（#289 二轮审计 A-5） ----------
+test('小题行全角/中文数字经归一化可解析', () => {
+    const text = '【答案复述】x\n【得分】：8\n【评分依据】ok\n第1题分数：８分\n第2题分数：二分';
+    const r = parseSubQuestionResponse(text, {
+        subQuestions: [{ id: 1, label: '第1题', maxScore: 10 }, { id: 2, label: '第2题', maxScore: 5 }]
+    });
+    assert.strictEqual(r.score, 8);
+    assert.strictEqual(r.subScores[0].score, 8);
+    assert.strictEqual(r.subScores[1].score, 2);
+});
+
+// ---------- 中文句号错分防护（#297） ----------
+test('中文句号不做小数点（实测「3。4分」并成 3.4 属错分）', () => {
+    assert.strictEqual(normalizeScoreText('3。4分').indexOf('3.4'), -1, '句号不得转小数点');
+    // 小题行实测场景（#297 审计例①）："25(1)分数：3。4分" 的 3 不得并成 3.4
+    const r = parseSubQuestionResponse('【答案复述】x\n【得分】：6\n25(1)分数：3。4分', {
+        subQuestions: [{ id: 1, label: '25(1)', maxScore: 6 }]
+    });
+    assert.strictEqual(r.subScores[0].score, 3, '保守读 3，不得错分成 3.4');
+    // 全角点仍转换（合法小数变体）
+    assert.strictEqual(extractScore('２.５分', 24), 2.5);
+});
+
+// ---------- markdown 选择性转义（#299 R1 回归） ----------
+test('markdown 转义选择性：代码/公式豁免、标签转义', () => {
+    const msrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ui-markdown.js'), 'utf8');
+    const m = msrc.match(/function sanitizeMarkdownHtml\(text\) \{[\s\S]*?\n\}/);
+    assert.ok(m, 'sanitizeMarkdownHtml 未找到');
+    const sb2 = { String, Array };
+    vm.createContext(sb2);
+    vm.runInContext(m[0] + '\n;__f = sanitizeMarkdownHtml;', sb2);
+    const f = sb2.__f;
+    assert.strictEqual(f('a < b'), 'a < b', '裸 <（非标签形）不得转义');
+    assert.strictEqual(f('$a < b$'), '$a < b$', 'KaTeX 公式豁免');
+    assert.strictEqual(f('`a < b`'), '`a < b`', '行内代码豁免');
+    assert.ok(f('<script>alert(1)</script>').indexOf('<script') === -1, '标签形尖括号必须转义');
+    assert.ok(f('end <img src=x onerror=y> end').indexOf('<img') === -1, 'img 注入必须转义');
+});
+
+test('CN。CN 分数形态按小数、digit。digit 保守（#299）', () => {
+    const r2 = parseSubQuestionResponse('【答案复述】x\n【得分】：6\n25(1)分数：三。五分', {
+        subQuestions: [{ id: 1, label: '25(1)', maxScore: 6 }]
+    });
+    assert.strictEqual(r2.subScores[0].score, 3.5, '「三。五分」应解析 3.5');
+    const r3 = parseSubQuestionResponse('【答案复述】x\n【得分】：6\n25(1)分数：3。4分', {
+        subQuestions: [{ id: 1, label: '25(1)', maxScore: 6 }]
+    });
+    assert.strictEqual(r3.subScores[0].score, 3, '「3。4分」保守读 3（断句形态不得并分）');
+});
+
+// ---------- 输出级消毒（#315 G1：豁免区反斜杠击穿回归） ----------
+test('sanitizeRenderedHtml：豁免区击穿 PoC 不得直通（审计实测样本）', () => {
+    const msrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ui-markdown.js'), 'utf8');
+    const m = msrc.match(/function sanitizeRenderedHtml\(html\) \{[\s\S]*?\n\}/);
+    assert.ok(m, 'sanitizeRenderedHtml 未找到');
+    const sb3 = { String, Object, Array };
+    vm.createContext(sb3);
+    vm.runInContext(m[0] + '\n;__f = sanitizeRenderedHtml;', sb3);
+    const f = sb3.__f;
+    // 审计 PoC：\$<img onerror>$ 反斜杠形态 → marked 输出原始 img（豁免区不被消费）
+    const poc1 = '<p>$<img src=x onerror=alert(1)>$</p>';
+    assert.ok(f(poc1).indexOf('onerror') === -1, 'PoC1 onerror 必须剥离');
+    // 反引号转义形态 + script 直通
+    assert.ok(f('<p>`<script>alert(1)</script>`</p>').indexOf('<script') === -1, 'script 必须移除');
+    // javascript: URI 中和
+    assert.ok(f('<a href="javascript:alert(1)">x</a>').toLowerCase().indexOf('javascript:') === -1, 'javascript: 必须中和');
+    // 合法 markdown HTML 不受影响
+    assert.strictEqual(f('<p><strong>a</strong> <code>b</code></p>'), '<p><strong>a</strong> <code>b</code></p>', '合法标签不得误伤');
+    // svg/math 容器移除
+    assert.ok(f('<svg onload=alert(1)></svg>').indexOf('onload') === -1, 'svg 必须移除');
+});
+
+// ---------- 回归：半角行为逐值不变 ----------
+test('半角数字/等号优先等既有语义逐值不变（回归）', () => {
+    assert.strictEqual(extractScore('得分：4分', 24), 4);
+    assert.strictEqual(extractScore('2+2=4', 24), 4, '等号结果优先');
+    assert.strictEqual(extractScore('2+2=4，故得分4', 24), 4);
+    assert.strictEqual(extractScore('', 24), null);
+    assert.strictEqual(extractScore(null, 24), null);
+    assert.strictEqual(extractScore('无数字', 24), null);
+    assert.strictEqual(normalizeScoreText('abc'), 'abc');
+});

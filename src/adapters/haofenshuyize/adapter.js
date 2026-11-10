@@ -54,15 +54,31 @@ const HaofenshuyizeAdapter = {
                 method: 'GET',
                 url: url,
                 responseType: 'blob',
+                timeout: 20000,
                 onload: (res) => {
+                    // 数据安全（#297）：非 2xx / 空数据一律拒绝——宁可不取，不拿坏图批改
+                    if (res.status < 200 || res.status >= 300) {
+                        reject(new Error(`图片下载失败，状态码: ${res.status}`));
+                        return;
+                    }
+                    if (!res.response) {
+                        reject(new Error('下载的图片数据为空'));
+                        return;
+                    }
                     const reader = new FileReader();
                     reader.onloadend = () => {
-                        const base64 = reader.result.split(',')[1];
+                        const base64 = (reader.result || '').split(',')[1];
+                        if (!base64) {
+                            reject(new Error('图片转换失败：空数据'));
+                            return;
+                        }
                         resolve(base64);
                     };
+                    reader.onerror = () => reject(new Error('图片读取失败'));
                     reader.readAsDataURL(res.response);
                 },
-                onerror: reject
+                onerror: () => reject(new Error('图片下载跨域请求被拒绝或网络断开')),
+                ontimeout: () => reject(new Error('图片下载超时'))
             });
         });
     },
@@ -93,19 +109,30 @@ const HaofenshuyizeAdapter = {
     fillScores(scores) {
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
+
+        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
+        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
+        if (scores.length > inputs.length) {
+            console.warn(`⚠️ [云阅卷(好分数)] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+            return false;
+        }
+        for (let i = 0; i < inputs.length; i++) {
+            if (scores[i] === null || scores[i] === undefined) {
+                console.warn(`⚠️ [云阅卷(好分数)] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
+                return false;
+            }
+        }
+
         const setter = Object.getOwnPropertyDescriptor(
             window.HTMLInputElement.prototype, 'value').set;
-        let successCount = 0;
-        for (let i = 0; i < Math.min(scores.length, inputs.length); i++) {
-            if (scores[i] === null || scores[i] === undefined) continue;
+        for (let i = 0; i < inputs.length; i++) {
             setter.call(inputs[i].element, scores[i]);
             inputs[i].element.dispatchEvent(new Event('input', { bubbles: true }));
             inputs[i].element.dispatchEvent(new Event('change', { bubbles: true }));
             inputs[i].element.dispatchEvent(new Event('blur', { bubbles: true }));
-            successCount++;
             console.log(`✅ [诊断] 云阅卷(好分数) — ${inputs[i].label} 分数 ${scores[i]} 已填入`);
         }
-        return successCount > 0;
+        return true;
     },
 
     // 旧接口兼容
@@ -152,9 +179,9 @@ const HaofenshuyizeAdapter = {
                     return;
                 }
 
-                // 检测输入框被清空
+                // 检测输入框被清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
                 const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && (scoreInput.value === '' || scoreInput.value === '0');
+                const inputCleared = scoreInput && String(scoreInput.value).trim() === '';
                 if (inputCleared && checkTimes > 3) {
                     clearInterval(timer);
                     console.log('✅ 云阅卷(好分数) — 新试卷已加载（输入框清空）');
