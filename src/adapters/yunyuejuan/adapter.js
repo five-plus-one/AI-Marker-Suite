@@ -9,8 +9,18 @@ const YunyuejuanAdapter = {
     iconUrl: '',
 
     shouldInitialize() {
-        // 检测是否是云阅卷平台（通过特征元素判断）
-        return window.location.pathname.includes('/Marking/');
+        // ① 部署域白名单（strict-a 附 A.4；与产品方收集后回填，为空时走 ②）
+        //    hostMatches 精确姿势（endswidth，禁 includes 子串）
+        const YUNYUEJUAN_HOSTS = [];
+        const h = (window.location.hostname || '').toLowerCase();
+        if (YUNYUEJUAN_HOSTS.some(d => h === d || h.endsWith('.' + d))) return true;
+        // ② DOM 三锚（废除裸 /Marking/ 判定——它是全队最宽守卫，strict-b X03/S15/S16
+        //    三方互串放大器）：/Marking/ 路径 + 独立提交按钮 + 小题表格，
+        //    button.btn-standard-pri 为云阅卷家族唯一（与 xinkao-campus 分叉靠提交形态，
+        //    满分同为 data-score 不可作判别）
+        return window.location.pathname.includes('/Marking/')
+            && !!document.querySelector('button.btn-standard-pri.phr15')
+            && !!document.querySelector('tbody.xtlist');
     },
 
     isMarkingPage() {
@@ -260,6 +270,18 @@ const YunyuejuanAdapter = {
     }
 };
 
-if (YunyuejuanAdapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = YunyuejuanAdapter;
-}
+// 注册守卫（#324 教训 + strict-a 附 A.0）：自查 shouldInitialize → 先到先得（不覆盖）→
+// 已注册且我也认领本页 = 多命中冲突，console.error 红灯告警（静默劫持变可见）→ 异常 fail-closed
+(function registerYunyuejuanAdapter() {
+    try {
+        if (!YunyuejuanAdapter.shouldInitialize()) return;
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing) {
+            console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 云阅卷(yunyuejuan) 也认领本页（疑似串台/劫持），保留先到者`);
+            return;
+        }
+        window.__AI_MARKER_ADAPTER__ = YunyuejuanAdapter;
+    } catch (e) {
+        console.warn('⚠️ [注册] 判定异常，fail-closed 不注册:', e);
+    }
+})();

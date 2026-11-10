@@ -1,5 +1,6 @@
-// ========== 华翰云适配器 ==========
+// ========== 华翰云适配器（yunyuejuan.net 旧部署，id=hanhan） ==========
 // yunyuejuan.net — Vue3 + Element Plus
+// ⚠️ 命名防混淆：与 lcedu 域的「云阅卷(华翰云)」（huahanyun）是两个不同适配器，勿混
 
 const HanhanAdapter = {
     name: '华翰云',

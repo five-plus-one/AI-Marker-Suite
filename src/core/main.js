@@ -195,6 +195,21 @@ async function confirmLeftMarkingPage(adapter) {
     return !adapter.isMarkingPage();
 }
 
+// 回评图片就绪探测（strict-a C.4）：固定 3s 等待改短轮询——就绪即返回，探测总上限不变。
+// 判据与回评取图同源（adapter.gatherAnswerImages）；无适配器/无该方法立即放行；
+// 探测异常不打断（继续轮询到上限，交由既有空图分支显式处理）。
+async function waitForImagesReadyForRegrade(adapter, timeoutMs, pollMs) {
+    if (!adapter || typeof adapter.gatherAnswerImages !== 'function') return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        try {
+            const urls = await adapter.gatherAnswerImages();
+            if (urls && urls.length > 0) return;
+        } catch (e) { /* 探测失败继续轮询 */ }
+        await new Promise(r => setTimeout(r, pollMs));
+    }
+}
+
 // ========== 离开批改页的生命周期清理 ==========
 // SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
 //「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
@@ -332,6 +347,27 @@ async function startAutoGrading() {
             console.log(`📥 [诊断] 开始下载 ${imageUrls.length} 张图片...`);
             const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
             base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url)));
+            // 废图闸（工单①）：942×4 裁剪残片类废图不得进 API/空白检测（进 API 会 400 整单暂停）
+            const imgGate = filterUsableImagesForAI(base64DataArray);
+            // 剔除计数登记（返修②）：本卷 AI 请求的提示词需注明「已剔除 N 张废图」，不得对残卷照常出分
+            window.aiGradingState.imageGateRemovedCount = imgGate.removed.length;
+            if (imgGate.removed.length > 0) {
+                console.warn(`⚠️ [废图剔除] ${imgGate.removed.length} 张废图已剔除（尺寸异常）: ` +
+                    imgGate.removed.map(r => `#${r.index} ${r.reason}`).join('；'));
+                showToast(`⚠️ 已剔除 ${imgGate.removed.length} 张尺寸异常的废图，不送 AI 评分`);
+            }
+            base64DataArray = imgGate.kept;
+            if (base64DataArray.length === 0) {
+                // 剔除后无图 = 显式失败（宁可不取）：绝不让 AI 对空图盲评
+                if (window.aiGradingState.gradingMode === 'unattended') {
+                    stopAutoGrading();
+                    safeAlert('答题卡图片均不可用（尺寸异常已被剔除），批改已暂停，请人工核对后继续。');
+                } else {
+                    safeAlert('❌ 答题卡图片均不可用（尺寸异常已被剔除），请人工核对后继续！');
+                    window.aiGradingState.isRunning = false;
+                }
+                return;
+            }
             window.aiGradingState.currentBase64DataArray = base64DataArray;
             console.log(`✅ [诊断] 图片下载完成，各图片Base64大小: ${base64DataArray.map(b => Math.round(b.length / 1024) + 'KB').join(', ')}`);
         }
@@ -415,7 +451,8 @@ async function startAutoGrading() {
             outputLimitEnabled: config.outputLimitEnabled !== false,
             maxOutputTokens: config.maxOutputTokens || 2048
         });
-        const gradingConfig = { ...config, workflowId, outputObservation, outputLimitKey };
+        const gradingConfig = { ...config, workflowId, outputObservation, outputLimitKey,
+            imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
         const result = isDualEval
             ? await callDualEvaluation(base64DataArray, gradingConfig, (streamedText) => {
                 if (window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
@@ -690,7 +727,24 @@ async function initToolsPageMode() {
 }
 
 // ========== 初始化 ==========
+// init 重入闩（strict-a C.3）：boot 的 setTimeout(init) 与 runNewTaskOnboardingFlow 的
+// setTimeout(init)（任务切换重调度）可并发触发，两路都在 await 后建 UI → 双 UI/双监听。
+// in-running 闩只挡并发；完成后允许任务切换后的合法重跑（SPA 从列表页进批改页需重建 UI）。
+let _initInFlight = false;
+// 回评任务页内门闩（strict-a C.1）：同一页面生命周期内回评面板只弹一次
+let _regradeConsumed = false;
+
 async function init() {
+    if (_initInFlight) return;
+    _initInFlight = true;
+    try {
+        await runInitBody();
+    } finally {
+        _initInFlight = false;
+    }
+}
+
+async function runInitBody() {
     if (window !== window.top) return; // 跳过 iframe
     await new Promise(resolve => setTimeout(resolve, 2000));
 
@@ -761,9 +815,13 @@ async function init() {
         setTimeout(() => toggleAutoGrading(), 3000);
     }
 
-    // 检查是否有回评任务
+    // 检查是否有回评任务（strict-a C.1）：读取即消费 + 页内门闩——
+    // init 可被任务切换重调度重跑，两路都读到同一 sessionStorage 会弹双回评面板（对同一记录双改）。
+    // 消费即标记：刷新/重入不再重复弹面板（startRegrade 本就是整页跳转，消费点在新页生命周期内）
     const regradeData = sessionStorage.getItem('ai-grading-regrade');
-    if (regradeData) {
+    if (regradeData && !_regradeConsumed) {
+        _regradeConsumed = true;
+        sessionStorage.removeItem('ai-grading-regrade');
         try {
             const { id } = JSON.parse(regradeData);
             const record = HistoryManager.getById(id);
@@ -771,8 +829,10 @@ async function init() {
                 window.aiGradingState.isRegrading = true;
                 showToast('正在加载回评数据...');
                 setTimeout(async () => {
-                    // 等待图片加载
+                    // 等待图片加载（strict-a C.4）：固定 3s 等待改 200ms 短轮询，就绪即继续，
+                    // 探测总上限 3s 不变
                     const adapter = window.__AI_MARKER_ADAPTER__;
+                    await waitForImagesReadyForRegrade(adapter, 3000, 200);
                     const imageUrls = adapter ? await adapter.gatherAnswerImages() : [];
                     if (imageUrls.length === 0) {
                         showAlertModal('未找到答题卡图片，无法回评。').then(() => {
@@ -782,7 +842,24 @@ async function init() {
                         return;
                     }
                     const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
-                    const base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url)));
+                    let base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url)));
+                    // 废图闸（工单①）：回评链路同样不得把尺寸异常残片送进 API
+                    const regradeGate = filterUsableImagesForAI(base64DataArray);
+                    // 回评/纠错链的剔除计数登记（返修②）：correction.js 自建 callConfig，
+                    // 无 config 通道，走 aiGradingState 兜底进提示词注记
+                    window.aiGradingState.imageGateRemovedCount = regradeGate.removed.length;
+                    if (regradeGate.removed.length > 0) {
+                        console.warn(`⚠️ [废图剔除] 回评：${regradeGate.removed.length} 张废图已剔除（尺寸异常）: ` +
+                            regradeGate.removed.map(r => `#${r.index} ${r.reason}`).join('；'));
+                        base64DataArray = regradeGate.kept;
+                    }
+                    if (base64DataArray.length === 0) {
+                        showAlertModal('答题卡图片均不可用（尺寸异常已被剔除），无法回评。').then(() => {
+                            sessionStorage.removeItem('ai-grading-regrade');
+                            window.aiGradingState.isRegrading = false;
+                        });
+                        return;
+                    }
                     window.aiGradingState.currentBase64DataArray = base64DataArray;
 
                     showCorrectionPanel({
@@ -809,7 +886,7 @@ async function init() {
                             showToast('已取消回评');
                         }
                     });
-                }, 3000);
+                }, 0);
             }
         } catch (e) {
             console.error('回评数据解析失败:', e);

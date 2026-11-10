@@ -391,7 +391,8 @@ const WorkflowManager = {
                         enabled: true,
                         secondary: { provider: "5plus1官方", model: "aimarker-fast", reasoningEffort: "minimal" },
                         arbitration: { provider: "5plus1官方", model: "aimarker-pro", reasoningEffort: "" },
-                        threshold: 2
+                        threshold: 2,
+                        mergeMode: "round"
                     },
                     isBuiltin: true
                 }
@@ -489,12 +490,131 @@ const WorkflowManager = {
 };
 WorkflowManager.init();
 
+// ========== 废图闸（工单①：图片进 AI 请求前的尺寸护栏）==========
+// 实测事故：取图链把 942×4 的裁剪残片发给 API，触发
+// 「Image dimensions are too small. Minimum allowed dimension: 14 pixels」整单 400 暂停。
+// 规则：宽或高 <15px（API 地板 14px +1 安全边距）或极端比例 >100:1 的图片按废图剔除；
+// 无法解析尺寸（未知格式）不误杀，按可用保留（合法长条题块图比例远低于 100:1）。
+// 剔除后无图 = 显式失败（宁可不取，绝不让 AI 对空图盲评）。
+function probeImageDimensions(data) {
+    try {
+        if (typeof data !== 'string' || !data) return null;
+        let b64 = data;
+        if (b64.slice(0, 5) === 'data:') {
+            const comma = b64.indexOf(',');
+            if (comma === -1) return null;
+            b64 = b64.slice(comma + 1);
+        }
+        if (typeof atob !== 'function') return null;
+        const bin = atob(b64);
+        const b = i => bin.charCodeAt(i) & 0xff;
+        const be16 = i => (b(i) << 8) | b(i + 1);
+        const be32 = i => (((b(i) << 24) >>> 0) + (b(i + 1) << 16) + (b(i + 2) << 8) + b(i + 3)) >>> 0;
+        // PNG：签名 8 字节，IHDR 宽/高在偏移 16..23（大端 32 位）
+        if (bin.length >= 24 && b(0) === 0x89 && b(1) === 0x50 && b(2) === 0x4e && b(3) === 0x47) {
+            return { width: be32(16), height: be32(20) };
+        }
+        // GIF：'GIF8'，宽/高在偏移 6..9（小端 16 位）
+        if (bin.length >= 10 && b(0) === 0x47 && b(1) === 0x49 && b(2) === 0x46) {
+            return { width: b(6) | (b(7) << 8), height: b(8) | (b(9) << 8) };
+        }
+        // JPEG：扫描 SOF 段取宽高
+        if (bin.length >= 4 && b(0) === 0xff && b(1) === 0xd8) {
+            let i = 2;
+            while (i + 9 < bin.length) {
+                if (b(i) !== 0xff) { i++; continue; }
+                const marker = b(i + 1);
+                if (marker === 0xff) { i++; continue; }
+                if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+                if (marker === 0xd9 || marker === 0xda) break;
+                const segLen = be16(i + 2);
+                // SOF0..SOF15（DHT/JPG/DAC 除外）：段内偏移 5..8 为高×宽（大端 16 位）
+                if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+                    return { width: be16(i + 7), height: be16(i + 5) };
+                }
+                if (segLen < 2) break;
+                i += 2 + segLen;
+            }
+            return null;
+        }
+        // WebP：RIFF....WEBP + VP8 / VP8L / VP8X 三种头
+        if (bin.length >= 30 && b(0) === 0x52 && b(1) === 0x49 && b(2) === 0x46 && b(3) === 0x46 &&
+            b(8) === 0x57 && b(9) === 0x45 && b(10) === 0x42 && b(11) === 0x50) {
+            const four = bin.slice(12, 16);
+            if (four === 'VP8X') {
+                return { width: 1 + (b(24) | (b(25) << 8) | (b(26) << 16)), height: 1 + (b(27) | (b(28) << 8) | (b(29) << 16)) };
+            }
+            if (four === 'VP8 ') {
+                return { width: (b(26) | (b(27) << 8)) & 0x3fff, height: (b(28) | (b(29) << 8)) & 0x3fff };
+            }
+            if (four === 'VP8L') {
+                const bits = (b(21) | (b(22) << 8) | (b(23) << 16) | (b(24) << 24)) >>> 0;
+                return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+            }
+            return null;
+        }
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function filterUsableImagesForAI(list) {
+    const kept = [];
+    const removed = [];
+    (list || []).forEach((item, index) => {
+        if (typeof item !== 'string' || !item.trim()) {
+            removed.push({ index, reason: '空图片数据' });
+            return;
+        }
+        const size = probeImageDimensions(item);
+        if (!size) {
+            // 未知格式/尺寸不可解析：不误杀，保留
+            kept.push(item);
+            return;
+        }
+        const { width, height } = size;
+        if (width < 15 || height < 15) {
+            removed.push({ index, reason: `尺寸过小 ${width}×${height}（<15px）` });
+            return;
+        }
+        const ratio = Math.max(width / height, height / width);
+        if (ratio > 100) {
+            removed.push({ index, reason: `极端比例 ${width}×${height}（${Math.round(ratio)}:1）` });
+            return;
+        }
+        kept.push(item);
+    });
+    return { kept, removed };
+}
+
 // ========== 通用 AI 请求函数 ==========
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
     return new Promise((resolve, reject) => {
-        const messageContent = [{ type: "text", text: prompt }];
         // 合并额外图片（来自题目/答案/评分标准）+ 学生答题卡图片
         var allImages = (extraImages && extraImages.length) ? extraImages.concat(base64DataArray) : base64DataArray;
+        // 废图闸（请求组装汇聚点，工单①）：剔除尺寸异常的裁剪残片，防止 API 400 整单暂停。
+        // main.js 下载循环已前置剔除；此处兜底覆盖回评/纠错等所有调用链。
+        const rawImageCount = (allImages && allImages.length) || 0;
+        const imgGate = filterUsableImagesForAI(allImages);
+        if (imgGate.removed.length > 0) {
+            console.warn(`⚠️ [废图剔除] ${imgGate.removed.length} 张废图不进 AI 请求: ` +
+                imgGate.removed.map(r => `#${r.index} ${r.reason}`).join('；'));
+            allImages = imgGate.kept;
+        }
+        if (allImages.length === 0 && rawImageCount > 0) {
+            // 剔除后无图 = 显式失败（宁可不取）：绝不让 AI 对空图评分
+            return reject(new Error('答题卡图片均不可用（废图剔除后无有效图片），请人工核查后继续批改'));
+        }
+        // 部分剔除时必须告知 AI 只剩残卷（返修②）：误杀真面板时 AI 不得对残卷"照常出分"而不知情。
+        // 剔除计数三来源合并：本层兜底剔除 + main.js 主流程剔除（config，显式 0 权威）+ 回评/纠错剔除（aiGradingState 兜底）
+        const preRemoved = (config && config.imageGateRemovedCount != null) ? config.imageGateRemovedCount
+            : ((typeof window !== 'undefined' && window.aiGradingState && window.aiGradingState.imageGateRemovedCount) || 0);
+        const removedNote = imgGate.removed.length + (preRemoved || 0);
+        const promptText = (removedNote > 0 && allImages.length > 0)
+            ? `${prompt}\n\n【图片说明】已剔除 ${removedNote} 张废图（尺寸异常），请基于剩余图片评判。`
+            : prompt;
+        const messageContent = [{ type: "text", text: promptText }];
         allImages.forEach(base64Data => {
             messageContent.push({ type: "image_url", image_url: { url: `data:image/png;base64,${base64Data}` } });
         });
@@ -789,20 +909,49 @@ async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, 
 }
 
 // ========== 双评引擎 ==========
-// 双评小题分数合并（逐题取平均；评语有差异时并列两份）
-function mergeDualSubScores(detailA, detailB, scoringConfig) {
+// 双评合并取整策略（工单②）：wf.dualEval.mergeMode ∈ round | floor | ceil | min | max
+//   round（默认；旧配置缺字段即此值）= 现行为逐值不变：平均后按 scoring.roundMethod 吸附步长
+//   floor / ceil = 平均后向下/向上取整到评分梯度（强制取整方法，不受 scoring.roundMethod 影响）
+//   min / max = 取两模型低分/高分（不平均），外向吸附：min→floor（只降不升）、max→ceil（只升不降）
+//     ——「取低分」绝不输出高于低分的值、「取高分」绝不输出低于高分的值（返修①，教师语义优先）
+//     迁移影响：早期预览批 min/max 曾按 scoring.roundMethod 吸附，脱梯度分数的合并结果将变化（已在 CHANGELOG 注明）
+// 所有模式共用同一套步长吸附 + 满分钳制（ScoreCalculator.round 第三参）；
+// 缺分（单侧 null/undefined 直取对侧、不吸附）与 NaN 传染语义与历史一致，不在此放松。
+function mergeDualValue(scoreA, scoreB, snap, maxScore, mergeMode) {
+    const mode = mergeMode || 'round';
+    let raw;
+    let method = (snap && snap.roundMethod) || 'round';
+    if (mode === 'min') {
+        raw = Math.min(scoreA, scoreB);
+        // 外向吸附（返修①）：「取低分」只降不升 —— floor 到梯度，
+        // 此前用 round 会把 min(1.5, 2) 抬成 2（取低分输出高分），违背教师承诺
+        method = 'floor';
+    } else if (mode === 'max') {
+        raw = Math.max(scoreA, scoreB);
+        // 外向吸附（返修①）：「取高分」只升不降 —— ceil 到梯度（round 会把 max 压低）
+        method = 'ceil';
+    } else {
+        raw = (scoreA + scoreB) / 2;
+        if (mode === 'floor') method = 'floor';
+        else if (mode === 'ceil') method = 'ceil';
+    }
+    return ScoreCalculator.round(raw, { roundStep: (snap && snap.roundStep) || 1, roundMethod: method }, maxScore);
+}
+
+// 双评小题分数合并（按 mergeMode 合并；评语有差异时并列两份）
+function mergeDualSubScores(detailA, detailB, scoringConfig, mergeMode) {
     if (!detailA?.subScores || !detailB?.subScores ||
         detailA.subScores.length !== detailB.subScores.length) {
         return detailA?.subScores || null;
     }
     return detailA.subScores.map((sqA, i) => {
         const sqB = detailB.subScores[i];
-        // 按小题取整步长取平均（默认 step=1 且 method=round 时与原先 Math.round 完全一致）
+        // 按小题取整步长合并（mergeMode 缺省 = round 时与历史 Math.round 平均逐值一致）
         const roundStep = sqA.roundStep || scoringConfig?.units?.[i]?.roundStep || scoringConfig?.roundStep || 1;
         const roundMethod = scoringConfig?.roundMethod || 'round';
         const unitMax = sqA.maxScore ?? sqB.maxScore;
-        const avgScore = (sqA.score !== null && sqA.score !== undefined && sqB.score !== null && sqB.score !== undefined)
-            ? ScoreCalculator.round((sqA.score + sqB.score) / 2, { roundStep, roundMethod }, unitMax)
+        const mergedScore = (sqA.score !== null && sqA.score !== undefined && sqB.score !== null && sqB.score !== undefined)
+            ? mergeDualValue(sqA.score, sqB.score, { roundStep, roundMethod }, unitMax, mergeMode)
             : (sqA.score ?? sqB.score);
         // 按评语内容决定是否并列（与给分是否相同无关）：措辞不同就都展示
         const cA = (sqA.comment || '').trim();
@@ -811,19 +960,20 @@ function mergeDualSubScores(detailA, detailB, scoringConfig) {
         if (cA && cB && cA !== cB) {
             comment = `A: ${cA}；B: ${cB}`;
         }
-        return { ...sqA, score: avgScore, comment };
+        return { ...sqA, score: mergedScore, comment };
     });
 }
 
 // 双评详情重建：分数计算/评分依据必须与合并后的分数一致，不能沿用单模型原文
-function buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore) {
+function buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore, mergeMode) {
     const sections = { ...(detailA?._sections || {}) };
     if (finalSubScores && finalSubScores.length > 0) {
         const parts = finalSubScores.map(s =>
             `${s.label}得分${(s.score !== null && s.score !== undefined) ? s.score + '分' : '—'}`);
         sections['分数计算'] = `${parts.join(' + ')} = 总得分${finalScore}分`;
     } else {
-        sections['分数计算'] = `双评平均 = 总得分${finalScore}分`;
+        const mergeLabel = mergeMode === 'min' ? '双评取低分' : mergeMode === 'max' ? '双评取高分' : '双评平均';
+        sections['分数计算'] = `${mergeLabel} = 总得分${finalScore}分`;
     }
     const basisA = detailA?._sections?.['评分依据'] || '';
     const basisB = detailB?._sections?.['评分依据'] || '';
@@ -914,15 +1064,15 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
 
     // 分差在阈值内
     if (diff <= threshold) {
-        // 总分取整同步走 roundStep/roundMethod（默认配置下与原 Math.round 一致）；传满分钳制（#273）
-        let finalScore = ScoreCalculator.round((scoreA + scoreB) / 2, {
+        // 总分合并同步走 mergeMode + roundStep 吸附 + 满分钳制（工单②；缺省 round 与原平均逐值一致）
+        let finalScore = mergeDualValue(scoreA, scoreB, {
             roundStep: config.scoring?.roundStep || 1,
             roundMethod: config.scoring?.roundMethod || 'round'
-        }, config.scoring?.maxScore);
-        console.log(`✅ [双评] 分差在阈值内，取平均分: ${finalScore}`);
+        }, config.scoring?.maxScore, dualConfig.mergeMode);
+        console.log(`✅ [双评] 分差在阈值内，合并分(${dualConfig.mergeMode || 'round'}): ${finalScore}`);
 
-        // 处理分小题分数：对每个小题分别取平均
-        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
+        // 处理分小题分数：对每个小题按 mergeMode 合并
+        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring, dualConfig.mergeMode);
         if (finalSubScores && detailA?.subScores && detailB?.subScores &&
             detailA.subScores.length === detailB.subScores.length) {
             console.log(`✅ [双评] 分小题平均: ${finalSubScores.map(s => s.label + '=' + s.score).join(', ')}`);
@@ -937,7 +1087,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         }
 
         // 详情重建：分数计算/评分依据跟随合并后的分数（不能沿用模型A原文）
-        const detail = buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore);
+        const detail = buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore, dualConfig.mergeMode);
 
         // 勤勉度也取平均
         const avgDiligenceLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
@@ -976,14 +1126,14 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         arbConfig.reasoningEffort = dualConfig.arbitration.reasoningEffort;
     }
     if (!arbConfig) {
-        console.warn('⚠️ [三评] 仲裁模型配置不完整，取平均分');
-        // 仲裁降级取 A/B 平均同步走 roundStep/roundMethod + 满分钳制（#289 二轮审计 A-1）
-        const finalScore = ScoreCalculator.round((scoreA + scoreB) / 2, {
+        console.warn('⚠️ [三评] 仲裁模型配置不完整，按 mergeMode 合并 A/B');
+        // 仲裁降级合并同步走 mergeMode + roundStep/roundMethod + 满分钳制（#289 二轮审计 A-1 + 工单②）
+        const finalScore = mergeDualValue(scoreA, scoreB, {
             roundStep: config.scoring?.roundStep || 1,
             roundMethod: config.scoring?.roundMethod || 'round'
-        }, config.scoring?.maxScore);
-        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
-        const detail = buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore);
+        }, config.scoring?.maxScore, dualConfig.mergeMode);
+        const finalSubScores = mergeDualSubScores(detailA, detailB, config.scoring, dualConfig.mergeMode);
+        const detail = buildDualEvalDetail(detailA, detailB, finalSubScores, finalScore, dualConfig.mergeMode);
         const avgLevel = Math.round(((detailA?.diligenceLevel || 0) + (detailB?.diligenceLevel || 0)) / 2);
         return {
             ...detailA,
@@ -1021,7 +1171,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     // 小题分兜底：仲裁漏给部分小题分时，用 A/B 合并结果补齐
     let arbSubScores = arbParsed.subScores || null;
     if (arbHasSub) {
-        const fallbackSubScores = mergeDualSubScores(detailA, detailB, config.scoring);
+        const fallbackSubScores = mergeDualSubScores(detailA, detailB, config.scoring, dualConfig.mergeMode);
         if (!arbSubScores && fallbackSubScores) {
             arbSubScores = fallbackSubScores;
             console.warn('⚠️ [三评] 仲裁未返回小题分，使用 A/B 合并结果兜底');

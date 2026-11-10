@@ -19,9 +19,14 @@ function loadAdapter(imgs, dom) {
             set value(v) { this._v = String(v); },
         },
     };
+    // X05 收紧后注册要求 DOM 三特征（#compuinput + button.submitscorebtn）齐备：
+    // dom 未传 → 桩默认提供三特征（正例省样板）；dom 显式传入（含 {}）→ 以传入为准（负例可控）
+    const domWithDefaults = dom !== undefined ? dom : {
+        '#compuinput': { tagName: 'INPUT' }, 'button.submitscorebtn': { tagName: 'BUTTON' },
+    };
     sb.document = {
         querySelectorAll: (sel) => (sel === 'img.el-image__inner' ? imgs : []),
-        querySelector: (sel) => (dom && dom[sel] ? dom[sel] : null),
+        querySelector: (sel) => (domWithDefaults && domWithDefaults[sel] ? domWithDefaults[sel] : null),
     };
     sb.window = sb;
     // 阻塞式等待用（#309）
@@ -148,7 +153,8 @@ test('#312 换卷正向证据：旧图隐藏但仅旁图可见 → 继续等（�
 
 test('#312 fillScores 数值闸：NaN/负分拒绝且不写入，合法值通过', async () => {
     const input = fakeInput();
-    const a = loadAdapter([], { '#compuinput': input });
+    // 显式 dom 需含注册三特征（X05 收紧），分数框用受控 fakeInput 保持用例语义
+    const a = loadAdapter([], { '#compuinput': input, 'button.submitscorebtn': { tagName: 'BUTTON' } });
     assert.strictEqual(a.fillScores([NaN]), false, 'NaN 必须拒绝');
     assert.strictEqual(a.fillScores([-1]), false, '负分必须拒绝');
     assert.strictEqual(input.value, undefined, '拒绝时不得写入');
@@ -169,6 +175,11 @@ test('#312 isRegradeMode 委托核心回评态、isMarkingPage 同步快检存�
     assert.ok(/aiGradingState\.isRegrading/.test(src), 'isRegradeMode 必须读核心 isRegrading（不得恒 false 短路）');
     assert.strictEqual(typeof a.isMarkingPage, 'function', '必须提供 isMarkingPage 同步快检');
     assert.strictEqual(a.isMarkingPage(), true, '三特征页面上应为 true');
-    const b = loadAdapter([]);
+    // 缺特征页在 X05 收紧后不再注册（b 取不到注册槽）——改为注册后动态撤特征，
+    // 断言语义不变：isMarkingPage 查活 DOM，特征消失必须翻 false
+    const domB = { '#compuinput': { tagName: 'INPUT' }, 'button.submitscorebtn': { tagName: 'BUTTON' } };
+    const b = loadAdapter([], domB);
+    assert.strictEqual(b.isMarkingPage(), true, '特征齐备应为 true');
+    delete domB['button.submitscorebtn'];
     assert.strictEqual(b.isMarkingPage(), false, '缺特征页面应为 false');
 });
