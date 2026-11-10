@@ -53,7 +53,7 @@ test('精简模式分小题提示词只保留分数字段', () => {
     assert.ok(!p.includes('【评分依据】'), '不应含评分依据');
     assert.ok(!p.includes('【分数计算】'), '不应含分数计算');
     assert.ok(!p.includes('【答案复述】'), '不应含答案复述');
-    assert.ok(!p.includes('评语：（'), '不应含小题评语字段');
+    assert.ok(!p.includes('评语：'), '不应含小题评语字段（W1：放宽为全形态负断言，评语行改无括号格式也要拦）');
     assert.ok(p.includes('56(1)分数：'), '应保留小题分数');
     assert.ok(p.includes('56(2)分数：'), '应保留小题分数');
     assert.ok(p.includes('【得分】'), '应保留总分');

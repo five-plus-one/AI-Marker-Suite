@@ -128,7 +128,9 @@ test('勤勉加分分配后各单元吸附回自身步长网格', () => {
             { label: 'B', score: 1, maxScore: 9, roundStep: 1.5 }
         ]
     });
-    assert.ok(res.bonus > 0, '本用例需要勤勉加分大于 0');
+    // W12：精确钉位 fixture 的 bonus（calcDiligenceBonus：rawBonus=min(4,3,11)=3，
+    // decay=(1-2/13)²=121/169≈0.716 → 3×0.716≈2.148，再按默认步长 1 取整=2），替代弱守卫 bonus>0
+    assert.strictEqual(res.bonus, 2, '本用例 fixture 的勤勉加分应精确为 2（防 bonus 数值回归）');
     res.finalUnitScores.forEach(u => {
         const step = u.roundStep;
         const onGrid = Math.abs(u.score / step - Math.round(u.score / step)) < 1e-9;

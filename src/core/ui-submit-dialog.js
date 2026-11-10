@@ -8,6 +8,13 @@ function fillScore(score, comment, subScores) {
         showAutoSubmitDialog(score, comment, subScores, { fillFailed: true });
         return;
     }
+    // 数值闸（N5 坑审计收口）：纠正流是唯一 NaN 入口——#296 null 闸只挡空值，
+    // NaN/∞/负数/非数值同样不得进入填分/提交链（24 家全或无适配器无数值闸，core 统一收口）
+    if (!validateScoresForFill([score].concat((subScores || []).map(sq => sq && sq.score)), '纠正流/手动填分')) {
+        safeAlert('⚠️ 分数含非法数值（NaN/∞/负数），已拒绝自动填分。\n请人工核对后手动给分。');
+        showAutoSubmitDialog(score, comment, subScores, { fillFailed: true });
+        return;
+    }
     let filled = false;
     if (adapter) {
         if (adapter.fillScores && subScores && subScores.length > 0) {
@@ -594,7 +601,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     if (window.__aiMarkdownRenderer) {
         dialog.querySelectorAll('.asd-info-content, .asd-md-content').forEach(function (el) {
             var raw = el.textContent;
-            if (raw) el.innerHTML = window.__aiMarkdownRenderer.render(raw);
+            if (raw) el.innerHTML = window.__aiMarkdownRenderer.renderWithImages(raw, window.aiGradingState.currentBase64DataArray || []);
         });
     }
 
@@ -723,9 +730,9 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             if (adapter) {
                 const units = config.scoring?.units || [];
                 if (adapter.fillScores && units.length > 0) {
-                    blankFillOk = adapter.fillScores(units.map(() => 0));
+                    blankFillOk = safeFillScores(adapter, units.map(() => 0), '空白卡填0');
                 } else if (adapter.fillScores) {
-                    blankFillOk = adapter.fillScores([0]);
+                    blankFillOk = safeFillScores(adapter, [0], '空白卡填0');
                 }
             }
             if (blankFillOk === false) {

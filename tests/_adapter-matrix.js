@@ -224,9 +224,11 @@ const ADAPTERS = [
       near: [{ label: '近似域名 yixx.cn', form: { host: 'yixx.cn', path: '/' } },
              { label: '串台对：gz2.yixx.cn 归 guangda-2', form: { host: 'gz2.yixx.cn', path: '/', dom: {} } }] },
     { dir: 'guangda-2', id: 'guangda-2', name: '光大阅卷',
-      own: { host: 'gz2.yixx.cn', path: '/', hash: '#/painter', dom: { 'LI.f-csp': 1 } },
-      near: [{ label: '缺 LI.f-csp 特征不得注册', form: { host: 'gz2.yixx.cn', path: '/', hash: '#/painter', dom: {} } },
-             { label: '串台对：pj.yixx.cn 归 guangda（显式排除）', form: { host: 'pj.yixx.cn', path: '/', dom: { 'LI.f-csp': 1 } } }] },
+      // X02 修（R4 ≥2 特征线）：LI.f-csp 须叠加答题卡 canvas（#0 tainted 排除）或 .dfBox .scores li 给分容器
+      own: { host: 'gz2.yixx.cn', path: '/', hash: '#/painter', dom: { 'LI.f-csp': 1, 'canvas:not([id="0"])': 1 } },
+      near: [{ label: '缺 LI.f-csp 特征不得注册（canvas 单特征）', form: { host: 'gz2.yixx.cn', path: '/', hash: '#/painter', dom: { 'canvas:not([id="0"])': 1 } } },
+             { label: '单类名 LI.f-csp 不得注册（X02 修：≥2 特征线）', form: { host: 'gz2.yixx.cn', path: '/', hash: '#/painter', dom: { 'LI.f-csp': 1 } } },
+             { label: '串台对：pj.yixx.cn 归 guangda（显式排除，双特征齐备也不认）', form: { host: 'pj.yixx.cn', path: '/', dom: { 'LI.f-csp': 1, 'canvas:not([id="0"])': 1 } } }] },
     { dir: 'yunyuejuan', id: 'yunyuejuan', name: '云阅卷',
       // 附 A.4 修复后：/Marking/ 路径 + 独立提交按钮 + 小题表格三锚（裸 /Marking/ 判定已废除）
       own: { host: '10.1.1.8', path: '/Marking/NormalReadPaper', dom: { 'button.btn-standard-pri.phr15': 1, 'button.btn-standard-pri': 1, 'tbody.xtlist': 1 } },

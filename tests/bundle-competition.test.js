@@ -13,7 +13,7 @@ const M = require('./_adapter-matrix.js');
 // 家族互串（原 KNOWN-2/3/5/6 源）已由 strict-a 附 A 修复：共享 DOM 不再互认，相关 near 形态恢复空槽。
 const NEAR_BUNDLE_OWNER = {
     '串台对：yj5.7net.cc 归 qitian-new': 'qitian-new',
-    '串台对：pj.yixx.cn 归 guangda（显式排除）': 'guangda',
+    '串台对：pj.yixx.cn 归 guangda（显式排除，双特征齐备也不认）': 'guangda',
     '串台对：jxp.jkxjxw.com 归九科星(作业)': 'jiukexing-homework',
     '串台对：ruiya.onlyets.com 归睿芽（精确租户匹配）': 'ruiya',
     '串台对：yuejuan.com 归正确阅卷': 'yuejuan',
@@ -135,10 +135,16 @@ test('DOM 签名：ameqp 五缺一 → 空槽', () => {
     assert.strictEqual(r.writes.length, 0);
 });
 
-test('DOM 签名：guangda-2 LI.f-csp 特征（任意部署域）→ 命中', () => {
-    const r = run({ host: 'deploy.example', path: '/', dom: { 'LI.f-csp': 1 } });
+test('DOM 签名：guangda-2 双特征（LI.f-csp+答题卡 canvas，任意部署域）→ 命中', () => {
+    const r = run({ host: 'deploy.example', path: '/', dom: { 'LI.f-csp': 1, 'canvas:not([id="0"])': 1 } });
     assert.strictEqual(r.writes.length, 1);
     assert.strictEqual(r.winner && r.winner.id, 'guangda-2');
+});
+
+test('DOM 签名：guangda-2 单类名 LI.f-csp 不得命中（X02 修：≥2 特征线）', () => {
+    const r = run({ host: 'deploy.example', path: '/', dom: { 'LI.f-csp': 1 } });
+    assert.strictEqual(r.winner, null, '单类名任意宿主误注册已封死');
+    assert.strictEqual(r.writes.length, 0);
 });
 
 test('DOM 签名：xinkao DOM 兜底（img.teaimg+input.fenshu[max] 专有锚，改名部署）→ 唯一命中', () => {
@@ -166,9 +172,8 @@ test('DOM 签名：家族单特征不命中（input.fenshu 单独出现）→ �
 });
 
 // ---------- 4. 原「已知竞争缺陷」修复后严格回归 ----------
-// 原 KNOWN-1..6/8（R1 家族互串 + R2 子串域名 + R3）已由 strict-a 附 A/附 B 修复落地
-// （专有锚 + 精确域名 + 先到先得注册 + 冲突告警），此处翻转为严格唯一命中断言。
-// 仅 KNOWN-7（guangda-2 即时注册无不覆盖守卫，R4 守卫不对称）未修，保持现状锁定。
+// 原 KNOWN-1..8 已全部由 strict-a 附 A/附 B + X02 批修复落地
+// （专有锚 + 精确域名 + 先到先得注册 + 冲突告警 + guangda-2 双特征/对称守卫），此处全部严格回归。
 
 test('回归 R2（原 KNOWN-1）：haoyuejuan.com 由 haoyuejuan 独家接管，yuejuan 不得子串吞域名', () => {
     const r = run({ host: 'www.haoyuejuan.com', path: '/' });
@@ -210,11 +215,12 @@ test('回归 附 A.3（原 KNOWN-6）：xinkao-campus 自家形态唯一命中�
     assert.strictEqual(r.writes.length, 1, '必须唯一注册: ' + JSON.stringify(r.writes));
 });
 
-test('KNOWN-7 守卫不对称（未修，现状锁定）：guangda-2 即时注册无「不覆盖」守卫（延迟路径有 #297 F12 守卫）', () => {
-    // 外平台页面加载时已含 LI.f-csp → guangda-2 即时注册覆盖 zhixue（R4 待修）
-    const r = run({ host: 'www.zhixue.com', path: '/', dom: { 'LI.f-csp': 1 } });
-    assert.strictEqual(r.winner && r.winner.id, 'guangda-2', '当前实际：即时注册劫持（待补 !window.__AI_MARKER_ADAPTER__ 守卫后翻转）');
-    assert.strictEqual(r.writes.length, 2);
+test('回归 R4（原 KNOWN-7）：guangda-2 即时注册附 A.0 对称守卫——zhixue 页不得被劫持', () => {
+    // X02 批修复：tryRegisterGuangda2 三态（先到先得+冲突告警+fail-closed），即时/延迟两分支对称。
+    // 双特征齐备令 _isGuangdaV2 通过——拦截者必须是注册守卫而非特征闸
+    const r = run({ host: 'www.zhixue.com', path: '/', dom: { 'LI.f-csp': 1, 'canvas:not([id="0"])': 1 } });
+    assert.strictEqual(r.winner && r.winner.id, 'zhixue', '即时分支不得覆盖既有注册');
+    assert.strictEqual(r.writes.length, 1, '不得产生第二次注册写: ' + JSON.stringify(r.writes));
 });
 
 test('回归 R2（原 KNOWN-8）：yunyuejuan.com 形态域名空槽，yuejuan 精确匹配不得吞', () => {
@@ -230,6 +236,7 @@ test('延迟注册：加载时未命中、特征后现 → 补注册（writes=1�
     assert.strictEqual(r.winner, null, '初始应为空槽');
     assert.strictEqual(sb.__observers.length >= 1, true, '应有延迟注册观察器');
     sb.__dom['LI.f-csp'] = {};
+    sb.__dom['canvas:not([id="0"])'] = {};   // X02 修：双特征齐备才触发
     for (const o of sb.__observers) o.cb([]);
     assert.strictEqual(sb.__AI_MARKER_ADAPTER__ && sb.__AI_MARKER_ADAPTER__.id, 'guangda-2', '特征后现应补注册');
     assert.strictEqual(sb.__writes.length, 1);
@@ -241,6 +248,7 @@ test('延迟注册：已有其他适配器注册后特征才现 → 不得覆盖
     assert.strictEqual(r.winner && r.winner.id, 'zhixue');
     assert.strictEqual(sb.__writes.length, 1);
     sb.__dom['LI.f-csp'] = {};
+    sb.__dom['canvas:not([id="0"])'] = {};   // X02 修：双特征齐备才触发
     for (const o of sb.__observers) o.cb([]);
     assert.strictEqual(sb.__AI_MARKER_ADAPTER__.id, 'zhixue', '延迟注册不得覆盖既有注册');
     assert.strictEqual(sb.__writes.length, 1, '不得产生第二次注册写: ' + JSON.stringify(sb.__writes));
@@ -264,12 +272,14 @@ test('变异自检 M2：去掉 qitian 的 yj5. 让位 → 重复注册可检出�
     assert.strictEqual(r.writes.length, 2, '双注册可检出（唯一命中断言将红）: ' + JSON.stringify(r.writes));
 });
 
-test('变异自检 M3：去掉 guangda-2 延迟注册「不覆盖」守卫 → 覆盖劫持可检出', () => {
+test('变异自检 M3：剥离 guangda-2 注册「不覆盖」守卫 → 覆盖劫持可检出', () => {
+    // X02 批后守卫在 tryRegisterGuangda2 三态函数内（即时/延迟共用）——变异点改为置空 existing
     const sb = M.makeStub({ host: 'www.zhixue.com', path: '/', dom: {} });
     M.loadAdapters(sb, {
-        mutations: [{ file: 'src/adapters/guangda-2/adapter.js', find: 'if (Guangda2Adapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {', replace: 'if (Guangda2Adapter.shouldInitialize()) {' }],
+        mutations: [{ file: 'src/adapters/guangda-2/adapter.js', find: 'const existing = window.__AI_MARKER_ADAPTER__;', replace: 'const existing = null;' }],
     });
     sb.__dom['LI.f-csp'] = {};
+    sb.__dom['canvas:not([id="0"])'] = {};   // X02 修：双特征齐备才触发
     for (const o of sb.__observers) o.cb([]);
     assert.strictEqual(sb.__writes.length, 2, '延迟覆盖可检出（守卫断言将红）: ' + JSON.stringify(sb.__writes));
     assert.strictEqual(sb.__AI_MARKER_ADAPTER__.id, 'guangda-2');

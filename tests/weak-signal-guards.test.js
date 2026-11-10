@@ -19,32 +19,59 @@ function listAdapters() {
 
 const adapters = listAdapters();
 
-test("「'0' 当输入框清空」判空谓词不得回退（#285）", () => {
+// ---------- 检测器（W5/W6 变形抗性：改名/变形即穿透的正则升级为可复用检测函数）----------
+
+// W5：「0 当输入框清空」判空谓词回退检测。
+// 变形抗性：不限定变量名（val/it/el.value 均抓）、==/=== 均抓、String(x)/el.value 的括号形态均抓；
+// 仍以清空语境窗口限定防误报。
+function findZeroOffenders(name, src) {
     const offenders = [];
-    for (const a of adapters) {
-        // 命中形如 value === '0' / value === "0" 出现在清空判定语境（== '' 附近或 cleared/empty 变量）
-        const re = /(value\s*===\s*['"]0['"]|value\s*==\s*['"]0['"])/g;
-        let m;
-        while ((m = re.exec(a.src)) !== null) {
-            const ctx = a.src.slice(Math.max(0, m.index - 200), m.index + 200);
-            if (/clear|empty|清空|翻卷|换卷/i.test(ctx)) {
-                offenders.push(a.name + ' @' + m.index);
-            }
+    const re = /(?:\w+|\))\s*==+\s*['"]0['"]/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+        const ctx = src.slice(Math.max(0, m.index - 300), m.index + 300);
+        if (/clear|empty|清空|翻卷|换卷/i.test(ctx)) {
+            offenders.push(name + ' @' + m.index);
         }
     }
+    return offenders;
+}
+
+// W6：fillScores 半成功语义回流检测。
+// 变形抗性：不限定 successCount 名字（return filled > 0 / okCount > 0 均抓）、扫描全部 fillScores 出现处。
+function findHalfSuccessOffenders(name, src) {
+    const offenders = [];
+    let i;
+    while ((i = src.indexOf('fillScores(', i === -1 ? 0 : i + 1)) !== -1) {
+        const body = src.slice(i, i + 2500);
+        if (/return\s+\w+\s*>\s*0\b/.test(body)) offenders.push(name + ' @' + i);
+    }
+    return offenders;
+}
+
+test("「'0' 当输入框清空」判空谓词不得回退（#285）", () => {
+    const offenders = adapters.flatMap(a => findZeroOffenders(a.name, a.src));
     assert.deepStrictEqual(offenders, [], '发现「0 当清空」回退: ' + offenders.join(', '));
 });
 
 test("已收口适配器的 fillScores 不得回流半成功语义（全量适配器，#299 扩面）", () => {
-    // 全部适配器均不得出现半成功语义（防回退）
-    const offenders = [];
-    for (const a of adapters) {
-        const i = a.src.indexOf('fillScores(');
-        if (i === -1) continue;
-        const body = a.src.slice(i, i + 2500);
-        if (/return successCount\s*>\s*0/.test(body)) offenders.push(a.name);
-    }
+    const offenders = adapters.flatMap(a => findHalfSuccessOffenders(a.name, a.src));
     assert.deepStrictEqual(offenders, [], '半成功语义回流: ' + offenders.join(', '));
+});
+
+// 变异可红实证：检测器必须抓得住变形（否则护栏是纸老虎）
+test('检测器自检 W5：变形「0 判空」（任意变量/括号形态）可检出', () => {
+    const sample = "function snap(x){ if (String(x) === '0' && needClear) { clearBox(); } const v = val == '0' ? 1 : 2; }";
+    assert.ok(findZeroOffenders('fake', sample).length >= 2,
+        'String(x)===\'0\' 与 val==\'0\' 两种变形都必须被检出');
+});
+
+test('检测器自检 W6：变形半成功语义（改名 return okCount > 0）可检出', () => {
+    const sample = 'function fillScores(s){ const okCount = 1; if (!s) return false; return okCount > 0; }';
+    assert.ok(findHalfSuccessOffenders('fake', sample).length >= 1,
+        'successCount 改名为 okCount 后仍必须被检出');
+    assert.deepStrictEqual(findHalfSuccessOffenders('fake', 'function fillScores(s){ return s.length; }'), [],
+        '全或无合法形态不得误报');
 });
 
 // ========== strict-a.md 附录 D.5 注册层文本护栏（防回退，冻结现存存量） ==========

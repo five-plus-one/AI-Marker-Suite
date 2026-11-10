@@ -76,9 +76,13 @@ function loadAdapter({ blocks = [], buttons = [], entries = [] } = {}) {
     };
     sb.document = {
         querySelectorAll: (sel) => {
-            if (sel === 'p.ques-score') return blocks;
-            if (sel === 'button') return buttons;
-            return [];
+            // 逗号选择器按 token 解析（_findSubmitButtons 用多标签选择器命中 span.set-btn 等）
+            const out = [];
+            String(sel).split(',').map(s => s.trim()).forEach(tok => {
+                if (tok === 'p.ques-score') out.push(...blocks);
+                else if (tok === 'button') out.push(...buttons);
+            });
+            return out;
         },
         querySelector: () => null,
     };
@@ -86,8 +90,12 @@ function loadAdapter({ blocks = [], buttons = [], entries = [] } = {}) {
     vm.createContext(sb);
     vm.runInContext(SRC('selectors.js'), sb);
     vm.runInContext(SRC('adapter.js'), sb);
-    return sb.__AI_MARKER_ADAPTER__;
+    const adapter = sb.__AI_MARKER_ADAPTER__;
+    if (adapter) adapter._testSandbox = sb;
+    return adapter;
 }
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 function ingest(a, { resultId, paperId, crops = [], full = [], isReview = 0 }) {
     // paperId 注入 OSS 文件名；paperId 为 '' 时用无文件名 URL（不可解析）
@@ -272,4 +280,65 @@ test('submitGrade 无提交按钮显式失败', () => {
     const a = loadAdapter({ blocks: [fakeBlock('2.11.12', i1)], buttons: [fakeButton('别的按钮')] });
     a.fillScores([5]);
     assert.strictEqual(a.submitGrade(), false);
+});
+
+// ---------- P2-1：双源同腐新鲜度闸（提交后旧卷证据不喂图） ----------
+test('P2-1 双源同腐：提交后拦截源与 resource 源同持旧卷证据 → 宁可不取', async () => {
+    const oldC = ossUrl('111', P1);
+    const i1 = fakeInput('满12分'), btn = fakeButton('提交分数');
+    const a = loadAdapter({ blocks: [fakeBlock('2.11.12', i1)], buttons: [btn], entries: [entry(oldC, -10000)] });
+    ingest(a, { resultId: 'R1', paperId: '111', crops: [oldC] });   // 提交前的旧 item
+    await sleep(5);
+    assert.strictEqual(a.fillScores([5]), true);
+    assert.strictEqual(a.submitGrade(), true);
+    await sleep(5);
+    assert.deepStrictEqual(host(await a.gatherAnswerImages()), [], '提交后旧卷证据不得喂 AI（宁可不取）');
+});
+
+test('P2-1 提交后新 item 证据到达 → 正常取新图（闸不误伤）', async () => {
+    const oldC = ossUrl('111', P1), newC = ossUrl('222', P1);
+    const i1 = fakeInput('满12分'), btn = fakeButton('提交分数');
+    const a = loadAdapter({ blocks: [fakeBlock('2.11.12', i1)], buttons: [btn], entries: [entry(oldC, -10000)] });
+    ingest(a, { resultId: 'R1', paperId: '111', crops: [oldC] });
+    await sleep(5);
+    assert.strictEqual(a.fillScores([5]), true);
+    assert.strictEqual(a.submitGrade(), true);
+    await sleep(5);
+    ingest(a, { resultId: 'R2', paperId: '222', crops: [newC] });   // 提交后的新 item
+    assert.deepStrictEqual(host(await a.gatherAnswerImages()), [newC], '提交后新卷证据必须正常取图');
+});
+
+test('P2-1 提交后仅 resource 有新卷证据（item 陈旧）→ 取新卷图（防错卷）', async () => {
+    const oldC = ossUrl('111', P1), newC = ossUrl('222', P1);
+    const i1 = fakeInput('满12分'), btn = fakeButton('提交分数');
+    // 222 的图加载于提交后（绝对时间晚），111 的证据全部早于提交
+    const a = loadAdapter({
+        blocks: [fakeBlock('2.11.12', i1)], buttons: [btn],
+        entries: [entry(oldC, -10000), entry(newC, 60000)],
+    });
+    ingest(a, { resultId: 'R1', paperId: '111', crops: [oldC] });
+    await sleep(5);
+    assert.strictEqual(a.fillScores([5]), true);
+    assert.strictEqual(a.submitGrade(), true);
+    await sleep(5);
+    const out = host(await a.gatherAnswerImages());
+    assert.deepStrictEqual(out, [newC], '必须取提交后加载的新卷图，不得回退旧 item 图');
+});
+
+// ---------- P2-2：shouldInitialize 纯判定（副作用移出） ----------
+test('P2-2 shouldInitialize 纯判定：调用谓词不得有副作用（不装拦截）', () => {
+    const a = loadAdapter();
+    a._interceptorInstalled = false;   // 归零探针
+    assert.strictEqual(a.shouldInitialize(), true, '判定本身应正常');
+    assert.strictEqual(a._interceptorInstalled, false, '谓词调用后不得安装拦截（副作用移出）');
+});
+
+test('P2-2 注册即安装（初始化钩子）+ onPageLoad 幂等不重复包装', () => {
+    const a = loadAdapter();
+    assert.strictEqual(a._interceptorInstalled, true, '注册 IIFE 必须装好 API 拦截');
+    const f1 = a._testSandbox.fetch;
+    assert.strictEqual(typeof f1, 'function', 'fetch 应已被包装');
+    a.onPageLoad();
+    a.onPageLoad();
+    assert.strictEqual(a._testSandbox.fetch, f1, 'onPageLoad 幂等：不得重复包装 fetch');
 });
