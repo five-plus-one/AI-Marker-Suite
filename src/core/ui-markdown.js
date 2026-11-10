@@ -56,13 +56,15 @@ function sanitizeRenderedHtml(html) {
  * @returns {string} 替换后的 Markdown
  */
 function resolveMarkdownImages(md, images) {
-    if (!images || !images.length) return md;
+    if (!md) return md;
+    // 未解析的 ai-img://N 不得直出（会渲染成 <img src="ai-img://N"> 浏览器报错+裂图）——
+    // 降级为纯文本标记（教师实测弹窗图片全裂，#333）
     return md.replace(/!\[([^\]]*)\]\(ai-img:\/\/(\d+)\)/g, function (match, alt, idx) {
         var i = parseInt(idx, 10);
-        if (i >= 0 && i < images.length && images[i]) {
+        if (images && i >= 0 && i < images.length && images[i]) {
             return '![' + alt + '](data:image/png;base64,' + images[i] + ')';
         }
-        return match;
+        return '[' + (alt || ('图片' + (i + 1))) + '（图片数据不可用）]';
     });
 }
 

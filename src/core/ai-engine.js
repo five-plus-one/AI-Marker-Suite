@@ -915,6 +915,9 @@ async function callAIWithRetry(prompt, base64DataArray, config, onStreamUpdate, 
 //   min / max = 取两模型低分/高分（不平均），外向吸附：min→floor（只降不升）、max→ceil（只升不降）
 //     ——「取低分」绝不输出高于低分的值、「取高分」绝不输出低于高分的值（返修①，教师语义优先）
 //     迁移影响：早期预览批 min/max 曾按 scoring.roundMethod 吸附，脱梯度分数的合并结果将变化（已在 CHANGELOG 注明）
+//     交互规则（N3）：**钳制最高优先**——越界输入（如 max 侧超过单元满分）本身非法，
+//     满分钳制覆盖外向承诺：max(8.8, 8.6) 满分 8 → 8（宁可压回满分也不输出越界值）；
+//     合法输入（≤满分、≥0）下的外向语义不受影响
 // 所有模式共用同一套步长吸附 + 满分钳制（ScoreCalculator.round 第三参）；
 // 缺分（单侧 null/undefined 直取对侧、不吸附）与 NaN 传染语义与历史一致，不在此放松。
 function mergeDualValue(scoreA, scoreB, snap, maxScore, mergeMode) {
@@ -935,6 +938,7 @@ function mergeDualValue(scoreA, scoreB, snap, maxScore, mergeMode) {
         if (mode === 'floor') method = 'floor';
         else if (mode === 'ceil') method = 'ceil';
     }
+    // 钳制最高优先（N3）：外向吸附后再钳制 [0, maxScore]——越界输入非法，钳制覆盖外向承诺
     return ScoreCalculator.round(raw, { roundStep: (snap && snap.roundStep) || 1, roundMethod: method }, maxScore);
 }
 

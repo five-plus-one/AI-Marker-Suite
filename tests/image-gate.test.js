@@ -211,7 +211,9 @@ async function runMainFlowWithImages(base64List) {
     const parts = [
         grab('normalizePaperImageUrl'), grab('paperUrlSetContains'),
         grab('snapshotScoreInputs'), grab('scoreInputsTransitionedEmpty'),
-        grab('verifyPaperUnchanged'), grab('confirmLeftMarkingPage'), grab('startAutoGrading'),
+        grab('verifyPaperUnchanged'), grab('confirmLeftMarkingPage'),
+        grab('validateScoresForFill'), grab('safeFillScores'),   // N5 数值闸（startAutoGrading 填分依赖）
+        grab('startAutoGrading'),
     ];
     const calls = { ai: 0, fill: 0, alerts: [], toasts: [], warns: [] };
     // 逐张 URL 对应 base64List 同下标图片（模拟多图答卷，其中可混入废图）

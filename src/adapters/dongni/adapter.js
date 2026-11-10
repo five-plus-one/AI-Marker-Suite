@@ -302,60 +302,90 @@ const DongniAdapter = {
         return !!document.querySelector('.edit-score-box');
     },
 
-    onPageLoad() {
-        // 多设备弹窗（#298-④）：实测「JS 裸 click 无效」，改派完整指针事件序列模拟真实点击；
-        // MutationObserver 观察弹窗消失，超时未消失则 toast 提示人工关闭。
-        // ⚠️ 绝不点「退出其他设备」（会踢教师会话）
-        try {
-            const okBtn = document.querySelector(DONGNI_SELECTORS.MULTI_DEVICE_OK_BTN);
-            if (!okBtn || !okBtn.getClientRects().length) return;
+    // 多设备弹窗处理（#329 迁出死钩子）：core 从不调用 onPageLoad（全仓死钩子），
+    // 挂在它上面生产上永不执行——安装主入口移到注册 IIFE，onPageLoad 保留幂等兜底
+    // （将来 core 补调用点也不重复执行）。弹窗可能在注册后才弹出：观察 DOM，出现即处理。
+    // 实测「JS 裸 click 无效」→ 派完整指针事件序列；超时未消失 toast 提示人工关闭。
+    // ⚠️ 绝不点「退出其他设备」（会踢教师会话）
+    _installMultiDeviceDismissal() {
+        if (this._mdInstalled) return; // 幂等守卫
+        this._mdInstalled = true;
 
-            const firePointerClick = (el) => {
-                const r = el.getBoundingClientRect();
-                const base = {
-                    bubbles: true, cancelable: true, view: window,
-                    clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
-                    pointerId: 1, isPrimary: true
-                };
-                el.dispatchEvent(new PointerEvent('pointerdown', base));
-                el.dispatchEvent(new MouseEvent('mousedown', base));
-                el.dispatchEvent(new PointerEvent('pointerup', base));
-                el.dispatchEvent(new MouseEvent('mouseup', base));
-                el.dispatchEvent(new MouseEvent('click', base));
-            };
-            firePointerClick(okBtn);
-            console.log('[懂你] 已向多设备弹窗「我知道了」派发完整指针点击序列');
+        let active = false;    // 一轮"点击→验证"进行中，防 mutation 风暴重复触发
+        let toastShown = false; // 人工提示只发一次
 
-            const dismissed = () => {
-                const b = document.querySelector(DONGNI_SELECTORS.MULTI_DEVICE_OK_BTN);
-                return !b || !b.getClientRects().length;
+        const firePointerClick = (el) => {
+            const r = el.getBoundingClientRect();
+            const base = {
+                bubbles: true, cancelable: true, view: window,
+                clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+                pointerId: 1, isPrimary: true
             };
-            let done = false;
-            const obs = new MutationObserver(() => {
-                if (dismissed()) {
-                    done = true;
-                    obs.disconnect();
-                    console.log('[懂你] 多设备弹窗已关闭');
-                }
-            });
-            obs.observe(document.body, { childList: true, subtree: true, attributes: true });
-            setTimeout(() => {
-                if (!done) {
-                    obs.disconnect();
-                    if (!dismissed()) {
+            el.dispatchEvent(new PointerEvent('pointerdown', base));
+            el.dispatchEvent(new MouseEvent('mousedown', base));
+            el.dispatchEvent(new PointerEvent('pointerup', base));
+            el.dispatchEvent(new MouseEvent('mouseup', base));
+            el.dispatchEvent(new MouseEvent('click', base));
+        };
+        const dismissed = () => {
+            const b = document.querySelector(DONGNI_SELECTORS.MULTI_DEVICE_OK_BTN);
+            return !b || !b.getClientRects().length;
+        };
+
+        const dismissIfPresent = () => {
+            // 全程 fail-safe：弹窗处理任何异常都不得影响适配器注册/批改主流程
+            try {
+                if (active || dismissed()) return;
+                const okBtn = document.querySelector(DONGNI_SELECTORS.MULTI_DEVICE_OK_BTN);
+                if (!okBtn || !okBtn.getClientRects().length) return;
+                active = true;
+                firePointerClick(okBtn);
+                console.log('[懂你] 已向多设备弹窗「我知道了」派发完整指针点击序列');
+
+                let done = false;
+                const check = setInterval(() => {
+                    if (dismissed()) {
+                        done = true;
+                        clearInterval(check);
+                        active = false;
+                        console.log('[懂你] 多设备弹窗已关闭');
+                    }
+                }, 250);
+                setTimeout(() => {
+                    clearInterval(check);
+                    active = false;
+                    if (!done && !dismissed()) {
                         console.warn('⚠️ [懂你] 多设备弹窗自动关闭失败：请手动点击「我知道了」（切勿点「退出其他设备」）');
-                        if (typeof showToast === 'function') {
+                        if (!toastShown && typeof showToast === 'function') {
+                            toastShown = true;
                             showToast('⚠️ 检测到多设备在线弹窗：请手动点击「我知道了」关闭（勿点「退出其他设备」）');
                         }
                     }
-                }
-            }, 5000);
-        } catch (e) { /* 忽略 */ }
+                }, 5000);
+            } catch (e) {
+                active = false;
+                console.warn('[懂你] 多设备弹窗处理异常（不影响批改）:', e && e.message);
+            }
+        };
+
+        // 注册即尝试一次（弹窗可能已存在）+ 常驻观察（弹窗多为注册后才弹出）
+        dismissIfPresent();
+        try {
+            const obs = new MutationObserver(() => dismissIfPresent());
+            obs.observe(document.body || document.documentElement, { childList: true, subtree: true, attributes: true });
+        } catch (e) { /* 观察失败不阻塞：dismissIfPresent 仍可被调用方触发 */ }
+    },
+
+    onPageLoad() {
+        // 幂等兜底（#329）：安装主入口在注册 IIFE，此处仅保证将来 core 补调用点时可安全重入
+        this._installMultiDeviceDismissal();
     },
 };
 
 // 注册守卫（#324 教训：无守卫注册会劫持全平台会话）：
-// shouldInitialize 域名+路径双闸，且不覆盖其他适配器已建立的注册
+// shouldInitialize 域名+路径双闸，且不覆盖其他适配器已建立的注册；
+// 初始化副作用放注册处（#329：core 从不调用 onPageLoad，挂死钩子永不执行）
 if (DongniAdapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
+    DongniAdapter._installMultiDeviceDismissal();
     window.__AI_MARKER_ADAPTER__ = DongniAdapter;
 }
