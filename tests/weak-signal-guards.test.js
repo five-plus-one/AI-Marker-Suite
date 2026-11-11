@@ -86,7 +86,7 @@ test('D.5-1 域名子串匹配只减不增：hostname.includes(/h.includes( 存�
         'haiyun': 1, 'hanhan': 1, 'haofenshu': 1, 'haofenshuyize': 1, 'haoyuejuan': 1,
         'huahanyun': 1, 'huixuexing': 1, 'huiyuejuan': 2, 'jingdouyun': 1, 'jiukexing': 1,
         'jiukexing-homework': 1, 'jiuwuyouping': 1, 'keewing': 1, 'kuyuu': 1, 'kzedu': 1,
-        'lehua': 1, 'nhcisc': 1, 'qitian': 4, 'qitian-new': 2, 'ruiya': 1, 'runjian': 3,
+        'lehua': 1, 'nhcisc': 1, 'qiguang': 0, 'qitian': 4, 'qitian-new': 2, 'ruiya': 1, 'runjian': 3,
         'sipd': 1, 'wuyue': 1, 'wuyuetong': 1, 'xfkj': 1, 'xinjiaoyu': 2, 'xinkao': 0,
         'xinkao-2': 0, 'xinkao-campus': 0, 'xkw': 0, 'xueba54': 1, 'yuejiaoxiangyun': 1,
         'yuejuan': 1, 'yunyuejuan': 0, 'zhixue': 1,
