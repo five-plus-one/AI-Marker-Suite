@@ -49,6 +49,10 @@ function fixture(options = {}) {
         Event: class { constructor(type) { this.type = type; } }, KeyboardEvent: class { constructor(type) { this.type = type; } },
         setTimeout: fn => setTimeout(fn, 1), setInterval: fn => { const timer = setInterval(fn, 1); state.timers.add(timer); return timer; },
         clearInterval: timer => { clearInterval(timer); state.timers.delete(timer); } };
+    if (options.jquery) sandbox.jQuery = input => ({
+        val(value) { input.value = value; options.onJQueryValue?.(state); },
+        trigger(type) { options.onJQuery?.(type, state); }
+    });
     sandbox.window = sandbox; vm.createContext(sandbox); vm.runInContext(source, sandbox);
     return { adapter: sandbox.__AI_MARKER_ADAPTER__, state, sandbox, originalAlert, button };
 }
@@ -165,6 +169,21 @@ test('AMEQP 平台给分事件内换卷后不再写分或同步新卷', async ()
     ]) {
         const f = fixture(options);
         assert.equal(f.adapter.fillScores([1, 2]), false);
+        assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
+        assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
+    }
+});
+
+test('AMEQP 原生与 jQuery 登记链在任一事件内换卷后保留新卷空框', async () => {
+    for (const phase of ['native', 'jquery']) for (const type of ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur']) {
+        let moved = false;
+        const move = (current, state) => { if (!moved && current === type) { moved = true; state.changePaper('1002'); } };
+        const f = fixture({ jquery: true,
+            onInput: (_input, event, state) => { if (phase === 'native') move(event.type, state); },
+            onJQuery: (event, state) => { if (phase === 'jquery') move(event, state); }
+        });
+        assert.equal(f.adapter.fillScores([1, 2]), false, phase + '/' + type);
+        assert.ok(f.state.inputs.every(input => input.value === ''), phase + '/' + type + ' must keep new inputs empty');
         assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
         assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
     }
