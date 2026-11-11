@@ -15,6 +15,7 @@ const PresetManager = {
     },
     init() {
         this._writeDisabled = false;
+        this._storageBaseline = null;
         if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) { this._enterReadOnly(null); return; }
         let raw = null;
         try {
@@ -29,6 +30,7 @@ const PresetManager = {
             try {
                 this.data = JSON.parse(raw);
                 if (!this.data || !isConfigurationRecord(this.data.list) || Object.values(this.data.list).some(cfg => !isConfigurationRecord(cfg))) throw new Error('方案数据格式不正确');
+                this._storageBaseline = JSON.parse(raw);
                 this.migrateAll();
             } catch (e) {
                 // 解析失败：救下原始字节并只读降级，绝不允许后续 save 覆写清空（#293）
@@ -325,6 +327,7 @@ const PresetManager = {
                 const probe = GM_getValue('ai-grading-presets');
                 const recovered = probe ? JSON.parse(probe) : null;
                 if (recovered && isConfigurationRecord(recovered.list) && Object.values(recovered.list).every(isConfigurationRecord)) {
+                    this._storageBaseline = JSON.parse(probe);
                     this.data = mergeRecoveredData(recovered, this.data, this._degradedBase);
                     this._writeDisabled = false;
                     if (typeof showToast === 'function') showToast('配置存储访问已恢复，请再次点击保存');
@@ -335,18 +338,8 @@ const PresetManager = {
             if (typeof showToast === 'function') showToast('⚠️ 配置存储异常：本次修改未保存（原数据已保护，稍后自动重试）');
             return false;
         }
-        const json = JSON.stringify(this.data);
-        // 旋转备份（#293）：覆写前保留上一版到 -prev 键，误写可回滚（过大跳过）
-        try {
-            const prev = GM_getValue('ai-grading-presets');
-            if (prev && prev !== json) {
-                if (prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-presets-prev', prev);
-                else console.warn('[preset] 上一版过大（>2MB），跳过 -prev 备份');
-            }
-        } catch (_) { /* 备份失败不阻塞正常保存 */ }
-        GM_setValue('ai-grading-presets', json);
-        this._initialSaveFailed = false;
-        return true;
+        return saveConfigurationEdits(this, 'ai-grading-presets', '方案',
+            data => isConfigurationRecord(data?.list) && Object.values(data.list).every(isConfigurationRecord), ['active']);
     },
     getCurrentConfig() {
         return this.data.list[this.data.active] || {};
