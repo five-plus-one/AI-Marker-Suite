@@ -99,28 +99,35 @@ const AmeqpAdapter = {
 
     // 将单个分数写入输入框并触发平台记分事件（含按键事件，#278：
     // 平台登记处理可能绑定 keyup 等按键事件，旧实现只发 input/change/blur 不够）
-    _setInputValue(el, v) {
+    _setInputValue(el, v, isCurrent = () => true) {
+        if (!isCurrent()) return false;
         const fmt = this._fmt(v);
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(el, fmt);
         const types = ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur'];
-        types.forEach(t => {
+        for (const t of types) {
+            if (!isCurrent()) return false;
             try {
                 const ev = (t.indexOf('key') === 0)
                     ? new KeyboardEvent(t, { bubbles: true, cancelable: true, key: fmt })
                     : new Event(t, { bubbles: true, cancelable: true });
                 el.dispatchEvent(ev);
             } catch (e) { /* 旧内核兜底 */ }
-        });
+        }
         if (window.jQuery) {
             try {
+                if (!isCurrent()) return false;
                 const $el = window.jQuery(el);
                 $el.val(fmt);
-                types.forEach(t => { $el.trigger(t); });
+                for (const t of types) {
+                    if (!isCurrent()) return false;
+                    $el.trigger(t);
+                }
             } catch (e) {
                 console.warn('[AMEQP] jQuery trigger 失败:', e);
             }
         }
+        return isCurrent();
     },
 
     // 同步平台内部状态字段与记分视觉态（OnSubmit 靠这些判断"已给分"，#278）
@@ -350,7 +357,7 @@ const AmeqpAdapter = {
             // 三路记分（#278）：平台给分列表原生链路 → 输入框写值+全事件 → 隐藏字段同步
             this._clickScoreOption(n, v);
             if (!sameTarget()) return false;
-            this._setInputValue(el, v);
+            if (!this._setInputValue(el, v, sameTarget)) return false;
             if (!sameTarget()) return false;
             this._syncPlatformState(n, v);
         }
