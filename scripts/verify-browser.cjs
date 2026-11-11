@@ -11,13 +11,14 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function connect(url) {
     const socket = new WebSocket(url); let sequence = 0;
     await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
-    const pending = new Map();
+    const pending = new Map(), listeners = new Set();
     socket.onclose = () => { for (const handler of pending.values()) handler.reject(Error("Browser connection closed")); pending.clear(); };
     socket.onmessage = event => {
         const reply = JSON.parse(event.data), handler = pending.get(reply.id);
         if (handler) { pending.delete(reply.id); reply.error ? handler.reject(Error(reply.error.message)) : handler.resolve(reply.result); }
+        else if (reply.method) for (const listener of listeners) listener(reply);
     };
-    return { socket, send(method, params = {}) { return new Promise((resolve, reject) => {
+    return { socket, onEvent(listener) { listeners.add(listener); }, send(method, params = {}) { return new Promise((resolve, reject) => {
         const id = ++sequence;
         const timer = setTimeout(() => { pending.delete(id); reject(Error("Browser command timed out: " + method)); }, 15000);
         pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
@@ -38,16 +39,54 @@ async function connect(url) {
         const pages = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
         client = await connect(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
         await client.send('Page.enable');
-        const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang'];
+        const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
+            'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
+            'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative'];
+        let interceptionEnabled = false, interceptionError;
+        const deploymentHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qiguang-deployment.html'), 'utf8');
+        const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
+        client.onEvent(event => {
+            if (event.method !== 'Fetch.requestPaused') return;
+            (async () => {
+                const url = new URL(event.params.request.url);
+                let body = '', type = 'text/plain', status = 404;
+                if (url.pathname === '/OraOnlineCheck/OraCheck/Review') {
+                    body = url.searchParams.get('mode') === 'foreign-main'
+                        ? deploymentHtml.replace('data-main="examOnlineOrc.js"', 'data-main="other.js"') : deploymentHtml;
+                    type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.pathname === '/__fixture/ai_marker.user.js') {
+                    body = bundle; type = 'text/javascript; charset=utf-8'; status = 200;
+                } else if (url.pathname === '/Scripts/require.js') {
+                    type = 'text/javascript'; status = 200;
+                } else if (url.pathname === '/__fixture/answer.svg') {
+                    body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><text x="10" y="30">fixture answer</text></svg>';
+                    type = 'image/svg+xml'; status = 200;
+                }
+                await client.send('Fetch.fulfillRequest', { requestId: event.params.requestId, responseCode: status,
+                    responseHeaders: [{ name: 'Content-Type', value: type }, { name: 'Cache-Control', value: 'no-store' }],
+                    body: Buffer.from(body).toString('base64') });
+            })().catch(error => { interceptionError = error; });
+        });
         for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
             await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
             await client.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
             const runId = `${fixture}-${width}-${theme}-${Date.now()}`;
             const startup = fixture.startsWith('startup');
             const mode = fixture === 'startup-registration' ? 'late-registration' : fixture === 'startup-navigation' ? 'spa-entry' : 'late-dom';
-            await client.send('Page.navigate', { url: pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode });
+            const deployment = fixture.startsWith('qiguang-');
+            let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
+            if (deployment) {
+                if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
+                const origin = fixture === 'qiguang-domain-deployment' ? 'https://mark.school.example'
+                    : fixture === 'qiguang-private-deployment' ? 'http://10.15.0.8:8089' : 'http://192.0.2.20:8091';
+                const deploymentMode = fixture === 'qiguang-late-deployment' ? 'late' : fixture === 'qiguang-module-negative' ? 'foreign-main'
+                    : fixture === 'qiguang-form-negative' ? 'foreign-form' : 'ready';
+                url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode;
+            }
+            await client.send('Page.navigate', { url });
             let result;
             for (let count = 0; count < (startup ? 400 : 200); count++) {
+                if (interceptionError) throw interceptionError;
                 const reply = await client.send('Runtime.evaluate', { expression: "document.getElementById('result')?.textContent || ''", returnByValue: true });
                 if (reply.result?.value) {
                     const candidate = JSON.parse(Buffer.from(reply.result.value, 'base64').toString());

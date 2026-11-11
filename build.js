@@ -195,7 +195,7 @@ const BUILD_CONFIGS = [
                 '*://rrtcp.gdedu.gov.cn/*',
                 '*://haofenshuyize.com/*',
                 '*://kaoshi.keewing.com/*',
-                '*://120.78.5.37/*',
+                '*://*/OraOnlineCheck/OraCheck/Review*',
                 '*://wyna.onlyets.com/*',
                 '*://zy.iclass30.com/*',
                 '*://*/AMEQP/Webroot/mar/*',

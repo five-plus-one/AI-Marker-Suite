@@ -2,12 +2,33 @@
 const QiguangAdapter = {
     name: '启光优测',
     id: 'qiguang',
-    urlPatterns: ['*://120.78.5.37/*'],
+    urlPatterns: ['*://*/OraOnlineCheck/OraCheck/Review*'],
     iconUrl: '',
 
+    _isReviewRoute() {
+        return /^\/OraOnlineCheck\/OraCheck\/Review\/?$/i.test(window.location.pathname);
+    },
+
     shouldInitialize() {
-        return window.location.hostname === '120.78.5.37'
-            && /^\/OraOnlineCheck\/OraCheck\/Review\/?$/i.test(window.location.pathname);
+        if (!this._isReviewRoute()) return false;
+        // 部署地址可变：专用入口模块与完整阅卷表单共同确认平台。
+        const form = document.querySelector('form#form-scoring');
+        const input = form?.querySelector('input[name="score"][data-id][data-max]');
+        const submit = form?.querySelector('button#btn-submit-score[type="submit"]');
+        if (!document.querySelector('canvas#scoring-item') || !document.querySelector('#paperID')
+            || !document.querySelector('#myRead') || !input || !submit
+            || input.form !== form || submit.form !== form) return false;
+        const page = new URL(window.location.href);
+        return Array.from(document.querySelectorAll('script[src]')).some(script => {
+            try {
+                const src = new URL(script.getAttribute('src'), page);
+                if (src.origin !== page.origin) return false;
+                const entry = script.getAttribute('data-main');
+                const module = script.getAttribute('data-requiremodule');
+                return (src.pathname === '/Scripts/require.js' && entry === 'examOnlineOrc.js')
+                    || (src.pathname === '/Scripts/app/dev/examOnlineOrc.js' && module === 'examOnlineOrc');
+            } catch (_) { return false; }
+        });
     },
 
     _visible(el) {
@@ -26,7 +47,8 @@ const QiguangAdapter = {
 
     getTaskIdentifier() {
         const params = new URLSearchParams(window.location.search);
-        return `qiguang_${params.get('SubjectId') || ''}_${params.get('questionGroupId') || ''}`;
+        const origin = new URL(window.location.href).origin;
+        return `qiguang_${origin}_${params.get('SubjectId') || ''}_${params.get('questionGroupId') || ''}`;
     },
 
     _imageUrl() {
@@ -188,6 +210,35 @@ const QiguangAdapter = {
     }
 };
 
-if (QiguangAdapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
-    window.__AI_MARKER_ADAPTER__ = QiguangAdapter;
-}
+(function registerQiguangAdapter() {
+    if (!QiguangAdapter._isReviewRoute()) return;
+    let observer;
+    let settled = false;
+    const attempt = () => {
+        if (settled) return true;
+        try {
+            if (!QiguangAdapter._isReviewRoute()) { settled = true; observer?.disconnect(); return true; }
+            if (!QiguangAdapter.shouldInitialize()) return false;
+            const existing = window.__AI_MARKER_ADAPTER__;
+            if (existing && existing !== QiguangAdapter) {
+                console.error('[注册冲突] 启光优测检测到已有适配器，保留当前平台:', existing.id || existing.name);
+            } else if (!existing) {
+                window.__AI_MARKER_ADAPTER__ = QiguangAdapter;
+            }
+            settled = true;
+            observer?.disconnect();
+            return true;
+        } catch (error) {
+            console.warn('[启光优测] 平台识别失败，停止注册:', error);
+            settled = true;
+            observer?.disconnect();
+            return true;
+        }
+    };
+    if (attempt()) return;
+    // 等待入口模块和表单属性就绪；只观察专用阅卷路径，成功或冲突后即停止。
+    observer = new MutationObserver(attempt);
+    observer.observe(document.documentElement || document.body, { childList: true, subtree: true,
+        attributes: true, attributeFilter: ['src', 'data-main', 'data-requiremodule', 'data-id', 'data-max', 'id', 'name', 'type', 'form'] });
+    attempt();
+})();
