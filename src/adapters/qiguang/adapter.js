@@ -48,7 +48,9 @@ const QiguangAdapter = {
     getTaskIdentifier() {
         const params = new URLSearchParams(window.location.search);
         const origin = new URL(window.location.href).origin;
-        return `qiguang_${origin}_${params.get('SubjectId') || ''}_${params.get('questionGroupId') || ''}`;
+        // 1.21.19.2 实测部署保留原标识，继续使用已有方案绑定；其他部署按完整 origin 区分。
+        const deployment = origin === 'http://120.78.5.37:8091' ? '' : `${origin}_`;
+        return `qiguang_${deployment}${params.get('SubjectId') || ''}_${params.get('questionGroupId') || ''}`;
     },
 
     _imageUrl() {

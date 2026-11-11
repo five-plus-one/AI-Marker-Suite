@@ -56,6 +56,19 @@ test('不同部署的相同题号分别识别为独立任务', () => {
     assert.equal(new Set(identifiers).size, identifiers.length);
 });
 
+test('原部署继续使用已绑定方案的任务标识，其他地址不复用', () => {
+    const legacy = 'qiguang_subject_group';
+    const identifiers = Q.deployments.map(form => {
+        const sb = M.makeStub({ ...form, search: '?SubjectId=subject&questionGroupId=group' });
+        M.loadOne(sb, 'qiguang'); return sb.__AI_MARKER_ADAPTER__.getTaskIdentifier();
+    });
+    assert.equal(identifiers[0], legacy);
+    assert.ok(identifiers.slice(1).every(id => id !== legacy));
+    const bindings = { [legacy]: '教师方案' };
+    assert.equal(bindings[identifiers[0]], '教师方案');
+    assert.ok(identifiers.slice(1).every(id => !bindings[id]));
+});
+
 test('各平台页面带有启光控件时仍保留自身适配器', () => {
     for (const platform of M.ADAPTERS.filter(a => a.id !== 'qiguang')) {
         const sb = M.makeStub({ ...platform.own, dom: { ...Q.signature(), ...platform.own.dom } });

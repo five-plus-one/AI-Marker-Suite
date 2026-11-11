@@ -6,7 +6,9 @@
 <button id="btn-submit-score" type="submit" disabled>提交得分</button></form><form id="foreign-form"></form></div>
 <pre id="result"></pre><script>
 const params=new URLSearchParams(location.search),mode=params.get('mode'),runId=params.get('run');
-const store={'ai-grading-show-onboarding':false};
+const legacyTask='qiguang_subject_group';
+const legacyPreset={list:{'默认配置':{},'教师方案':{}},active:'默认配置',bindings:{[legacyTask]:'教师方案'}};
+const store={'ai-grading-show-onboarding':false,'ai-grading-presets':JSON.stringify(legacyPreset)};
 window.GM_getValue=(key,fallback)=>store[key]??fallback;
 window.GM_setValue=(key,value)=>store[key]=value;window.GM_deleteValue=key=>delete store[key];
 window.GM_registerMenuCommand=()=>{};
@@ -34,7 +36,14 @@ if(mode==='foreign-form')platform.querySelector('input[name="score"]').setAttrib
    const a=window.__AI_MARKER_ADAPTER__;
    assert(a?.id==='qiguang'&&a.shouldInitialize(),'实际压缩脚本识别当前部署');
    assert(document.querySelector('.ai-grade-btn'),'完整脚本显示批改入口');
-   assert(a.getTaskIdentifier().includes(location.origin),'任务按部署地址区分');
+   const task=a.getTaskIdentifier();
+   if(location.origin==='http://120.78.5.37:8091'){
+    assert(task===legacyTask,'原部署继续识别旧版方案绑定');
+    assert(window.PresetManager.data.active==='教师方案','完整脚本恢复已有绑定方案');
+   }else{
+    assert(task.includes(location.origin),'其他部署按地址区分任务');
+    assert(!window.PresetManager.data.bindings[task],'其他部署不套用原站方案');
+   }
    const input=document.querySelector('#form-scoring input[name="score"]');let submits=0;
    document.getElementById('form-scoring').addEventListener('input',()=>document.getElementById('btn-submit-score').disabled=false);
    document.getElementById('form-scoring').addEventListener('submit',event=>{event.preventDefault();document.getElementById('myRead').textContent=String(++submits)});

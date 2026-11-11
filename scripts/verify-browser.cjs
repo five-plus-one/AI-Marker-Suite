@@ -40,7 +40,7 @@ async function connect(url) {
         client = await connect(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
         await client.send('Page.enable');
         const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
-            'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
+            'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative'];
         let interceptionEnabled = false, interceptionError;
         const deploymentHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qiguang-deployment.html'), 'utf8');
@@ -77,11 +77,12 @@ async function connect(url) {
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
             if (deployment) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
-                const origin = fixture === 'qiguang-domain-deployment' ? 'https://mark.school.example'
+                const origin = fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
+                    : fixture === 'qiguang-domain-deployment' ? 'https://mark.school.example'
                     : fixture === 'qiguang-private-deployment' ? 'http://10.15.0.8:8089' : 'http://192.0.2.20:8091';
                 const deploymentMode = fixture === 'qiguang-late-deployment' ? 'late' : fixture === 'qiguang-module-negative' ? 'foreign-main'
                     : fixture === 'qiguang-form-negative' ? 'foreign-form' : 'ready';
-                url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode;
+                url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode + '&SubjectId=subject&questionGroupId=group';
             }
             await client.send('Page.navigate', { url });
             let result;

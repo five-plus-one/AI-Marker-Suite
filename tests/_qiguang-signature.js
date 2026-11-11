@@ -11,6 +11,7 @@ function signature(options = {}) {
     return { 'form#form-scoring': form, 'canvas#scoring-item': {}, '#paperID': {}, '#myRead': {}, 'script[src]': script };
 }
 const deployments = [
+    { label: '启光原部署', host: '120.78.5.37', port: '8091', protocol: 'http:', path: ROUTE, dom: signature() },
     { label: '启光原部署端口变化', host: '120.78.5.37', port: '9091', protocol: 'http:', path: ROUTE, dom: signature() },
     { label: '启光其他公网 IP', host: '192.0.2.20', port: '8091', protocol: 'http:', path: ROUTE, dom: signature() },
     { label: '启光学校内网 IP', host: '10.15.0.8', port: '8089', protocol: 'http:', path: ROUTE, dom: signature() },
