@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.19.8',
+    VERSION: '1.21.19.9',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.19.9': [
+            '【新平台】支持焦作精准教学单份单评键盘阅卷，核对当前答卷和给分档位后填分并确认提交结果',
+        ],
         '1.21.19.8': [
             '【修复】精简输出模式在确认、纠错和历史记录中明确说明省略的内容',
         ],
