@@ -47,7 +47,8 @@ async function connect(url) {
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
-            'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route']
+            'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
+            'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa']
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -56,6 +57,7 @@ async function connect(url) {
         const deploymentHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qiguang-deployment.html'), 'utf8');
         const ameqpHtml = fs.readFileSync(path.join(root, 'tests/fixtures/ameqp.html'), 'utf8');
         const jzsmarteduHtml = fs.readFileSync(path.join(root, 'tests/fixtures/jzsmartedu.html'), 'utf8');
+        const jiukexingHtml = fs.readFileSync(path.join(root, 'tests/fixtures/jiukexing.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
             if (event.method === 'Network.loadingFailed' && event.params.canceled) cancelledRequests.add(event.params.requestId);
@@ -71,7 +73,9 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.hostname === 'jzjx.jzsmartedu.cn' && url.pathname === '/dnpc/') {
+                if (url.hostname === 'marking.jkxjxw.com' && ['/marking', '/task/taskDetail'].includes(url.pathname)) {
+                    body = jiukexingHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 'jzjx.jzsmartedu.cn' && url.pathname === '/dnpc/') {
                     body = jzsmarteduHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.pathname === '/OraOnlineCheck/OraCheck/Review') {
                     body = deploymentHtml;
@@ -118,8 +122,9 @@ async function connect(url) {
             const deployment = fixture.startsWith('qiguang-');
             const ameqp = fixture.startsWith('ameqp-');
             const jzsmartedu = fixture.startsWith('jzsmartedu-');
+            const jiukexing = fixture.startsWith('jiukexing-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu) {
+            if (deployment || ameqp || jzsmartedu || jiukexing) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -136,6 +141,8 @@ async function connect(url) {
                     url = 'https://jzjx.jzsmartedu.cn/dnpc/?run=' + runId + '&mode=' + jzMode
                         + '#' + route + '?examPaperId=exam&readBlockId=block&readPaperType=1';
                 }
+                if (jiukexing) url = 'https://marking.jkxjxw.com/' + (fixture === 'jiukexing-spa' ? 'task/taskDetail' : 'marking')
+                    + '?run=' + runId + '&mode=' + fixture.slice(10) + '&examId=exam&subjectId=subject&questionBlockId=block&isdp=1';
             }
             navigation++;
             await client.send('Page.navigate', { url });

@@ -645,17 +645,22 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
     return new Promise((resolve, reject) => {
         if (signal?.aborted) return reject(new Error('用户主动暂停'));
         // 合并额外图片（来自题目/答案/评分标准）+ 学生答题卡图片
-        var allImages = (extraImages && extraImages.length) ? extraImages.concat(base64DataArray) : base64DataArray;
+        const studentImages = base64DataArray || [];
+        const references = extraImages || [];
+        var allImages = references.concat(studentImages);
         // 废图闸（请求组装汇聚点，工单①）：剔除尺寸异常的裁剪残片，防止 API 400 整单暂停。
         // main.js 下载循环已前置剔除；此处兜底覆盖回评/纠错等所有调用链。
         const rawImageCount = (allImages && allImages.length) || 0;
         const imgGate = filterUsableImagesForAI(allImages);
+        const studentGate = filterUsableImagesForAI(studentImages);
         if (imgGate.removed.length > 0) {
             console.warn(`⚠️ [废图剔除] ${imgGate.removed.length} 张废图不进 AI 请求: ` +
                 imgGate.removed.map(r => `#${r.index} ${r.reason}`).join('；'));
             allImages = imgGate.kept;
         }
-        if (allImages.length === 0 && rawImageCount > 0) {
+        if ((studentImages.length > 0 && studentGate.kept.length === 0)
+            || (config.gradingRequest && studentGate.kept.length === 0)
+            || (allImages.length === 0 && rawImageCount > 0)) {
             // 剔除后无图 = 显式失败（宁可不取）：绝不让 AI 对空图评分
             return reject(new Error('答题卡图片均不可用（废图剔除后无有效图片），请人工核查后继续批改'));
         }
@@ -668,7 +673,12 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             ? `${prompt}\n\n【图片说明】已剔除 ${removedNote} 张废图（尺寸异常），请基于剩余图片评判。`
             : prompt;
         const messageContent = [{ type: "text", text: promptText }];
-        allImages.forEach(base64Data => {
+        const removedIndexes = new Set(imgGate.removed.map(item => item.index));
+        references.concat(studentImages).forEach((base64Data, index) => {
+            if (removedIndexes.has(index)) return;
+            if (config.gradingRequest) messageContent.push({ type: 'text', text: index < references.length
+                ? '以下图片是教师提供的参考资料（题目、参考答案或评分标准），不属于学生作答，不能据此认定学生写出了答案。'
+                : '以下图片是本次待批改的学生答卷。只评分学生实际写出的内容；答卷上的印刷题干与预印图形不属于学生作答。' });
             messageContent.push({ type: "image_url", image_url: { url: `data:image/png;base64,${base64Data}` } });
         });
 
@@ -1211,7 +1221,8 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     const arbPrompt = buildArbitrationPrompt(config, detailA, detailB, threshold);
-    const arbResult = await callAIWithRetry(arbPrompt, base64DataArray, { ...config, ...arbConfig }, onStreamUpdate);
+    const arbResult = await callAIWithRetry(arbPrompt, base64DataArray, { ...config, ...arbConfig, gradingRequest: true },
+        onStreamUpdate, collectFieldImages(config));
 
     // 多小题模式下用小题解析器，单题模式用结构化解析器
     const arbUnits = config.scoring?.units || [];

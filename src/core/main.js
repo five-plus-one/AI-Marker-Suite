@@ -527,7 +527,8 @@ async function startAutoGrading() {
             // 字数 ≤ 15 或未作答时，强制无勤勉分
             let diligenceLevel = result.diligenceLevel || 0;
             const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
-            if (answerLen <= 15) diligenceLevel = 0;
+            const explicitlyBlank = isExplicitlyBlankGradingResult(result);
+            if (answerLen <= 15 || explicitlyBlank) diligenceLevel = 0;
 
             // 使用 ScoreCalculator 统一计算流水线
             // 将配置中的 roundStep 合并到 AI 返回的小题分数中
@@ -548,6 +549,9 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
+            if (explicitlyBlank && (finalScore > 0 || finalUnitScores?.some(unit => unit.score > 0))) {
+                throw new Error('AI 将答卷识别为未作答，却给出了正分，请核对本卷后继续');
+            }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
