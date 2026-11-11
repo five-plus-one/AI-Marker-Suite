@@ -427,6 +427,7 @@ function showAboutPanel() {
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">威科姆(悦卷通)</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">C30教育云</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">AMEQP网上评卷</span>
+                        <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">焦作精准教学</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">海云智评</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">鑫考(内网)</span>
                         <span style="padding:4px 10px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:12px;color:#666;">九五优评</span>
