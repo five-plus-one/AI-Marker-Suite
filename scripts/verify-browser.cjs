@@ -40,6 +40,7 @@ async function connect(url) {
         client = await connect(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
         await client.send('Page.enable');
         await client.send('Runtime.enable');
+        await client.send('Network.enable');
         const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
         const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
@@ -48,11 +49,13 @@ async function connect(url) {
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
-        let interceptionEnabled = false, interceptionError;
+        let interceptionEnabled = false, interceptionError, navigation = 0, cancelledInterceptions = 0;
+        const cancelledRequests = new Set();
         const deploymentHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qiguang-deployment.html'), 'utf8');
         const ameqpHtml = fs.readFileSync(path.join(root, 'tests/fixtures/ameqp.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
+            if (event.method === 'Network.loadingFailed' && event.params.canceled) cancelledRequests.add(event.params.requestId);
             if (event.method === 'Runtime.exceptionThrown') {
                 consoleMessages.push(event.params.exceptionDetails.exception?.description || event.params.exceptionDetails.text);
             }
@@ -61,6 +64,7 @@ async function connect(url) {
                 if (consoleMessages.length > 16) consoleMessages.shift();
             }
             if (event.method !== 'Fetch.requestPaused') return;
+            const requestNavigation = navigation;
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
@@ -84,7 +88,14 @@ async function connect(url) {
                 await client.send('Fetch.fulfillRequest', { requestId: event.params.requestId, responseCode: status,
                     responseHeaders: [{ name: 'Content-Type', value: type }, { name: 'Cache-Control', value: 'no-store' }],
                     body: Buffer.from(body).toString('base64') });
-            })().catch(error => { interceptionError = error; });
+            })().catch(error => {
+                if (/^Invalid InterceptionId\.?$/.test(error.message)
+                    && (requestNavigation !== navigation || cancelledRequests.has(event.params.networkId))) {
+                    cancelledInterceptions++;
+                    return;
+                }
+                interceptionError = error;
+            });
         });
         for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
             consoleMessages = [];
@@ -106,6 +117,7 @@ async function connect(url) {
                 url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode + '&SubjectId=subject&questionGroupId=group';
                 if (ameqp) url = 'http://10.20.0.8/AMEQP/Webroot/mar/mar_mark.aspx?run=' + runId + '&mode=' + fixture.slice(6);
             }
+            navigation++;
             await client.send('Page.navigate', { url });
             let result;
             for (let count = 0; count < (ameqp ? 650 : startup ? 400 : 200); count++) {
@@ -123,7 +135,8 @@ async function connect(url) {
             }
             results.push({ fixture, width, theme, ...result });
         }
-        console.log(JSON.stringify({ passed: true, results }));
+        if (interceptionError) throw interceptionError;
+        console.log(JSON.stringify({ passed: true, cancelledInterceptions, results }));
     } finally {
         client?.socket.close();
         if (browserClient) { try { await browserClient.send('Browser.close'); } catch (_) {} browserClient.socket.close(); }
