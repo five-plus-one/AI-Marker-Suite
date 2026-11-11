@@ -46,7 +46,8 @@ async function connect(url) {
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-unknown', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
-            'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative']
+            'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
+            'jzsmartedu-ready', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route']
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -54,6 +55,7 @@ async function connect(url) {
         const cancelledRequests = new Set();
         const deploymentHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qiguang-deployment.html'), 'utf8');
         const ameqpHtml = fs.readFileSync(path.join(root, 'tests/fixtures/ameqp.html'), 'utf8');
+        const jzsmarteduHtml = fs.readFileSync(path.join(root, 'tests/fixtures/jzsmartedu.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
             if (event.method === 'Network.loadingFailed' && event.params.canceled) cancelledRequests.add(event.params.requestId);
@@ -69,7 +71,9 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.pathname === '/OraOnlineCheck/OraCheck/Review') {
+                if (url.hostname === 'jzjx.jzsmartedu.cn' && url.pathname === '/dnpc/') {
+                    body = jzsmarteduHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.pathname === '/OraOnlineCheck/OraCheck/Review') {
                     body = deploymentHtml;
                     if (url.hostname === 'crock.51zhenxue.com') body = body.replace(
                         '<script src="/Scripts/require.js" data-main="examOnlineOrc.js"></script>',
@@ -112,8 +116,9 @@ async function connect(url) {
             const mode = fixture === 'startup-registration' ? 'late-registration' : fixture === 'startup-navigation' ? 'spa-entry' : 'late-dom';
             const deployment = fixture.startsWith('qiguang-');
             const ameqp = fixture.startsWith('ameqp-');
+            const jzsmartedu = fixture.startsWith('jzsmartedu-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp) {
+            if (deployment || ameqp || jzsmartedu) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -124,6 +129,12 @@ async function connect(url) {
                     : fixture === 'qiguang-form-negative' ? 'foreign-form' : 'ready';
                 url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode + '&SubjectId=subject&questionGroupId=group';
                 if (ameqp) url = 'http://10.20.0.8/AMEQP/Webroot/mar/mar_mark.aspx?run=' + runId + '&mode=' + fixture.slice(6);
+                if (jzsmartedu) {
+                    const jzMode = fixture.slice(11);
+                    const route = jzMode === 'spa' ? '/home' : jzMode === 'foreign-route' ? '/v2/read-paper/question-block' : '/v2/read-paper';
+                    url = 'https://jzjx.jzsmartedu.cn/dnpc/?run=' + runId + '&mode=' + jzMode
+                        + '#' + route + '?examPaperId=exam&readBlockId=block&readPaperType=1';
+                }
             }
             navigation++;
             await client.send('Page.navigate', { url });
