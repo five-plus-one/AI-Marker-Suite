@@ -3,6 +3,23 @@ function isConfigurationRecord(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function getGradingOutputMode(config) {
+    return config?.outputMode === 'score-only' || config?.scoring?.outputMode === 'score-only'
+        ? 'score-only' : 'detailed';
+}
+
+// 仅解释展示缺省值；原始答案和评分数据仍按模型返回内容保存。
+function getGradingOutputText(value, config, field, fallback = '—') {
+    const text = String(value ?? '');
+    const omittedAnswer = field === '识别答案' && ['未能识别', '未能识别答案'].includes(text.trim());
+    if (getGradingOutputMode(config) === 'score-only' && (!text.trim() || omittedAnswer)) {
+        return field === '识别答案'
+            ? '精简模式仅输出分数，省略识别答案、评分依据、分数计算和评语。'
+            : `精简模式下不提供${field}。`;
+    }
+    return text.trim() ? text : fallback;
+}
+
 function saveInitialConfiguration(manager, label) {
     try {
         const saved = manager.save();

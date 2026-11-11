@@ -463,7 +463,7 @@ function showCorrectionPanel(context) {
             ${scoresHtml}
             <div style="margin-bottom:16px;">
                 <div class="cor-score-label">识别答案</div>
-                <div class="cor-answer-block">${context.studentAnswer || '未能识别'}</div>
+                <div class="cor-answer-block"></div>
             </div>
             ${correctionHtml}
         `;
@@ -473,6 +473,8 @@ function showCorrectionPanel(context) {
             <button class="ai-modal-btn-confirm" id="cor-next">下一步分析</button>
         `;
         footer.className = 'cor-footer';
+
+        body.querySelector('.cor-answer-block').textContent = getGradingOutputText(context.studentAnswer, context.config, '识别答案', '未能识别');
 
         // Markdown 渲染：识别答案和小题评语
         if (window.__aiMarkdownRenderer) {

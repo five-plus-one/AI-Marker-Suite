@@ -1,0 +1,67 @@
+<!doctype html><meta charset="utf-8"><title>Output mode browser acceptance</title>
+<script>
+const fixtureConfig = { outputMode: 'score-only', scoring: { maxScore: 5 }, answer: '', rubric: '' };
+window.GM_getValue = (key, fallback) => fallback;
+window.GM_setValue = () => {};
+window.getUIRoot = () => document.body;
+window.showToast = () => {};
+window.PresetManager = { data: { active: '示例方案' }, getCurrentConfig: () => fixtureConfig,
+    getMaxScore: () => 5, getTaskIdentifier: () => 'fixture', getActiveCallConfig: () => ({}) };
+window.aiGradingState = { isRunning: false, isPaused: false, gradingMode: 'trial', currentStudentAnswer: '未能识别',
+    currentImageUrls: [], currentBase64DataArray: [] };
+window.__AI_MARKER_ADAPTER__ = { getPaperIdentity: () => 'fixture', getScoreInputs: () => [] };
+</script>
+<script src="../../src/core/runtime.js"></script>
+<script src="../../src/core/ui-modal.js"></script>
+<script src="../../src/core/ui-submit-dialog.js"></script>
+<script src="../../src/core/correction.js"></script>
+<script src="../../src/core/history.js"></script>
+<body style="margin:0;background:#eef0f3;"><pre id="result" hidden></pre><script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const assert = (ok, message) => { if (!ok) throw Error(message); };
+    const notice = '精简模式仅输出分数，省略识别答案、评分依据、分数计算和评语。';
+    const show = (extra) => showAutoSubmitDialog(4, '', null, extra);
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    try {
+        let dialog = show({ dualEval: { scoreA: 4, scoreB: 4, diff: 0, result: 'consensus', detailA: {}, detailB: {} } });
+        assert(dialog.textContent.includes(notice) && !dialog.textContent.includes('未能识别'), '精简确认显示省略说明');
+        assert(dialog.querySelectorAll('.asd-md-content').length === 2 &&
+            [...dialog.querySelectorAll('.asd-md-content')].every(el => el.textContent === '精简模式下不提供评分依据。'), '双评缺省依据说明');
+        fixtureConfig.outputMode = 'detailed';
+        dialog.querySelector('#correction-btn').click();
+        const correction = document.getElementById('correction-panel');
+        assert(correction.querySelector('.cor-answer-block').textContent === notice, '纠错使用批改时的精简配置');
+        assert(correction.querySelector('.cor-score-value').textContent === '4', '纠错分数保持原值');
+        correction.remove();
+        showHistoryDetail({ id: 'compact', outputMode: 'score-only', timestamp: 1, studentAnswer: '未能识别',
+            aiComment: '', finalScore: 4, gradingMode: 'trial' });
+        let drawer = document.getElementById('detail-close').parentElement.parentElement;
+        assert(drawer.textContent.includes(notice) && drawer.textContent.includes('精简模式下不提供评语。'), '历史详情使用记录的输出模式');
+        drawer.remove(); document.getElementById('ai-history-detail').remove(); invalidateGradingRun();
+        dialog = show();
+        assert(dialog.textContent.includes('未能识别') && !dialog.textContent.includes(notice), '详细模式保留识别缺省提示');
+        destroySubmitDialog(dialog); invalidateGradingRun();
+        fixtureConfig.outputMode = 'score-only'; aiGradingState.currentStudentAnswer = '<机械能>';
+        dialog = show();
+        const answer = [...dialog.querySelectorAll('.asd-info-block')].find(el => el.querySelector('.asd-info-label')?.textContent === '识别答案');
+        assert(answer.querySelector('.asd-info-content').textContent === '<机械能>', '实际返回的答案以文本显示');
+        destroySubmitDialog(dialog); invalidateGradingRun(); aiGradingState.currentStudentAnswer = '未能识别';
+        const image = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="220"><rect width="640" height="220" fill="white"/><text x="40" y="70" font-size="28">匿名作答示例</text><text x="40" y="135" font-size="24">(1) 机械能　 C　 30</text></svg>';
+        aiGradingState.currentImageUrls = ['data:image/svg+xml;charset=utf-8,' + encodeURIComponent(image)];
+        dialog = show(); await frame();
+        const panel = dialog.querySelector('.asd-result'), bounds = dialog.getBoundingClientRect();
+        assert(bounds.left >= 0 && bounds.right <= innerWidth + 1, '确认弹窗处于窗口内');
+        assert(panel.scrollWidth <= panel.clientWidth + 1, '省略说明在窄窗口内换行');
+        assert(dialog.querySelector('.asd-score-num').textContent === '4', '分数显示保持原值');
+        assert(dialog.querySelector('#confirm-submit-btn').textContent === '确认提交', '确认操作可用');
+        document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({
+            runId, passed: true, width: innerWidth, checks: 10
+        }))));
+    } catch (error) {
+        document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({
+            runId, passed: false, error: String(error), stack: error.stack
+        }))));
+    }
+})();
+</script>
