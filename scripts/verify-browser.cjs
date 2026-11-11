@@ -43,7 +43,8 @@ async function connect(url) {
         const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
         const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
-            'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow']
+            'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
+            'ameqp-multi', 'ameqp-unknown', 'ameqp-mixed']
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -69,7 +70,7 @@ async function connect(url) {
                     type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.pathname === '/AMEQP/Webroot/mar/mar_mark.aspx') {
                     body = ameqpHtml; type = 'text/html; charset=utf-8'; status = 200;
-                } else if (/^\/answers\/\d+_00_1_0\.svg$/.test(url.pathname)) {
+                } else if (/^\/answers\/(?:\d+|scan_[AB])_\d+_\d+_\d+\.svg$/.test(url.pathname)) {
                     body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100"><text x="10" y="40">answer ' + url.pathname + '</text></svg>';
                     type = 'image/svg+xml'; status = 200;
                 } else if (url.pathname === '/__fixture/ai_marker.user.js') {

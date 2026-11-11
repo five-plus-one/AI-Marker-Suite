@@ -12,6 +12,12 @@
 <script>
 sessionStorage.clear();
 const mode=new URLSearchParams(location.search).get('mode');
+const initialImage=document.querySelector('.ansImg');
+if(mode==='unknown')initialImage.src='/answers/scan_A_00_1_0.svg';
+if(mode==='multi'||mode==='mixed'){
+ const second=initialImage.cloneNode(true);second.src='/answers/'+(mode==='mixed'?1002:1001)+'_01_1_0.svg';
+ initialImage.parentElement.appendChild(second);
+}
 const storage={
  'ai-grading-show-onboarding':false,
  'ai-grading-presets':JSON.stringify({list:{Fixture:{question:'q',answer:'a',rubric:'r',workflowId:'fixture',gradingMode:'unattended',
@@ -40,7 +46,7 @@ document.getElementById('btn_submit').onclick=()=>{
  if(scores.join(',')!=='0.0,2.5'||scores.join(',')!==hidden.join(','))throw Error('native score registration mismatch');
  effects.submits.push({paper:document.querySelector('.ansImg').src.split('/').pop(),scores});
  const next=()=>{
-  document.querySelector('.ansImg').src='/answers/'+(1001+effects.submits.length)+'_00_1_0.svg';
+  document.querySelectorAll('.ansImg').forEach((img,index)=>img.src='/answers/'+(1001+effects.submits.length)+'_0'+index+'_1_0.svg');
   document.querySelectorAll('#Mark_main .mark_tbx,#Mark_main input[type=hidden],#queVal,#queVal_old').forEach(input=>input.value='');
  };
  if(mode==='slow')setTimeout(next,1200);else next();
@@ -53,6 +59,17 @@ document.getElementById('btn_submit').onclick=()=>{
   for(let i=0;i<140&&!document.querySelector('.ai-grade-btn');i++)await wait(50);
   assert(window.__AI_MARKER_ADAPTER__?.id==='ameqp','actual bundle selects AMEQP');
   assert(document.querySelectorAll('.ai-grade-btn').length===1,'single grade entry');
+  if(mode==='unknown'||mode==='mixed'){
+   const adapter=window.__AI_MARKER_ADAPTER__;
+   assert(adapter.getPaperIdentity()===null,'uncertain paper has no reliable identity');
+   assert((await adapter.gatherAnswerImages()).length===0,'uncertain paper is not collected');
+   assert(adapter.fillScores([0,2.5])===false,'uncertain paper is not filled');
+   assert(await adapter.submitGrade()===false,'uncertain paper is not submitted');
+   assert(effects.requests===0&&effects.submits.length===0&&effects.palettes===0,'no grading side effects');
+   assert(Array.from(document.querySelectorAll('#Mark_main .mark_tbx,#Mark_main input[type=hidden]')).every(input=>input.value===''),'scores remain empty');
+   document.getElementById('result').textContent=btoa(JSON.stringify({runId,passed:true,width:innerWidth,checks:7,mode,effects}));
+   return;
+  }
   document.querySelector('.ai-grade-btn').click();
   for(let i=0;i<500&&window.aiGradingState.batchProgress.currentCount<3;i++)await wait(50);
   assert(effects.submits.length===3,'three native submissions');
