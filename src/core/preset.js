@@ -354,7 +354,15 @@ const PresetManager = {
     getTaskIdentifier() {
         const adapter = window.__AI_MARKER_ADAPTER__;
         if (adapter && adapter.getTaskIdentifier) {
-            return adapter.getTaskIdentifier();
+            const task = adapter.getTaskIdentifier();
+            // 适配器升级任务标识时，继承同一原生题块的唯一有效绑定。
+            if (!this.data.bindings[task] && typeof adapter.matchesLegacyTaskIdentifier === 'function') {
+                const names = [...new Set(Object.entries(this.data.bindings)
+                    .filter(([key, name]) => this.data.list[name] && adapter.matchesLegacyTaskIdentifier(key))
+                    .map(([, name]) => name))];
+                if (names.length === 1) { this.data.bindings[task] = names[0]; this.save(); }
+            }
+            return task;
         }
         return window.location.pathname + window.location.hash;
     },
