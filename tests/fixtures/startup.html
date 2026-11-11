@@ -1,0 +1,50 @@
+<!doctype html><meta charset="utf-8"><title>Marking startup acceptance</title>
+<script>
+const mode=new URLSearchParams(location.search).get('mode')||'late-dom';
+const storage={'ai-grading-show-onboarding':false},effects={fill:0,submit:0};
+window.GM_getValue=(key,fallback)=>storage[key]??fallback;
+window.GM_setValue=(key,value)=>storage[key]=value;
+window.GM_deleteValue=key=>delete storage[key];
+window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
+// 平台契约测试夹具：实际压缩脚本负责检测、初始化、轮询及全部界面创建。
+const fixtureAdapter={name:'启动验证',id:'startup-fixture',
+ detectMarkingPage:async()=>!!document.getElementById('platform-score'),
+ isMarkingPage:()=>!!document.getElementById('platform-score'),
+ getTaskIdentifier:()=>location.pathname,
+ getScoreInputs:()=>[],detectSubQuestions:()=>[],
+ fillScores:()=>{effects.fill++;return true},submitGrade:()=>{effects.submit++;return true}};
+if(mode!=='late-registration')window.__AI_MARKER_ADAPTER__=fixtureAdapter;
+</script>
+<script src="../../dist/ai_marker.user.js"></script>
+<body><pre id="result"></pre><script>
+(async()=>{
+ const runId=new URLSearchParams(location.search).get('run');
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ const assert=(ok,message)=>{if(!ok)throw Error(message)};
+ try{
+  if(mode==='late-registration') {
+   await new Promise(resolve=>window.addEventListener('DOMContentLoaded',()=>setTimeout(resolve,4400),{once:true}));
+   assert(!document.querySelector('.ai-grade-btn'),'平台注册前不创建批改入口');
+   window.__AI_MARKER_ADAPTER__=fixtureAdapter;
+  } else {
+   for(let attempt=0;attempt<120&&!document.querySelector('.ai-history-btn');attempt++)await wait(50);
+   assert(document.querySelector('.ai-history-btn')&&!document.querySelector('.ai-grade-btn'),'先完成仅历史状态');
+  }
+  if(mode==='spa-entry')location.hash='#/marking/entry';
+  const input=document.createElement('input');input.id='platform-score';document.body.append(input);
+  for(let attempt=0;attempt<95&&!document.querySelector('.ai-settings-btn');attempt++)await wait(50);
+  assert(document.querySelectorAll('.ai-grade-btn').length===1,'批改入口自动恢复且唯一');
+  assert(document.querySelectorAll('.ai-settings-btn').length===1,'设置入口自动恢复且唯一');
+  assert(document.querySelectorAll('.ai-history-btn').length===1,'历史按钮保持唯一');
+  assert(!document.getElementById('ai-history-only-style'),'历史按钮采用完整操作区的位置');
+  const history=document.querySelector('.ai-history-btn');
+  assert(getComputedStyle(history).bottom==='95px','历史按钮恢复标准位置');
+  assert(Object.values(effects).every(count=>count===0)&&!window.aiGradingState.isRunning,'恢复入口保持待操作状态');
+  // 持续轮询不得重复创建入口。
+  await wait(1100);
+  assert(document.querySelectorAll('.ai-history-btn').length===1&&document.querySelectorAll('.ai-grade-btn').length===1,'轮询保持幂等');
+  document.getElementById('result').textContent=btoa(JSON.stringify({runId,passed:true,width:innerWidth,mode,checks:8,effects}));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,mode,error:String(error),stack:error.stack}))));}
+})();
+</script>
