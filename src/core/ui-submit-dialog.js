@@ -30,7 +30,7 @@ async function fillScore(score, comment, subScores, runContext = window.aiGradin
     if (!filled) {
         // 拒绝原因透出（#297）：适配器具体拒绝原因见上方控制台日志
         console.warn('未找到分数输入框或填分被拒绝（详见上方适配器日志），将直接弹出确认窗口');
-        safeAlert(`⚠️ 自动填分未完成（具体原因见控制台日志）。\nAI打分结果：\n分数：${score}\n请手动输入分数！`);
+        safeAlert(`⚠️ ${adapter?.lastFillError || '自动填分未完成，请核对页面分数输入框'}。\nAI打分结果：\n分数：${score}\n请核对后继续。`);
         showAutoSubmitDialog(score, comment, subScores, { ...extraInfo, runContext, fillFailed: true });
         return;
     }

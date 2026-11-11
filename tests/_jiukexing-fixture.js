@@ -50,10 +50,17 @@ module.exports = function fixture(options = {}) {
         }, () => {});
     } };
     const query = sb.document.querySelector;
+    const autoSubmit = { checked: true, disabled: false,
+        closest() { return { textContent: '自动提交' }; },
+        click() { state.autoClicks = (state.autoClicks || 0) + 1;
+            if (!state.dropAutoClick) { this.checked = false; page.checked = false; }
+            state.afterAutoClick?.();
+        } };
     sb.document.querySelector = selector => selector === '#app' ? { __vue__: { $children: [page] } }
         : selector === '.MTcontainer_content' ? {} : selector === '.submitbtn' ? button : query(selector);
     sb.document.querySelectorAll = selector => selector === '.examText .imgBG img' ? state.images
-        : selector === '.quesGrade .input_btn' ? inputs : [];
+        : selector === '.quesGrade .input_btn' ? inputs
+        : selector === '.MTcontainer_content .autosubmit input[type="checkbox"]' ? (state.noAutoControl ? [] : [autoSubmit]) : [];
     sb.HTMLInputElement = Input; sb.showToast = text => state.notices.push(text);
     sb.fetchImageAsBase64 = async url => url;
     sb.aiGradingState = { activeRun: { controller: new AbortController() } };
@@ -67,5 +74,5 @@ module.exports = function fixture(options = {}) {
     sb.clearTimeout = id => state.timers.delete(id);
     vm.createContext(sb);
     for (const file of ['selectors.js', 'adapter.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/adapters/jiukexing', file), 'utf8'), sb);
-    return { sb, state, page, inputs, endpoint, original, button, advance, adapter: sb.__AI_MARKER_ADAPTER__ };
+    return { sb, state, page, inputs, endpoint, original, button, autoSubmit, advance, adapter: sb.__AI_MARKER_ADAPTER__ };
 };

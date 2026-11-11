@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.19.14',
+    VERSION: '1.21.19.15',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.19.15': [
+            '【修复】九科星批改前自动关闭平台自动提交，填分前再次核验',
+            '【优化】九科星阅卷状态异常时显示具体原因和下一步操作',
+        ],
         '1.21.19.14': [
             '【修复】评分只发送 Markdown 正文引用的参考图片，减少转为文字后的重复图片请求',
             '【修复】评分纠错请求逐图区分参考资料和学生答卷',

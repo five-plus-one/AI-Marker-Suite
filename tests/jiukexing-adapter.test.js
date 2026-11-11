@@ -51,11 +51,48 @@ test('九科星单评页面的回评按钮文案不会误判模式，任务 ID �
     f.sb.location.pathname = '/task/taskDetail'; assert.equal(f.adapter.isMarkingPage(), false);
 });
 
-test('九科星原生自动提交、鼠标评分和不可写输入框均在写入前拒绝', () => {
-    for (const change of [f => { f.page.checked = true; }, f => { f.page.radio = 1; },
+test('九科星鼠标评分和不可写输入框均在写入前拒绝', () => {
+    for (const change of [f => { f.page.radio = 1; },
         f => { f.inputs[0].readOnly = true; }, f => { f.inputs[0].disabled = true; }]) {
         const f = fixture(); change(f); assert.equal(f.adapter.fillScores([5]), false);
         assert.equal(f.state.events.length, 0); assert.equal(f.state.requests.length, 0);
+    }
+});
+
+test('九科星请求评分前关闭原生自动提交，填分前重新核验', async () => {
+    const f = fixture(); f.page.checked = true;
+    assert.equal(f.adapter.prepareGrading(), true);
+    assert.equal(f.page.checked, false); assert.equal(f.autoSubmit.checked, false);
+    assert.equal(f.state.autoClicks, 1); assert.ok(f.state.cancelledAuto);
+    assert.equal(f.state.requests.length, 0); assert.equal(f.state.events.length, 0);
+    await f.adapter.gatherAnswerImages();
+    f.page.checked = true; f.autoSubmit.checked = true;
+    assert.equal(f.adapter.fillScores([5]), true);
+    assert.equal(f.state.autoClicks, 2); assert.equal(f.page.checked, false);
+    assert.equal(f.state.requests.length, 0);
+    assert.equal(await f.adapter.submitGrade(), true);
+    assert.equal(f.state.requests.length, 1);
+});
+
+test('九科星关闭自动提交失败时保留原因，不填分也不提交', async () => {
+    for (const change of [f => { f.state.noAutoControl = true; }, f => { f.autoSubmit.disabled = true; },
+        f => { f.state.dropAutoClick = true; }, f => { f.autoSubmit.checked = false; }]) {
+        const f = fixture(); f.page.checked = true; change(f);
+        assert.equal(f.adapter.prepareGrading(), false);
+        assert.match(f.adapter.lastFillError, /未能关闭.*自动提交/);
+        assert.equal(f.adapter.fillScores([5]), false);
+        assert.match(f.adapter.lastFillError, /未能关闭.*自动提交/);
+        assert.equal(await f.adapter.submitGrade(), false);
+        assert.equal(f.state.requests.length, 0); assert.equal(f.state.events.length, 0);
+    }
+});
+
+test('九科星关闭自动提交期间换卷或取消运行时拒绝写分', () => {
+    for (const change of [f => f.advance('B'), f => f.sb.aiGradingState.activeRun.controller.abort(),
+        f => { f.page.lockScreen = true; }]) {
+        const f = fixture(); f.page.checked = true; f.state.afterAutoClick = () => change(f);
+        assert.equal(f.adapter.fillScores([5]), false);
+        assert.equal(f.state.requests.length, 0); assert.equal(f.state.events.length, 0);
     }
 });
 

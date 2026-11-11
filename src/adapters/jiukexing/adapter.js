@@ -72,6 +72,38 @@ const JiukexingAdapter = {
     async detectMarkingPage() {
         return this.isMarkingPage();
     },
+    prepareGrading() {
+        this.lastFillError = '';
+        const page = this._page(), identity = this.getPaperIdentity();
+        const fail = message => { this.lastFillError = message; return false; };
+        if (!page || !identity || page.lockScreen || this.isRegradeMode() || this._submitting
+            || window.aiGradingState?.activeRun?.controller?.signal?.aborted) {
+            return fail('九科星当前答卷不可批改，请返回正常阅卷页面后继续');
+        }
+        if (page.radio !== 2) return fail('请将九科星切换为“键盘打分”后继续');
+        if (page.isSubmit || page.isSubmitting) return fail('九科星正在提交分数，请等待提交完成');
+        if (page.checked === true) {
+            const controls = Array.from(document.querySelectorAll('.MTcontainer_content .autosubmit input[type="checkbox"]'))
+                .filter(input => input.closest('label')?.textContent.trim() === '自动提交');
+            const control = controls.length === 1 ? controls[0] : null;
+            if (!control || control.disabled || !control.checked) {
+                return fail('未能关闭九科星的“自动提交”，请取消勾选后继续');
+            }
+            // 清理原生键盘计时，再通过原生复选框更新 Vue 状态和界面。
+            if (typeof page.openFlag === 'function') page.openFlag();
+            control.click();
+            if (control.checked || page.checked !== false) {
+                return fail('未能关闭九科星的“自动提交”，请取消勾选后继续');
+            }
+        }
+        if (this._page() !== page || this.getPaperIdentity() !== identity || page.checked !== false
+            || page.lockScreen || page.isSubmit || page.isSubmitting
+            || window.aiGradingState?.activeRun?.controller?.signal?.aborted) {
+            return fail('九科星阅卷状态已变化，请核对当前答卷后继续');
+        }
+        if (typeof page.openFlag === 'function') page.openFlag();
+        return true;
+    },
     async gatherAnswerImages() {
         const task = this.getTaskIdentifier(), signal = window.aiGradingState?.activeRun?.controller?.signal;
         const started = Date.now();
@@ -126,12 +158,9 @@ const JiukexingAdapter = {
     },
     fillScores(scores) {
         this._pendingScores = null;
+        this.lastFillError = '';
         if (this._submitting) return false;
         const state = this._state(), inputs = this.getScoreInputs();
-        if (state?.page.checked) {
-            showToast('请关闭九科星的“自动提交”，由批改助手确认后提交');
-            return false;
-        }
         if (!state || (this._collectedPaper && (this._collectedPaper.identity !== state.identity || this._collectedPaper.task !== state.task))
             || !Array.isArray(scores) || !inputs.length || scores.length !== inputs.length
             || inputs.some((unit, i) => typeof scores[i] !== 'number' || !Number.isFinite(scores[i])
@@ -141,6 +170,7 @@ const JiukexingAdapter = {
                     && scores[i] % unit.scoreRule.interval !== 0 && scores[i] !== unit.maxScore)
                 || (unit.scoreRule.mode === 2 && unit.scoreRule.values.length
                     && !unit.scoreRule.values.includes(scores[i])))) return false;
+        if (!this.prepareGrading()) return false;
         const pending = { ...state, inputs, scores: scores.slice(), signal: window.aiGradingState?.activeRun?.controller?.signal };
         if (!this._matches(pending)) return false;
         // 原生 openFlag 清除键盘自动提交计时器，避免切换设置前遗留的计时器提交本次分数。

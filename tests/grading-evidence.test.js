@@ -26,6 +26,34 @@ test('明确整卷未作答与正分冲突时，真实主流程暂停且不填�
     assert.ok(e.calls.toasts.some(text => text.includes('未作答，却给出了正分')));
 });
 
+test('评分准备失败时主流程在调用模型前停止，并显示具体原因', async () => {
+    const e = env(); load(e, 'src/core/main.js'); e.state.isRunning = true;
+    let requests = 0;
+    e.sb.__AI_MARKER_ADAPTER__.prepareGrading = () => {
+        e.sb.__AI_MARKER_ADAPTER__.lastFillError = '未能关闭九科星的“自动提交”，请取消勾选后继续';
+        return false;
+    };
+    e.sb.callAIGrading = async () => { requests++; return { score: 5 }; };
+    await e.sb.startAutoGrading();
+    assert.equal(requests, 0); assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0);
+    assert.equal(e.state.isPaused, true);
+    assert.ok(e.calls.toasts.some(text => text.includes('未能关闭九科星')));
+});
+
+test('评分准备成功后主流程才请求模型，填分失败保留适配器原因', async () => {
+    const e = env(); load(e, 'src/core/main.js'); e.state.isRunning = true;
+    const order = [];
+    e.sb.__AI_MARKER_ADAPTER__.prepareGrading = () => { order.push('prepare'); return true; };
+    e.sb.callAIGrading = async () => { order.push('ai'); return { score: 5, studentAnswer: 'I=3A' }; };
+    e.sb.__AI_MARKER_ADAPTER__.fillScores = () => {
+        e.sb.__AI_MARKER_ADAPTER__.lastFillError = '未能关闭九科星的“自动提交”，请取消勾选后继续';
+        return false;
+    };
+    await e.sb.startAutoGrading();
+    assert.deepEqual(order, ['prepare', 'ai']); assert.equal(e.calls.submit.length, 0);
+    assert.ok(e.calls.toasts.some(text => text.includes('未能关闭九科星')));
+});
+
 test('部分小题空白、答案“无”、无法识别及精简输出均不能据此判整卷空白', () => {
     const e = env();
     for (const studentAnswer of ['无', '未能识别', '第1小题未作答，第2小题I=3A', '未作答的部分不给分，已写I=3A', '']) {

@@ -1,6 +1,7 @@
 <!doctype html><meta charset="utf-8"><title>九科星阅卷验收</title>
 <div id="app"><main class="MTcontainer_content"><div class="examText"><div class="imgBG"></div></div>
 <div class="quesGrade"><h1>13</h1><input class="input_btn specialInput" placeholder="≤10分"></div>
+<div class="autosubmit"><label><input type="checkbox" id="native-auto" checked>自动提交</label></div>
 <button class="submitbtn">提交</button></main></div><pre id="result"></pre>
 <script>
 const params=new URLSearchParams(location.search),mode=params.get('mode'),runId=params.get('run');
@@ -9,9 +10,10 @@ window.GM_getValue=(key,fallback)=>store[key]??fallback;window.GM_setValue=(key,
 window.GM_deleteValue=key=>delete store[key];window.GM_registerMenuCommand=()=>{};
 window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
 const app=document.getElementById('app'),container=document.querySelector('.imgBG'),input=document.querySelector('input');
-const vm={examId:'exam',subjectId:'subject',questionvalue:'block',isdp:1,radio:2,checked:false,oldornew:'new',
+const vm={examId:'exam',subjectId:'subject',questionvalue:'block',isdp:1,radio:2,checked:true,oldornew:'new',
  getGradeList:[],imgsList:[],markingNow:{},questionObj:{enableScoreStep:0},submit(){},changePaper(){},openFlag(){}};
 app.__vue__={$children:[vm]};let calls=0,keyups=0,refused=false;
+const autoInput=document.getElementById('native-auto');autoInput.onchange=()=>vm.checked=autoInput.checked;
 function paper(id){
  vm.markingNow={id,scanPaperId:'scan-'+id,markingRecordId:'record-'+id,questionBlockId:'block',
   markingUrlList:Array.from({length:mode==='multi'?3:1},(_,i)=>({markingUrlObj:location.origin+'/__fixture/answer.svg?part='+i}))};
@@ -35,19 +37,24 @@ paper('A');const content=document.querySelector('.MTcontainer_content');if(mode=
   for(let i=0;i<120&&!document.querySelector('.ai-grade-btn');i++)await wait(50);
   const a=window.__AI_MARKER_ADAPTER__;assert(a?.id==='jiukexing'&&a.isMarkingPage(),'完整压缩脚本识别原生阅卷组件');
   assert(document.querySelectorAll('.ai-grade-btn').length===1,'唯一批改入口');
+  assert(a.prepareGrading()&&vm.checked===false&&!autoInput.checked,'批改前通过原生控件关闭自动提交');
   const urls=await a.gatherAnswerImages();assert(urls.length===(mode==='multi'?3:1),'整组图片全部就绪');
   assert(a.getScoreInputs()[0].maxScore===10&&a.getScoreInputs()[0].label==='13','取得原生题号满分');
   const old=a.getPaperIdentity(),task=a.getTaskIdentifier();
   assert(a.fillScores([0])&&Number(vm.getGradeList[0].grade)===0,'零分进入原生评分状态');
   assert(calls===0&&keyups===0,'填分不触发快捷提交');
-  vm.checked=true;assert(!a.fillScores([5]),'原生自动提交开启时保护填分');vm.checked=false;
+  vm.checked=true;autoInput.checked=true;
+  assert(a.fillScores([5])&&vm.checked===false&&!autoInput.checked&&calls===0,'填分前再次关闭自动提交');
+  vm.checked=true;autoInput.checked=true;autoInput.disabled=true;
+  assert(!a.fillScores([5])&&a.lastFillError.includes('自动提交')&&calls===0,'关闭失败时不提交且保留原因');
+  autoInput.disabled=false;assert(a.prepareGrading(),'控件恢复后可继续');
   vm.questionObj={enableScoreStep:1,intervalScore:3};assert(!a.fillScores([5]),'遵守平台梯度');vm.questionObj={enableScoreStep:0};
   assert(a.fillScores([2.5]),'支持半分');refused=true;assert(!await a.submitGrade(),'平台拒绝不算保存成功');refused=false;
   assert(a.fillScores([2.5]),'重新填分');assert(await a.submitGrade({isCurrent:()=>true,verify:async()=>{}}),'平台保存回执成功');
   assert(await a.waitForNextPaper(urls[0],{paperId:old,taskId:task}),'图片URL相同时按原生ID识别新卷');
   assert(!await a.submitGrade()&&calls===2,'评分只提交一次');
   vm.oldornew='old';assert(a.isRegradeMode()&&!a.fillScores([2]),'历史回评保持平台操作');
-  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,mode,checks:14}))));
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,mode,checks:17}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))))}
 })();
 </script>
