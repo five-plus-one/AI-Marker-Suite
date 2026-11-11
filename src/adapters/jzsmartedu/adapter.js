@@ -1,4 +1,4 @@
-// 焦作精准教学：单份单评、键盘打分。只读原生组件状态，写分走原生输入事件。
+// 焦作精准教学：单份单评，原生评分板按钮或键盘输入。
 const JzsmarteduAdapter = {
     name: '焦作精准教学',
     id: 'jzsmartedu',
@@ -84,9 +84,10 @@ const JzsmarteduAdapter = {
     async fetchImageAsBase64(url) { return fetchImageAsBase64(url); },
 
     _unit(state) {
-        if (!state || state.vm.boardType !== '3' || state.vm.autoSubmit) return null;
-        const fields = Array.from(state.board.querySelectorAll('.keyboard .single-score-box input.el-input__inner[placeholder="得分"]'))
-            .filter(el => this._visible(el));
+        if (!state || !['2', '3'].includes(state.vm.boardType)) return null;
+        const keyboard = state.vm.boardType === '3';
+        const fields = keyboard ? Array.from(state.board.querySelectorAll('.keyboard .single-score-box input.el-input__inner[placeholder="得分"]'))
+            .filter(el => this._visible(el)) : [state.board];
         const entries = state.vm.effectScoreList;
         const reads = state.vm.currQuesBlock.paperRead;
         if (fields.length !== 1 || fields[0].disabled || fields[0].readOnly
@@ -101,7 +102,7 @@ const JzsmarteduAdapter = {
         const options = read.scoreOptions.map(value => String(value).trim() === '' ? NaN : Number(value));
         if (options.some(value => !Number.isFinite(value) || value < 0 || value > max)) return null;
         return { element: fields[0], label: String(entry.label), index: 0, maxScore: max,
-            step, options, signature: JSON.stringify([entry.label, max, step, options]) };
+            keyboard, step, options, signature: JSON.stringify([state.vm.boardType, entry.label, max, step, options]) };
     },
     getScoreInputs() {
         const unit = this._unit(this._state());
@@ -116,14 +117,21 @@ const JzsmarteduAdapter = {
     },
     _notify(message) { if (typeof showToast === 'function') showToast(message); },
     onPageLoad() {
-        if (this._state()?.vm.boardType !== '3') this._notify('请先选择平台的“键盘打分”，关闭平台自动提交后使用');
+        if (this._state()?.vm.autoSubmit) this._notify('请先关闭阅卷平台的自动提交');
+    },
+    _scoreButton(state, unit, score) {
+        const selector = score === 0 || score === unit.maxScore ? '.score-0-full button' : '.score-collapse .score-btn button';
+        const text = score === 0 ? '零分' : score === unit.maxScore ? '满分' : String(score);
+        const buttons = Array.from(state.board.querySelectorAll(selector)).filter(button => this._visible(button)
+            && !button.disabled && button.textContent.trim() === text);
+        return buttons.length === 1 ? buttons[0] : null;
     },
     fillScores(scores) {
         this._pending = null;
         if (this._submitting) return false;
         const state = this._state(), unit = this._unit(state);
-        if (!unit) {
-            this._notify('请使用单份单评的“键盘打分”，并关闭平台自动提交');
+        if (!unit || state.vm.autoSubmit) {
+            this._notify('请使用单份单评的评分板或键盘打分，并关闭平台自动提交');
             return false;
         }
         if (!this._images(state).length || !Array.isArray(scores) || scores.length !== 1 || !this._valid(scores[0], unit)) {
@@ -131,6 +139,18 @@ const JzsmarteduAdapter = {
             return false;
         }
         const pending = { state, unit, score: scores[0] };
+        if (!unit.keyboard) {
+            const button = this._scoreButton(state, unit, scores[0]);
+            if (!button) {
+                this._notify('评分板没有此分数，请切换到“键盘打分”后重试');
+                return false;
+            }
+            if (!this._current(pending, false)) return false;
+            button.click();
+            if (!this._current(pending, true)) return false;
+            this._pending = pending;
+            return true;
+        }
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(unit.element, String(scores[0]));
         // input 更新键盘给分模型；change 触发 pointScoreChange 同步父组件实际提交分数。
@@ -144,11 +164,12 @@ const JzsmarteduAdapter = {
     },
     _current(pending, checkScores) {
         const current = this._state(), unit = this._unit(current);
-        if (!current || !unit || current.identity !== pending.state.identity || current.vm !== pending.state.vm
+        if (!current || !unit || current.vm.autoSubmit || current.identity !== pending.state.identity || current.vm !== pending.state.vm
             || unit.element !== pending.unit.element || unit.signature !== pending.unit.signature
             || !this._images(current).length || !this._valid(pending.score, unit)) return false;
         if (!checkScores) return true;
-        const values = [unit.element.value, current.vm.effectScoreList[0].score, current.parent.scoreList[0].score];
+        const values = [current.vm.effectScoreList[0].score, current.parent.scoreList[0].score];
+        if (unit.keyboard) values.push(unit.element.value);
         return values.every(value => value !== null && value !== undefined && String(value).trim() !== ''
             && Number(value) === pending.score);
     },
@@ -161,8 +182,8 @@ const JzsmarteduAdapter = {
             if (guard && !guard.isCurrent()) return false;
             if (guard) await guard.verify();
             if ((guard && !guard.isCurrent()) || !this._current(pending, true)) return false;
-            const buttons = Array.from(pending.state.board.querySelectorAll('.keyboard .submit-section button'))
-                .filter(el => this._visible(el) && el.textContent.trim() === '提交');
+            const buttons = Array.from(pending.state.board.querySelectorAll('.submit-section button'))
+                .filter(el => this._visible(el) && /^提交(?:\s|$)/.test(el.textContent.trim()));
             if (buttons.length !== 1 || buttons[0].disabled) return false;
             const selector = '.el-message.el-message--success';
             const existing = new Set(document.querySelectorAll(selector));

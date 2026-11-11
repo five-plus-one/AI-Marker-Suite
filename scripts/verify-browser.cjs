@@ -47,7 +47,7 @@ async function connect(url) {
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
-            'jzsmartedu-ready', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route']
+            'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route']
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
