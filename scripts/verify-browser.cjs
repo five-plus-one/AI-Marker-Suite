@@ -38,7 +38,7 @@ async function connect(url) {
         const pages = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
         client = await connect(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
         await client.send('Page.enable');
-        const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation'];
+        const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang'];
         for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
             await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
             await client.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });

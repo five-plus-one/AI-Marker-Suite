@@ -199,6 +199,10 @@ function loadOne(sb, dir, opts = {}) {
 // own: 自家平台最小形态（隔离加载必注册；bundle 下除已知竞争外必须唯一命中）
 // near: 近似域名/缺条件形态（必须不注册 → 空槽）
 const ADAPTERS = [
+    { dir: 'qiguang', id: 'qiguang', name: '启光优测',
+      own: { host: '120.78.5.37', path: '/OraOnlineCheck/OraCheck/Review' },
+      near: [{ label: '启光登录页不注册', form: { host: '120.78.5.37', path: '/Account/Login' } },
+             { label: '启光近似主机不注册', form: { host: '120.78.5.37.example.com', path: '/OraOnlineCheck/OraCheck/Review' } }] },
     { dir: 'zhixue', id: 'zhixue', name: '智学网',
       own: { host: 'www.zhixue.com', path: '/' },
       near: [{ label: '近似域名 zhixue.cn', form: { host: 'zhixue.cn', path: '/' } }] },

@@ -1,0 +1,39 @@
+<!doctype html><meta charset="utf-8"><title>Qiguang adapter acceptance</title>
+<style>#scoring-item{width:600px;height:200px;background-image:url("https://example.com/fixture-a.jpg?t=1")}.hidden{display:none}</style>
+<canvas id="scoring-item"></canvas><span id="paperID">试卷ID：fixture-a</span><span id="myRead">0</span>
+<input name="operateTypeCheck" type="radio" value="0" checked><input name="autoSubmit" type="checkbox">
+<form id="form-scoring"><input name="score" data-id="q1" data-max="5" data-fullscore="0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5">
+<div class="hidden"><input name="score1" value=""></div><button id="btn-submit-score" type="submit" disabled>提交得分</button></form>
+<pre id="result"></pre><script src="../../src/adapters/qiguang/adapter.js"></script><script>
+(async()=>{
+ const runId=new URLSearchParams(location.search).get('run');
+ const assert=(ok,message)=>{if(!ok)throw Error(message)};
+ try {
+  // 本地夹具仅替换宿主判断，其余方法直接执行实际适配器。
+  const a=QiguangAdapter;a.shouldInitialize=()=>true;
+  const input=document.querySelector('input[name="score"]'),mirror=document.querySelector('input[name="score1"]');
+  let submits=0,keys=0;input.addEventListener('keyup',()=>keys++);
+  document.getElementById('form-scoring').addEventListener('input',event=>{
+   mirror.value=event.target.value;document.getElementById('btn-submit-score').disabled=false;
+  });
+  document.getElementById('form-scoring').addEventListener('submit',event=>{
+   event.preventDefault();submits++;document.getElementById('myRead').textContent=String(submits);
+  });
+  assert(await a.detectMarkingPage(),'识别单份阅卷');
+  assert(a.getScoreInputs().length===1,'只读取可见键盘评分项');
+  assert((await a.gatherAnswerImages())[0].includes('fixture-a.jpg'),'读取画布作答背景');
+  const identity=a.getPaperIdentity();
+  document.getElementById('scoring-item').style.backgroundImage='url("https://example.com/fixture-a.jpg?t=2")';
+  assert(a.getPaperIdentity()===identity,'缓存时间不改变试卷身份');
+  assert(a.fillScores([0]),'支持零分');assert(input.value==='0'&&mirror.value==='0','平台输入事件同步给分');
+  assert(submits===0&&keys===0,'填写时没有提交或键盘事件');
+  assert(!a.fillScores([0.3])&&input.value==='0','拒绝档位以外分数');
+  assert(a.fillScores([2.5]),'支持小数档位');
+  assert(await a.submitGrade({isCurrent:()=>true,verify:async()=>{}}),'平台成功回执确认提交');
+  assert(submits===1&&!await a.submitGrade(),'一份分数仅提交一次');
+  assert(a.fillScores([1]),'准备新确认');document.getElementById('paperID').textContent='试卷ID：fixture-b';
+  assert(!await a.submitGrade(),'换卷后拦截旧分数');assert(submits===1,'换卷后没有额外提交');
+  document.getElementById('result').textContent=btoa(JSON.stringify({runId,passed:true,width:innerWidth,checks:14}));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))));}
+})();
+</script>
