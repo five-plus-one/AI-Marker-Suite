@@ -332,6 +332,11 @@ async function startAutoGrading() {
 
         const adapter = window.__AI_MARKER_ADAPTER__;
 
+        if (adapter?.prepareGrading && await adapter.prepareGrading() === false) {
+            throw new Error(adapter.lastFillError || '阅卷页面尚未就绪，请核对后继续');
+        }
+        requireCurrentGradingContext(runContext);
+
         // AI 失败重试时复用已下载的图片，避免重新抓取（拦截器缓冲可能已清空）
         const isRetry = runContext.paperId && runContext.paperId === window.aiGradingState.currentPaperId && window.aiGradingState.errorRetryCount > 0
             && window.aiGradingState.currentBase64DataArray.length > 0;
@@ -586,7 +591,7 @@ async function startAutoGrading() {
             }
             if (fillOk === false) {
                 console.warn('⚠️ [诊断] 分数填入失败，中止本次提交');
-                throw new Error('分数填入失败（分数框缺失或分数不可填），请手动输入分数后继续');
+                throw new Error(adapter?.lastFillError || '分数填入失败（分数框缺失或分数不可填），请手动输入分数后继续');
             }
             runContext.inputSnapshot = snapshotScoreInputs(adapter);
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框

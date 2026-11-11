@@ -63,7 +63,7 @@ const JiukexingAdapter = {
             || rendered.some((item, i) => this._url(item.markingUrlObj) !== urls[i])
             || images.length !== urls.length || images.some((img, i) => this._url(img.getAttribute('src')) !== urls[i]
                 || !img.complete || !(img.naturalWidth > 0) || !(img.naturalHeight > 0))) return null;
-        return { page, urls, images, paperId: String(paper.id), questionBlockId: String(paper.questionBlockId),
+        return { page, nativePaper: paper, urls, images, paperId: String(paper.id), questionBlockId: String(paper.questionBlockId),
             identity: this.getPaperIdentity(), task: this.getTaskIdentifier() };
     },
     isMarkingPage() {
@@ -71,6 +71,39 @@ const JiukexingAdapter = {
     },
     async detectMarkingPage() {
         return this.isMarkingPage();
+    },
+    prepareGrading() {
+        this.lastFillError = '';
+        const page = this._page(), identity = this.getPaperIdentity();
+        const fail = message => { this.lastFillError = message; return false; };
+        if (page?.lockScreen) return fail('九科星已暂停阅卷，请点击平台“继续阅卷”后继续批改');
+        if (!page || !identity || this.isRegradeMode() || this._submitting
+            || window.aiGradingState?.activeRun?.controller?.signal?.aborted) {
+            return fail('九科星当前答卷不可批改，请返回正常阅卷页面后继续');
+        }
+        if (page.radio !== 2) return fail('请将九科星切换为“键盘打分”后继续');
+        if (page.isSubmit || page.isSubmitting) return fail('九科星正在提交分数，请等待提交完成');
+        if (page.checked === true) {
+            const controls = Array.from(document.querySelectorAll('.MTcontainer_content .autosubmit input[type="checkbox"]'))
+                .filter(input => input.closest('label')?.textContent.trim() === '自动提交');
+            const control = controls.length === 1 ? controls[0] : null;
+            if (!control || control.disabled || !control.checked) {
+                return fail('未能关闭九科星的“自动提交”，请取消勾选后继续');
+            }
+            // 清理原生键盘计时，再通过原生复选框更新 Vue 状态和界面。
+            if (typeof page.openFlag === 'function') page.openFlag();
+            control.click();
+            if (control.checked || page.checked !== false) {
+                return fail('未能关闭九科星的“自动提交”，请取消勾选后继续');
+            }
+        }
+        if (this._page() !== page || this.getPaperIdentity() !== identity || page.checked !== false
+            || page.lockScreen || page.isSubmit || page.isSubmitting
+            || window.aiGradingState?.activeRun?.controller?.signal?.aborted) {
+            return fail('九科星阅卷状态已变化，请核对当前答卷后继续');
+        }
+        if (typeof page.openFlag === 'function') page.openFlag();
+        return true;
     },
     async gatherAnswerImages() {
         const task = this.getTaskIdentifier(), signal = window.aiGradingState?.activeRun?.controller?.signal;
@@ -126,12 +159,13 @@ const JiukexingAdapter = {
     },
     fillScores(scores) {
         this._pendingScores = null;
+        this.lastFillError = '';
         if (this._submitting) return false;
-        const state = this._state(), inputs = this.getScoreInputs();
-        if (state?.page.checked) {
-            showToast('请关闭九科星的“自动提交”，由批改助手确认后提交');
+        if (this._page()?.lockScreen) {
+            this.lastFillError = '九科星已暂停阅卷，请点击平台“继续阅卷”后继续批改';
             return false;
         }
+        const state = this._state(), inputs = this.getScoreInputs();
         if (!state || (this._collectedPaper && (this._collectedPaper.identity !== state.identity || this._collectedPaper.task !== state.task))
             || !Array.isArray(scores) || !inputs.length || scores.length !== inputs.length
             || inputs.some((unit, i) => typeof scores[i] !== 'number' || !Number.isFinite(scores[i])
@@ -141,6 +175,7 @@ const JiukexingAdapter = {
                     && scores[i] % unit.scoreRule.interval !== 0 && scores[i] !== unit.maxScore)
                 || (unit.scoreRule.mode === 2 && unit.scoreRule.values.length
                     && !unit.scoreRule.values.includes(scores[i])))) return false;
+        if (!this.prepareGrading()) return false;
         const pending = { ...state, inputs, scores: scores.slice(), signal: window.aiGradingState?.activeRun?.controller?.signal };
         if (!this._matches(pending)) return false;
         // 原生 openFlag 清除键盘自动提交计时器，避免切换设置前遗留的计时器提交本次分数。
@@ -159,6 +194,8 @@ const JiukexingAdapter = {
     },
     async submitGrade(guard) {
         if (this._submitting) return false;
+        this._recoverableRejection = null;
+        this.lastSubmitError = '';
         const pending = this._pendingScores;
         this._pendingScores = null;
         if (!pending || guard?.signal?.aborted || (guard && !guard.isCurrent()) || !this._matchesPending(pending)) return false;
@@ -184,7 +221,7 @@ const JiukexingAdapter = {
                     throw new Error('平台提交的分数与本次评分不一致，请核对后重试');
                 }
                 const request = original.call(this, payload, ...rest);
-                receipt = Promise.resolve(request).then(result => result?.code === 0, () => false);
+                receipt = Promise.resolve(request).then(result => result, () => null);
                 return request;
             };
             endpoint.submitScore = capture;
@@ -193,15 +230,71 @@ const JiukexingAdapter = {
             try { btn.click(); } finally { if (endpoint.submitScore === capture) endpoint.submitScore = original; }
             // 本地校验拒绝或最短时长未满足时，原生函数不会发送保存请求。
             if (!receipt || calls !== 1) return false;
-            const accepted = await Promise.race([receipt, new Promise(resolve => { timer = setTimeout(() => resolve(false), 30000); })]);
-            if (!accepted) showToast('平台尚未确认保存，请核对阅卷记录后继续');
-            return accepted && !pending.signal?.aborted && !guard?.signal?.aborted && (!guard || guard.isCurrent())
+            const result = await Promise.race([receipt, new Promise(resolve => { timer = setTimeout(() => resolve(null), 30000); })]);
+            const accepted = result?.code === 0;
+            if (!accepted) {
+                this.lastSubmitError = '平台尚未确认保存，请核对阅卷记录后继续';
+                if (result?.code === 13303 && result.msg === '提交分数失败，请刷新页面后重试！') {
+                    this._recoverableRejection = pending;
+                    this.lastSubmitError = '九科星提交失败，请刷新页面并核对阅卷记录后继续';
+                }
+            }
+            const saved = accepted && !pending.signal?.aborted && !guard?.signal?.aborted && (!guard || guard.isCurrent())
                 && this.getTaskIdentifier() === pending.task;
+            // 平台的闲置计时只监听物理输入；成功保存同样属于真实阅卷活动。
+            // 仅在当前有效轮次收到保存成功回执后登记，失败或空闲不延长计时。
+            if (saved && this._page() === pending.page && typeof pending.page.afterOperate === 'function') {
+                try { pending.page.afterOperate(); }
+                catch (error) { console.warn('[九科星] 保存成功后的活动登记失败:', error); }
+            }
+            if (saved) this._refreshRecoveryCount = 0;
+            return saved;
         } finally {
             clearTimeout(timer);
             if (endpoint && endpoint.submitScore === capture) endpoint.submitScore = original;
             this._submitting = false;
         }
+    },
+    async recoverSubmission(guard) {
+        const rejected = this._recoverableRejection;
+        this._recoverableRejection = null;
+        if (!rejected || this._submitting) return false;
+        if ((this._refreshRecoveryCount || 0) >= 2) {
+            this.lastSubmitError = '九科星连续提交失败，请刷新页面并核对阅卷记录后继续';
+            return false;
+        }
+        const current = () => !guard?.signal?.aborted && !rejected.signal?.aborted
+            && (!guard?.isCurrent || guard.isCurrent()) && this._page() === rejected.page
+            && this.getTaskIdentifier() === rejected.task;
+        if (!current()) return false;
+        this._refreshRecoveryCount = (this._refreshRecoveryCount || 0) + 1;
+        const started = Date.now();
+        let clicked = false;
+        while (Date.now() - started < 8000) {
+            if (!current()) return false;
+            if (rejected.page.markingNow !== rejected.nativePaper) {
+                const urls = await this.gatherAnswerImages();
+                if (!current() || !urls.length) return false;
+                this._pendingScores = null;
+                this.lastSubmitError = '';
+                return true;
+            }
+            if (!clicked) {
+                const dialogs = Array.from(document.querySelectorAll('.el-message-box__wrapper')).filter(dialog =>
+                    dialog.getClientRects().length > 0
+                    && dialog.querySelector('.el-message-box__message p')?.textContent.trim()
+                        === '提交分数失败，请刷新页面后重试！');
+                const buttons = dialogs.length === 1
+                    ? dialogs[0].querySelectorAll('.el-message-box__btns button.el-button--primary') : [];
+                if (buttons.length === 1 && !buttons[0].disabled) {
+                    buttons[0].click();
+                    clicked = true;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        this.lastSubmitError = '九科星未能恢复阅卷，请刷新页面并核对阅卷记录后继续';
+        return false;
     },
     async waitForNextPaper(oldImageUrl, options = {}) {
         const task = this.getTaskIdentifier();
