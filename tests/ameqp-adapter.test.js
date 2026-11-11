@@ -129,9 +129,20 @@ test('AMEQP 标识仅接受考号及三个数字图片编号，兼容缓存、�
     assert.equal(f.adapter.getPaperIdentity(), '1001');
 });
 
-for (const file of ['scan_A_00_1_0.PNG', '1001A_00_1_0.PNG', '1001.PNG', 'image.ashx?paper=1001', '1001_00_1_0.ashx?paper=1002']) {
-    test('AMEQP 无可靠标识的地址停止取图和写分：' + file, async () => {
+for (const file of ['scan_A_00_1_0.PNG', '生物地理_A.PNG', '1001A_00_1_0.PNG', '1001.PNG', 'image.ashx?paper=1001', '1001_00_1_0.ashx?paper=1002']) {
+    test('AMEQP 单图使用完整资源地址完成取图和登记：' + file, async () => {
         const f = fixture(); f.state.img.src = 'https://school.example/images/' + file;
+        assert.ok(f.adapter.getPaperIdentity());
+        assert.equal((await f.adapter.gatherAnswerImages()).length, 1);
+        assert.equal(f.adapter.fillScores([1, 2]), true);
+        assert.equal(await f.adapter.submitGrade(), true);
+        assert.equal(f.state.clicks, 1);
+    });
+}
+
+for (const file of ['', '   ', 'data:image/png;base64,abc', 'javascript:alert(1)']) {
+    test('AMEQP 空地址和非 HTTP 作答停止取图与写分：' + file, async () => {
+        const f = fixture(); f.state.img.src = file;
         assert.equal(f.adapter.getPaperIdentity(), null);
         assert.equal((await f.adapter.gatherAnswerImages()).length, 0);
         assert.equal(f.adapter.fillScores([1, 2]), false);
@@ -140,6 +151,58 @@ for (const file of ['scan_A_00_1_0.PNG', '1001A_00_1_0.PNG', '1001.PNG', 'image.
         assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
     });
 }
+
+test('AMEQP 非数字单图连续三份，以提交前完整资源为基准', async () => {
+    for (const address of [id => `https://school.example/生物地理_${id}.PNG?t=1`,
+        id => `https://school.example/image.ashx?paper=${id}&t=1`]) {
+        const f = fixture({ onSubmit: state => { state.changePaper('1002'); state.img.src = address(state.clicks + 1); } });
+        f.state.img.src = address(1);
+        for (let i = 0; i < 3; i++) {
+            const urls = await f.adapter.gatherAnswerImages(), paperId = f.adapter.getPaperIdentity();
+            assert.equal(urls.length, 1); assert.ok(f.adapter.fillScores([0, 2.5]));
+            assert.ok(await f.adapter.submitGrade());
+            assert.ok(await f.adapter.waitForNextPaper(urls[0], { paperId }));
+            assert.notEqual(f.adapter.getPaperIdentity(), paperId);
+        }
+        assert.equal(f.state.clicks, 3);
+    }
+});
+
+test('AMEQP 单图缓存戳刷新不换卷，语义查询和路径改变均区分答卷', async () => {
+    const f = fixture(); f.state.img.src = 'https://school.example/image.ashx?paper=A&t=1';
+    const before = f.adapter.getPaperIdentity();
+    f.state.img.src = f.state.img.src.replace('t=1', 't=2');
+    assert.equal(f.adapter.getPaperIdentity(), before);
+    let settled = false;
+    const waiting = f.adapter.waitForNextPaper('data:crop', { paperId: before }).then(v => { settled = true; return v; });
+    await new Promise(r => setTimeout(r, 8)); assert.equal(settled, false);
+    f.state.img.src = f.state.img.src.replace('paper=A', 'paper=B');
+    f.state.img.complete = false;
+    await new Promise(r => setTimeout(r, 8)); assert.equal(settled, false);
+    f.state.img.complete = true; assert.ok(await waiting);
+    assert.notEqual(f.adapter.getPaperIdentity(), before);
+});
+
+test('AMEQP 非数字文件公共前缀不能掩盖给分事件中的换卷', async () => {
+    for (const type of ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur']) {
+        const f = fixture({ onInput: (_input, event, state) => {
+            if (event.type === type) { state.changePaper('1002'); state.img.src = 'https://school.example/生物地理_B.PNG'; }
+        } });
+        f.state.img.src = 'https://school.example/生物地理_A.PNG';
+        assert.equal(f.adapter.fillScores([1, 2]), false);
+        assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
+        assert.ok(f.state.inputs.every(input => input.value === ''));
+        assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
+    }
+});
+
+test('AMEQP 多张未知分组图片不提供答卷身份', async () => {
+    const f = fixture(); f.state.img.src = 'https://school.example/scan_A.PNG';
+    f.state.images.push({ ...f.state.img, src: 'https://school.example/scan_B.PNG' });
+    assert.equal(f.adapter.getPaperIdentity(), null);
+    assert.equal((await f.adapter.gatherAnswerImages()).length, 0);
+    assert.equal(f.adapter.fillScores([1, 2]), false);
+});
 
 test('AMEQP 首图未变而其他题块换卷时停止给分和提交', async () => {
     const f = fixture({ onInput: (_input, _event, state) => {
