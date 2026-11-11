@@ -22,12 +22,15 @@ module.exports = function fixture(options = {}) {
         if (state.mode === 'throw') throw Error('network');
         if (state.mode === 'reject') return Promise.reject(Error('network'));
         if (state.mode === 'pending') return new Promise(resolve => { state.resolve = resolve; });
+        if (state.mode === 'refresh-refused') return Promise.resolve({ code: 13303, msg: '提交分数失败，请刷新页面后重试！' });
         return Promise.resolve({ code: state.mode === 'refused' ? 13303 : 0 });
     } };
     const original = endpoint.submitScore;
     const page = { $children: [], getGradeList: [], imgsList: [], markingNow: {}, examId: 'exam', subjectId: 'subject',
         questionvalue: 'block', isdp: 1, radio: 2, checked: false, oldornew: 'new', lockScreen: false, yi: false,
-        isSubmit: false, isSubmitting: false, $api: { task: endpoint }, submit() {}, changePaper() {}, openFlag() { state.cancelledAuto = true; } };
+        isSubmit: false, isSubmitting: false, $api: { task: endpoint }, submit() {}, changePaper() {}, openFlag() { state.cancelledAuto = true; },
+        afterOperate() { state.activityCount = (state.activityCount || 0) + 1; state.idleDeadline = state.clock + 600000;
+            if (state.failActivity) throw Error('activity'); } };
     const advance = (id = 'B', sameUrl = false) => {
         page.markingNow = { id, scanPaperId: 'scan-' + id, markingRecordId: 'record-' + id, questionBlockId: 'block',
             markingUrlList: Array.from({ length: options.images || 1 }, (_, i) => ({ markingUrlObj: `https://obs.test/${sameUrl ? 'A' : id}-${i}.jpg?crop=${i}` })) };
@@ -56,10 +59,19 @@ module.exports = function fixture(options = {}) {
             if (!state.dropAutoClick) { this.checked = false; page.checked = false; }
             state.afterAutoClick?.();
         } };
+    const recoveryButton = { disabled: false, click() {
+        state.recoveryClicks = (state.recoveryClicks || 0) + 1;
+        if (!state.noRefresh) advance(state.recoverSamePaper ? page.markingNow.id : 'REFRESHED');
+        state.afterRecovery?.();
+    } };
+    const recoveryDialog = { getClientRects() { return state.hideRecovery ? [] : [{}]; },
+        querySelector() { return { textContent: state.recoveryMessage || '提交分数失败，请刷新页面后重试！' }; },
+        querySelectorAll() { return [recoveryButton]; } };
     sb.document.querySelector = selector => selector === '#app' ? { __vue__: { $children: [page] } }
         : selector === '.MTcontainer_content' ? {} : selector === '.submitbtn' ? button : query(selector);
     sb.document.querySelectorAll = selector => selector === '.examText .imgBG img' ? state.images
         : selector === '.quesGrade .input_btn' ? inputs
+        : selector === '.el-message-box__wrapper' ? (state.noRecoveryDialog ? [] : [recoveryDialog])
         : selector === '.MTcontainer_content .autosubmit input[type="checkbox"]' ? (state.noAutoControl ? [] : [autoSubmit]) : [];
     sb.HTMLInputElement = Input; sb.showToast = text => state.notices.push(text);
     sb.fetchImageAsBase64 = async url => url;

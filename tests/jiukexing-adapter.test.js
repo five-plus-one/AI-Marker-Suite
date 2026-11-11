@@ -19,6 +19,80 @@ test('九科星连续三卷绑定原生 ID，原生保存成功后识别已换�
         assert.equal(f.endpoint.submitScore, f.original);
     }
     assert.equal(f.state.requests.length, 3);
+    assert.equal(f.state.activityCount, 3);
+});
+
+test('九科星只在当前题块成功保存后更新原生阅卷活动', async () => {
+    const f = fixture();
+    for (let index = 0; index < 3; index++) {
+        f.state.clock += 590000;
+        assert.ok(f.adapter.fillScores([5]));
+        assert.equal(f.state.activityCount || 0, index);
+        assert.ok(await f.adapter.submitGrade());
+        assert.equal(f.state.idleDeadline, f.state.clock + 600000);
+        assert.equal(f.state.activityCount, index + 1);
+    }
+    for (const mode of ['validation', 'minimum-time', 'refused', 'reject', 'throw']) {
+        const g = fixture(); g.state.mode = mode; assert.ok(g.adapter.fillScores([5]));
+        try { await g.adapter.submitGrade(); } catch (_) {}
+        assert.equal(g.state.activityCount || 0, 0);
+    }
+    for (const change of [g => g.sb.aiGradingState.activeRun.controller.abort(), g => { g.page.questionvalue = 'other'; }]) {
+        const g = fixture(); g.state.mode = 'pending'; assert.ok(g.adapter.fillScores([5]));
+        const saving = g.adapter.submitGrade(); change(g); g.state.resolve({ code: 0 });
+        assert.equal(await saving, false); assert.equal(g.state.activityCount || 0, 0);
+    }
+});
+
+test('九科星活动登记异常不改变已确认保存结果，锁屏显示恢复操作', async () => {
+    const f = fixture(); f.state.failActivity = true; assert.ok(f.adapter.fillScores([5]));
+    assert.equal(await f.adapter.submitGrade(), true); assert.equal(f.state.requests.length, 1);
+    f.page.lockScreen = true; assert.equal(f.adapter.fillScores([5]), false);
+    assert.match(f.adapter.lastFillError, /继续阅卷/);
+    assert.equal(f.adapter.prepareGrading(), false); assert.match(f.adapter.lastFillError, /继续阅卷/);
+});
+
+test('九科星明确提交失败后通过原生弹窗重新取卷，旧分数不再提交', async () => {
+    for (const samePaper of [false, true]) {
+        const f = fixture(); f.state.mode = 'refresh-refused'; f.state.recoverSamePaper = samePaper;
+        await f.adapter.gatherAnswerImages(); assert.ok(f.adapter.fillScores([5]));
+        assert.equal(await f.adapter.submitGrade(), false);
+        assert.equal(f.state.activityCount || 0, 0);
+        assert.equal(await f.adapter.recoverSubmission({ isCurrent: () => true }), true);
+        assert.equal(f.state.recoveryClicks, 1); assert.equal(f.state.requests.length, 1);
+        assert.equal(f.inputs[0].value, ''); assert.equal(await f.adapter.submitGrade(), false);
+        assert.equal(await f.adapter.recoverSubmission(), false);
+        f.state.mode = 'success'; assert.ok(f.adapter.fillScores([2])); assert.ok(await f.adapter.submitGrade());
+        assert.equal(f.state.requests[1].studentScore, 2); assert.equal(f.adapter._refreshRecoveryCount, 0);
+    }
+});
+
+test('九科星未知结果与其他错误不自动恢复，重复失败限制两次', async () => {
+    for (const mode of ['refused', 'reject']) {
+        const f = fixture(); f.state.mode = mode; assert.ok(f.adapter.fillScores([5]));
+        assert.equal(await f.adapter.submitGrade(), false);
+        assert.equal(await f.adapter.recoverSubmission(), false); assert.equal(f.state.recoveryClicks || 0, 0);
+    }
+    const f = fixture(); f.state.mode = 'refresh-refused';
+    for (let index = 0; index < 3; index++) {
+        assert.ok(f.adapter.fillScores([5])); assert.equal(await f.adapter.submitGrade(), false);
+        assert.equal(await f.adapter.recoverSubmission(), index < 2);
+    }
+    assert.equal(f.state.recoveryClicks, 2); assert.match(f.adapter.lastSubmitError, /连续提交失败/);
+});
+
+test('九科星恢复时取消、换题或弹窗不匹配均不继续评分', async () => {
+    for (const change of [f => f.sb.aiGradingState.activeRun.controller.abort(),
+        f => { f.page.questionvalue = 'other'; }, f => { f.state.recoveryMessage = '其他确认'; },
+        f => { f.state.noRecoveryDialog = true; }, f => { f.state.hideRecovery = true; }]) {
+        const f = fixture(); f.state.mode = 'refresh-refused'; assert.ok(f.adapter.fillScores([5]));
+        assert.equal(await f.adapter.submitGrade(), false); change(f);
+        assert.equal(await f.adapter.recoverSubmission(), false);
+        assert.equal(f.state.recoveryClicks || 0, 0); assert.equal(f.state.requests.length, 1);
+    }
+    const f = fixture(); f.state.mode = 'refresh-refused'; f.state.noRefresh = true;
+    assert.ok(f.adapter.fillScores([5])); assert.equal(await f.adapter.submitGrade(), false);
+    assert.equal(await f.adapter.recoverSubmission(), false); assert.equal(f.state.recoveryClicks, 1);
 });
 
 test('九科星必须等原生整组图片及对应 DOM 全部加载，不能返回部分图片', async () => {

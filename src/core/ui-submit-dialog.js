@@ -979,6 +979,20 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 window.aiGradingState.isRunning = false;
             }
         } else {
+            if (mode === 'unattended' && adapter?.recoverSubmission) {
+                const canRecover = () => isGradingContextCurrent(runContext)
+                    && PresetManager.data.active === runContext.presetName
+                    && (!runContext.taskId || runContext.taskId === (PresetManager.getTaskIdentifier?.() || ''));
+                const recovered = await adapter.recoverSubmission({ signal: runContext.controller.signal, isCurrent: canRecover });
+                if (recovered && canRecover()) {
+                    showToast('平台已重新获取答卷，正在重新核对评分');
+                    // 此轮没有保存成功：不计数、不写成功历史，新轮次重新取图和评分。
+                    window.aiGradingState.errorRetryCount = 0;
+                    setTimeout(() => { if (canRecover()) startAutoGrading(); }, 500);
+                    return;
+                }
+                if (!isGradingContextCurrent(runContext)) return;
+            }
             console.warn('平台提交操作未完成，暂停等待核对');
             // 不停止，改为暂停让用户手动提交后继续
             window.aiGradingState.isRunning = false;
@@ -989,7 +1003,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 btn.classList.remove('running', 'unattended', 'trial');
                 btn.classList.add('paused');
             }
-            showToast('⚠️ 平台未完成提交，请核对分数和页面提示后继续');
+            showToast(adapter?.lastSubmitError || '⚠️ 平台未完成提交，请核对分数和页面提示后继续');
         }
     };
 
