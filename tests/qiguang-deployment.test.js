@@ -13,11 +13,12 @@ for (const form of Q.deployments) test(form.label + '：完整 bundle 使用单�
 });
 
 test('诊学平台名称按完整域名边界识别，同结构外站保留对应名称', () => {
-    for (const host of ['51zhenxue.com', 'crock.51zhenxue.com', 'crock.51zhenxue.com.example.org', 'not51zhenxue.com']) {
+    for (const [host, expectedName] of [['51zhenxue.com', '诊学网'], ['crock.51zhenxue.com', '诊学网'],
+        ['crock.51zhenxue.com.example.org', '启光优测'], ['not51zhenxue.com', '启光优测']]) {
         const sb = M.makeStub({ host, path: Q.ROUTE, dom: Q.signature() });
         const result = M.loadAdapters(sb);
         assert.deepEqual(result.errors, []);
-        assert.equal(result.winner?.name, host === '51zhenxue.com' || host.endsWith('.51zhenxue.com') ? '诊学网' : '启光优测');
+        assert.equal(result.winner?.name, expectedName);
         assert.equal(result.writes.length, 1);
     }
 });
