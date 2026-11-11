@@ -788,6 +788,20 @@ async function init() {
     }
 }
 
+// 平台与题号可能已经确定，阅卷 DOM 却在首次检测之后才就绪。
+// 复用现有轮询和平台检测恢复入口；初始化防重入仍由 init 统一控制。
+function recoverMarkingUIIfReady() {
+    if (window !== window.top || _initInFlight || document.querySelector('.ai-grade-btn')) return;
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    if (!adapter || isToolsPageMode()) return;
+    try {
+        if (adapter.isMarkingPage && !adapter.isMarkingPage()) return;
+        init().catch(error => console.warn('[初始化] 阅卷入口恢复失败，将在就绪后重试:', error));
+    } catch (error) {
+        console.warn('[初始化] 阅卷页面尚未就绪:', error);
+    }
+}
+
 async function runInitBody() {
     if (window !== window.top) return; // 跳过 iframe
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -800,12 +814,18 @@ async function runInitBody() {
 
     const adapter = window.__AI_MARKER_ADAPTER__;
 
+    const pageUrl = window.location?.href || '';
+    const isCurrentPage = () => adapter === window.__AI_MARKER_ADAPTER__ && (window.location?.href || '') === pageUrl;
+
     // 检测是否在批改页面，支持重试（SPA应用可能需要更长时间加载）
     let isMarkingPage = await detectMarkingPage();
+    if (!isCurrentPage()) return;
     if (!isMarkingPage) {
         // 第一次检测失败，等待后重试
         await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!isCurrentPage()) return;
         isMarkingPage = await detectMarkingPage();
+        if (!isCurrentPage()) return;
         if (!isMarkingPage) {
             // 非阅卷页面：如果在阅卷平台上，仅注入历史按钮
             if (adapter) {
@@ -1040,6 +1060,7 @@ let lastUrlId = PresetManager.getTaskIdentifier();
 let pendingNewTaskFlowId = null;
 let newTaskFlowInFlight = false; // #312 防重入：并发生 tick 不得双跑新题引导（双弹窗）
 setInterval(async () => {
+    recoverMarkingUIIfReady();
     const currentUrlId = PresetManager.getTaskIdentifier();
     if (currentUrlId !== lastUrlId) {
         lastUrlId = currentUrlId;

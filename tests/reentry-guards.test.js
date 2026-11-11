@@ -153,6 +153,21 @@ test('启动写入失败时仍创建界面并提示重新保存', async () => {
     assert.ok(notices.some(message => message.includes('重新保存')));
 });
 
+test('检测等待期间离开页面或更换平台不会创建旧页面入口', async () => {
+    for (const change of ['route', 'adapter']) {
+        const { init, buttons, sandbox } = loadMainInit();
+        sandbox.window.location = { href: 'https://platform.test/marking' };
+        sandbox.detectMarkingPage = async () => {
+            if (change === 'route') sandbox.window.location.href = 'https://platform.test/list';
+            else sandbox.window.__AI_MARKER_ADAPTER__ = {};
+            return true;
+        };
+        await init();
+        assert.strictEqual(buttons.main, 0);
+        assert.strictEqual(buttons.settings, 0);
+    }
+});
+
 test('C.3 闩为 in-running 语义：完成后合法重跑（SPA 列表页→批改页需重建 UI）', async () => {
     const { init, buttons } = loadMainInit();
     await init();

@@ -38,13 +38,16 @@ async function connect(url) {
         const pages = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
         client = await connect(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
         await client.send('Page.enable');
-        for (const fixture of ['workflow', 'renderer', 'bundle']) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
+        const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation'];
+        for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
             await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
             await client.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
             const runId = `${fixture}-${width}-${theme}-${Date.now()}`;
-            await client.send('Page.navigate', { url: pathToFileURL(path.join(root, `tests/fixtures/${fixture}.html`)).href + '?run=' + runId });
+            const startup = fixture.startsWith('startup');
+            const mode = fixture === 'startup-registration' ? 'late-registration' : fixture === 'startup-navigation' ? 'spa-entry' : 'late-dom';
+            await client.send('Page.navigate', { url: pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode });
             let result;
-            for (let count = 0; count < 200; count++) {
+            for (let count = 0; count < (startup ? 400 : 200); count++) {
                 const reply = await client.send('Runtime.evaluate', { expression: "document.getElementById('result')?.textContent || ''", returnByValue: true });
                 if (reply.result?.value) {
                     const candidate = JSON.parse(Buffer.from(reply.result.value, 'base64').toString());
