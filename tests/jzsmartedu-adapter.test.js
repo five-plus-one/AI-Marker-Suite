@@ -71,7 +71,7 @@ test('焦作填分过程中换卷立即停止，不向新卷派发 change', () =
 });
 
 test('焦作非单评、历史回评、批量模式和原生自动提交不填分', () => {
-    const changes = [f => f.boardVm.boardType = '2', f => f.boardVm.autoSubmit = true,
+    const changes = [f => f.boardVm.boardType = '1', f => f.boardVm.autoSubmit = true,
         f => f.boardVm.type = 5, f => f.parent.readPaperType = '2', f => f.parent.isHistory = true,
         f => f.parent.isTrialRead = true, f => f.parent.loading = true, f => f.parent.animationIng = true,
         f => f.input.disabled = true, f => f.input.readOnly = true];
@@ -80,6 +80,46 @@ test('焦作非单评、历史回评、批量模式和原生自动提交不填�
         assert.equal(f.adapter.fillScores([2]), false);
         assert.equal(f.state.events.length, 0);
     }
+});
+
+test('焦作默认评分板检测给分单元并通过原生按钮同步提交', async () => {
+    const f = fixture(); f.boardVm.boardType = '2';
+    assert.equal(f.adapter.getScoreInputs()[0].maxScore, 15);
+    for (const score of [0, 1, 2.5, 15]) {
+        assert.equal(f.adapter.fillScores([score]), true);
+        assert.equal(f.boardVm.effectScoreList[0].score, score);
+        assert.equal(f.parent.scoreList[0].score, score);
+    }
+    assert.equal(f.state.events.length, 0); assert.equal(f.state.clicks, 0);
+    assert.equal(await f.adapter.submitGrade(), true);
+    assert.equal(f.state.clicks, 1);
+});
+
+test('焦作评分板没有对应档位时提示键盘打分，保持分数与提交不动', async () => {
+    const f = fixture(); f.boardVm.boardType = '2';
+    assert.equal(f.adapter.fillScores([1.23]), false);
+    assert.equal(f.state.paletteClicks || 0, 0); assert.equal(f.parent.scoreList[0].score, '');
+    assert.match(f.state.notices.at(-1), /键盘打分/);
+    assert.equal(await f.adapter.submitGrade(), false);
+});
+
+test('焦作评分板自动提交、按钮异常、不同步与点击后换卷均拒绝继续', async () => {
+    for (const change of [f => f.boardVm.autoSubmit = true, f => f.state.dropPalette = true,
+        f => f.state.dropChange = true, f => f.palette[1].disabled = true,
+        f => f.state.afterPalette = () => f.advance('B')]) {
+        const f = fixture(); f.boardVm.boardType = '2'; change(f);
+        assert.equal(f.adapter.fillScores([1]), false);
+        assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
+    }
+});
+
+test('焦作开启自动提交仍能读取满分，切换给分模式后旧分数不提交', async () => {
+    const f = fixture(); f.boardVm.boardType = '2'; f.boardVm.autoSubmit = true;
+    assert.equal(f.adapter.getScoreInputs()[0].maxScore, 15);
+    assert.equal(f.adapter.fillScores([1]), false);
+    f.boardVm.autoSubmit = false; assert.equal(f.adapter.fillScores([1]), true);
+    f.boardVm.boardType = '3'; assert.equal(await f.adapter.submitGrade(), false);
+    assert.equal(f.state.clicks, 0);
 });
 
 test('焦作提交前复核任务、答卷、教师改分和给分规则', async () => {

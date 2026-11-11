@@ -26,7 +26,10 @@ module.exports = function fixture() {
     const image = { ...visible(), src: '', complete: true, naturalWidth: 300, naturalHeight: 100, parentElement: imageParent };
     const body = { ...visible(), querySelectorAll: () => state.extraImage ? [image, state.extraImage] : [image] };
     const board = { ...visible(), __vue__: boardVm, querySelectorAll(selector) {
-        return selector.includes('input.') ? [input] : selector.includes('button') ? [button] : [];
+        return selector.includes('input.') ? [input]
+            : selector.includes('score-0-full') ? palette.filter(b => ['零分', '满分'].includes(b.textContent))
+            : selector.includes('score-btn') ? palette.filter(b => !['零分', '满分'].includes(b.textContent))
+            : selector.includes('button') ? [button] : [];
     } };
     const advance = (id = 'B', sameImage = false) => {
         const data = { examResultItemId: 'part-' + id, paperReadId: 'read', saveFileUrl: '/answers/' + (sameImage ? 'A' : id) + '.png' };
@@ -39,6 +42,13 @@ module.exports = function fixture() {
         row.score = ''; parent.scoreList[0].score = ''; input.value = '';
     };
     advance('A');
+    const palette = [0, 1, 2.5, 15].map(score => ({ ...visible(), textContent: score === 0 ? '零分' : score === 15 ? '满分' : String(score),
+        click() {
+            state.paletteClicks = (state.paletteClicks || 0) + 1;
+            if (!state.dropPalette) { row.score = score; if (!state.dropChange) parent.scoreList[0].score = score; }
+            state.afterPalette?.();
+        }
+    }));
     const success = score => {
         state.messages.push({ ...visible(), textContent: `提交成功！${score}分` });
         parent.readProgressInfo.myselfReadCount++;
@@ -60,6 +70,6 @@ module.exports = function fixture() {
     sb.fetchImageAsBase64 = async value => value;
     vm.createContext(sb);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/adapters/jzsmartedu/adapter.js'), 'utf8'), sb);
-    return { sb, state, input, boardVm, parent, read, image, imageVm, body, button, advance, success,
+    return { sb, state, input, boardVm, parent, read, image, imageVm, body, button, palette, advance, success,
         adapter: sb.__AI_MARKER_ADAPTER__ };
 };

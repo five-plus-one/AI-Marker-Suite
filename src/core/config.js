@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.19.9',
+    VERSION: '1.21.19.11',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.19.11': [
+            '【修复】焦作默认评分板可检测满分并使用原生分数按钮给分，支持评分板与键盘两种方式',
+        ],
         '1.21.19.9': [
             '【新平台】支持焦作精准教学单份单评键盘阅卷，核对当前答卷和给分档位后填分并确认提交结果',
         ],

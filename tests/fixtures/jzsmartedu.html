@@ -33,8 +33,21 @@ paper('A');
 input.addEventListener('input',()=>row.score=input.value);
 input.addEventListener('change',()=>parent.scoreList[0].score=row.score);
 input.addEventListener('keyup',()=>keyups++);
+if(mode==='scoreboard'){
+ nativeVm.boardType='2';
+ const keyboard=board.querySelector('.keyboard'),submit=keyboard.querySelector('.submit-section');
+ const extremes=document.createElement('div');extremes.className='score-0-full';
+ const collapse=document.createElement('div');collapse.className='score-collapse';
+ const palette=document.createElement('div');palette.className='score-btn';collapse.append(palette);
+ for(const score of [0,1,2.5,15]){
+  const button=document.createElement('button');button.type='button';button.textContent=score===0?'零分':score===15?'满分':String(score);
+  button.onclick=()=>{row.score=score;parent.scoreList[0].score=score};
+  (score===0||score===15?extremes:palette).append(button);
+ }
+ board.append(extremes,collapse,submit);keyboard.remove();
+}
 function message(score){const el=document.createElement('div');el.className='el-message el-message--success';el.textContent=`提交成功！${score}分`;document.body.append(el)}
-board.querySelectorAll('button')[1].addEventListener('click',()=>{
+board.querySelector('.submit-section button:last-child').addEventListener('click',()=>{
  clicks++;const score=parent.scoreList[0].score;
  if(serverMode==='refused')return;
  setTimeout(()=>{message(score);parent.readProgressInfo={myselfReadCount:parent.readProgressInfo.myselfReadCount+1};paper('B')},30);
@@ -55,10 +68,19 @@ if(mode==='late')platform.remove();
    assert((await a.gatherAnswerImages()).length===1,'只读取当前答卷作答');
    const old=a.getPaperIdentity(),task=a.getTaskIdentifier();
    assert(a.getScoreInputs()[0].maxScore===15,'读取平台满分');
-   assert(a.fillScores([0])&&input.value==='0'&&parent.scoreList[0].score==='0','零分同步平台实际提交模型');
+   if(mode==='scoreboard'){
+    document.querySelector('.ai-settings-btn').click();
+    for(let i=0;i<50&&!document.querySelector('#btn-detect-inputs');i++)await wait(20);
+    document.querySelector('#btn-detect-inputs').click();
+    assert(document.querySelector('#scoring-units-list').textContent.includes('17'),'设置面板检测当前题号');
+    assert(Array.from(document.querySelectorAll('#scoring-units-list input')).some(el=>el.value==='15'),'设置面板自动取得满分');
+    assert(!a.fillScores([1.23])&&parent.scoreList[0].score==='','缺少档位时保持空分');
+   }
+   assert(a.fillScores([0])&&Number(parent.scoreList[0].score)===0,'零分同步平台实际提交模型');
    assert(clicks===0&&keyups===0,'填分不触发平台快捷提交');
    read.step='0.5';assert(!a.fillScores([1.23]),'步长外分数不填入');assert(a.fillScores([2.5]),'支持半分步长');
-   input.value='3';assert(!await a.submitGrade(),'教师手动改分后保留确认');assert(clicks===0,'改分后不点击提交');
+   if(mode==='scoreboard')parent.scoreList[0].score=3;else input.value='3';
+   assert(!await a.submitGrade(),'教师手动改分后保留确认');assert(clicks===0,'改分后不点击提交');
    assert(a.fillScores([2.5]),'重新批改后同步分数');
    const guard={isCurrent:()=>a.getPaperIdentity()===old,verify:async()=>{}};
    assert(await a.submitGrade(guard),'原生成功提示与已阅进度更新后确认保存');
