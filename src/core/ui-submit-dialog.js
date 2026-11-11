@@ -205,7 +205,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const scoreMismatch = subSum !== null && Math.abs(subSum - score) > 0.01;
 
     window.aiGradingState.countdownPaused = false;
-    const studentAnswer = escAi(window.aiGradingState.currentStudentAnswer);
+    const studentAnswer = escAi(getGradingOutputText(rawStudentAnswer, runContext.configuration, '识别答案', '未能识别'));
     const imageUrls = runContext.imageUrls.slice();
     const isUnattended = mode === 'unattended';
     const isTrial = mode === 'trial';
@@ -503,7 +503,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.detailA ? `
                         <div style="margin-bottom:6px;">
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailA['评分依据'] || '—'}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${getGradingOutputText(dualEval.detailA['评分依据'], runContext.configuration, '评分依据')}</div>
                         </div>` : ''}
                         ${dualEval.detailA && dualEval.detailA['分数计算'] ? `
                         <div>
@@ -522,7 +522,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         ${dualEval.detailB ? `
                         <div style="margin-bottom:6px;">
                             <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${dualEval.detailB['评分依据'] || '—'}</div>
+                            <div class="asd-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${getGradingOutputText(dualEval.detailB['评分依据'], runContext.configuration, '评分依据')}</div>
                         </div>` : ''}
                         ${dualEval.detailB && dualEval.detailB['分数计算'] ? `
                         <div>
@@ -904,6 +904,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     presetName: runContext.presetName,
                     taskIdentifier: runContext.taskId, pageUrl: runContext.pageUrl,
                     gradingMode: mode,
+                    outputMode: getGradingOutputMode(runContext.configuration),
                     imageUrls, studentAnswer: rawStudentAnswer,
                     aiScore: rawExtraInfo?.correction?.aiScore ?? score, aiComment: rawExtraInfo?.correction?.aiComment ?? rawComment,
                     finalScore: score, isCorrected: !!rawExtraInfo?.correction?.isCorrected, correctionReason: rawExtraInfo?.correction?.correctionReason || '',

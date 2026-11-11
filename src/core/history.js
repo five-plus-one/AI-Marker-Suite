@@ -389,11 +389,11 @@ const HistoryManager = {
             const durSec = (r.durationMs !== null && r.durationMs !== undefined) ? (r.durationMs / 1000).toFixed(1) : '';
             const delaySec = (r.pacingDelayMs !== null && r.pacingDelayMs !== undefined) ? (r.pacingDelayMs / 1000).toFixed(1) : '';
             return [time, r.presetName, r.gradingMode, r.aiScore, r.finalScore,
-                r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(r.studentAnswer), esc(r.aiComment),
+                r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(getGradingOutputText(r.studentAnswer, r, '识别答案', '')), esc(getGradingOutputText(r.aiComment, r, '评语', '')),
                 r.diligenceLevel || 0, r.diligenceBonus || 0, esc(r.diligenceReason || ''),
                 d ? '是' : '否',
-                d?.scoreA ?? '', esc(d?.detailA?.['评分依据'] ?? ''), esc(d?.detailA?.['分数计算'] ?? ''),
-                d?.scoreB ?? '', esc(d?.detailB?.['评分依据'] ?? ''), esc(d?.detailB?.['分数计算'] ?? ''),
+                d?.scoreA ?? '', esc(d ? getGradingOutputText(d.detailA?.['评分依据'], r, '评分依据', '') : ''), esc(d ? getGradingOutputText(d.detailA?.['分数计算'], r, '分数计算', '') : ''),
+                d?.scoreB ?? '', esc(d ? getGradingOutputText(d.detailB?.['评分依据'], r, '评分依据', '') : ''), esc(d ? getGradingOutputText(d.detailB?.['分数计算'], r, '分数计算', '') : ''),
                 d?.diff ?? '',
                 d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'average-fallback' ? '取平均' : '',
                 d?.arbScore ?? '', esc(d?.arbAnalysis ?? ''),
@@ -551,12 +551,12 @@ const HistoryManager = {
                     </div>
                     <div style="margin-top:8px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
                         <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师A 评分：<strong>${d.scoreA !== null ? d.scoreA + '分' : '失败'}</strong></div>
-                        ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(d.detailA['评分依据'] || '—')}</div></div>` : ''}
+                        ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(getGradingOutputText(d.detailA['评分依据'], r, '评分依据'))}</div></div>` : ''}
                         ${d.detailA && d.detailA['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailA['分数计算'])}</div></div>` : ''}
                     </div>
                     <div style="margin-top:6px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
                         <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师B 评分：<strong>${d.scoreB !== null ? d.scoreB + '分' : '失败'}</strong></div>
-                        ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(d.detailB['评分依据'] || '—')}</div></div>` : ''}
+                        ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(getGradingOutputText(d.detailB['评分依据'], r, '评分依据'))}</div></div>` : ''}
                         ${d.detailB && d.detailB['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailB['分数计算'])}</div></div>` : ''}
                     </div>
                     ${d.result === 'arbitration' ? `
@@ -575,8 +575,8 @@ const HistoryManager = {
                     ${correctedRow}
                     ${dualHtml}
                     <div style="font-size:13px;color:#4a4a4a;margin:8px 0;line-height:1.6;">
-                        <div><strong>识别答案：</strong><div class="md-content">${renderMd(r.studentAnswer || '未能识别')}</div></div>
-                        <div style="margin-top:4px;"><strong>AI评语：</strong><div class="md-content">${renderMd(r.aiComment || '无')}</div></div>
+                        <div><strong>识别答案：</strong><div class="md-content">${renderMd(getGradingOutputText(r.studentAnswer, r, '识别答案', '未能识别'))}</div></div>
+                        <div style="margin-top:4px;"><strong>AI评语：</strong><div class="md-content">${renderMd(getGradingOutputText(r.aiComment, r, '评语', '无'))}</div></div>
                     </div>
                     ${images ? `<div style="margin-top:8px;">${images}</div>` : ''}
                 </div>
@@ -1274,7 +1274,7 @@ function showHistoryPanel() {
                     ? '<span class="hist-tag image-remote">有图·无法导出</span>'
                     : '')
                 : '';
-            const answerText = r.studentAnswer || '未能识别答案';
+            const answerText = getGradingOutputText(r.studentAnswer, r, '识别答案', '未能识别答案');
             const answerPreview = answerText.length > 110 ? `${answerText.slice(0, 110)}...` : answerText;
             const presetName = r.presetName || '未命名方案';
             return `
@@ -1494,7 +1494,7 @@ function showHistoryDetail(record) {
                     ${record.dualEval.detailA ? `
                     <div style="margin-bottom:6px;">
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailA['评分依据'] || '—'}</div>
+                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${getGradingOutputText(record.dualEval.detailA['评分依据'], record, '评分依据')}</div>
                     </div>` : ''}
                     ${record.dualEval.detailA && record.dualEval.detailA['分数计算'] ? `
                     <div>
@@ -1511,7 +1511,7 @@ function showHistoryDetail(record) {
                     ${record.dualEval.detailB ? `
                     <div style="margin-bottom:6px;">
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailB['评分依据'] || '—'}</div>
+                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${getGradingOutputText(record.dualEval.detailB['评分依据'], record, '评分依据')}</div>
                     </div>` : ''}
                     ${record.dualEval.detailB && record.dualEval.detailB['分数计算'] ? `
                     <div>
@@ -1533,8 +1533,8 @@ function showHistoryDetail(record) {
                     </div>` : ''}
                 </div>` : ''}
             </div>` : ''}
-            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.studentAnswer || '未能识别'}</div></div>
-            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.aiComment || '无'}</div></div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.studentAnswer, record, '识别答案', '未能识别')}</div></div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.aiComment, record, '评语', '无')}</div></div>
             <div id="detail-images-container"><div style="color:#aaa;font-size:12px;">加载图片中...</div></div>
         </div>
     `;
