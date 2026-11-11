@@ -48,7 +48,9 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         if (runContext && !isGradingContextCurrent(runContext)) return true;
         let hasNext = false;
         try {
-            hasNext = await adapter.waitForNextPaper(oldImgUrl);
+            hasNext = await adapter.waitForNextPaper(oldImgUrl, runContext ? {
+                paperId: runContext.paperId, taskId: runContext.taskId, signal: runContext.controller.signal
+            } : undefined);
         } catch (e) {
             console.warn('⚠️ 等待下一份试卷异常，将重试:', e);
         }

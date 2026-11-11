@@ -1,0 +1,67 @@
+<!doctype html><meta charset="utf-8"><title>AMEQP continuous grading acceptance</title>
+<style>.img_box{width:300px;height:100px;overflow:hidden}img.ansImg{width:300px;height:100px}</style>
+<div id="Mark_main"><div class="img_box"><img class="ansImg" src="/answers/1001_00_1_0.svg"></div>
+<div id="queSco_all"></div><input id="queVal"><input id="queVal_old">
+<fieldset><legend class="mark_leg" title="11(4.0分)">11</legend>
+<input class="mark_tbx" id="txt_que_1_1" name="txt_que_1_1" maxsco="4.0"><input type="hidden" id="MarQueSubSco_1_1">
+<div id="Mark_scoList_1_1"><span class="sco_list" value="0.0">0</span></div></fieldset>
+<fieldset><legend class="mark_leg" title="12(4.0分)">12</legend>
+<input class="mark_tbx" id="txt_que_1_2" name="txt_que_1_2" maxsco="4.0"><input type="hidden" id="MarQueSubSco_1_2">
+<div id="Mark_scoList_1_2"><span class="sco_list" value="2.5">2.5</span></div></fieldset>
+<input type="button" class="mark_btn" id="btn_submit" value="提交"></div><pre id="result"></pre>
+<script>
+sessionStorage.clear();
+const mode=new URLSearchParams(location.search).get('mode');
+const storage={
+ 'ai-grading-show-onboarding':false,
+ 'ai-grading-presets':JSON.stringify({list:{Fixture:{question:'q',answer:'a',rubric:'r',workflowId:'fixture',gradingMode:'unattended',
+  scoring:{maxScore:8,roundStep:0.5,roundMethod:'round'},batchConfig:{enabled:true,targetCount:3},blankDetection:{enabled:false}}},
+  active:'Fixture',bindings:{'ameqp#11(4.0分),12(4.0分)':'Fixture'}}),
+ 'ai-grading-providers-v2':JSON.stringify({providers:{'5plus1官方':{apiKey:'fixture'},Fixture:{endpoint:'https://ai.fixture.invalid/v1/chat/completions',apiKey:'fixture',models:{fixture:{}}}},activeProvider:'Fixture',activeModel:'fixture'}),
+ 'ai-grading-workflows':JSON.stringify({workflows:{Fixture:{id:'fixture',model:{provider:'Fixture',model:'fixture'},dualEval:null}},activeWorkflow:'fixture'})
+};
+const effects={requests:0,submits:[],palettes:0,alerts:[]};
+window.GM_getValue=(k,d)=>storage[k]??d;window.GM_setValue=(k,v)=>storage[k]=v;window.GM_deleteValue=k=>delete storage[k];
+window.GM_registerMenuCommand=()=>{};window.alert=msg=>effects.alerts.push(String(msg));
+window.GM_xmlhttpRequest=options=>{
+ if(options.method==='POST'&&options.url==='https://ai.fixture.invalid/v1/chat/completions'){
+  effects.requests++;
+  queueMicrotask(()=>options.onload({status:200,responseText:JSON.stringify({choices:[{message:{content:'第11题分数：0\n第12题分数：2.5\n【得分】\n2.5'},finish_reason:'stop'}]})}));
+ }else queueMicrotask(()=>options.onerror?.());
+ return{abort(){}};
+};
+document.querySelectorAll('span.sco_list').forEach(span=>span.onclick=()=>{
+ effects.palettes++;const field=span.closest('fieldset');field.querySelector('.mark_tbx').value=span.getAttribute('value');
+ field.querySelector('input[type=hidden]').value=span.getAttribute('value');
+});
+document.getElementById('btn_submit').onclick=()=>{
+ const scores=Array.from(document.querySelectorAll('.mark_tbx'),x=>x.value);
+ const hidden=Array.from(document.querySelectorAll('#Mark_main input[type=hidden]'),x=>x.value);
+ if(scores.join(',')!=='0.0,2.5'||scores.join(',')!==hidden.join(','))throw Error('native score registration mismatch');
+ effects.submits.push({paper:document.querySelector('.ansImg').src.split('/').pop(),scores});
+ const next=()=>{
+  document.querySelector('.ansImg').src='/answers/'+(1001+effects.submits.length)+'_00_1_0.svg';
+  document.querySelectorAll('#Mark_main .mark_tbx,#Mark_main input[type=hidden],#queVal,#queVal_old').forEach(input=>input.value='');
+ };
+ if(mode==='slow')setTimeout(next,1200);else next();
+};
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{
+ const runId=new URLSearchParams(location.search).get('run');
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
+ try{
+  for(let i=0;i<140&&!document.querySelector('.ai-grade-btn');i++)await wait(50);
+  assert(window.__AI_MARKER_ADAPTER__?.id==='ameqp','actual bundle selects AMEQP');
+  assert(document.querySelectorAll('.ai-grade-btn').length===1,'single grade entry');
+  document.querySelector('.ai-grade-btn').click();
+  for(let i=0;i<500&&window.aiGradingState.batchProgress.currentCount<3;i++)await wait(50);
+  assert(effects.submits.length===3,'three native submissions');
+  assert(effects.requests===3,'one AI request per paper');
+  assert(effects.submits.map(x=>x.paper).join(',')==='1001_00_1_0.svg,1002_00_1_0.svg,1003_00_1_0.svg','each paper submitted once');
+  assert(effects.palettes===6,'native score palette used');
+  assert(window.aiGradingState.batchProgress.currentCount===3&&!window.aiGradingState.isRunning,'batch pauses at three');
+  assert(effects.alerts.length===0,'continuous flow has no alert');
+  document.getElementById('result').textContent=btoa(JSON.stringify({runId,passed:true,width:innerWidth,checks:8,mode,effects}));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,error:String(error),stack:error.stack,effects}))));}
+})();
+</script>

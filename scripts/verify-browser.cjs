@@ -39,13 +39,26 @@ async function connect(url) {
         const pages = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
         client = await connect(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
         await client.send('Page.enable');
+        await client.send('Runtime.enable');
+        const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
         const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
-            'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative'];
+            'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow']
+            .filter(fixture => !selected || fixture === selected);
+        if (!fixtures.length) throw Error('Unknown browser fixture');
+        let consoleMessages = [];
         let interceptionEnabled = false, interceptionError;
         const deploymentHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qiguang-deployment.html'), 'utf8');
+        const ameqpHtml = fs.readFileSync(path.join(root, 'tests/fixtures/ameqp.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
+            if (event.method === 'Runtime.exceptionThrown') {
+                consoleMessages.push(event.params.exceptionDetails.exception?.description || event.params.exceptionDetails.text);
+            }
+            if (event.method === 'Runtime.consoleAPICalled') {
+                consoleMessages.push(event.params.args.map(arg => arg.value ?? arg.description).join(' ').slice(0, 1500));
+                if (consoleMessages.length > 16) consoleMessages.shift();
+            }
             if (event.method !== 'Fetch.requestPaused') return;
             (async () => {
                 const url = new URL(event.params.request.url);
@@ -54,6 +67,11 @@ async function connect(url) {
                     body = url.searchParams.get('mode') === 'foreign-main'
                         ? deploymentHtml.replace('data-main="examOnlineOrc.js"', 'data-main="other.js"') : deploymentHtml;
                     type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.pathname === '/AMEQP/Webroot/mar/mar_mark.aspx') {
+                    body = ameqpHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (/^\/answers\/\d+_00_1_0\.svg$/.test(url.pathname)) {
+                    body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100"><text x="10" y="40">answer ' + url.pathname + '</text></svg>';
+                    type = 'image/svg+xml'; status = 200;
                 } else if (url.pathname === '/__fixture/ai_marker.user.js') {
                     body = bundle; type = 'text/javascript; charset=utf-8'; status = 200;
                 } else if (url.pathname === '/Scripts/require.js') {
@@ -68,14 +86,16 @@ async function connect(url) {
             })().catch(error => { interceptionError = error; });
         });
         for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
+            consoleMessages = [];
             await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
             await client.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
             const runId = `${fixture}-${width}-${theme}-${Date.now()}`;
             const startup = fixture.startsWith('startup');
             const mode = fixture === 'startup-registration' ? 'late-registration' : fixture === 'startup-navigation' ? 'spa-entry' : 'late-dom';
             const deployment = fixture.startsWith('qiguang-');
+            const ameqp = fixture.startsWith('ameqp-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment) {
+            if (deployment || ameqp) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
                     : fixture === 'qiguang-domain-deployment' ? 'https://mark.school.example'
@@ -83,10 +103,11 @@ async function connect(url) {
                 const deploymentMode = fixture === 'qiguang-late-deployment' ? 'late' : fixture === 'qiguang-module-negative' ? 'foreign-main'
                     : fixture === 'qiguang-form-negative' ? 'foreign-form' : 'ready';
                 url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode + '&SubjectId=subject&questionGroupId=group';
+                if (ameqp) url = 'http://10.20.0.8/AMEQP/Webroot/mar/mar_mark.aspx?run=' + runId + '&mode=' + fixture.slice(6);
             }
             await client.send('Page.navigate', { url });
             let result;
-            for (let count = 0; count < (startup ? 400 : 200); count++) {
+            for (let count = 0; count < (ameqp ? 650 : startup ? 400 : 200); count++) {
                 if (interceptionError) throw interceptionError;
                 const reply = await client.send('Runtime.evaluate', { expression: "document.getElementById('result')?.textContent || ''", returnByValue: true });
                 if (reply.result?.value) {
@@ -95,7 +116,10 @@ async function connect(url) {
                 }
                 await pause(50);
             }
-            if (!result?.passed || Math.abs(result.width - width) > 1) throw Error(JSON.stringify(result || { error: 'No browser result' }));
+            if (!result?.passed || Math.abs(result.width - width) > 1) {
+                const page = await client.send('Runtime.evaluate', { expression: 'document.body.innerText.slice(-3000)', returnByValue: true });
+                throw Error(JSON.stringify({ ...(result || { error: 'No browser result' }), consoleMessages, page: page.result?.value }));
+            }
             results.push({ fixture, width, theme, ...result });
         }
         console.log(JSON.stringify({ passed: true, results }));
