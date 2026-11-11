@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.19.4',
+    VERSION: '1.21.19.5',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.19.5': [
+            '【修复】AMEQP 在平台给分过程中换卷时立即停止写分，保留新答卷的分数状态',
+        ],
         '1.21.19.4': [
             '【修复】AMEQP 连续阅卷在快速换卷后自动继续，等待下一份作答图加载完成',
             '【修复】AMEQP 提交前核对本卷各题分数，换卷或手动改分后暂停确认，保留平台提示',
