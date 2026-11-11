@@ -190,7 +190,9 @@ test('真实双评及第三模型仲裁均接收同一参考资料和学生答�
             delta: { content: response }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n' }));
         return { abort() {} };
     };
-    sandbox.__config = { answer: { text: '', images: [png(700, 600)] }, scoring: { maxScore: 10, roundStep: 1 },
+    sandbox.__config = { question: { text: '已识别题目', images: [png(800, 600)], format: 'markdown' },
+        answer: { text: '![保留的配图](ai-img://1)', images: [png(500, 500), png(700, 600)], format: 'markdown' },
+        rubric: { text: '逐项给分', images: [png(600, 500)], format: 'markdown' }, scoring: { maxScore: 10, roundStep: 1 },
         workflowSnapshot: { model: { provider: 'p', model: 'primary' }, dualEval: { enabled: true, threshold: 2,
             secondary: { provider: 'p', model: 'secondary' }, arbitration: { provider: 'p', model: 'arbitration' } } } };
     sandbox.__students = [png(900, 700)];
@@ -203,6 +205,31 @@ test('真实双评及第三模型仲裁均接收同一参考资料和学生答�
         assert.ok(content.some(item => item.type === 'text' && item.text.includes('教师提供的参考资料')));
         assert.ok(content.some(item => item.type === 'text' && item.text.includes('本次待批改的学生答卷')));
     }
+});
+
+test('纠错请求筛选参考图并逐图区分参考资料与学生作答', async () => {
+    const { sandbox, requests } = loadEngineForRequest();
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/core/correction.js'), 'utf8'), sandbox);
+    sandbox.__context = { config: { question: '', answer: { text: '已识别为文字', images: [png(500, 500)], format: 'markdown' },
+        rubric: { text: '![图](ai-img://0)', images: [png(600, 500)], format: 'markdown' }, scoring: { maxScore: 10 } },
+        callConfig: { endpoint: 'https://e.test', apiKey: 'k', model: 'm' }, base64DataArray: [png(900, 700)], score: 1 };
+    await vm.runInContext('analyzePromptModification(__context, {teacherScore:2,teacherReason:"核对原卷"})', sandbox);
+    const content = requests[0].messages[0].content;
+    const images = content.filter(item => item.type === 'image_url');
+    assert.equal(images.length, 2);
+    assert.ok(!JSON.stringify(images).includes(png(500, 500)));
+    assert.ok(content.some(item => item.text?.includes('教师提供的参考资料')));
+    assert.ok(content.some(item => item.text?.includes('本次待批改的学生答卷')));
+});
+
+test('只有文字的历史纠错仍可分析评分标准', async () => {
+    const { sandbox, requests } = loadEngineForRequest();
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/core/correction.js'), 'utf8'), sandbox);
+    sandbox.__context = { config: { question: '题目', answer: '答案', rubric: '标准', scoring: { maxScore: 10 } },
+        callConfig: { endpoint: 'https://e.test', apiKey: 'k', model: 'm' }, base64DataArray: [], studentAnswer: 'I=3A', score: 1 };
+    await vm.runInContext('analyzePromptModification(__context, {teacherScore:2,teacherReason:"补充评分标准"})', sandbox);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].messages[0].content.filter(item => item.type === 'image_url').length, 0);
 });
 
 test('行为：一好一废 → 废图剔除后仅好图进请求，且提示词注明剔除（残卷不得照常出分）', async () => {

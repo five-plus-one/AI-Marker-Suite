@@ -19,6 +19,7 @@ const ProviderManager = {
     data: null,
     init() {
         this._writeDisabled = false;
+        this._storageBaseline = null;
         if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) { this._enterReadOnly(null); return; }
         let raw = null;
         try {
@@ -32,6 +33,7 @@ const ProviderManager = {
             try {
                 this.data = JSON.parse(raw);
                 if (!isProviderDataValid(this.data)) throw new Error('供应商数据格式不正确');
+                this._storageBaseline = JSON.parse(raw);
             } catch (e) {
                 // 解析失败：救原始字节 + 只读降级，绝不覆写清空（#293）
                 this._enterReadOnly(raw, e);
@@ -187,6 +189,7 @@ const ProviderManager = {
                 const probe = GM_getValue('ai-grading-providers-v2');
                 const recovered = probe ? JSON.parse(probe) : null;
                 if (isProviderDataValid(recovered)) {
+                    this._storageBaseline = JSON.parse(probe);
                     this.data = mergeRecoveredData(recovered, this.data, this._degradedBase);
                     this._writeDisabled = false;
                     if (typeof showToast === 'function') showToast('供应商配置存储已恢复，请再次点击保存');
@@ -197,14 +200,7 @@ const ProviderManager = {
             if (typeof showToast === 'function') showToast('⚠️ 供应商配置存储异常：本次修改未保存（原数据已保护）');
             return false;
         }
-        const json = JSON.stringify(this.data);
-        try {
-            const prev = GM_getValue('ai-grading-providers-v2');
-            if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-providers-v2-prev', prev);
-        } catch (_) { /* 备份失败不阻塞保存 */ }
-        GM_setValue('ai-grading-providers-v2', json);
-        this._initialSaveFailed = false;
-        return true;
+        return saveConfigurationEdits(this, 'ai-grading-providers-v2', '供应商', isProviderDataValid, ['activeProvider', 'activeModel']);
     },
     getProvider(name) {
         return Object.prototype.hasOwnProperty.call(this.data.providers, name) ? this.data.providers[name] : null;
@@ -242,7 +238,7 @@ const ProviderManager = {
             apiKey: config.apiKey || '',
             models: config.models || {}
         };
-        this.save();
+        return this.save();
     },
     // 删除供应商
     deleteProvider(name) {
@@ -260,16 +256,14 @@ const ProviderManager = {
             const modelKeys = Object.keys(provider.models || {});
             this.data.activeModel = modelKeys[0] || '';
         }
-        this.save();
-        return true;
+        return this.save();
     },
     // 添加模型
     addModel(providerName, modelId, label, tags) {
         const provider = this.data.providers[providerName];
         if (!provider) return false;
         provider.models[modelId] = { label: label || modelId, tags: tags || [] };
-        this.save();
-        return true;
+        return this.save();
     },
     // 删除模型
     deleteModel(providerName, modelId) {
@@ -285,8 +279,7 @@ const ProviderManager = {
         if (this.data.activeProvider === providerName && this.data.activeModel === modelId) {
             this.data.activeModel = Object.keys(provider.models)[0] || '';
         }
-        this.save();
-        return true;
+        return this.save();
     },
     // 设置当前活跃
     setActive(providerName, modelId) {
@@ -295,7 +288,7 @@ const ProviderManager = {
             if (modelId && this.data.providers[providerName].models[modelId]) {
                 this.data.activeModel = modelId;
             }
-            this.save();
+            return this.save();
         }
     }
 };
@@ -306,6 +299,7 @@ const WorkflowManager = {
     data: null,
     init() {
         this._writeDisabled = false;
+        this._storageBaseline = null;
         if (typeof configurationImportRecoveryBlocked !== 'undefined' && configurationImportRecoveryBlocked) { this._enterReadOnly(null); return; }
         let raw = null;
         try {
@@ -319,6 +313,7 @@ const WorkflowManager = {
             try {
                 this.data = JSON.parse(raw);
                 if (!isWorkflowDataValid(this.data)) throw new Error('工作流数据格式不正确');
+                this._storageBaseline = JSON.parse(raw);
             } catch (e) {
                 this._enterReadOnly(raw, e);
                 return;
@@ -456,6 +451,7 @@ const WorkflowManager = {
                 const probe = GM_getValue('ai-grading-workflows');
                 const recovered = probe ? JSON.parse(probe) : null;
                 if (isWorkflowDataValid(recovered)) {
+                    this._storageBaseline = JSON.parse(probe);
                     this.data = mergeRecoveredData(recovered, this.data, this._degradedBase);
                     this._writeDisabled = false;
                     if (typeof showToast === 'function') showToast('工作流配置存储已恢复，请再次点击保存');
@@ -466,14 +462,7 @@ const WorkflowManager = {
             if (typeof showToast === 'function') showToast('⚠️ 工作流配置存储异常：本次修改未保存（原数据已保护）');
             return false;
         }
-        const json = JSON.stringify(this.data);
-        try {
-            const prev = GM_getValue('ai-grading-workflows');
-            if (prev && prev !== json && prev.length <= 2 * 1024 * 1024) GM_setValue('ai-grading-workflows-prev', prev);
-        } catch (_) { /* 备份失败不阻塞保存 */ }
-        GM_setValue('ai-grading-workflows', json);
-        this._initialSaveFailed = false;
-        return true;
+        return saveConfigurationEdits(this, 'ai-grading-workflows', '工作流', isWorkflowDataValid, ['activeWorkflow']);
     },
     getWorkflow(id) {
         // 按 id 查找
@@ -504,7 +493,7 @@ const WorkflowManager = {
     },
     setActive(id) {
         this.data.activeWorkflow = id;
-        this.save();
+        return this.save();
     },
     addWorkflow(name, config) {
         this.data.workflows[name] = {
@@ -514,7 +503,7 @@ const WorkflowManager = {
             dualEval: config.dualEval || null,
             isBuiltin: false
         };
-        this.save();
+        return this.save();
     },
     updateWorkflow(name, config) {
         if (!this.data.workflows[name]) return false;
@@ -528,8 +517,7 @@ const WorkflowManager = {
         if (this.data.activeWorkflow === (wf.id || name)) {
             this.data.activeWorkflow = 'fast';
         }
-        this.save();
-        return true;
+        return this.save();
     },
     // 获取所有工作流列表
     getAll() {
@@ -676,7 +664,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         const removedIndexes = new Set(imgGate.removed.map(item => item.index));
         references.concat(studentImages).forEach((base64Data, index) => {
             if (removedIndexes.has(index)) return;
-            if (config.gradingRequest) messageContent.push({ type: 'text', text: index < references.length
+            if (config.gradingRequest || references.length > 0) messageContent.push({ type: 'text', text: index < references.length
                 ? '以下图片是教师提供的参考资料（题目、参考答案或评分标准），不属于学生作答，不能据此认定学生写出了答案。'
                 : '以下图片是本次待批改的学生答卷。只评分学生实际写出的内容；答卷上的印刷题干与预印图形不属于学生作答。' });
             messageContent.push({ type: "image_url", image_url: { url: `data:image/png;base64,${base64Data}` } });

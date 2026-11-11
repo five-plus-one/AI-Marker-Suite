@@ -29,6 +29,21 @@ function extractFieldImages(field) {
     return [];
 }
 
+// 编辑器保留原始图片数组及索引；请求只取正文实际引用的图片。
+function extractReferencedFieldImages(field) {
+    const images = extractFieldImages(field);
+    const text = extractFieldText(field);
+    // 早期仅图片的字段没有 Markdown 正文，继续保留其原有资料。
+    if (!text.trim() && field?.format !== 'markdown') return images;
+    const content = text.replace(/(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*(?=\n|$)|(`+)[\s\S]*?\2/g, '');
+    const selected = new Set();
+    for (const match of content.matchAll(/!\[[^\]]*\]\(ai-img:\/\/(\d+)\)/g)) {
+        const escapes = content.slice(0, match.index).match(/\\+$/)?.[0].length || 0;
+        if (escapes % 2 === 0) selected.add(Number(match[1]));
+    }
+    return images.filter((image, index) => image && selected.has(index));
+}
+
 /**
  * 从 config 中收集所有字段的图片（题目/答案/评分标准）
  * @param {object} config
@@ -36,9 +51,9 @@ function extractFieldImages(field) {
  */
 function collectFieldImages(config) {
     var images = [];
-    var qImg = extractFieldImages(config.question);
-    var aImg = extractFieldImages(config.answer);
-    var rImg = extractFieldImages(config.rubric);
+    var qImg = extractReferencedFieldImages(config.question);
+    var aImg = extractReferencedFieldImages(config.answer);
+    var rImg = extractReferencedFieldImages(config.rubric);
     // 为每组图片添加标注，便于 AI 区分
     if (qImg.length) images.push.apply(images, qImg);
     if (aImg.length) images.push.apply(images, aImg);
@@ -50,9 +65,9 @@ function collectFieldImages(config) {
  * 构建图片归属说明（告知 AI 哪些图片属于题目/答案/评分标准）
  */
 function buildImageAnnotation(config) {
-    var qLen = extractFieldImages(config.question).length;
-    var aLen = extractFieldImages(config.answer).length;
-    var rLen = extractFieldImages(config.rubric).length;
+    var qLen = extractReferencedFieldImages(config.question).length;
+    var aLen = extractReferencedFieldImages(config.answer).length;
+    var rLen = extractReferencedFieldImages(config.rubric).length;
     if (qLen + aLen + rLen === 0) return '';
 
     var parts = [];

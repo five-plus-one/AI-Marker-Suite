@@ -1387,7 +1387,7 @@ function createSettingsPanel(options) {
             // 导入旧版本方案时补全新字段（outputMode/retryPolicy 等），与启动时迁移同源
             if (typeof PresetManager.migrateAll === 'function') PresetManager.migrateAll();
             PresetManager._writeDisabled = false;
-            PresetManager.save();
+            if (PresetManager.save() === false) return;
             renderPresetDropdown();
             fillFormFromActivePreset();
             showToast(`方案「${importName}」导入成功${exists ? '（已覆盖）' : ''}`);
@@ -1405,11 +1405,11 @@ function createSettingsPanel(options) {
                 active: "默认配置",
                 bindings: {}
             };
-            PresetManager.save();
+            if (PresetManager.save() === false) return;
             ProviderManager.data = ProviderManager._getDefault();
-            ProviderManager.save();
+            if (ProviderManager.save() === false) return;
             WorkflowManager.data = WorkflowManager._getDefault();
-            WorkflowManager.save();
+            if (WorkflowManager.save() === false) return;
             GM_setValue('ai-grading-show-onboarding', true);
             showToast('已恢复默认设置，正在刷新...');
             setTimeout(() => location.reload(), 800);
@@ -2353,7 +2353,7 @@ function updateSettingsNavBadges() {
 // ========== 方案操作功能 ==========
 function handlePresetChange() {
     PresetManager.data.active = document.getElementById('preset-select').value;
-    PresetManager.save();
+    if (PresetManager.save() === false) return;
     fillFormFromActivePreset();
 }
 
@@ -2374,7 +2374,7 @@ async function handleNewPreset() {
         scoring: { roundStep: 1, roundMethod: 'round' }
     };
     PresetManager.data.active = name;
-    PresetManager.save();
+    if (PresetManager.save() === false) return;
     renderPresetDropdown();
     fillFormFromActivePreset();
     showToast(`新方案「${name}」创建成功（空白配置，请填写参考答案和评卷标准）`);
@@ -2392,7 +2392,7 @@ async function handleDeletePreset() {
             if (PresetManager.data.bindings[url] === name) delete PresetManager.data.bindings[url];
         }
         PresetManager.data.active = Object.keys(PresetManager.data.list)[0];
-        PresetManager.save();
+        if (PresetManager.save() === false) return;
         renderPresetDropdown();
         fillFormFromActivePreset();
         showToast(`方案「${name}」已删除`);
@@ -2458,7 +2458,7 @@ _unsafeWin.deleteModel = async function(modelId) {
     }
     const confirmFn = typeof showConfirmModal === 'function' ? showConfirmModal : confirm;
     if (await confirmFn(`确定要删除模型【${modelId}】吗？`)) {
-        ProviderManager.deleteModel(currentProviderName, modelId);
+        if (ProviderManager.deleteModel(currentProviderName, modelId) === false) return;
         if (typeof renderModelList === 'function') renderModelList();
         if (typeof showToast === 'function') showToast(`模型「${modelId}」已删除`);
     }
@@ -2486,11 +2486,11 @@ async function handleNewProvider() {
         showAlertModal("该供应商名称已存在！");
         return;
     }
-    ProviderManager.addProvider(name, {
+    if (ProviderManager.addProvider(name, {
         endpoint: document.getElementById('api-endpoint').value,
         apiKey: document.getElementById('api-key').value,
         models: {}
-    });
+    }) === false) return;
     renderProviderDropdown();
     document.getElementById('ai-provider').value = name;
     handleProviderChange();
@@ -2510,7 +2510,7 @@ async function handleDeleteProvider() {
         return;
     }
     if (await showConfirmModal(`确定要删除供应商【${escapeSettingsHtml(name)}】吗？`)) {
-        ProviderManager.deleteProvider(name);
+        if (ProviderManager.deleteProvider(name) === false) return;
         renderProviderDropdown();
         handleProviderChange();
         showToast(`供应商「${name}」已删除`);
@@ -2530,7 +2530,7 @@ async function handleAddModel() {
         showAlertModal("该模型已存在！");
         return;
     }
-    ProviderManager.addModel(currentProviderName, modelId, modelId, []);
+    if (ProviderManager.addModel(currentProviderName, modelId, modelId, []) === false) return;
     document.getElementById('new-model-id').value = '';
     renderModelList();
     renderWorkflowInfo();
@@ -2594,7 +2594,7 @@ function renderWorkflowInfo() {
 
 function handleWorkflowChange() {
     const id = document.getElementById('workflow-select').value;
-    WorkflowManager.setActive(id);
+    if (WorkflowManager.setActive(id) === false) return;
     renderWorkflowInfo();
     markUnsavedChanges();
 }
@@ -2607,7 +2607,7 @@ async function handleDeleteWorkflow() {
         return;
     }
     if (await showConfirmModal(`确定要删除工作流【${escapeSettingsHtml(wf.name)}】吗？`)) {
-        WorkflowManager.deleteWorkflow(wf.name);
+        if (WorkflowManager.deleteWorkflow(wf.name) === false) return;
         renderWorkflowDropdown();
         showToast(`工作流「${wf.name}」已删除`);
     }
@@ -2622,14 +2622,14 @@ async function handleNewWorkflow() {
     }
     const firstProvider = Object.keys(ProviderManager.data.providers)[0];
     const firstModel = firstProvider ? Object.keys(ProviderManager.data.providers[firstProvider]?.models || {})[0] || '' : '';
-    WorkflowManager.addWorkflow(name, {
+    if (WorkflowManager.addWorkflow(name, {
         id: name.toLowerCase().replace(/\s+/g, '-'),
         description: '',
         model: { provider: firstProvider || '', model: firstModel, reasoningEffort: '' },
         dualEval: null
-    });
+    }) === false) return;
     WorkflowManager.data.activeWorkflow = WorkflowManager.data.workflows[name].id;
-    WorkflowManager.save();
+    if (WorkflowManager.save() === false) return;
     renderWorkflowDropdown();
     showToast(`工作流「${name}」创建成功，正在打开编辑...`);
     // 自动弹出编辑窗口
@@ -2789,7 +2789,7 @@ function showWorkflowEditModal(wf) {
     if (deleteBtn) {
         deleteBtn.onclick = async () => {
             if (await showConfirmModal(`确定要删除工作流【${escapeSettingsHtml(wf.name)}】吗？`)) {
-                WorkflowManager.deleteWorkflow(wf.name);
+                if (WorkflowManager.deleteWorkflow(wf.name) === false) return;
                 renderWorkflowDropdown();
                 close();
                 showToast(`工作流「${wf.name}」已删除`);
@@ -2891,13 +2891,13 @@ function saveAISettings() {
     if (provider) {
         provider.endpoint = document.getElementById('api-endpoint').value;
         provider.apiKey = document.getElementById('api-key').value;
-        ProviderManager.save();
+        if (ProviderManager.save() === false) return;
     }
 
     // 保存工作流选择
     const workflowId = document.getElementById('workflow-select')?.value;
     if (workflowId) {
-        WorkflowManager.setActive(workflowId);
+        if (WorkflowManager.setActive(workflowId) === false) return;
     }
 
     // 满分非步长整数倍时提醒（不拦截保存：满分将作为特例允许给到，#273）
@@ -3050,7 +3050,7 @@ function saveAISettings() {
     // 保存结果真实化（#297）：只读降级/保存失败不得报"已保存"
     const savedOk = PresetManager.save();
     if (!savedOk) {
-        safeAlert(`⚠️ 「${activeName}」保存失败：存储异常，本次修改未持久化。\n请勿刷新页面，稍后再次点击保存（会自动重试恢复）。`);
+        safeAlert(`⚠️ 「${activeName}」尚未保存。\n请先导出本次修改，再核对其他页面的配置或稍后重试。`);
         return;
     }
     clearUnsavedChanges();
@@ -3347,7 +3347,7 @@ function showOnboardingDialog(forceShow, mode) {
                 if (result.success) {
                     const p = ProviderManager.getProvider('5plus1官方');
                     if (p) p.apiKey = key;
-                    ProviderManager.save();
+                    if (ProviderManager.save() === false) { showStatus('访问密钥尚未保存，请核对其他页面的修改', 'error'); return; }
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
                     showStatus('密钥无效，请检查是否正确', 'error');
@@ -3521,8 +3521,8 @@ function showOnboardingDialog(forceShow, mode) {
         PresetManager.data.list[presetName] = newPreset;
         PresetManager.data.active = presetName;
         PresetManager.data.bindings[PresetManager.getTaskIdentifier()] = presetName;
-        PresetManager.save();
-        WorkflowManager.setActive(selectedWorkflow);
+        if (PresetManager.save() === false) return;
+        if (WorkflowManager.setActive(selectedWorkflow) === false) return;
         // 确保设置面板已创建（可能从非阅卷页面触发引导，面板尚未创建）
         if (!document.getElementById('ai-grading-settings')) {
             createMainButton();

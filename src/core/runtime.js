@@ -32,6 +32,69 @@ function saveInitialConfiguration(manager, label) {
     }
 }
 
+// 按本页上次读取的基线合并保存，避免旧页面的整份缓存覆盖其他页面的编辑。
+function mergeConfigurationEdits(baseline, edited, latest, selections = []) {
+    const equal = (a, b) => {
+        if (a === b) return true;
+        if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+        const keys = Object.keys(a);
+        return keys.length === Object.keys(b).length && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && equal(a[key], b[key]));
+    };
+    const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+    const merge = (before, local, remote, depth = 0) => {
+        if (equal(local, before)) return copy(remote);
+        if (equal(remote, before) || equal(local, remote)) return copy(local);
+        if (!isConfigurationRecord(before) || !isConfigurationRecord(local) || !isConfigurationRecord(remote)) throw new Error('concurrent configuration edit');
+        const result = {};
+        for (const key of new Set([...Object.keys(before), ...Object.keys(local), ...Object.keys(remote)])) {
+            if (depth === 0 && selections.includes(key)) continue;
+            const value = merge(before[key], local[key], remote[key], depth + 1);
+            if (value !== undefined) Object.defineProperty(result, key, { value, enumerable: true, writable: true, configurable: true });
+        }
+        if (depth === 0) {
+            const source = selections.some(key => !equal(local[key], before[key])) ? local : remote;
+            selections.forEach(key => { if (source[key] !== undefined) result[key] = copy(source[key]); });
+        }
+        return result;
+    };
+    return merge(baseline, edited, latest);
+}
+
+function saveConfigurationEdits(manager, key, label, validate, selections) {
+    let raw, latest, merged;
+    const owns = (object, name) => Object.prototype.hasOwnProperty.call(object, name);
+    try {
+        raw = GM_getValue(key);
+        latest = raw ? JSON.parse(raw) : null;
+        if (latest !== null && !validate(latest)) throw new Error('stored configuration is invalid');
+        merged = mergeConfigurationEdits(manager._storageBaseline ?? null, manager.data, latest, selections);
+        if (!validate(merged)) throw new Error('merged configuration is invalid');
+        // 其他页面删除方案后，当前选择和绑定也必须指向仍存在的配置。
+        if (key === 'ai-grading-presets') {
+            if (!owns(merged.list, merged.active)) merged.active = owns(merged.list, latest?.active) ? latest.active : Object.keys(merged.list)[0];
+            for (const binding of Object.keys(merged.bindings || {})) if (!owns(merged.list, merged.bindings[binding])) delete merged.bindings[binding];
+        } else if (key === 'ai-grading-providers-v2') {
+            if (!owns(merged.providers, merged.activeProvider)) merged.activeProvider = owns(merged.providers, latest?.activeProvider) ? latest.activeProvider : Object.keys(merged.providers)[0];
+            const models = merged.providers[merged.activeProvider]?.models || {};
+            if (!owns(models, merged.activeModel)) merged.activeModel = Object.keys(models)[0] || '';
+        } else if (key === 'ai-grading-workflows') {
+            if (!Object.values(merged.workflows).some(wf => wf.id === merged.activeWorkflow)) merged.activeWorkflow = Object.values(merged.workflows)[0]?.id || '';
+        }
+    } catch (error) {
+        console.warn(`[配置] ${label}保存前校验未通过，保留已保存内容:`, error);
+        if (typeof showToast === 'function') showToast(`${label}尚未保存。其他页面可能已更新配置，请先导出本次修改，再刷新页面核对。`);
+        return false;
+    }
+    const json = JSON.stringify(merged);
+    try { if (raw && raw !== json && raw.length <= 2 * 1024 * 1024) GM_setValue(key + '-prev', raw); }
+    catch (_) { /* 备份失败仍可保存已经合并的完整内容。 */ }
+    GM_setValue(key, json);
+    manager.data = merged;
+    manager._storageBaseline = JSON.parse(json);
+    manager._initialSaveFailed = false;
+    return true;
+}
+
 function abortableGradingDelay(ms, signal) {
     return new Promise((resolve, reject) => {
         let timer;
@@ -216,6 +279,7 @@ function persistConfigurationImport(prepared) {
     }
     [PresetManager, ProviderManager, WorkflowManager].forEach((manager, i) => {
         manager.data = values[i]; manager._writeDisabled = false; manager._initialSaveFailed = false;
+        manager._storageBaseline = JSON.parse(JSON.stringify(values[i]));
     });
 }
 
