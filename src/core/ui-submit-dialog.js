@@ -243,7 +243,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     const blankRatios = extraInfo?.blankRatios || null;
     const blankTag = isBlankCard ? '<span style="color:#E67E22;font-weight:normal;font-size:12px;margin-left:8px;">[空白卡]</span>' : '';
 
-    const imagesHtml = imageUrls.map(url => `<img src="${url}" style="width: 100%; height: auto; display: block; border-bottom: 2px dashed rgba(0,0,0,0.06); margin-bottom: -2px;">`).join('');
+    // 展示本轮发给模型的图片字节，避免再次读取可变 URL 后显示另一份图片。
+    const previewImages = runContext.base64DataArray.length
+        ? runContext.base64DataArray.map(data => `data:image/png;base64,${data}`) : imageUrls;
+    const imagesHtml = previewImages.map(url => `<img src="${escAi(url)}" style="width: 100%; height: auto; display: block; border-bottom: 2px dashed rgba(0,0,0,0.06); margin-bottom: -2px;">`).join('');
 
     const correctionBtnHtml = showCorrectionBtn
         ? `<button class="asd-cancel-btn" id="correction-btn" style="color:#D93025;border-color:rgba(217,48,37,0.2);">分数有误</button>` : '';

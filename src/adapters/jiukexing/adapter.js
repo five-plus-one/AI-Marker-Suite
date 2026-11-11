@@ -1,221 +1,233 @@
-// ========== 九科星阅卷适配器 ==========
-// Vue SPA 页面，答题卡使用 OBS 图片裁剪（多图拼接）
-// 域名: marking.jkxjxw.com
-// 特点：多小题评分，placeholder 格式 "≤X分" 提取满分
-
+// 九科星考试阅卷：原生答卷、完整题块、Vue 评分登记及保存回执。
 const JiukexingAdapter = {
-    name: '九科星',
-    id: 'jiukexing',
-    urlPatterns: ['*://marking.jkxjxw.com/*'],
-    iconUrl: '',
+    name: '九科星', id: 'jiukexing',
+    urlPatterns: ['*://marking.jkxjxw.com/*'], iconUrl: '',
+    _pendingScores: null, _collectedPaper: null, _submittedPaper: null, _submitting: false,
 
     shouldInitialize() {
-        return window.location.hostname.includes('marking.jkxjxw.com');
+        return window.location.hostname === 'marking.jkxjxw.com';
     },
-
-    async detectMarkingPage() {
-        console.log('[九科星] 开始检测批改页面...');
-        try {
-            const result = await Promise.race([
-                waitForElement(JIUKEXING_SELECTORS.PAGE_DETECT_IMAGE).then(() => 'image'),
-                waitForElement(JIUKEXING_SELECTORS.PAGE_DETECT_INPUT).then(() => 'score-input'),
-                waitForElement(JIUKEXING_SELECTORS.PAGE_DETECT_SUBMIT).then(() => 'submit-btn'),
-            ]).catch(() => null);
-
-            if (result) {
-                console.log(`[九科星] 检测到批改页面元素: ${result}`);
-                return true;
-            }
-
-            // 兜底检测
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            const hasImage = document.querySelector(JIUKEXING_SELECTORS.ANSWER_IMAGE);
-            const hasInput = document.querySelector(JIUKEXING_SELECTORS.SCORE_INPUT);
-            const hasSubmit = document.querySelector(JIUKEXING_SELECTORS.SUBMIT_BUTTON);
-            const detected = !!(hasImage && hasInput && hasSubmit);
-            console.log(`[九科星] 兜底检测 - 图片: ${!!hasImage}, 输入框: ${!!hasInput}, 提交按钮: ${!!hasSubmit}, 最终: ${detected}`);
-            return detected;
-        } catch (error) {
-            console.error('[九科星] detectMarkingPage 异常:', error);
-            return false;
+    _page() {
+        if (!this.shouldInitialize() || !/^\/(?:marking|reviewMarking)\/?$/.test(window.location.pathname)) return null;
+        const queue = [document.querySelector('#app')?.__vue__], seen = new Set();
+        while (queue.length) {
+            const page = queue.shift();
+            if (!page || seen.has(page)) continue;
+            seen.add(page);
+            if (Array.isArray(page.getGradeList) && Array.isArray(page.imgsList)
+                && page.markingNow && typeof page.submit === 'function' && typeof page.changePaper === 'function') return page;
+            queue.push(...(page.$children || []));
         }
+        return null;
     },
-
     getTaskIdentifier() {
-        return window.location.href;
+        const page = this._page(), query = new URL(window.location.href).searchParams;
+        return 'jiukexing_' + JSON.stringify([
+            page?.examId ?? query.get('examId'), page?.subjectId ?? query.get('subjectId'),
+            page?.questionvalue ?? query.get('questionBlockId'), page?.isdp ?? query.get('isdp')
+        ].map(value => value == null ? '' : String(value)));
     },
-
+    getPaperIdentity() {
+        const page = this._page(), paper = page?.markingNow;
+        return paper?.id != null && String(paper.id).trim() !== ''
+            ? JSON.stringify([this.getTaskIdentifier(), String(paper.id), String(paper.scanPaperId ?? ''),
+                String(paper.markingRecordId ?? '')]) : null;
+    },
+    matchesLegacyTaskIdentifier(value) {
+        try {
+            const url = new URL(value), page = this._page();
+            return !!page && url.hostname === 'marking.jkxjxw.com' && url.pathname === '/marking'
+                && [['examId', page.examId], ['subjectId', page.subjectId], ['questionBlockId', page.questionvalue], ['isdp', page.isdp]]
+                    .every(([key, current]) => url.searchParams.get(key) === String(current));
+        } catch (_) { return false; }
+    },
+    _url(raw) {
+        try {
+            if (typeof raw !== 'string' || !raw.trim()) return null;
+            const url = new URL(raw, window.location.href);
+            if (!/^https?:$/.test(url.protocol)) return null;
+            url.hash = '';
+            return url.href;
+        } catch (_) { return null; }
+    },
+    _state() {
+        const page = this._page(), paper = page?.markingNow;
+        if (!paper?.id || page.lockScreen || page.yi || this.isRegradeMode()
+            || !Array.isArray(paper.markingUrlList) || !paper.markingUrlList.length
+            || String(paper.questionBlockId) !== String(page.questionvalue)
+            || page.imgsList.length !== 1 || page.imgsList[0].showLoading !== false) return null;
+        const urls = paper.markingUrlList.map(item => this._url(item.markingUrlObj));
+        const rendered = page.imgsList[0].imgUrl;
+        const images = Array.from(document.querySelectorAll(JIUKEXING_SELECTORS.ANSWER_IMAGE));
+        if (urls.some(url => !url) || !Array.isArray(rendered) || rendered.length !== urls.length
+            || rendered.some((item, i) => this._url(item.markingUrlObj) !== urls[i])
+            || images.length !== urls.length || images.some((img, i) => this._url(img.getAttribute('src')) !== urls[i]
+                || !img.complete || !(img.naturalWidth > 0) || !(img.naturalHeight > 0))) return null;
+        return { page, urls, images, paperId: String(paper.id), questionBlockId: String(paper.questionBlockId),
+            identity: this.getPaperIdentity(), task: this.getTaskIdentifier() };
+    },
+    isMarkingPage() {
+        return !!this._page() && !!document.querySelector('.MTcontainer_content');
+    },
+    async detectMarkingPage() {
+        return this.isMarkingPage();
+    },
     async gatherAnswerImages() {
-        console.log('[九科星] 开始获取答题卡图片...');
-
-        const startTime = Date.now();
-        const maxWait = 8000;
-
-        // 轮询等待图片加载完成
-        while (Date.now() - startTime < maxWait) {
-            const imgs = document.querySelectorAll(JIUKEXING_SELECTORS.ANSWER_IMAGE);
-            if (imgs.length > 0) {
-                const urls = Array.from(imgs)
-                    .filter(img => img.complete && img.naturalWidth > 0) // 跳过未加载完成的图片
-                    .map(img => img.src)
-                    .filter(src => src && !src.startsWith('data:image/svg')); // 过滤 loading 占位图
-
-                if (urls.length > 0) {
-                    console.log(`[九科星] 获取到 ${urls.length} 张答题卡图片`);
-                    return urls;
-                }
+        const task = this.getTaskIdentifier(), signal = window.aiGradingState?.activeRun?.controller?.signal;
+        const started = Date.now();
+        let previous = null;
+        while (Date.now() - started < 8000) {
+            if (signal?.aborted || this.getTaskIdentifier() !== task || !this.isMarkingPage()) return [];
+            const state = this._state();
+            if (state && previous?.identity === state.identity && JSON.stringify(previous.urls) === JSON.stringify(state.urls)
+                && state.images.every((img, i) => img === previous.images[i])) {
+                this._collectedPaper = { identity: state.identity, task };
+                return state.urls;
             }
-
-            const elapsed = Date.now() - startTime;
-            console.log(`[九科星] 图片尚未加载，等待中... (${elapsed}ms)`);
-            await new Promise(r => setTimeout(r, 300));
+            previous = state;
+            await new Promise(resolve => setTimeout(resolve, 300));
         }
-
-        // 超时兜底
-        console.warn('[九科星] 等待图片加载超时，尝试返回已有内容...');
-        const fallbackImgs = document.querySelectorAll(JIUKEXING_SELECTORS.ANSWER_IMAGE);
-        const urls = Array.from(fallbackImgs)
-            .map(img => img.src)
-            .filter(src => src && src.length > 100);
-
-        if (urls.length > 0) {
-            console.log(`[九科星] 超时兜底: 获取到 ${urls.length} 张图片`);
-            return urls;
-        }
-
-        console.warn('[九科星] 未找到答题卡图片');
         return [];
     },
-
-    async fetchImageAsBase64(url) {
-        // 如果已经是 data URL，直接返回 base64 部分
-        if (url.startsWith('data:image')) {
-            const base64 = url.split(',')[1] || '';
-            return base64;
-        }
-        // 否则使用通用方法下载
-        return fetchImageAsBase64(url);
+    async fetchImageAsBase64(url, signal) { return fetchImageAsBase64(url, signal); },
+    _scoreRule(page, unit) {
+        const parent = page.questionObj;
+        const rule = Array.isArray(parent?.childList) && parent.childList.length
+            ? page.getChildScoreStepConfig?.(unit) : parent;
+        return { mode: Number(rule?.enableScoreStep) || 0, interval: Number(rule?.intervalScore) || 0,
+            values: String(rule?.fixedScore ?? '').split(',').map(value => value.trim()).filter(Boolean).map(Number) };
     },
-
     getScoreInputs() {
-        const inputs = [];
-        const inputEls = document.querySelectorAll(JIUKEXING_SELECTORS.SCORE_INPUT);
-
-        inputEls.forEach((el, i) => {
-            // 从 placeholder 提取满分，格式: "≤12分"
-            let maxScore = 0;
-            const placeholder = el.placeholder || '';
-            const match = placeholder.match(/≤(\d+)分/);
-            if (match) {
-                maxScore = parseInt(match[1]) || 0;
-            }
-
-            // 获取小题标签（从父容器 .quesGrade 的 h1 获取）
-            const parent = el.closest(JIUKEXING_SELECTORS.QUESTION_GRADE);
-            const labelEl = parent ? parent.querySelector('h1') : null;
-            const label = labelEl ? labelEl.textContent.trim().replace(/：$/, '') : `第${i + 1}题`;
-
-            inputs.push({
-                element: el,
-                label: label,
-                index: i,
-                maxScore: maxScore
-            });
-        });
-
-        console.log(`[九科星] 找到 ${inputs.length} 个分数输入框`);
-        return inputs;
+        const page = this._page();
+        if (!page?.markingNow?.id || this.isRegradeMode()) return [];
+        const elements = Array.from(document.querySelectorAll('.quesGrade .input_btn'));
+        if (!page.getGradeList.length || elements.length !== page.getGradeList.length) return [];
+        return page.getGradeList.map((unit, i) => ({ element: elements[i], label: String(unit.customQuestionNumber),
+            index: i, maxScore: Number(unit.score), questionId: String(unit.customQuestionNumber), nativeUnit: unit,
+            scoreRule: this._scoreRule(page, unit) }));
     },
-
+    _matches(pending) {
+        const state = this._state(), inputs = this.getScoreInputs();
+        return !!pending && !!state && state.page === pending.page && state.identity === pending.identity
+            && state.task === pending.task && JSON.stringify(state.urls) === JSON.stringify(pending.urls)
+            && !pending.signal?.aborted
+            && !window.aiGradingState?.activeRun?.controller?.signal?.aborted
+            && state.page.radio === 2 && state.page.checked === false && !state.page.isSubmit && !state.page.isSubmitting
+            && inputs.length === pending.inputs.length && inputs.every((unit, i) =>
+                unit.element === pending.inputs[i].element && unit.questionId === pending.inputs[i].questionId
+                && unit.nativeUnit === pending.inputs[i].nativeUnit
+                && JSON.stringify(unit.scoreRule) === JSON.stringify(pending.inputs[i].scoreRule)
+                && unit.maxScore === pending.inputs[i].maxScore && !unit.element.disabled && !unit.element.readOnly);
+    },
+    _matchesPending(pending) {
+        return this._matches(pending) && this.getScoreInputs().every((unit, i) =>
+            String(unit.element.value).trim() !== '' && Number(unit.element.value) === pending.scores[i]
+            && String(unit.nativeUnit.grade).trim() !== '' && Number(unit.nativeUnit.grade) === pending.scores[i]);
+    },
     fillScores(scores) {
-        const inputs = this.getScoreInputs();
-        if (inputs.length === 0) return false;
-
-        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
-        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
-        if (scores.length > inputs.length) {
-            console.warn(`⚠️ [九科星] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+        this._pendingScores = null;
+        if (this._submitting) return false;
+        const state = this._state(), inputs = this.getScoreInputs();
+        if (state?.page.checked) {
+            showToast('请关闭九科星的“自动提交”，由批改助手确认后提交');
             return false;
         }
-        for (let i = 0; i < inputs.length; i++) {
-            if (scores[i] === null || scores[i] === undefined) {
-                console.warn(`⚠️ [九科星] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
-                return false;
-            }
-        }
-
+        if (!state || (this._collectedPaper && (this._collectedPaper.identity !== state.identity || this._collectedPaper.task !== state.task))
+            || !Array.isArray(scores) || !inputs.length || scores.length !== inputs.length
+            || inputs.some((unit, i) => typeof scores[i] !== 'number' || !Number.isFinite(scores[i])
+                || scores[i] < 0 || !(unit.maxScore > 0) || scores[i] > unit.maxScore
+                || Math.abs(scores[i] * 2 - Math.round(scores[i] * 2)) > 1e-8
+                || (unit.scoreRule.mode === 1 && unit.scoreRule.interval > 0
+                    && scores[i] % unit.scoreRule.interval !== 0 && scores[i] !== unit.maxScore)
+                || (unit.scoreRule.mode === 2 && unit.scoreRule.values.length
+                    && !unit.scoreRule.values.includes(scores[i])))) return false;
+        const pending = { ...state, inputs, scores: scores.slice(), signal: window.aiGradingState?.activeRun?.controller?.signal };
+        if (!this._matches(pending)) return false;
+        // 原生 openFlag 清除键盘自动提交计时器，避免切换设置前遗留的计时器提交本次分数。
+        if (typeof state.page.openFlag === 'function') state.page.openFlag();
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-
         for (let i = 0; i < inputs.length; i++) {
-            const input = inputs[i].element;
-            const score = scores[i];
-
-            // 设置值
-            setter.call(input, score);
-
-            // 触发 Vue 响应式事件
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            input.dispatchEvent(new Event('blur', { bubbles: true }));
+            if (!this._matches(pending)) return false;
+            setter.call(inputs[i].element, scores[i]);
+            // 原生 v-model 只需 input。keyup/Enter、快捷满零按钮会触发平台提交。
+            inputs[i].element.dispatchEvent(new Event('input', { bubbles: true }));
+            if (!this._matches(pending)) return false;
         }
-
+        if (!this._matchesPending(pending)) return false;
+        this._pendingScores = pending;
         return true;
     },
-
-    submitGrade() {
-        const btn = document.querySelector(JIUKEXING_SELECTORS.SUBMIT_BUTTON);
-        if (btn) {
-            btn.click();
-            console.log('[九科星] 点击提交按钮');
-            return true;
-        }
-
-        console.warn('[九科星] 未找到提交按钮');
-        return false;
-    },
-
-    async waitForNextPaper(oldImageUrl) {
-        const timeout = 30000;
-        const interval = 500;
-        const startTime = Date.now();
-
-        while (Date.now() - startTime < timeout) {
-            // 只以图片 URL 变化为切卷信号（输入框清空是平台提交动作的一部分，不是切卷标志）
-            const imgs = document.querySelectorAll(JIUKEXING_SELECTORS.ANSWER_IMAGE);
-            for (const img of imgs) {
-                const newUrl = img.src;
-                if (!newUrl || newUrl.startsWith('data:image/svg')) continue;
-                if (oldImageUrl && newUrl !== oldImageUrl) {
-                    // 确认新图已加载完成，避免拿到半加载的图
-                    if (img.complete && img.naturalWidth > 0) {
-                        console.log('[九科星] 检测到图片变化');
-                        return true;
-                    }
+    async submitGrade(guard) {
+        if (this._submitting) return false;
+        const pending = this._pendingScores;
+        this._pendingScores = null;
+        if (!pending || guard?.signal?.aborted || (guard && !guard.isCurrent()) || !this._matchesPending(pending)) return false;
+        this._submitting = true;
+        let timer, endpoint, original, capture;
+        try {
+            if (guard) await guard.verify();
+            if (guard?.signal?.aborted || (guard && !guard.isCurrent()) || !this._matchesPending(pending)) return false;
+            const btn = document.querySelector(JIUKEXING_SELECTORS.SUBMIT_BUTTON);
+            endpoint = pending.page.$api?.task;
+            original = endpoint?.submitScore;
+            if (!btn || btn.disabled || typeof original !== 'function') return false;
+            let receipt = null, calls = 0;
+            capture = function (payload, ...rest) {
+                calls++;
+                const children = payload?.childList;
+                if (calls !== 1 || String(payload?.paperId) !== pending.paperId
+                    || String(payload?.questionBlockId) !== pending.questionBlockId
+                    || Number(payload?.studentScore) !== pending.scores.reduce((sum, value) => sum + value, 0)
+                    || (pending.inputs.length > 1 && (!Array.isArray(children) || children.length !== pending.scores.length
+                        || children.some((child, i) => Number(child.studentScore) !== pending.scores[i]
+                            || String(child.customQuestionNumber) !== pending.inputs[i].questionId)))) {
+                    throw new Error('平台提交的分数与本次评分不一致，请核对后重试');
                 }
-            }
-
-            await new Promise(r => setTimeout(r, interval));
+                const request = original.call(this, payload, ...rest);
+                receipt = Promise.resolve(request).then(result => result?.code === 0, () => false);
+                return request;
+            };
+            endpoint.submitScore = capture;
+            if (endpoint.submitScore !== capture) return false;
+            this._submittedPaper = { identity: pending.identity, task: pending.task };
+            try { btn.click(); } finally { if (endpoint.submitScore === capture) endpoint.submitScore = original; }
+            // 本地校验拒绝或最短时长未满足时，原生函数不会发送保存请求。
+            if (!receipt || calls !== 1) return false;
+            const accepted = await Promise.race([receipt, new Promise(resolve => { timer = setTimeout(() => resolve(false), 30000); })]);
+            if (!accepted) showToast('平台尚未确认保存，请核对阅卷记录后继续');
+            return accepted && !pending.signal?.aborted && !guard?.signal?.aborted && (!guard || guard.isCurrent())
+                && this.getTaskIdentifier() === pending.task;
+        } finally {
+            clearTimeout(timer);
+            if (endpoint && endpoint.submitScore === capture) endpoint.submitScore = original;
+            this._submitting = false;
         }
-
-        console.warn('[九科星] 等待下一份答卷超时');
+    },
+    async waitForNextPaper(oldImageUrl, options = {}) {
+        const task = this.getTaskIdentifier();
+        if (options.taskId && options.taskId !== task) return false;
+        const baseline = this._submittedPaper?.task === task ? this._submittedPaper : this._collectedPaper;
+        const oldId = options.paperId || (baseline?.task === task ? baseline.identity : null);
+        if (!oldId) return false;
+        const started = Date.now();
+        while (Date.now() - started < 30000) {
+            if (options.signal?.aborted || this.getTaskIdentifier() !== task) return false;
+            const state = this._state();
+            if (state && state.identity !== oldId) return true;
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
         return false;
     },
-
     isRegradeMode() {
-        // 检查页面是否有回评相关文字
-        const bodyText = document.body.innerText || '';
-        if (bodyText.includes('回评') || bodyText.includes('复核')) {
-            return true;
-        }
-        return !!window.aiGradingState?.isRegrading;
+        const page = this._page();
+        return window.location.pathname === '/reviewMarking' || page?.oldornew === 'old'
+            || !!window.aiGradingState?.isRegrading;
     },
-
-    detectSubQuestions() {
-        return [];
-    },
+    detectSubQuestions() { return []; },
 
     // 页面加载后设置 z-index，解决 Vue 组件遮挡问题
     onPageLoad() {
+        if (document.getElementById('jiukexing-zindex-fix')) return;
         const style = document.createElement('style');
         style.id = 'jiukexing-zindex-fix';
         style.textContent = `
@@ -234,7 +246,7 @@ const JiukexingAdapter = {
 };
 
 // 注册适配器
-if (JiukexingAdapter.shouldInitialize()) {
+if (JiukexingAdapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
     window.__AI_MARKER_ADAPTER__ = JiukexingAdapter;
 
     // 立即注入 z-index 修复样式

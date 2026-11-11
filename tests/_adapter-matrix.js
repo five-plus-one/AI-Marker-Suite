@@ -280,7 +280,7 @@ const ADAPTERS = [
       own: { host: 'www.54xueba.cn', path: '/' },
       near: [{ label: '近似域名 54xueba.com', form: { host: '54xueba.com', path: '/' } }] },
     { dir: 'jiukexing', id: 'jiukexing', name: '九科星',
-      own: { host: 'marking.jkxjxw.com', path: '/' },
+      own: { host: 'marking.jkxjxw.com', path: '/marking' },
       near: [{ label: '近似域名 jkxjxw.com', form: { host: 'jkxjxw.com', path: '/' } },
              { label: '串台对：jxp.jkxjxw.com 归九科星(作业)', form: { host: 'jxp.jkxjxw.com', path: '/' } }] },
     { dir: 'huiyuejuan', id: 'huiyuejuan', name: '慧阅卷',

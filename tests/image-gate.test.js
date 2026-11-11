@@ -143,8 +143,10 @@ function loadEngineForRequest() {
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/score.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/prompt.js'), 'utf8'), sandbox);
     vm.runInContext(src + ';__exports__ = { callAIOnce };', sandbox);
-    return { callAIOnce: sandbox.__exports__.callAIOnce, requests, warns, win: sandbox.window };
+    return { callAIOnce: sandbox.__exports__.callAIOnce, requests, warns, win: sandbox.window, sandbox };
 }
 
 test('行为：全部废图 → 显式失败，请求不得发出（宁可不取）', async () => {
@@ -155,6 +157,52 @@ test('行为：全部废图 → 显式失败，请求不得发出（宁可不取
     );
     assert.strictEqual(requests.length, 0, '废图请求绝不能进 API');
     assert.ok(warns.some(w => w.includes('废图剔除')), '剔除必须 warn，实际: ' + warns.join(' | '));
+});
+
+test('参考答案图片不能替代缺失或全部不可用的学生答卷', async () => {
+    const { callAIOnce, requests } = loadEngineForRequest();
+    for (const students of [[png(942, 4)], []]) {
+        await assert.rejects(() => callAIOnce('评分', students, { gradingRequest: true }, null, [png(800, 600)], 2048), /答题卡图片均不可用/);
+    }
+    assert.equal(requests.length, 0);
+});
+
+test('评分请求逐图注明参考资料与学生答卷，过滤后仍保留各自用途', async () => {
+    const { callAIOnce, requests } = loadEngineForRequest();
+    const reference = png(800, 600), student = png(900, 700);
+    await callAIOnce('评分', [student], { gradingRequest: true }, null, [png(942, 4), reference], 2048);
+    const content = requests[0].messages[0].content;
+    const indexes = content.flatMap((item, i) => item.type === 'image_url' ? [i] : []);
+    assert.equal(indexes.length, 2);
+    assert.match(content[indexes[0] - 1].text, /参考资料/); assert.ok(content[indexes[0]].image_url.url.includes(reference));
+    assert.match(content[indexes[1] - 1].text, /学生答卷/); assert.ok(content[indexes[1]].image_url.url.includes(student));
+});
+
+test('真实双评及第三模型仲裁均接收同一参考资料和学生答卷', async () => {
+    const { sandbox, requests } = loadEngineForRequest();
+    sandbox.__provider = (_provider, model) => ({ endpoint: 'https://e.test', apiKey: 'k', model });
+    sandbox.PresetManager = { getMaxScore: () => 10 };
+    sandbox.GM_xmlhttpRequest = options => {
+        const request = JSON.parse(options.data); requests.push(request);
+        const score = request.model === 'secondary' ? 5 : 0;
+        const response = `【答案复述】\n${score ? 'I=3A' : '未作答'}\n【评分依据】\n依据实际书写\n【得分】\n${score}`;
+        queueMicrotask(() => options.onload({ status: 200, responseText: 'data: ' + JSON.stringify({ choices: [{
+            delta: { content: response }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n' }));
+        return { abort() {} };
+    };
+    sandbox.__config = { answer: { text: '', images: [png(700, 600)] }, scoring: { maxScore: 10, roundStep: 1 },
+        workflowSnapshot: { model: { provider: 'p', model: 'primary' }, dualEval: { enabled: true, threshold: 2,
+            secondary: { provider: 'p', model: 'secondary' }, arbitration: { provider: 'p', model: 'arbitration' } } } };
+    sandbox.__students = [png(900, 700)];
+    vm.runInContext('ProviderManager.getCallConfig = __provider;', sandbox);
+    const result = await vm.runInContext('callDualEvaluation(__students, __config)', sandbox);
+    assert.equal(result.score, 0); assert.equal(requests.length, 3);
+    for (const request of requests) {
+        const content = request.messages[0].content;
+        assert.equal(content.filter(item => item.type === 'image_url').length, 2);
+        assert.ok(content.some(item => item.type === 'text' && item.text.includes('教师提供的参考资料')));
+        assert.ok(content.some(item => item.type === 'text' && item.text.includes('本次待批改的学生答卷')));
+    }
 });
 
 test('行为：一好一废 → 废图剔除后仅好图进请求，且提示词注明剔除（残卷不得照常出分）', async () => {

@@ -58,6 +58,13 @@ function invalidateGradingRun() {
     destroySubmitDialog(document.getElementById('auto-submit-dialog'));
 }
 
+function isExplicitlyBlankGradingResult(result) {
+    // 只认整段明确声明整卷未作答；某小题空白、无法辨认、答案为“无”均不能判整卷空白。
+    const answer = String(result?._sections?.['答案复述'] ?? result?.studentAnswer ?? '')
+        .replace(/[\s。.!！]/g, '');
+    return /^(?:(?:学生|本卷|整张答卷|该答卷|答卷)(?:均|完全|全部)?)?(?:未作答|没有作答|无作答|未填写答案|空白卷|空白答卷)$/.test(answer);
+}
+
 function createGradingContext(manual = false) {
     invalidateGradingRun();
     const state = window.aiGradingState;
