@@ -5,10 +5,22 @@ const path = require('node:path');
 const M = require('./_adapter-matrix.js');
 const Q = require('./_qiguang-signature.js');
 
-for (const form of Q.deployments) test(form.label + '：完整 bundle 仅注册启光', () => {
+for (const form of Q.deployments) test(form.label + '：完整 bundle 使用单一适配器与对应平台名称', () => {
     const sb = M.makeStub(form), result = M.loadAdapters(sb);
     assert.deepEqual(result.errors, []); assert.equal(result.winner?.id, 'qiguang');
+    assert.equal(result.winner?.name, form.name || '启光优测');
     assert.equal(result.writes.length, 1);
+});
+
+test('诊学平台名称按完整域名边界识别，同结构外站保留对应名称', () => {
+    for (const [host, expectedName] of [['51zhenxue.com', '诊学网'], ['crock.51zhenxue.com', '诊学网'],
+        ['crock.51zhenxue.com.example.org', '启光优测'], ['not51zhenxue.com', '启光优测']]) {
+        const sb = M.makeStub({ host, path: Q.ROUTE, dom: Q.signature() });
+        const result = M.loadAdapters(sb);
+        assert.deepEqual(result.errors, []);
+        assert.equal(result.winner?.name, expectedName);
+        assert.equal(result.writes.length, 1);
+    }
 });
 for (const form of Q.rejections()) test(form.label + '：不注册', () => {
     const result = M.loadAdapters(M.makeStub(form));
