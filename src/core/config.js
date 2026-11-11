@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.19.6',
+    VERSION: '1.21.19.7',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.19.7': [
+            '【新平台】支持诊学网统考单份键盘阅卷，识别平台名称并按题目给分档位校验分数',
+        ],
         '1.21.19.6': [
             '【修复】AMEQP 核对全部作答题块所属答卷，图片地址无法确认时暂停自动给分',
         ],

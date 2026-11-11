@@ -1,6 +1,7 @@
-// 启光优测：单份键盘阅卷。背景图为作答，画布只承载批注。
+// 启光优测与诊学网统考：单份键盘阅卷。背景图为作答，画布只承载批注。
 const QiguangAdapter = {
-    name: '启光优测',
+    name: window.location.hostname === '51zhenxue.com' || window.location.hostname.endsWith('.51zhenxue.com')
+        ? '诊学网' : '启光优测',
     id: 'qiguang',
     urlPatterns: ['*://*/OraOnlineCheck/OraCheck/Review*'],
     iconUrl: '',
@@ -223,7 +224,7 @@ const QiguangAdapter = {
             if (!QiguangAdapter.shouldInitialize()) return false;
             const existing = window.__AI_MARKER_ADAPTER__;
             if (existing && existing !== QiguangAdapter) {
-                console.error('[注册冲突] 启光优测检测到已有适配器，保留当前平台:', existing.id || existing.name);
+                console.error(`[注册冲突] ${QiguangAdapter.name}检测到已有适配器，保留当前平台:`, existing.id || existing.name);
             } else if (!existing) {
                 window.__AI_MARKER_ADAPTER__ = QiguangAdapter;
             }
@@ -231,7 +232,7 @@ const QiguangAdapter = {
             observer?.disconnect();
             return true;
         } catch (error) {
-            console.warn('[启光优测] 平台识别失败，停止注册:', error);
+            console.warn(`[${QiguangAdapter.name}] 平台识别失败，停止注册:`, error);
             settled = true;
             observer?.disconnect();
             return true;
