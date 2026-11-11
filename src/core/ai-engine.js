@@ -664,7 +664,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         const removedIndexes = new Set(imgGate.removed.map(item => item.index));
         references.concat(studentImages).forEach((base64Data, index) => {
             if (removedIndexes.has(index)) return;
-            if (config.gradingRequest) messageContent.push({ type: 'text', text: index < references.length
+            if (config.gradingRequest || references.length > 0) messageContent.push({ type: 'text', text: index < references.length
                 ? '以下图片是教师提供的参考资料（题目、参考答案或评分标准），不属于学生作答，不能据此认定学生写出了答案。'
                 : '以下图片是本次待批改的学生答卷。只评分学生实际写出的内容；答卷上的印刷题干与预印图形不属于学生作答。' });
             messageContent.push({ type: "image_url", image_url: { url: `data:image/png;base64,${base64Data}` } });
