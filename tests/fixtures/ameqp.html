@@ -13,7 +13,17 @@
 sessionStorage.clear();
 const mode=new URLSearchParams(location.search).get('mode');
 const initialImage=document.querySelector('.ansImg');
-if(mode==='unknown')initialImage.src='/answers/scan_A_00_1_0.svg';
+function imageResource(id,index=0){
+ if(mode==='unknown')return '/answers/scan_'+id+'_00_1_0.svg';
+ if(mode==='prefixed')return '/answers/'+encodeURIComponent('生物地理_'+id)+'.svg';
+ if(mode==='query')return '/answers/image.ashx?paper='+id+'&t=1';
+ return '/answers/'+id+'_0'+index+'_1_0.svg';
+}
+initialImage.src=imageResource(1001);
+if(mode==='unknown-multi'){
+ initialImage.src='/answers/scan_1001_00_1_0.svg';
+ const second=initialImage.cloneNode(true);second.src='/answers/scan_1002_00_1_0.svg';initialImage.parentElement.appendChild(second);
+}
 if(mode==='multi'||mode==='mixed'){
  const second=initialImage.cloneNode(true);second.src='/answers/'+(mode==='mixed'?1002:1001)+'_01_1_0.svg';
  initialImage.parentElement.appendChild(second);
@@ -46,7 +56,7 @@ document.getElementById('btn_submit').onclick=()=>{
  if(scores.join(',')!=='0.0,2.5'||scores.join(',')!==hidden.join(','))throw Error('native score registration mismatch');
  effects.submits.push({paper:document.querySelector('.ansImg').src.split('/').pop(),scores});
  const next=()=>{
-  document.querySelectorAll('.ansImg').forEach((img,index)=>img.src='/answers/'+(1001+effects.submits.length)+'_0'+index+'_1_0.svg');
+  document.querySelectorAll('.ansImg').forEach((img,index)=>img.src=imageResource(1001+effects.submits.length,index));
   document.querySelectorAll('#Mark_main .mark_tbx,#Mark_main input[type=hidden],#queVal,#queVal_old').forEach(input=>input.value='');
  };
  if(mode==='slow')setTimeout(next,1200);else next();
@@ -59,7 +69,7 @@ document.getElementById('btn_submit').onclick=()=>{
   for(let i=0;i<140&&!document.querySelector('.ai-grade-btn');i++)await wait(50);
   assert(window.__AI_MARKER_ADAPTER__?.id==='ameqp','actual bundle selects AMEQP');
   assert(document.querySelectorAll('.ai-grade-btn').length===1,'single grade entry');
-  if(mode==='unknown'||mode==='mixed'){
+  if(mode==='unknown-multi'||mode==='mixed'){
    const adapter=window.__AI_MARKER_ADAPTER__;
    assert(adapter.getPaperIdentity()===null,'uncertain paper has no reliable identity');
    assert((await adapter.gatherAnswerImages()).length===0,'uncertain paper is not collected');
@@ -74,7 +84,7 @@ document.getElementById('btn_submit').onclick=()=>{
   for(let i=0;i<500&&window.aiGradingState.batchProgress.currentCount<3;i++)await wait(50);
   assert(effects.submits.length===3,'three native submissions');
   assert(effects.requests===3,'one AI request per paper');
-  assert(effects.submits.map(x=>x.paper).join(',')==='1001_00_1_0.svg,1002_00_1_0.svg,1003_00_1_0.svg','each paper submitted once');
+  assert(effects.submits.map(x=>x.paper).join(',')===[1001,1002,1003].map(id=>new URL(imageResource(id),location.href).href.split('/').pop()).join(','),'each paper submitted once');
   assert(effects.palettes===6,'native score palette used');
   assert(window.aiGradingState.batchProgress.currentCount===3&&!window.aiGradingState.isRunning,'batch pauses at three');
   assert(effects.alerts.length===0,'continuous flow has no alert');

@@ -39,11 +39,32 @@ const AmeqpAdapter = {
         }
     },
 
+    _resourceKey(img) {
+        try {
+            // 空 src 的 DOM 属性会解析为当前页面，不能用它证明存在答卷。
+            const raw = img.getAttribute('src');
+            if (!String(raw == null ? img.src || '' : raw).trim()) return null;
+            const url = new URL(raw == null ? img.src : raw, window.location.href);
+            if (!/^https?:$/.test(url.protocol)) return null;
+            url.hash = '';
+            // t 是已确认的 AMEQP 缓存戳；其余参数可能选择不同答卷，必须保留。
+            url.searchParams.delete('t');
+            return url.href;
+        } catch (_) { return null; }
+    },
+
     // 稳定试卷标识（供答卷一致性校验做强信号比对）
     getPaperIdentity() {
         try {
-            const ids = this._answerImages().map(img => this._paperIdFromSrc(img.src || img.getAttribute('src')));
-            return ids.length && ids[0] && ids.every(id => id === ids[0]) ? ids[0] : null;
+            const images = this._answerImages();
+            const keys = images.map(img => this._resourceKey(img));
+            if (!keys.length || keys.some(key => !key)) return null;
+            const ids = keys.map(key => this._paperIdFromSrc(key));
+            // 单张扫描图也可能以学科名、UUID 或图片接口命名，完整资源地址可区分答卷。
+            if (images.length === 1 && !ids[0]) return 'ameqp-resource:' + keys[0];
+            // 多题块仍须有共同卷号；混合答卷与未知分组不作猜测。
+            if (!ids[0] || !ids.every(id => id === ids[0])) return null;
+            return keys.some(key => new URL(key).search) ? JSON.stringify([ids[0], keys]) : ids[0];
         } catch (e) {
             return null;
         }
@@ -261,7 +282,7 @@ const AmeqpAdapter = {
         }
         const imgs = this._answerImages();
         const paperId = this.getPaperIdentity();
-        const paths = imgs.map(img => this._stripQuery(img.src));
+        const paths = imgs.map(img => this._resourceKey(img));
 
         const urls = [];
         imgs.forEach(img => {
@@ -279,7 +300,7 @@ const AmeqpAdapter = {
         const current = this._answerImages();
         if (!paperId || !this._imagesReady() || this.getPaperIdentity() !== paperId
             || current.length !== imgs.length || urls.length !== imgs.length
-            || current.some((img, i) => img !== imgs[i] || this._stripQuery(img.src) !== paths[i])) return [];
+            || current.some((img, i) => img !== imgs[i] || this._resourceKey(img) !== paths[i])) return [];
         this._collectedPaper = { id: paperId, task: this.getTaskIdentifier() };
         console.log(`[AMEQP] 找到答题卡图片: ${urls.length} 张（题块裁切，已排除批注层 tmpImg）`);
         return urls;
@@ -289,8 +310,7 @@ const AmeqpAdapter = {
         const imgs = this._answerImages();
         if (!imgs.length) return false;
         const paperId = this.getPaperIdentity();
-        return !!paperId && imgs.every(img => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0
-            && this._paperIdFromSrc(img.src || img.getAttribute('src')) === paperId);
+        return !!paperId && imgs.every(img => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0);
     },
 
     async fetchImageAsBase64(url) {
@@ -446,7 +466,8 @@ const AmeqpAdapter = {
         if (options.taskId && options.taskId !== task) return false;
         const submitted = this._submittedPaper?.task === task ? this._submittedPaper.id : null;
         const collected = this._collectedPaper?.task === task ? this._collectedPaper.id : null;
-        const fromUrl = /^https?:\/\//i.test(oldImageUrl || '') ? this._paperIdFromSrc(oldImageUrl) : null;
+        const fromUrl = /^https?:\/\//i.test(oldImageUrl || '')
+            ? this.getPaperIdentityForUrl(oldImageUrl) : null;
         // 上下文/提交前/取图时的基准均早于换卷，不能以等待开始时的当前 DOM 为旧卷。
         const oldId = options.paperId || submitted || collected || fromUrl;
         if (!oldId || options.signal?.aborted) return false;
@@ -471,6 +492,13 @@ const AmeqpAdapter = {
             check();
             if (!settled) timer = setInterval(check, 200);
         });
+    },
+
+    getPaperIdentityForUrl(src) {
+        const key = this._resourceKey({ src, getAttribute: () => src });
+        if (!key) return null;
+        const id = this._paperIdFromSrc(key);
+        return id ? (new URL(key).search ? JSON.stringify([id, [key]]) : id) : 'ameqp-resource:' + key;
     },
 
     // ---------- 状态查询 ----------
