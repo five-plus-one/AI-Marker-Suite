@@ -38,8 +38,14 @@ jobs:
             exit 1
           fi
 
+      - name: Test release commit
+        run: npm test
+
       - name: Build (stable channel)
         run: npm run build -- --channel=stable
+
+      - name: Verify bundled platform registration
+        run: npm run verify:bundle
 
       # 守门 2：构建产物版本必须与 tag 一致
       - name: Verify built manifest version

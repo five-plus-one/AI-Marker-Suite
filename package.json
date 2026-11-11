@@ -1,10 +1,11 @@
 {
   "name": "zhixue-ai-marking",
-  "version": "1.21.18.0",
+  "version": "1.21.19.0",
   "description": "AI批改助手 - 基于多模态AI的在线阅卷自动批改工具",
   "scripts": {
     "build": "node build.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "verify:bundle": "node scripts/verify-bundle.cjs"
   },
   "author": "5plus1",
   "license": "GPL-3.0",

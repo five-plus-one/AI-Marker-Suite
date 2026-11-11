@@ -8,7 +8,9 @@ const HaofenshuAdapter = {
     iconUrl: 'https://yue.haofenshu.com/favicon.ico',
 
     shouldInitialize() {
-        return window.location.hostname.includes('haofenshu.com') &&
+        // hostMatches 精确姿势（strict-a 附 B）：精确域 + 子域级，禁 includes 子串
+        const h = (window.location.hostname || '').toLowerCase();
+        return (h === 'haofenshu.com' || h.endsWith('.haofenshu.com')) &&
                window.location.pathname.includes('/minions/');
     },
 
@@ -219,6 +221,16 @@ const HaofenshuAdapter = {
     }
 };
 
-if (HaofenshuAdapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = HaofenshuAdapter;
-}
+(function registerHaofenshuAdapter() {
+    try {
+        if (!HaofenshuAdapter.shouldInitialize()) return;
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing) {
+            console.error(`🚫 [注册冲突] ${existing.name} 已注册，但 好分数(haofenshu) 也认领本页，保留先到者`);
+            return;
+        }
+        window.__AI_MARKER_ADAPTER__ = HaofenshuAdapter;
+    } catch (error) {
+        console.warn('[注册] 页面判定失败，停止注册:', error);
+    }
+})();

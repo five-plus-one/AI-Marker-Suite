@@ -58,8 +58,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test release commit
+        run: npm test
+
       - name: Build (stable channel)
         run: npm run build -- --channel=stable
+
+      - name: Verify bundled platform registration
+        run: npm run verify:bundle
 
       - name: Create redirect page
         run: |
