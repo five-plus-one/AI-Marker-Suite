@@ -25,20 +25,25 @@ const AmeqpAdapter = {
         return (url || '').split('?')[0];
     },
 
-    // 从图片 src 提取稳定试卷标识：文件名首段即考号（如 7720272115_00_1_0.PNG → 7720272115）。
-    // 同卷 src 偶发重设（缓存戳/渲染重载/路径变体）不改变考号，换卷必变（#281）
+    // 已验证的文件名格式为 考号_数字_数字_数字.图片扩展名。
+    // 缓存参数与目录不参与考号；其他地址格式不能把共有前缀当作答卷标识。
     _paperIdFromSrc(src) {
-        const file = (this._stripQuery(src).split('/').pop() || '');
-        const m = file.match(/^(\d+)/) || file.match(/^([^_]+)/);
-        return (m && m[1]) ? m[1] : this._stripQuery(src);
+        try {
+            const url = new URL(src);
+            if (!/^https?:$/.test(url.protocol)) return null;
+            const file = decodeURIComponent(url.pathname.split('/').pop() || '');
+            const match = file.match(/^(\d+)_\d+_\d+_\d+\.(?:png|jpe?g|bmp|gif|webp|tiff?|svg)$/i);
+            return match ? match[1] : null;
+        } catch (_) {
+            return null;
+        }
     },
 
     // 稳定试卷标识（供答卷一致性校验做强信号比对）
     getPaperIdentity() {
         try {
-            const img = this._answerImages()[0];
-            const src = (img && (img.src || img.getAttribute('src'))) || '';
-            return src ? this._paperIdFromSrc(src) : null;
+            const ids = this._answerImages().map(img => this._paperIdFromSrc(img.src || img.getAttribute('src')));
+            return ids.length && ids[0] && ids.every(id => id === ids[0]) ? ids[0] : null;
         } catch (e) {
             return null;
         }
@@ -250,7 +255,10 @@ const AmeqpAdapter = {
         for (let i = 0; i < 30 && !this._imagesReady(); i++) {
             await new Promise(r => setTimeout(r, 100));
         }
-        if (!this._imagesReady()) return [];
+        if (!this._imagesReady()) {
+            console.warn('[AMEQP] 作答图尚未就绪，或无法确认所有题块属于同一份答卷');
+            return [];
+        }
         const imgs = this._answerImages();
         const paperId = this.getPaperIdentity();
         const paths = imgs.map(img => this._stripQuery(img.src));

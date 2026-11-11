@@ -118,6 +118,48 @@ test('AMEQP 未解码图片、混合新旧卷和裁切中换卷不返回作答�
     assert.equal((await moving.adapter.gatherAnswerImages()).length, 0);
 });
 
+test('AMEQP 标识仅接受考号及三个数字图片编号，兼容缓存、目录和编码变化', () => {
+    const f = fixture();
+    for (const src of [
+        'https://school.example/images/1001_00_1_0.PNG?t=2',
+        'https://other.example/cache/1001_01_2_0.jpg?signature=fixture#image',
+        'https://school.example/images/1001%5F00%5F1%5F0.PNG'
+    ]) assert.equal(f.adapter._paperIdFromSrc(src), '1001', src);
+    f.state.images.push({ ...f.state.img, src: 'https://school.example/images/1001_01_2_0.PNG' });
+    assert.equal(f.adapter.getPaperIdentity(), '1001');
+});
+
+for (const file of ['scan_A_00_1_0.PNG', '1001A_00_1_0.PNG', '1001.PNG', 'image.ashx?paper=1001', '1001_00_1_0.ashx?paper=1002']) {
+    test('AMEQP 无可靠标识的地址停止取图和写分：' + file, async () => {
+        const f = fixture(); f.state.img.src = 'https://school.example/images/' + file;
+        assert.equal(f.adapter.getPaperIdentity(), null);
+        assert.equal((await f.adapter.gatherAnswerImages()).length, 0);
+        assert.equal(f.adapter.fillScores([1, 2]), false);
+        assert.ok(f.state.inputs.every(input => input.value === ''));
+        assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
+        assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
+    });
+}
+
+test('AMEQP 首图未变而其他题块换卷时停止给分和提交', async () => {
+    const f = fixture({ onInput: (_input, _event, state) => {
+        if (state.events.length === 1) state.images[1].src = 'https://school.example/images/1002_01_2_0.PNG';
+    } });
+    f.state.images.push({ ...f.state.img, src: 'https://school.example/images/1001_01_2_0.PNG' });
+    assert.equal(f.adapter.fillScores([1, 2]), false);
+    assert.equal(f.adapter.getPaperIdentity(), null);
+    assert.equal(f.state.inputs[1].value, '');
+    assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
+    assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
+});
+
+test('AMEQP 已登记后出现其他答卷题块时不提交', async () => {
+    const f = fixture(); assert.ok(f.adapter.fillScores([1, 2]));
+    f.state.images.push({ ...f.state.img, src: 'https://school.example/images/1002_01_2_0.PNG' });
+    assert.equal(f.adapter.getPaperIdentity(), null);
+    assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
+});
+
 test('AMEQP 整图回退保留访问参数', async () => {
     const f = fixture({ tainted: true }); f.state.img.src += '&signature=fixture';
     assert.equal((await f.adapter.gatherAnswerImages())[0], f.state.img.src);
