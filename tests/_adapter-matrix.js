@@ -8,6 +8,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const QIGUANG = require('./_qiguang-signature.js');
 
 const ROOT = path.join(__dirname, '..');
 const AD_DIR = path.join(ROOT, 'src', 'adapters');
@@ -63,7 +64,7 @@ function loadOrder() {
 // ---------- DOM 桩（strict-a.md 附录 D.1 补桩清单：加载错误=注册失明，桩必须让全量适配器零错误求值）----------
 function makeStub(form = {}) {
     const dom = {};
-    for (const [sel, v] of Object.entries(form.dom || {})) dom[sel] = v ? {} : null;
+    for (const [sel, v] of Object.entries(form.dom || {})) dom[sel] = v && typeof v === 'object' ? v : (v ? {} : null);
     const writes = [];
     const observers = [];
     const storage = () => {
@@ -89,7 +90,8 @@ function makeStub(form = {}) {
             pathname: form.path || '/',
             hash: form.hash || '',
             search: form.search || '',
-            href: 'https://' + (form.host || 'example.com') + (form.path || '/') + (form.hash || ''),
+            href: (form.protocol || 'https:') + '//' + (form.host || 'example.com')
+                + (form.port ? ':' + form.port : '') + (form.path || '/') + (form.search || '') + (form.hash || ''),
         },
         getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
         Event: class { constructor(t) { this.type = t; } },
@@ -113,6 +115,7 @@ function makeStub(form = {}) {
         addEventListener: () => {}, removeEventListener: () => {},
         setTimeout: (fn) => { return 0; }, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
         navigator: { userAgent: 'test' },
+        URL, URLSearchParams,
     };
     sb.HTMLInputElement = {
         prototype: {
@@ -200,9 +203,11 @@ function loadOne(sb, dir, opts = {}) {
 // near: 近似域名/缺条件形态（必须不注册 → 空槽）
 const ADAPTERS = [
     { dir: 'qiguang', id: 'qiguang', name: '启光优测',
-      own: { host: '120.78.5.37', path: '/OraOnlineCheck/OraCheck/Review' },
+      own: { host: '120.78.5.37', path: QIGUANG.ROUTE, dom: QIGUANG.signature() },
       near: [{ label: '启光登录页不注册', form: { host: '120.78.5.37', path: '/Account/Login' } },
-             { label: '启光近似主机不注册', form: { host: '120.78.5.37.example.com', path: '/OraOnlineCheck/OraCheck/Review' } }] },
+             { label: '启光近似主机缺少平台特征', form: { host: '120.78.5.37.example.com', path: QIGUANG.ROUTE } },
+             { label: '启光同路径缺少入口模块', form: { host: 'other.school.example', path: QIGUANG.ROUTE,
+                 dom: { ...QIGUANG.signature(), 'script[src]': null } } }] },
     { dir: 'zhixue', id: 'zhixue', name: '智学网',
       own: { host: 'www.zhixue.com', path: '/' },
       near: [{ label: '近似域名 zhixue.cn', form: { host: 'zhixue.cn', path: '/' } }] },

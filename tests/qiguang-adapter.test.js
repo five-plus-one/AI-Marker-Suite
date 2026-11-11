@@ -13,18 +13,23 @@ function fixture(options = {}) {
         getAttribute: key => attrs[key] ?? null, getClientRects() { return this.hidden ? [] : [{}]; },
         dispatchEvent(event) { state.events.push(event.type); options.onInput?.(this, event, state); } });
     const inputs = (options.units || [{ 'data-id': 'q1', 'data-max': '5', 'data-fullscore': '0,1,2,3,4,5' }]).map(element);
-    const canvas = element(), paper = element(), count = element(), button = element();
+    const canvas = element(), paper = element(), count = element(), button = element(), form = element();
+    inputs.forEach(input => { input.form = form; }); button.form = form;
+    form.querySelector = selector => ({ 'input[name="score"][data-id][data-max]': inputs[0],
+        'button#btn-submit-score[type="submit"]': button }[selector] || null);
+    const script = element({ src: '/Scripts/require.js?version=fixture', 'data-main': 'examOnlineOrc.js' });
     Object.defineProperty(paper, 'textContent', { get: () => state.paper });
     Object.defineProperty(count, 'textContent', { get: () => state.count });
     button.click = () => { state.clicks++; options.onClick?.(state); };
     const document = {
-        querySelector: selector => ({ '#scoring-item': canvas, '#paperID': paper, '#myRead': count,
+        querySelector: selector => ({ '#scoring-item': canvas, 'canvas#scoring-item': canvas,
+            'form#form-scoring': form, '#paperID': paper, '#myRead': count,
             '#btn-submit-score': button, '#form-scoring input[name="score"]': inputs[0],
             'input[name="operateTypeCheck"]:checked': { value: state.mode },
             'input[name="autoSubmit"]:checked': state.auto ? element() : null,
             '#rightWrongModelCanvasDiv': state.batch ? element() : null }[selector] || null),
         querySelectorAll: selector => selector === '#form-scoring input[name="score"]' ? inputs
-            : selector === '.layui-layer-content' ? state.layers : []
+            : selector === '.layui-layer-content' ? state.layers : selector === 'script[src]' ? [script] : []
     };
     const sandbox = { console, document, URL, URLSearchParams,
         location: { hostname: '120.78.5.37', pathname: '/OraOnlineCheck/OraCheck/Review', search: '?SubjectId=test&questionGroupId=test', href: 'http://120.78.5.37:8091/OraOnlineCheck/OraCheck/Review' },
@@ -165,11 +170,13 @@ test('启光等待换卷忽略缓存刷新，新题块出现才继续', async ()
     f.state.image = old.replace('/a.jpg', '/b.jpg'); assert.equal(await f.adapter.waitForNextPaper(old), true);
 });
 
-test('启光注册保护已有适配器并严格限定主机与路径', () => {
+test('启光注册保护已有适配器并严格限定路径和平台签名', () => {
     const f = fixture(); const other = { id: 'other' }; f.sandbox.__AI_MARKER_ADAPTER__ = other;
     vm.runInContext(source.replace('const QiguangAdapter', 'var SecondAdapter').replaceAll('QiguangAdapter', 'SecondAdapter'), f.sandbox);
     assert.equal(f.sandbox.__AI_MARKER_ADAPTER__, other);
     f.sandbox.location.pathname = '/Account/Login'; assert.equal(f.adapter.shouldInitialize(), false);
     f.sandbox.location.pathname = '/OraOnlineCheck/OraCheck/Review';
-    f.sandbox.location.hostname += '.example.com'; assert.equal(f.adapter.shouldInitialize(), false);
+    f.sandbox.location.hostname += '.example.com';
+    f.sandbox.location.href = 'https://mark.school.example/OraOnlineCheck/OraCheck/Review';
+    assert.equal(f.adapter.shouldInitialize(), true);
 });
