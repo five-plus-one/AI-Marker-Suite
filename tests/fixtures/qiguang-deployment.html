@@ -1,0 +1,61 @@
+<!doctype html><meta charset="utf-8"><title>Qiguang deployment acceptance</title>
+<style>#scoring-item{width:300px;height:80px;background-image:url('/__fixture/answer.svg?t=1')}</style>
+<div id="platform-native"><canvas id="scoring-item"></canvas><div id="paperID">试卷ID：fixture-a</div><span id="myRead">0</span>
+<input name="operateTypeCheck" type="radio" value="0" checked><input name="autoSubmit" type="checkbox">
+<form id="form-scoring"><input name="score" data-id="fixture" data-max="5" data-fullscore="0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5">
+<button id="btn-submit-score" type="submit" disabled>提交得分</button></form><form id="foreign-form"></form></div>
+<pre id="result"></pre><script>
+const params=new URLSearchParams(location.search),mode=params.get('mode'),runId=params.get('run');
+const legacyTask='qiguang_subject_group';
+const legacyPreset={list:{'默认配置':{},'教师方案':{}},active:'默认配置',bindings:{[legacyTask]:'教师方案'}};
+const store={'ai-grading-show-onboarding':false,'ai-grading-presets':JSON.stringify(legacyPreset)};
+window.GM_getValue=(key,fallback)=>store[key]??fallback;
+window.GM_setValue=(key,value)=>store[key]=value;window.GM_deleteValue=key=>delete store[key];
+window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
+const platform=document.getElementById('platform-native');
+if(mode==='late')platform.remove();
+if(mode==='foreign-form')platform.querySelector('input[name="score"]').setAttribute('form','foreign-form');
+</script>
+<script src="/Scripts/require.js" data-main="examOnlineOrc.js"></script>
+<script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ const assert=(ok,message)=>{if(!ok)throw Error(message)};
+ try{
+  const negative=mode==='foreign-main'||mode==='foreign-form';
+  if(negative){
+   await wait(100);assert(!window.__AI_MARKER_ADAPTER__,'其他系统同路径不能注册启光');
+   assert(!document.querySelector('.ai-grade-btn'),'其他系统不创建批改入口');
+  }else{
+   if(mode==='late'){
+    assert(!window.__AI_MARKER_ADAPTER__,'异步页面未就绪时等待');
+    await wait(350);document.body.append(platform);
+   }
+   for(let count=0;count<120&&!document.querySelector('.ai-grade-btn');count++)await wait(50);
+   const a=window.__AI_MARKER_ADAPTER__;
+   assert(a?.id==='qiguang'&&a.shouldInitialize(),'实际压缩脚本识别当前部署');
+   assert(document.querySelector('.ai-grade-btn'),'完整脚本显示批改入口');
+   const task=a.getTaskIdentifier();
+   if(location.origin==='http://120.78.5.37:8091'){
+    assert(task===legacyTask,'原部署继续识别旧版方案绑定');
+    assert(window.PresetManager.data.active==='教师方案','完整脚本恢复已有绑定方案');
+   }else{
+    assert(task.includes(location.origin),'其他部署按地址区分任务');
+    assert(!window.PresetManager.data.bindings[task],'其他部署不套用原站方案');
+   }
+   const input=document.querySelector('#form-scoring input[name="score"]');let submits=0;
+   document.getElementById('form-scoring').addEventListener('input',()=>document.getElementById('btn-submit-score').disabled=false);
+   document.getElementById('form-scoring').addEventListener('submit',event=>{event.preventDefault();document.getElementById('myRead').textContent=String(++submits)});
+   assert(a.fillScores([0])&&input.value==='0','真实控件支持零分');
+   assert(submits===0,'填写保持待确认状态');
+   assert(!a.fillScores([0.3]),'真实控件拒绝档位以外分数');
+   assert(a.fillScores([2.5]),'真实控件支持小数档位');
+   assert(await a.submitGrade({isCurrent:()=>true,verify:async()=>{}}),'平台确认保存后报告成功');
+   assert(submits===1&&!await a.submitGrade(),'同一份分数只提交一次');
+   assert(document.querySelectorAll('.ai-grade-btn').length===1,'入口保持唯一');
+  }
+  document.getElementById('result').textContent=btoa(JSON.stringify({runId,passed:true,width:innerWidth,mode,origin:location.origin,checks:negative?2:12}));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))));}
+})();
+</script>

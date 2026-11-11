@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.19.2',
+    VERSION: '1.21.19.3',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.19.3': [
+            '【优化】启光优测支持不同 IP、端口和域名部署，各站点任务分别识别',
+            '【修复】启光优测页面延迟加载时自动恢复批改入口，保留当前平台的批改工具',
+        ],
         '1.21.19.2': [
             '【新平台】支持启光优测单份键盘阅卷，识别作答图和评分项，按题目给分档位校验并在确认后提交',
         ],
