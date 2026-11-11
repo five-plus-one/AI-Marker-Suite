@@ -1,0 +1,19 @@
+name: Stable adapter verification
+on:
+  pull_request:
+    branches: [stable]
+permissions:
+  contents: read
+jobs:
+  adapters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build -- --channel=stable
+      - run: npm run verify:bundle
