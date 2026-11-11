@@ -3,6 +3,7 @@
 <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
 <script src="../../node_modules/marked/lib/marked.umd.js"></script>
 <script src="../../node_modules/katex/dist/katex.min.js"></script>
+<script src="../../src/core/prompt.js"></script>
 <script src="../../src/core/ui-markdown.js"></script>
 <body><div id="sample"></div><pre id="result"></pre><script>
 (async()=>{
@@ -32,7 +33,14 @@
   assert(!fragment(renderer.render('$\\includegraphics{https://invalid.test/image.png}$')).querySelector('img'),'公式扩展不加载外部图片');
   await document.fonts.ready;assert(document.fonts.check('16px KaTeX_Main'),'公式字体可用');
   assert(document.querySelector('.katex').getBoundingClientRect().width>10,'公式具有可见尺寸');
-  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks:15,katex:katex.version,sanitizer:DOMPurify.version,baselineProtocol:baseline}))));
+  const images=['REF_A','REF_B'];
+  for(const text of ['纯文字参考答案','![保留配图](ai-img://1)','`![代码示例](ai-img://0)`','<!-- ![已移除](ai-img://0) -->']){
+   const field={text,images,format:'markdown'};
+   const rendered=fragment(renderer.renderWithImages(text,images)).querySelectorAll('img').length;
+   assert(extractReferencedFieldImages(field).length===rendered,'请求参考图片与可见正文一致: '+JSON.stringify({text,rendered,selected:extractReferencedFieldImages(field).length}));
+   assert(field.images===images&&images.length===2,'编辑器保留图片索引');
+  }
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks:23,katex:katex.version,sanitizer:DOMPurify.version,baselineProtocol:baseline}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))));}
 })();
 </script>
