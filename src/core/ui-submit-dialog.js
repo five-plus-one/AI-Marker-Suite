@@ -975,7 +975,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 window.aiGradingState.isRunning = false;
             }
         } else {
-            console.warn('未找到提交按钮，无法自动提交');
+            console.warn('平台提交操作未完成，暂停等待核对');
             // 不停止，改为暂停让用户手动提交后继续
             window.aiGradingState.isRunning = false;
             window.aiGradingState.isPaused = true;
@@ -985,7 +985,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 btn.classList.remove('running', 'unattended', 'trial');
                 btn.classList.add('paused');
             }
-            showToast('⚠️ 未找到提交按钮，请手动提交后点击"继续批改"');
+            showToast('⚠️ 平台未完成提交，请核对分数和页面提示后继续');
         }
     };
 
