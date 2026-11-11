@@ -6,6 +6,8 @@
 <button id="btn-submit-score" type="submit" disabled>提交得分</button></form><form id="foreign-form"></form></div>
 <pre id="result"></pre><script>
 const params=new URLSearchParams(location.search),mode=params.get('mode'),runId=params.get('run');
+const zhenxue=location.hostname==='51zhenxue.com'||location.hostname.endsWith('.51zhenxue.com');
+if(zhenxue)document.querySelector('#form-scoring input[name="score"]').setAttribute('data-fullscore','0,1,2,3,4,5');
 const legacyTask='qiguang_subject_group';
 const legacyPreset={list:{'默认配置':{},'教师方案':{}},active:'默认配置',bindings:{[legacyTask]:'教师方案'}};
 const store={'ai-grading-show-onboarding':false,'ai-grading-presets':JSON.stringify(legacyPreset)};
@@ -35,6 +37,7 @@ if(mode==='foreign-form')platform.querySelector('input[name="score"]').setAttrib
    for(let count=0;count<120&&!document.querySelector('.ai-grade-btn');count++)await wait(50);
    const a=window.__AI_MARKER_ADAPTER__;
    assert(a?.id==='qiguang'&&a.shouldInitialize(),'实际压缩脚本识别当前部署');
+   assert(a.name===(zhenxue?'诊学网':'启光优测'),'平台名称与当前部署一致');
    assert(document.querySelector('.ai-grade-btn'),'完整脚本显示批改入口');
    const task=a.getTaskIdentifier();
    if(location.origin==='http://120.78.5.37:8091'){
@@ -50,7 +53,8 @@ if(mode==='foreign-form')platform.querySelector('input[name="score"]').setAttrib
    assert(a.fillScores([0])&&input.value==='0','真实控件支持零分');
    assert(submits===0,'填写保持待确认状态');
    assert(!a.fillScores([0.3]),'真实控件拒绝档位以外分数');
-   assert(a.fillScores([2.5]),'真实控件支持小数档位');
+   if(zhenxue)assert(!a.fillScores([2.5]),'诊学实测评分项遵循整数档位');
+   assert(a.fillScores([zhenxue?2:2.5]),'真实控件遵循当前题目给分档位');
    assert(await a.submitGrade({isCurrent:()=>true,verify:async()=>{}}),'平台确认保存后报告成功');
    assert(submits===1&&!await a.submitGrade(),'同一份分数只提交一次');
    assert(document.querySelectorAll('.ai-grade-btn').length===1,'入口保持唯一');

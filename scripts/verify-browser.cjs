@@ -45,7 +45,8 @@ async function connect(url) {
         const fixtures = ['workflow', 'renderer', 'bundle', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
-            'ameqp-multi', 'ameqp-unknown', 'ameqp-mixed']
+            'ameqp-multi', 'ameqp-unknown', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
+            'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative']
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -69,8 +70,13 @@ async function connect(url) {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
                 if (url.pathname === '/OraOnlineCheck/OraCheck/Review') {
-                    body = url.searchParams.get('mode') === 'foreign-main'
-                        ? deploymentHtml.replace('data-main="examOnlineOrc.js"', 'data-main="other.js"') : deploymentHtml;
+                    body = deploymentHtml;
+                    if (url.hostname === 'crock.51zhenxue.com') body = body.replace(
+                        '<script src="/Scripts/require.js" data-main="examOnlineOrc.js"></script>',
+                        '<script src="/Scripts/app/dev/examOnlineOrc.js" data-requiremodule="examOnlineOrc"></script>');
+                    if (url.searchParams.get('mode') === 'foreign-main') body = body
+                        .replace('data-main="examOnlineOrc.js"', 'data-main="other.js"')
+                        .replace('data-requiremodule="examOnlineOrc"', 'data-requiremodule="other"');
                     type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.pathname === '/AMEQP/Webroot/mar/mar_mark.aspx') {
                     body = ameqpHtml; type = 'text/html; charset=utf-8'; status = 200;
@@ -79,7 +85,7 @@ async function connect(url) {
                     type = 'image/svg+xml'; status = 200;
                 } else if (url.pathname === '/__fixture/ai_marker.user.js') {
                     body = bundle; type = 'text/javascript; charset=utf-8'; status = 200;
-                } else if (url.pathname === '/Scripts/require.js') {
+                } else if (url.pathname === '/Scripts/require.js' || url.pathname === '/Scripts/app/dev/examOnlineOrc.js') {
                     type = 'text/javascript'; status = 200;
                 } else if (url.pathname === '/__fixture/answer.svg') {
                     body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><text x="10" y="30">fixture answer</text></svg>';
@@ -109,10 +115,12 @@ async function connect(url) {
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
             if (deployment || ameqp) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
-                const origin = fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
+                const origin = fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
+                    : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
                     : fixture === 'qiguang-domain-deployment' ? 'https://mark.school.example'
                     : fixture === 'qiguang-private-deployment' ? 'http://10.15.0.8:8089' : 'http://192.0.2.20:8091';
-                const deploymentMode = fixture === 'qiguang-late-deployment' ? 'late' : fixture === 'qiguang-module-negative' ? 'foreign-main'
+                const deploymentMode = fixture === 'qiguang-late-deployment' || fixture === 'qiguang-zhenxue-late' ? 'late'
+                    : fixture === 'qiguang-module-negative' || fixture === 'qiguang-zhenxue-module-negative' ? 'foreign-main'
                     : fixture === 'qiguang-form-negative' ? 'foreign-form' : 'ready';
                 url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode + '&SubjectId=subject&questionGroupId=group';
                 if (ameqp) url = 'http://10.20.0.8/AMEQP/Webroot/mar/mar_mark.aspx?run=' + runId + '&mode=' + fixture.slice(6);

@@ -32,7 +32,7 @@ function fixture(options = {}) {
             : selector === '.layui-layer-content' ? state.layers : selector === 'script[src]' ? [script] : []
     };
     const sandbox = { console, document, URL, URLSearchParams,
-        location: { hostname: '120.78.5.37', pathname: '/OraOnlineCheck/OraCheck/Review', search: '?SubjectId=test&questionGroupId=test', href: 'http://120.78.5.37:8091/OraOnlineCheck/OraCheck/Review' },
+        location: options.location || { hostname: '120.78.5.37', pathname: '/OraOnlineCheck/OraCheck/Review', search: '?SubjectId=test&questionGroupId=test', href: 'http://120.78.5.37:8091/OraOnlineCheck/OraCheck/Review' },
         getComputedStyle: el => ({ display: 'block', visibility: 'visible', backgroundImage: el === canvas && state.image ? `url("${state.image}")` : 'none' }),
         HTMLInputElement: { prototype: { set value(v) { this._v = String(v); } } },
         Event: class { constructor(type) { this.type = type; } },
@@ -42,6 +42,23 @@ function fixture(options = {}) {
     vm.createContext(sandbox); vm.runInContext(source, sandbox);
     return { adapter: sandbox.__AI_MARKER_ADAPTER__, inputs, state, canvas, button, sandbox, element };
 }
+
+test('诊学统考整数档位、取图与确认提交使用共享评分契约', async () => {
+    const f = fixture({ location: { hostname: 'crock.51zhenxue.com', pathname: '/OraOnlineCheck/OraCheck/Review',
+        search: '?SubjectId=subject&questionGroupId=group', href: 'https://crock.51zhenxue.com/OraOnlineCheck/OraCheck/Review' },
+        onClick: state => { state.count = '1'; } });
+    assert.equal(f.adapter.name, '诊学网');
+    assert.equal((await f.adapter.gatherAnswerImages())[0], f.state.image);
+    assert.equal(f.adapter.getScoreInputs()[0].maxScore, 5);
+    assert.ok(f.adapter.getTaskIdentifier().includes('https://crock.51zhenxue.com'));
+    for (const score of [0.5, 1.5, 5.1]) assert.equal(f.adapter.fillScores([score]), false);
+    assert.equal(f.inputs[0].value, '');
+    assert.equal(f.adapter.fillScores([0]), true);
+    assert.equal(f.state.clicks, 0);
+    assert.equal(await f.adapter.submitGrade(), true);
+    assert.equal(f.state.clicks, 1);
+    assert.equal(await f.adapter.submitGrade(), false);
+});
 
 test('启光取图使用作答背景，试卷身份忽略缓存时间', async () => {
     const { adapter: a, state } = fixture();

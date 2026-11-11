@@ -19,6 +19,9 @@ const deployments = [
     { label: '启光 IPv6 部署', host: '[2001:db8::20]', port: '8091', protocol: 'http:', path: ROUTE, dom: signature() },
     { label: '启光模块加载签名', host: 'module.school.example', path: ROUTE,
       dom: signature({ src: '/Scripts/app/dev/examOnlineOrc.js?version=fixture', main: '', module: 'examOnlineOrc' }) },
+    { label: '诊学网统考部署', host: 'crock.51zhenxue.com', protocol: 'https:', path: ROUTE, name: '诊学网',
+      dom: signature({ src: '/Scripts/app/dev/examOnlineOrc.js?version=fixture', main: '', module: 'examOnlineOrc' }) },
+    { label: '诊学网同结构部署', host: 'school.51zhenxue.com', protocol: 'https:', path: ROUTE, name: '诊学网', dom: signature() },
 ];
 function rejections() {
     const missing = ['form#form-scoring', 'canvas#scoring-item', '#paperID', '#myRead', 'script[src]']
@@ -34,6 +37,10 @@ function rejections() {
         { label: '启光模块元数据错误', dom: signature({ src: '/Scripts/app/dev/examOnlineOrc.js', main: '', module: 'other' }) },
         { label: '启光入口仅在 hash', path: '/', hash: '#' + ROUTE, dom: signature() },
         { label: '启光近似阅卷路径', path: ROUTE + 'History', dom: signature() },
+        { label: '诊学网教师门户', host: 'lhljw.51zhenxue.com', path: '/SchVTeacherHome/TeacherView/6', dom: signature() },
+        { label: '诊学网校内任务入口', host: 'lhtest.51zhenxue.com', path: '/markingEntrance', dom: signature() },
+        { label: '诊学网统考工作台', host: 'credu.51zhenxue.com', path: '/Home/TeacherIndex3', dom: signature() },
+        { label: '诊学网缺少评分表单', host: 'crock.51zhenxue.com', dom: { ...signature(), 'form#form-scoring': null } },
     ].map(form => ({ host: 'other.school.example', path: ROUTE, ...form }));
 }
 module.exports = { ROUTE, signature, deployments, rejections };
