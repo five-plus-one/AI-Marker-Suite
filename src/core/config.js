@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.18.0',
+    VERSION: '1.21.19.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.19': [
+            '【修复】阅小二、云阅卷及鑫考系列平台识别与适配器注册冲突，完善华翰云和光大阅卷的页面识别与延迟注册',
+        ],
         '1.21.18': [
             '【修复】紧急热修复：华翰云适配器注册缺守卫劫持全部平台（好分数等平台识别错平台、批改不可用）——注册改 shouldInitialize 守卫并补全量回归测试（#324）',
         ],
