@@ -350,7 +350,7 @@ const HistoryManager = {
         }
     },
 
-    save() {
+    save(removedReviewIds = []) {
         const unavailable = () => {
             if (typeof showToast === 'function') showToast('历史记录暂时无法保存，请先导出评阅历史');
             return false;
@@ -374,8 +374,8 @@ const HistoryManager = {
         let candidate;
         try {
             const remoteReviews = this._readReviewRecords().filter(r => r.reviewKey);
-            const localIds = new Set(this.records.map(r => r.id));
-            candidate = this.records.filter(r => !r.reviewKey).concat(remoteReviews.filter(r => r.reviewStatus === 'pending' || localIds.has(r.id)));
+            const removed = new Set(removedReviewIds);
+            candidate = this.records.filter(r => !r.reviewKey).concat(remoteReviews.filter(r => r.reviewStatus === 'pending' || !removed.has(r.id)));
             candidate.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         } catch (_) { return unavailable(); }
         const trim = (records, count) => {
@@ -497,7 +497,7 @@ const HistoryManager = {
             return false;
         }
         this.records = this.records.filter(r => r.id !== id);
-        if (!this.save()) return false;
+        if (!this.save([id])) return false;
         ImageStore.delete(id).catch(() => {});
         return true;
     },
@@ -1266,7 +1266,7 @@ function showHistoryPanel() {
                 await ImageStore.delete(id).catch(() => {});
             }
             HistoryManager.records = HistoryManager.records.filter(r => !selectedIds.has(r.id));
-            HistoryManager.save();
+            HistoryManager.save([...selectedIds]);
             selectedIds.clear();
             updateBatchInfo();
             currentFilteredRecords = getFilteredRecords();
@@ -1334,7 +1334,7 @@ function showHistoryPanel() {
                 await ImageStore.delete(r.id).catch(() => {});
             }
             HistoryManager.records = HistoryManager.records.filter(r => r.timestamp >= cutoff || r.reviewStatus === 'pending');
-            HistoryManager.save();
+            HistoryManager.save(oldRecords.map(r => r.id));
             currentFilteredRecords = getFilteredRecords();
             const totalPagesAfter = Math.max(1, Math.ceil(currentFilteredRecords.length / paginationState.pageSize));
             if (paginationState.page > totalPagesAfter) paginationState.page = totalPagesAfter;
@@ -1351,7 +1351,7 @@ function showHistoryPanel() {
         if (await showConfirmModal('确定要清空所有评阅历史和图片缓存吗？此操作不可撤销。')) {
             if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清空历史'); return; }
             HistoryManager.records = [];
-            HistoryManager.save();
+            HistoryManager.save(HistoryManager._readReviewRecords().map(r => r.id));
             await ImageStore.clear().catch(() => {});
             currentFilteredRecords = [];
             paginationState.page = 1;

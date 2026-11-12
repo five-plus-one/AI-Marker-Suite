@@ -90,6 +90,8 @@ test('待复核数量跨刷新保留，完成复核后减少且支持恢复待�
     e.sb.history.markReviewed(id);
     e.sb.history.records = [{ id, reviewKey: 'stale', reviewStatus: 'pending' }]; e.sb.history.save();
     assert.equal(e.sb.history.getPendingReviewCount(), 0);
+    e.sb.history.records = []; e.sb.history.save();
+    assert.equal(e.records().find(record => record.id === id).reviewStatus, 'reviewed');
 });
 
 test('模型没有有效分数时不能借待复核通道补零提交', async () => {
