@@ -136,18 +136,9 @@ const WuyueAdapter = {
                 const currentImg = document.querySelector(WUYUE_SELECTORS.ANSWER_IMAGE);
                 const currentUrl = currentImg ? currentImg.src : null;
 
-                // 检测图片变化或输入框被清空
-                // 仅真清空算清空：'0' 是合法分值，0 分卷不能误判翻卷（#285）
-                const input = document.querySelector(WUYUE_SELECTORS.SCORE_INPUT_SINGLE);
-                const inputCleared = input && String(input.value).trim() === '';
-
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);
                     console.log('✅ 五岳阅卷 — 新试卷已加载（图片变化）');
-                    resolve(true);
-                } else if (inputCleared && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('✅ 五岳阅卷 — 新试卷已加载（输入框清空）');
                     resolve(true);
                 } else if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器，避免平台加载慢时误判
                     clearInterval(timer);

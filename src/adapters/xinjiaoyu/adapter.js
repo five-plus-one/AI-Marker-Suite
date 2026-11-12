@@ -295,16 +295,6 @@ const XinjiaoyuAdapter = {
                     return;
                 }
 
-                // 检测2：分数输入框被清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-                const scoreInput = document.querySelector(XINJIAOYU_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && String(scoreInput.value).trim() === '';
-                if (inputCleared && checkTimes > 3) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（输入框清空）');
-                    resolve(true);
-                    return;
-                }
-
                 if (checkTimes > 50) {
                     clearInterval(checkNextTimer);
                     console.warn('⚠️ 等待下一份试卷超时');
@@ -328,17 +318,6 @@ const XinjiaoyuAdapter = {
                     clearInterval(checkNextTimer);
                     console.log(`✅ 作业系统 — 已切换到下一个学生: ${currentStudentName}`);
                     // 重置 API 拦截的图片 URL，等待新学生的图片
-                    _xinjiaoyuCurrentImageUrl = null;
-                    resolve(true);
-                    return;
-                }
-
-                // 检测2：分数输入框被清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-                const scoreInput = document.querySelector(XINJIAOYU_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && String(scoreInput.value).trim() === '';
-                if (inputCleared && checkTimes > 5) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 作业系统 — 新试卷已加载完毕（输入框清空）');
                     _xinjiaoyuCurrentImageUrl = null;
                     resolve(true);
                     return;

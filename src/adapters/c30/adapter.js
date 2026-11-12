@@ -474,7 +474,6 @@ const C30Adapter = {
     async waitForNextPaper() {
         console.log('⏳ [C30] waitForNextPaper...');
         const state = this._state;
-        const startTs = state.latestApiTimestamp;
         const startUrl = state.latestImageUrl;
         const start = Date.now();
 
@@ -482,20 +481,9 @@ const C30Adapter = {
             const iv = setInterval(() => {
                 const sec = ((Date.now() - start) / 1000).toFixed(0);
 
-                if (state.latestApiTimestamp > startTs) {
-                    clearInterval(iv);
-                    console.log(`✅ [C30] 新卷 (API) ${sec}s`);
-                    return resolve(true);
-                }
                 if (startUrl && state.latestImageUrl && state.latestImageUrl !== startUrl) {
                     clearInterval(iv);
                     console.log(`✅ [C30] 新卷 (URL) ${sec}s`);
-                    return resolve(true);
-                }
-                const inp = document.querySelector(C30_SELECTORS.SCORE_INPUT);
-                if (inp?.value === '' && Date.now() - start > 1500) {
-                    clearInterval(iv);
-                    console.log(`✅ [C30] 新卷 (input清空) ${sec}s`);
                     return resolve(true);
                 }
                 if (Date.now() - start > 30000) {

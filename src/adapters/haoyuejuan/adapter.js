@@ -181,16 +181,6 @@ const HaoyuejuanAdapter = {
                     }
                 }
 
-                // 输入框被清空（提交后平台会清空）
-                const input = document.querySelector(HAOYUEJUAN_SELECTORS.SCORE_INPUT_SINGLE)
-                    || document.querySelector(HAOYUEJUAN_SELECTORS.SCORE_ITEM_INPUT);
-                if (input && input.value === '' && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('✅ [阅小二] 新试卷已加载（输入框清空）');
-                    resolve(true);
-                    return;
-                }
-
                 if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器，避免平台加载慢时误判
                     clearInterval(timer);
                     console.warn('⚠️ [阅小二] 等待下一份试卷超时');

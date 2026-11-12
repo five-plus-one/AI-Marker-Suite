@@ -336,19 +336,9 @@ const HuiXuexingAdapter = {
                 const currentImg = document.querySelector(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
                 const currentUrl = currentImg ? currentImg.src : null;
 
-                // 检查步骤输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-                const firstInput = document.querySelector(HUIXUEXING_SELECTORS.STEP_INPUT_BY_INDEX(0));
-                const scoreInput = document.querySelector(HUIXUEXING_SELECTORS.SCORE_INPUT);
-                const inputCleared = (firstInput && String(firstInput.value).trim() === '') ||
-                                     (scoreInput && String(scoreInput.value).trim() === '');
-
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);
                     console.log('[慧学星] 新答卷已加载（图片变化）');
-                    resolve(true);
-                } else if (inputCleared && (Date.now() - startTime > 1000)) {
-                    clearInterval(timer);
-                    console.log('[慧学星] 新答卷已加载（输入框清空）');
                     resolve(true);
                 } else if (Date.now() - startTime > maxWait) {
                     clearInterval(timer);
