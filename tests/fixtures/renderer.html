@@ -1,0 +1,46 @@
+<!doctype html><meta charset="utf-8"><title>Renderer browser acceptance</title>
+<link rel="stylesheet" href="../../node_modules/katex/dist/katex.min.css">
+<script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+<script src="../../node_modules/marked/lib/marked.umd.js"></script>
+<script src="../../node_modules/katex/dist/katex.min.js"></script>
+<script src="../../src/core/prompt.js"></script>
+<script src="../../src/core/ui-markdown.js"></script>
+<body><div id="sample"></div><pre id="result"></pre><script>
+(async()=>{
+ const runId=new URLSearchParams(location.search).get('run');
+ const assert=(ok,message)=>{if(!ok)throw Error(message)};
+ const fragment=html=>{const template=document.createElement('template');template.innerHTML=html;return template.content};
+ const safe=html=>{
+  const root=fragment(html);
+  assert(!root.querySelector('script,iframe,object,embed,form,input,button'),'危险容器不可渲染');
+  for(const element of root.querySelectorAll('*'))for(const attribute of element.attributes){
+   assert(!/^on/i.test(attribute.name),'事件属性不可渲染');
+   if(/^(href|src|xlink:href)$/i.test(attribute.name))assert(!/^\s*(javascript|vbscript|data:text\/html):/i.test(attribute.value.replace(/[\u0000-\u0020]/g,'')),'危险 URI 不可渲染');
+  }
+  return root;
+ };
+ try{
+  assert(DOMPurify.isSupported,'净化器已就绪');const renderer=createMarkdownRenderer();assert(renderer,'渲染器已就绪');
+  const normal=safe(renderer.render('**清晰** `code`\n\n| A | B |\n|---|---|\n| 1 | 2 |'));
+  assert(normal.querySelector('strong')?.textContent==='清晰'&&normal.querySelector('code')?.textContent==='code'&&normal.querySelector('table'),'Markdown 内容保留');
+  for(const input of ['[open](java&#x73;cript:alert%281%29)','[open](javascript&#58;alert%281%29)','[open](data:text/html;base64,PHNjcmlwdD4=)','\\$<img src=x onerror=alert(1)>$'])safe(renderer.render(input));
+  for(const input of ['<img src=x onerror=alert(1)>','<svg><g onload=alert(1)></g></svg>','<math><mtext><img src=x onerror=alert(1)></mtext></math>','<form><input name=__proto__></form>'])safe(sanitizeRenderedHtml(input));
+  const baseline=fragment('<a href="java&#x73;cript:alert%281%29">open</a>').querySelector('a').protocol;
+  assert(baseline==='javascript:','浏览器按实体解码链接协议');
+  const math=renderer.render('$\\frac{1}{2}+\\sqrt{x^2+y^2}$');safe(math);document.getElementById('sample').innerHTML=math;
+  assert(document.querySelector('.katex .katex-html')&&document.querySelector('.katex svg path')&&document.querySelector('.katex-mathml math'),'公式、根号与辅助数学内容保留');
+  safe(renderer.render('$\\href{javascript:alert(1)}{open}$'));
+  assert(!fragment(renderer.render('$\\includegraphics{https://invalid.test/image.png}$')).querySelector('img'),'公式扩展不加载外部图片');
+  await document.fonts.ready;assert(document.fonts.check('16px KaTeX_Main'),'公式字体可用');
+  assert(document.querySelector('.katex').getBoundingClientRect().width>10,'公式具有可见尺寸');
+  const images=['REF_A','REF_B'];
+  for(const text of ['纯文字参考答案','![保留配图](ai-img://1)','`![代码示例](ai-img://0)`','<!-- ![已移除](ai-img://0) -->']){
+   const field={text,images,format:'markdown'};
+   const rendered=fragment(renderer.renderWithImages(text,images)).querySelectorAll('img').length;
+   assert(extractReferencedFieldImages(field).length===rendered,'请求参考图片与可见正文一致: '+JSON.stringify({text,rendered,selected:extractReferencedFieldImages(field).length}));
+   assert(field.images===images&&images.length===2,'编辑器保留图片索引');
+  }
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks:23,katex:katex.version,sanitizer:DOMPurify.version,baselineProtocol:baseline}))));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))));}
+})();
+</script>

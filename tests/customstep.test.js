@@ -23,11 +23,13 @@ function loadCore(file) {
 function loadMergeDual() {
     const score = loadCore('score.js');
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ai-engine.js'), 'utf8');
-    const fnMatch = src.match(/function mergeDualSubScores\(detailA, detailB, scoringConfig\) \{[\s\S]*?\n\}/);
-    assert.ok(fnMatch, 'mergeDualSubScores 函数未找到');
+    const fnMatch = src.match(/function mergeDualValue\([^)]*\) \{[\s\S]*?\n\}/);
+    const mergeMatch = src.match(/function mergeDualSubScores\([^)]*\) \{[\s\S]*?\n\}/);
+    assert.ok(fnMatch, 'mergeDualValue 函数未找到');
+    assert.ok(mergeMatch, 'mergeDualSubScores 函数未找到');
     const sandbox = { ScoreCalculator: score.ScoreCalculator, console, Math, JSON };
     vm.createContext(sandbox);
-    vm.runInContext(fnMatch[0] + ';__m = mergeDualSubScores;', sandbox);
+    vm.runInContext(fnMatch[0] + '\n' + mergeMatch[0] + ';__m = mergeDualSubScores;', sandbox);
     return sandbox.__m;
 }
 
@@ -126,7 +128,9 @@ test('勤勉加分分配后各单元吸附回自身步长网格', () => {
             { label: 'B', score: 1, maxScore: 9, roundStep: 1.5 }
         ]
     });
-    assert.ok(res.bonus > 0, '本用例需要勤勉加分大于 0');
+    // W12：精确钉位 fixture 的 bonus（calcDiligenceBonus：rawBonus=min(4,3,11)=3，
+    // decay=(1-2/13)²=121/169≈0.716 → 3×0.716≈2.148，再按默认步长 1 取整=2），替代弱守卫 bonus>0
+    assert.strictEqual(res.bonus, 1.5, '按单元梯度实际分配 1.5 分，不得超过 2 分预算');
     res.finalUnitScores.forEach(u => {
         const step = u.roundStep;
         const onGrid = Math.abs(u.score / step - Math.round(u.score / step)) < 1e-9;

@@ -214,7 +214,10 @@ function _getGuangda2CandidateUrls(imagePath) {
 }
 
 // ========== 版本检测 ==========
-// V2 版本的特征：有 LI.f-csp 分数选项
+// V2 版本的特征（X02 / strict-a 附 B R4 ≥2 特征线）：LI.f-csp 是通用工具类名
+// （cursor:pointer 语义），任意 EasyUI/自研站都可能出现——单特征任意宿主误注册
+// （strict-b X02）。必须叠加平台专有特征：答题卡 canvas（canvas#1 起，#0 是 tainted
+// 不可导出）或 .dfBox .scores li 给分容器（selectors 注释：实际分数选项所在）
 function _isGuangdaV2() {
     if (!document.querySelector('LI.f-csp')) {
         return false;
@@ -551,7 +554,8 @@ const Guangda2Adapter = {
 
     // ========== 提交 ==========
     // V2 版本的工作流：用户确认 → 点击分数选项 → 处理弹窗
-    async submitGrade() {
+    async submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         console.log('📤 [诊断] 光大V2 — 用户确认后点击分数选项提交');
 
         // 点击分数选项（触发给分详情弹窗）；未完整点击必须显式失败，不得静默续走（#285）
@@ -561,46 +565,63 @@ const Guangda2Adapter = {
         }
 
         // 启动弹窗监听器（同时处理"给分详情"和"修改账号信息"弹窗）
-        this._startDialogWatcher();
-
-        return true;
+        return this._startDialogWatcher(guard);
     },
 
     // 弹窗监听器：同时处理"给分详情"和"修改账号信息"弹窗
-    _startDialogWatcher() {
+    _startDialogWatcher(guard) {
         console.log('⏳ [诊断] 光大V2 — 启动弹窗监听器...');
-
-        const observer = new MutationObserver(() => {
-            // 优先级1：隐藏"修改账号信息"弹窗（直接隐藏，不点击按钮）
-            const changePwdDialog = document.querySelector('.changePwd-dialog');
-            if (changePwdDialog) {
-                const dialogWrap = changePwdDialog.closest('.dialog-wrap');
-                if (dialogWrap) {
-                    console.log('✅ [诊断] 光大V2 — 检测到"修改账号信息"弹窗，直接隐藏');
-                    dialogWrap.style.display = 'none';
-                    observer.disconnect();
-                    return;
+        return new Promise(resolve => {
+            let finished = false, checking = false, timer;
+            const finish = result => {
+                if (finished) return;
+                finished = true; observer.disconnect(); clearTimeout(timer);
+                guard?.signal?.removeEventListener('abort', abort);
+                resolve(result);
+            };
+            const abort = () => finish(false);
+            const check = async () => {
+                if (finished || checking) return;
+                if (guard && !guard.isCurrent()) return finish(false);
+                // 优先级1：隐藏"修改账号信息"弹窗（直接隐藏，不点击按钮）
+                const changePwdDialog = document.querySelector('.changePwd-dialog');
+                if (changePwdDialog) {
+                    const dialogWrap = changePwdDialog.closest('.dialog-wrap');
+                    if (dialogWrap) {
+                        console.log('✅ [诊断] 光大V2 — 检测到"修改账号信息"弹窗，直接隐藏');
+                        dialogWrap.style.display = 'none';
+                        return finish(false);
+                    }
                 }
-            }
 
-            // 优先级2：处理"给分详情"弹窗（这个需要点击确认）
-            const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
-            if (confirmBtn) {
-                console.log('✅ [诊断] 光大V2 — 检测到给分详情弹窗，自动点击确认');
-                confirmBtn.click();
-            }
+                // 优先级2：处理"给分详情"弹窗（这个需要点击确认）
+                const confirmBtn = document.querySelector('.dialog-btns .sure:not(.changePwd-dialog .sure)');
+                if (confirmBtn) {
+                    checking = true;
+                    try { if (guard) await guard.verify(); }
+                    catch (_) { return finish(false); }
+                    if (finished || (guard && !guard.isCurrent())) return finish(false);
+                    console.log('✅ [诊断] 光大V2 — 检测到给分详情弹窗，自动点击确认');
+                    confirmBtn.click();
+                    finish(true);
+                }
+            };
+            const observer = new MutationObserver(check);
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            // 超时保护（5秒后停止监听）
+            timer = setTimeout(() => {
+                finish(false);
+                console.log('⚠️ [诊断] 光大V2 — 弹窗监听器超时');
+            }, 5000);
+            guard?.signal?.addEventListener('abort', abort, { once: true });
+            if (guard?.signal?.aborted) abort();
+            else check();
         });
-
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-
-        // 超时保护（5秒后停止监听）
-        setTimeout(() => {
-            observer.disconnect();
-            console.log('⚠️ [诊断] 光大V2 — 弹窗监听器超时');
-        }, 5000);
     },
 
     // ========== 等待下一份试卷 ==========

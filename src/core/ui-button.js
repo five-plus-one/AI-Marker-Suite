@@ -187,6 +187,9 @@ function undockFloatingButtons() {
 // ========== 创建主按钮 ==========
 function createMainButton() {
     if (document.querySelector('.ai-grade-btn')) return;
+    document.querySelector('.ai-history-btn')?.remove();
+    document.querySelector('.ai-settings-btn')?.remove();
+    document.getElementById('ai-history-only-style')?.remove();
     const btn = document.createElement('button');
     btn.className = 'ai-grade-btn';
     btn.innerHTML = 'AI 批改';
@@ -289,6 +292,7 @@ function createMainButton() {
 function createHistoryOnlyButton() {
     if (document.querySelector('.ai-history-btn')) return;
     const style = document.createElement('style');
+    style.id = 'ai-history-only-style';
     style.textContent = `
         .ai-history-btn {
             all: initial;
@@ -617,7 +621,7 @@ function toggleAutoGrading() {
     btn.disabled = true;
     setTimeout(() => btn.disabled = false, 800);
 
-    if (window.aiGradingState.hasUnsavedChanges) {
+    if (!window.aiGradingState.isRunning && window.aiGradingState.hasUnsavedChanges) {
         safeAlert('配置已修改，请先点击配置面板上的【保存】按钮。');
         openSettingsPanel();
         const saveBtn = document.getElementById('save-config-btn');
@@ -631,7 +635,7 @@ function toggleAutoGrading() {
     if (window.aiGradingState.isRunning) {
         window.aiGradingState.isPaused = true;
         window.aiGradingState.isRunning = false;
-        if (window.aiGradingState.abortController) window.aiGradingState.abortController.abort();
+        invalidateGradingRun();
 
         // 清除无人值守模式的自动刷新标记，防止暂停后页面被自动重载
         sessionStorage.removeItem('ai-grading-auto-resume');
@@ -672,6 +676,7 @@ function toggleAutoGrading() {
 
 // ========== 停止打分 ==========
 function stopAutoGrading() {
+    invalidateGradingRun();
     window.aiGradingState.isRunning = false;
     window.aiGradingState.isPaused = false;
     window.aiGradingState.gradingMode = 'normal';

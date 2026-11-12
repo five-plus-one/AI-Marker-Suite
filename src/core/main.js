@@ -109,7 +109,7 @@ async function scoreInputsTransitionedEmpty(adapter, snapshot) {
     }
 }
 
-async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot) {
+async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot, recordedPaperId) {
     try {
         if (!adapter || typeof adapter.gatherAnswerImages !== 'function') {
             return { unchanged: null, reason: '适配器不支持 gatherAnswerImages' };
@@ -126,7 +126,7 @@ async function verifyPaperUnchanged(adapter, recordedUrls, inputSnapshot) {
         // 同卷 src 重设/裁切产物波动不改变标识，换卷必变
         try {
             const state = (typeof window !== 'undefined' && window.aiGradingState) ? window.aiGradingState : null;
-            const recordedId = state && state.currentPaperId;
+            const recordedId = recordedPaperId === undefined ? (state && state.currentPaperId) : recordedPaperId;
             if (recordedId && typeof adapter.getPaperIdentity === 'function') {
                 const pid = adapter.getPaperIdentity();
                 if (pid) {
@@ -195,10 +195,51 @@ async function confirmLeftMarkingPage(adapter) {
     return !adapter.isMarkingPage();
 }
 
+// 回评图片就绪探测（strict-a C.4）：固定 3s 等待改短轮询——就绪即返回，探测总上限不变。
+// 判据与回评取图同源（adapter.gatherAnswerImages）；无适配器/无该方法立即放行；
+// 探测异常不打断（继续轮询到上限，交由既有空图分支显式处理）。
+async function waitForImagesReadyForRegrade(adapter, timeoutMs, pollMs) {
+    if (!adapter || typeof adapter.gatherAnswerImages !== 'function') return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        try {
+            const urls = await adapter.gatherAnswerImages();
+            if (urls && urls.length > 0) return;
+        } catch (e) { /* 探测失败继续轮询 */ }
+        await new Promise(r => setTimeout(r, pollMs));
+    }
+}
+
+// ========== 分数数值闸（N5 坑审计收口）==========
+// 坑审计实锤：纠正流是唯一 NaN 入口（用户编辑/解析可注入 NaN/∞/负数），而 24 家
+// 全或无适配器无数值闸（仅 huahanyun/xkw/haofenshu 三遍式有）——core 在填分汇聚点
+// 统一收口：全部分数必须 isFinite 且非负；越界（超满分）留给各适配器 maxScore 语义。
+// 非法值显式拒绝 + warn（绝不静默替换成 0/跳过——空分提交=事故），落调用方既有失败通道。
+function validateScoresForFill(values, ctx) {
+    const bad = [];
+    (values || []).forEach((v, i) => {
+        if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+            bad.push(`#${i}=${v}`);
+        }
+    });
+    if (bad.length > 0) {
+        console.warn(`⚠️ [数值闸] ${ctx || '填分'}：拒绝非法分数（NaN/∞/负数/非数值）: ` + bad.join('；'));
+        return false;
+    }
+    return true;
+}
+
+// 填分统一汇聚点：adapter.fillScores 前置数值闸（一处收口覆盖全仓）
+function safeFillScores(adapter, scores, ctx) {
+    if (!validateScoresForFill(scores, ctx)) return false;
+    return adapter.fillScores(scores);
+}
+
 // ========== 离开批改页的生命周期清理 ==========
 // SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
 //「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
 function handleLeaveMarkingPage() {
+    invalidateGradingRun();
     // 1. 关闭新手引导弹窗
     if (typeof hideOnboardingDialog === 'function') hideOnboardingDialog();
 
@@ -225,7 +266,8 @@ function handleLeaveMarkingPage() {
 
 // ========== 主控流程 ==========
 async function startAutoGrading() {
-    window.aiGradingState.abortController = new AbortController();
+    if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
+    const runContext = createGradingContext();
     // 批改节奏：本卷用时计时起点（开始处理 → 提交，含随机延迟）
     // 已有起点（翻卷检测时刻）时不覆盖，保住「检测到→提交」的完整窗口
     if (!window.aiGradingState.cycleStartTime) {
@@ -235,7 +277,9 @@ async function startAutoGrading() {
 
     // 离开批改页（如退回列表页）：中性停止，绝不能报「所有试卷已批改完成」
     // 复查确认后才动手：DOM 型 isMarkingPage 在组件重载瞬间会短暂 false
-    if (await confirmLeftMarkingPage(window.__AI_MARKER_ADAPTER__)) {
+    const leftPage = await confirmLeftMarkingPage(runContext.adapter);
+    if (!isGradingContextCurrent(runContext)) return;
+    if (leftPage) {
         console.log('ℹ️ 已离开批改页面，停止本轮批改');
         handleLeaveMarkingPage();
         return;
@@ -243,7 +287,7 @@ async function startAutoGrading() {
 
     try {
         // 使用新的配置获取方式（优先工作流，回退直接配置）
-        const config = PresetManager.getActiveCallConfig();
+        const config = JSON.parse(JSON.stringify(PresetManager.getActiveCallConfig()));
         if (!config.apiKey) {
             openSettingsPanel();
             showToast('请先配置 AI 密钥');
@@ -251,7 +295,12 @@ async function startAutoGrading() {
             return;
         }
 
-        const presetConfig = PresetManager.getCurrentConfig();
+        const presetConfig = JSON.parse(JSON.stringify(PresetManager.getCurrentConfig()));
+        const effectiveUnits = PresetManager.getScoringUnits?.() || presetConfig.scoring?.units || [];
+        const gradingMaxScore = PresetManager.getMaxScore();
+        presetConfig.scoring = { ...presetConfig.scoring, maxScore: gradingMaxScore, units: JSON.parse(JSON.stringify(effectiveUnits)) };
+        config.scoring = presetConfig.scoring;
+        runContext.configuration = presetConfig;
         if (!extractFieldText(presetConfig.answer).trim() || !extractFieldText(presetConfig.rubric).trim()) {
             openSettingsPanel();
             showToast('请先填写参考答案和评卷标准');
@@ -271,7 +320,8 @@ async function startAutoGrading() {
 
         // 获取工作流信息（用于双评判断）
         const workflowId = presetConfig.workflowId;
-        const workflow = workflowId ? WorkflowManager.getWorkflow(workflowId) : null;
+        const sourceWorkflow = workflowId ? WorkflowManager.getWorkflow(workflowId) : null;
+        const workflow = sourceWorkflow ? JSON.parse(JSON.stringify(sourceWorkflow)) : null;
         const isDualEval = workflow && workflow.dualEval && workflow.dualEval.enabled;
 
         if (isDualEval) {
@@ -282,8 +332,13 @@ async function startAutoGrading() {
 
         const adapter = window.__AI_MARKER_ADAPTER__;
 
+        if (adapter?.prepareGrading && await adapter.prepareGrading() === false) {
+            throw new Error(adapter.lastFillError || '阅卷页面尚未就绪，请核对后继续');
+        }
+        requireCurrentGradingContext(runContext);
+
         // AI 失败重试时复用已下载的图片，避免重新抓取（拦截器缓冲可能已清空）
-        const isRetry = window.aiGradingState.errorRetryCount > 0
+        const isRetry = runContext.paperId && runContext.paperId === window.aiGradingState.currentPaperId && window.aiGradingState.errorRetryCount > 0
             && window.aiGradingState.currentBase64DataArray.length > 0;
 
         let imageUrls, base64DataArray;
@@ -295,11 +350,14 @@ async function startAutoGrading() {
         } else {
             console.log(`🔍 使用方案【${PresetManager.data.active}】查找答卷...`);
             imageUrls = adapter ? await adapter.gatherAnswerImages() : [];
+            requireCurrentGradingContext(runContext);
             console.log(`🖼️ [诊断] 找到答题卡图片数量: ${imageUrls.length}`);
 
             if (!imageUrls || imageUrls.length === 0) {
                 // 取图为空 ≠ 批完：复查确认是否已离开批改页（取图等待窗口内可能已导航离开）
-                if (await confirmLeftMarkingPage(adapter)) {
+                const hasLeft = await confirmLeftMarkingPage(adapter);
+                requireCurrentGradingContext(runContext);
+                if (hasLeft) {
                     console.log('ℹ️ 已离开批改页面，停止本轮批改');
                     handleLeaveMarkingPage();
                     return;
@@ -316,12 +374,16 @@ async function startAutoGrading() {
                 return;
             }
 
+            runContext.paperId ||= readGradingPaperIdentity(adapter);
+            requireGradingContextTarget(runContext);
             window.aiGradingState.currentImageUrls = imageUrls;
             // Canvas 型平台换卷判定的对照基准：AI 期间输入框若「非空→清空」才可疑
             window.aiGradingState.paperGuardInputSnapshot = snapshotScoreInputs(adapter);
+            runContext.imageUrls = imageUrls.slice();
+            runContext.inputSnapshot = window.aiGradingState.paperGuardInputSnapshot.slice();
             // 记录稳定试卷标识（如有），答卷校验优先做强信号比对（#281）
             if (adapter && typeof adapter.getPaperIdentity === 'function') {
-                window.aiGradingState.currentPaperId = adapter.getPaperIdentity();
+                window.aiGradingState.currentPaperId = runContext.paperId;
             }
 
             const gradeBtn = document.querySelector('.ai-grade-btn');
@@ -331,12 +393,37 @@ async function startAutoGrading() {
 
             console.log(`📥 [诊断] 开始下载 ${imageUrls.length} 张图片...`);
             const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
-            base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url)));
+            base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, runContext.controller.signal)));
+            requireCurrentGradingContext(runContext);
+            // 废图闸（工单①）：942×4 裁剪残片类废图不得进 API/空白检测（进 API 会 400 整单暂停）
+            const imgGate = filterUsableImagesForAI(base64DataArray);
+            // 剔除计数登记（返修②）：本卷 AI 请求的提示词需注明「已剔除 N 张废图」，不得对残卷照常出分
+            window.aiGradingState.imageGateRemovedCount = imgGate.removed.length;
+            if (imgGate.removed.length > 0) {
+                console.warn(`⚠️ [废图剔除] ${imgGate.removed.length} 张废图已剔除（尺寸异常）: ` +
+                    imgGate.removed.map(r => `#${r.index} ${r.reason}`).join('；'));
+                showToast(`⚠️ 已剔除 ${imgGate.removed.length} 张尺寸异常的废图，不送 AI 评分`);
+            }
+            base64DataArray = imgGate.kept;
+            if (base64DataArray.length === 0) {
+                // 剔除后无图 = 显式失败（宁可不取）：绝不让 AI 对空图盲评
+                if (window.aiGradingState.gradingMode === 'unattended') {
+                    stopAutoGrading();
+                    safeAlert('答题卡图片均不可用（尺寸异常已被剔除），批改已暂停，请人工核对后继续。');
+                } else {
+                    safeAlert('❌ 答题卡图片均不可用（尺寸异常已被剔除），请人工核对后继续！');
+                    window.aiGradingState.isRunning = false;
+                }
+                return;
+            }
             window.aiGradingState.currentBase64DataArray = base64DataArray;
             console.log(`✅ [诊断] 图片下载完成，各图片Base64大小: ${base64DataArray.map(b => Math.round(b.length / 1024) + 'KB').join(', ')}`);
         }
 
-        if (window.aiGradingState.isPaused) throw new Error('用户暂停');
+        requireCurrentGradingContext(runContext);
+        runContext.imageUrls = imageUrls.slice();
+        runContext.inputSnapshot = window.aiGradingState.paperGuardInputSnapshot || [];
+        runContext.base64DataArray = base64DataArray.slice();
 
         // ===== 空白答题卡检测 =====
         const blankConfig = presetConfig.blankDetection;
@@ -346,23 +433,28 @@ async function startAutoGrading() {
             if (refData) {
                 try {
                     const currentRatios = await BlankDetector.calcBatchRatios(base64DataArray, refData.thresholds);
+                    requireCurrentGradingContext(runContext);
                     blankDetectionResult = { currentRatios, refData }; // 缓存
                     const result = BlankDetector.isBlankSheet(currentRatios, refData, blankConfig.threshold);
                     if (result.isBlank) {
+                        await verifyGradingContext(runContext);
+                        requireGradingContextTarget(runContext);
                         console.log('⏭️ [空白检测] 检测到空白答题卡，自动跳过');
                         window.aiGradingState.blankDetection.blankCount++;
                         showToast(`⏭️ 空白答题卡已跳过（第${window.aiGradingState.blankDetection.blankCount}张）`);
 
                         // 填入 0 分（失败不静默：空分提交等于误判 0 分）
                         const scoringConfig = presetConfig.scoring || {};
-                        const maxScore = PresetManager.getMaxScore();
-                        let blankFillOk = true;
+                        const maxScore = gradingMaxScore;
+                        let blankFillOk = false;
                         if (adapter) {
                             const units = scoringConfig.units || [];
                             if (adapter.fillScores && units.length > 0) {
-                                blankFillOk = adapter.fillScores(units.map(() => 0));
+                                blankFillOk = safeFillScores(adapter, units.map(() => 0), '空白卡填0');
                             } else if (adapter.fillScores) {
-                                blankFillOk = adapter.fillScores([0]);
+                                blankFillOk = safeFillScores(adapter, [0], '空白卡填0');
+                            } else if (adapter.fillScore) {
+                                blankFillOk = adapter.fillScore({ total: 0, subScores: units.map(u => ({ ...u, score: 0 })) });
                             }
                         }
                         if (blankFillOk === false) {
@@ -374,6 +466,7 @@ async function startAutoGrading() {
                             label: u.label, score: 0, maxScore: u.maxScore
                         }));
                         showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
+                            runContext,
                             isBlankCard: true,
                             // 数据安全（#312 B1）：0 分填入失败必须禁倒计时自动提交，
                             // 否则无人模式 1 秒倒计时会把空框送进平台（空分提交=事故）
@@ -389,6 +482,7 @@ async function startAutoGrading() {
                         console.log(`🔍 [空白检测] 非空白卡 — ${result.reason}`);
                     }
                 } catch (e) {
+                    if (e.code === 'GRADING_CONTEXT_CHANGED') throw e;
                     console.warn('⚠️ [空白检测] 检测失败，继续正常批改:', e);
                 }
             }
@@ -415,28 +509,31 @@ async function startAutoGrading() {
             outputLimitEnabled: config.outputLimitEnabled !== false,
             maxOutputTokens: config.maxOutputTokens || 2048
         });
-        const gradingConfig = { ...config, workflowId, outputObservation, outputLimitKey };
+        const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
+            signal: runContext.controller.signal,
+            imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
         const result = isDualEval
             ? await callDualEvaluation(base64DataArray, gradingConfig, (streamedText) => {
-                if (window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
+                if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
             })
             : await callAIGrading(base64DataArray, gradingConfig, (streamedText) => {
-                if (window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
+                if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
             });
 
+        requireCurrentGradingContext(runContext);
         hideStreamPanel();
-        if (window.aiGradingState.isPaused) throw new Error('用户暂停');
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
         if (result.score !== undefined && result.score !== null) {
             recordOutputLimitOutcome(gradingConfig);
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
-            const maxScore = PresetManager.getMaxScore();
+            const maxScore = gradingMaxScore;
 
             // 字数 ≤ 15 或未作答时，强制无勤勉分
             let diligenceLevel = result.diligenceLevel || 0;
             const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
-            if (answerLen <= 15) diligenceLevel = 0;
+            const explicitlyBlank = isExplicitlyBlankGradingResult(result);
+            if (answerLen <= 15 || explicitlyBlank) diligenceLevel = 0;
 
             // 使用 ScoreCalculator 统一计算流水线
             // 将配置中的 roundStep 合并到 AI 返回的小题分数中
@@ -449,7 +546,7 @@ async function startAutoGrading() {
                 : null;
 
             const calculated = ScoreCalculator.calculate({
-                aiScore: result.rawScore || result.score,
+                aiScore: result.rawScore ?? result.score,
                 diligenceLevel,
                 maxScore,
                 scoringConfig,
@@ -457,32 +554,17 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
+            if (explicitlyBlank && (finalScore > 0 || finalUnitScores?.some(unit => unit.score > 0))) {
+                throw new Error('AI 将答卷识别为未作答，却给出了正分，请核对本卷后继续');
+            }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
             // ===== 离开批改页检查（先于答卷校验：填分/提交必须在批改页上）=====
             // AI 请求期间教师可能退回列表页——这是离开页面，不是换卷，中性暂停即可
             // 复查确认：DOM 型 isMarkingPage 瞬时 false 不算离开
-            const verifyAdapter = window.__AI_MARKER_ADAPTER__;
-            if (await confirmLeftMarkingPage(verifyAdapter)) {
-                console.warn('ℹ️ 已离开批改页面，暂停批改');
-                throw new Error('已离开批改页面（本次评分结果未提交）');
-            }
-            // ===== 答卷一致性校验（数据安全，实验性可关）=====
-            // 请求耗时期间若已翻卷，旧卷分数绝不能填进新卷。
-            // 若用户遇到误报，可在设置面板「答卷校验」关闭此项。
-            if (presetConfig.paperGuard && presetConfig.paperGuard.enabled === false) {
-                console.log('ℹ️ [答卷校验] 已在设置中关闭，跳过填分前校验');
-            } else {
-                const paperCheck = await verifyPaperUnchanged(verifyAdapter, imageUrls, window.aiGradingState.paperGuardInputSnapshot);
-                if (paperCheck.unchanged === false) {
-                    console.warn('🚫 [答卷校验] 答卷已切换，丢弃本次结果:', paperCheck.reason);
-                    throw new Error('答卷已切换，本次评分结果已丢弃，请人工核对后再继续（' + paperCheck.reason + '）');
-                }
-                if (paperCheck.unchanged === null) {
-                    console.warn('⚠️ [答卷校验] 无法判定答卷是否变化，按原流程继续:', paperCheck.reason);
-                }
-            }
+            await verifyGradingContext(runContext);
+            requireGradingContextTarget(runContext);
 
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
 
@@ -492,22 +574,26 @@ async function startAutoGrading() {
             let fillOk = false;
             if (adapter) {
                 if (adapter.fillScores && finalUnitScores) {
-                    // 新接口：按评分单元顺序填入
-                    fillOk = adapter.fillScores(finalUnitScores.map(u => u.score));
+                    // 新接口：按评分单元顺序填入（数值闸 N5 前置）
+                    fillOk = safeFillScores(adapter, finalUnitScores.map(u => u.score), '主流程填分');
                 } else if (adapter.fillScores) {
                     // 单题模式
-                    fillOk = adapter.fillScores([finalScore]);
+                    fillOk = safeFillScores(adapter, [finalScore], '主流程填分');
                 } else if (adapter.fillScore) {
-                    // 旧接口兼容
-                    fillOk = adapter.fillScore({ total: finalScore, subScores: finalUnitScores });
+                    // 旧接口兼容（request 内含 total/subScores，数值闸覆盖两者）
+                    fillOk = validateScoresForFill(
+                        [finalScore].concat((finalUnitScores || []).map(u => u.score)), '主流程填分(旧接口)')
+                        ? adapter.fillScore({ total: finalScore, subScores: finalUnitScores })
+                        : false;
                 } else {
-                    fillOk = true; // 适配器无填分接口（理论上不存在），交由人工流程
+                    fillOk = false;
                 }
             }
             if (fillOk === false) {
                 console.warn('⚠️ [诊断] 分数填入失败，中止本次提交');
-                throw new Error('分数填入失败（分数框缺失或分数不可填），请手动输入分数后继续');
+                throw new Error(adapter?.lastFillError || '分数填入失败（分数框缺失或分数不可填），请手动输入分数后继续');
             }
+            runContext.inputSnapshot = snapshotScoreInputs(adapter);
             // 传递结构化评分详情、双评信息和勤勉信息到提交对话框
             // 如果开启了空白卡检测且有范本，附带当前图的占比数据（复用之前缓存的结果）
             let blankRatiosData = null;
@@ -533,7 +619,9 @@ async function startAutoGrading() {
                     }
                 } catch (e) { /* 静默失败，不影响主流程 */ }
             }
+            requireCurrentGradingContext(runContext);
             showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
+                runContext,
                 scoringDetails: result._sections || null,
                 dualEval: result.dualEval || null,
                 rawScore: result.rawScore || result.score,
@@ -551,6 +639,8 @@ async function startAutoGrading() {
         }
 
     } catch (error) {
+        // 旧轮次的失败也不能暂停新轮次或清理新轮次的界面。
+        if (!isGradingContextCurrent(runContext)) return;
         hideStreamPanel();
         if (error.message === '用户主动暂停' || error.message === '用户暂停') {
             console.log('⏸️ 请求已被暂停');
@@ -690,7 +780,38 @@ async function initToolsPageMode() {
 }
 
 // ========== 初始化 ==========
+// init 重入闩（strict-a C.3）：boot 的 setTimeout(init) 与 runNewTaskOnboardingFlow 的
+// setTimeout(init)（任务切换重调度）可并发触发，两路都在 await 后建 UI → 双 UI/双监听。
+// in-running 闩只挡并发；完成后允许任务切换后的合法重跑（SPA 从列表页进批改页需重建 UI）。
+let _initInFlight = false;
+// 回评任务页内门闩（strict-a C.1）：同一页面生命周期内回评面板只弹一次
+let _regradeConsumed = false;
+
 async function init() {
+    if (_initInFlight) return;
+    _initInFlight = true;
+    try {
+        await runInitBody();
+    } finally {
+        _initInFlight = false;
+    }
+}
+
+// 平台与题号可能已经确定，阅卷 DOM 却在首次检测之后才就绪。
+// 复用现有轮询和平台检测恢复入口；初始化防重入仍由 init 统一控制。
+function recoverMarkingUIIfReady() {
+    if (window !== window.top || _initInFlight || document.querySelector('.ai-grade-btn')) return;
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    if (!adapter || isToolsPageMode()) return;
+    try {
+        if (adapter.isMarkingPage && !adapter.isMarkingPage()) return;
+        init().catch(error => console.warn('[初始化] 阅卷入口恢复失败，将在就绪后重试:', error));
+    } catch (error) {
+        console.warn('[初始化] 阅卷页面尚未就绪:', error);
+    }
+}
+
+async function runInitBody() {
     if (window !== window.top) return; // 跳过 iframe
     await new Promise(resolve => setTimeout(resolve, 2000));
 
@@ -702,12 +823,18 @@ async function init() {
 
     const adapter = window.__AI_MARKER_ADAPTER__;
 
+    const pageUrl = window.location?.href || '';
+    const isCurrentPage = () => adapter === window.__AI_MARKER_ADAPTER__ && (window.location?.href || '') === pageUrl;
+
     // 检测是否在批改页面，支持重试（SPA应用可能需要更长时间加载）
     let isMarkingPage = await detectMarkingPage();
+    if (!isCurrentPage()) return;
     if (!isMarkingPage) {
         // 第一次检测失败，等待后重试
         await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!isCurrentPage()) return;
         isMarkingPage = await detectMarkingPage();
+        if (!isCurrentPage()) return;
         if (!isMarkingPage) {
             // 非阅卷页面：如果在阅卷平台上，仅注入历史按钮
             if (adapter) {
@@ -733,6 +860,10 @@ async function init() {
         createSettingsPanel();
     }
     if (typeof updateMainButtonState === 'function') updateMainButtonState();
+
+    if ([PresetManager, ProviderManager, WorkflowManager].some(manager => manager._initialSaveFailed)) {
+        showToast('部分设置暂未保存，请在设置中重新保存');
+    }
 
     // 初始化批阅份数功能
     initBatchProgress();
@@ -761,19 +892,34 @@ async function init() {
         setTimeout(() => toggleAutoGrading(), 3000);
     }
 
-    // 检查是否有回评任务
+    // 检查是否有回评任务（strict-a C.1）：读取即消费 + 页内门闩——
+    // init 可被任务切换重调度重跑，两路都读到同一 sessionStorage 会弹双回评面板（对同一记录双改）。
+    // 消费即标记：刷新/重入不再重复弹面板（startRegrade 本就是整页跳转，消费点在新页生命周期内）
     const regradeData = sessionStorage.getItem('ai-grading-regrade');
-    if (regradeData) {
+    if (regradeData && !_regradeConsumed) {
+        _regradeConsumed = true;
+        sessionStorage.removeItem('ai-grading-regrade');
         try {
             const { id } = JSON.parse(regradeData);
             const record = HistoryManager.getById(id);
             if (record) {
                 window.aiGradingState.isRegrading = true;
                 showToast('正在加载回评数据...');
+                const regradeContext = createGradingContext(true);
                 setTimeout(async () => {
-                    // 等待图片加载
+                    if (!isGradingContextCurrent(regradeContext)) return;
+                    try {
+                    // 等待图片加载（strict-a C.4）：固定 3s 等待改 200ms 短轮询，就绪即继续，
+                    // 探测总上限 3s 不变
                     const adapter = window.__AI_MARKER_ADAPTER__;
+                    await waitForImagesReadyForRegrade(adapter, 3000, 200);
+                    requireCurrentGradingContext(regradeContext);
                     const imageUrls = adapter ? await adapter.gatherAnswerImages() : [];
+                    requireCurrentGradingContext(regradeContext);
+                    regradeContext.paperId ||= readGradingPaperIdentity(adapter);
+                    requireGradingContextTarget(regradeContext);
+                    regradeContext.imageUrls = imageUrls.slice();
+                    regradeContext.inputSnapshot = snapshotScoreInputs(adapter);
                     if (imageUrls.length === 0) {
                         showAlertModal('未找到答题卡图片，无法回评。').then(() => {
                             sessionStorage.removeItem('ai-grading-regrade');
@@ -782,34 +928,57 @@ async function init() {
                         return;
                     }
                     const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
-                    const base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url)));
+                    let base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, regradeContext.controller.signal)));
+                    requireCurrentGradingContext(regradeContext);
+                    // 废图闸（工单①）：回评链路同样不得把尺寸异常残片送进 API
+                    const regradeGate = filterUsableImagesForAI(base64DataArray);
+                    // 回评/纠错链的剔除计数登记（返修②）：correction.js 自建 callConfig，
+                    // 无 config 通道，走 aiGradingState 兜底进提示词注记
+                    window.aiGradingState.imageGateRemovedCount = regradeGate.removed.length;
+                    if (regradeGate.removed.length > 0) {
+                        console.warn(`⚠️ [废图剔除] 回评：${regradeGate.removed.length} 张废图已剔除（尺寸异常）: ` +
+                            regradeGate.removed.map(r => `#${r.index} ${r.reason}`).join('；'));
+                        base64DataArray = regradeGate.kept;
+                    }
+                    if (base64DataArray.length === 0) {
+                        showAlertModal('答题卡图片均不可用（尺寸异常已被剔除），无法回评。').then(() => {
+                            sessionStorage.removeItem('ai-grading-regrade');
+                            window.aiGradingState.isRegrading = false;
+                        });
+                        return;
+                    }
                     window.aiGradingState.currentBase64DataArray = base64DataArray;
+                    regradeContext.base64DataArray = base64DataArray.slice();
+                    await verifyGradingContext(regradeContext);
 
                     showCorrectionPanel({
                         score: record.aiScore, comment: record.aiComment,
                         studentAnswer: record.studentAnswer, imageUrls,
-                        base64DataArray, config: PresetManager.getCurrentConfig(),
+                        base64DataArray, config: regradeContext.configuration,
                         callConfig: PresetManager.getActiveCallConfig(),
                         subScores: record.subScores,
-                        onAccept(finalScore, correctionInfo) {
+                        async onAccept(finalScore, correctionInfo) {
                             const correctedSubScores = correctionInfo.correctedSubScores || record.subScores;
-                            HistoryManager.update(id, {
-                                finalScore, isCorrected: correctionInfo.isCorrected,
-                                correctionReason: correctionInfo.correctionReason,
-                                subScores: correctedSubScores, status: 'submitted'
-                            });
-                            fillScore(finalScore, record.aiComment, correctedSubScores);
+                            if (!await fillScore(finalScore, record.aiComment, correctedSubScores, regradeContext, {
+                                regradeId: id,
+                                correction: { ...correctionInfo, aiScore: record.aiScore, aiComment: record.aiComment }
+                            })) return;
                             sessionStorage.removeItem('ai-grading-regrade');
                             window.aiGradingState.isRegrading = false;
-                            showToast('回评完成！分数已填入。');
+                            showToast('得分已填入，请确认提交');
                         },
                         onCancel() {
+                            if (isGradingContextCurrent(regradeContext)) invalidateGradingRun();
                             sessionStorage.removeItem('ai-grading-regrade');
                             window.aiGradingState.isRegrading = false;
                             showToast('已取消回评');
                         }
                     });
-                }, 3000);
+                    } catch (error) {
+                        if (isGradingContextCurrent(regradeContext)) { invalidateGradingRun(); showToast(error.message); }
+                        window.aiGradingState.isRegrading = false;
+                    }
+                }, 0);
             }
         } catch (e) {
             console.error('回评数据解析失败:', e);
@@ -900,6 +1069,7 @@ let lastUrlId = PresetManager.getTaskIdentifier();
 let pendingNewTaskFlowId = null;
 let newTaskFlowInFlight = false; // #312 防重入：并发生 tick 不得双跑新题引导（双弹窗）
 setInterval(async () => {
+    recoverMarkingUIIfReady();
     const currentUrlId = PresetManager.getTaskIdentifier();
     if (currentUrlId !== lastUrlId) {
         lastUrlId = currentUrlId;

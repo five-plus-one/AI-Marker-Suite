@@ -233,7 +233,8 @@ const KeewingAdapter = {
         return 0;
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         console.log('📤 [科耘] 开始提交分数...');
 
         // 先填入分数（触发平台自动提交）；失败必须显式失败，不得静默续走（#296）
@@ -244,17 +245,20 @@ const KeewingAdapter = {
 
         // 平台会自动提交，不需要再点击提交按钮
         // 但处理可能的确认弹窗
-        this._handleConfirmDialog();
+        this._handleConfirmDialog(guard);
 
         return true;
     },
 
     // 处理二次确认弹窗
-    _handleConfirmDialog() {
+    _handleConfirmDialog(guard) {
+        let checking = false;
         console.log('⏳ [科耘] 等待确认弹窗...');
 
         let checkCount = 0;
-        const checkInterval = setInterval(() => {
+        const checkInterval = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
+            if (checking) return;
             checkCount++;
 
             // 查找弹窗中的确认按钮
@@ -263,6 +267,9 @@ const KeewingAdapter = {
                 const text = btn.textContent.trim();
                 if (text === '确认' || text === '确定' || text === 'OK') {
                     console.log('✅ [科耘] 找到确认弹窗，自动点击');
+                    checking = true;
+                    try { if (guard) await guard.verify(); } catch (_) { clearInterval(checkInterval); return; }
+                    if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
                     btn.click();
                     clearInterval(checkInterval);
                     return;

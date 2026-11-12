@@ -14,6 +14,9 @@ const AmeqpAdapter = {
     iconUrl: '',
 
     _pendingScores: null,
+    _submittedPaper: null,
+    _collectedPaper: null,
+    _submitting: false,
 
     // ---------- 内部工具 ----------
 
@@ -22,20 +25,46 @@ const AmeqpAdapter = {
         return (url || '').split('?')[0];
     },
 
-    // 从图片 src 提取稳定试卷标识：文件名首段即考号（如 7720272115_00_1_0.PNG → 7720272115）。
-    // 同卷 src 偶发重设（缓存戳/渲染重载/路径变体）不改变考号，换卷必变（#281）
+    // 已验证的文件名格式为 考号_数字_数字_数字.图片扩展名。
+    // 缓存参数与目录不参与考号；其他地址格式不能把共有前缀当作答卷标识。
     _paperIdFromSrc(src) {
-        const file = (this._stripQuery(src).split('/').pop() || '');
-        const m = file.match(/^(\d+)/) || file.match(/^([^_]+)/);
-        return (m && m[1]) ? m[1] : this._stripQuery(src);
+        try {
+            const url = new URL(src);
+            if (!/^https?:$/.test(url.protocol)) return null;
+            const file = decodeURIComponent(url.pathname.split('/').pop() || '');
+            const match = file.match(/^(\d+)_\d+_\d+_\d+\.(?:png|jpe?g|bmp|gif|webp|tiff?|svg)$/i);
+            return match ? match[1] : null;
+        } catch (_) {
+            return null;
+        }
+    },
+
+    _resourceKey(img) {
+        try {
+            // 空 src 的 DOM 属性会解析为当前页面，不能用它证明存在答卷。
+            const raw = img.getAttribute('src');
+            if (!String(raw == null ? img.src || '' : raw).trim()) return null;
+            const url = new URL(raw == null ? img.src : raw, window.location.href);
+            if (!/^https?:$/.test(url.protocol)) return null;
+            url.hash = '';
+            // t 是已确认的 AMEQP 缓存戳；其余参数可能选择不同答卷，必须保留。
+            url.searchParams.delete('t');
+            return url.href;
+        } catch (_) { return null; }
     },
 
     // 稳定试卷标识（供答卷一致性校验做强信号比对）
     getPaperIdentity() {
         try {
-            const img = this._answerImages()[0];
-            const src = (img && (img.src || img.getAttribute('src'))) || '';
-            return src ? this._paperIdFromSrc(src) : null;
+            const images = this._answerImages();
+            const keys = images.map(img => this._resourceKey(img));
+            if (!keys.length || keys.some(key => !key)) return null;
+            const ids = keys.map(key => this._paperIdFromSrc(key));
+            // 单张扫描图也可能以学科名、UUID 或图片接口命名，完整资源地址可区分答卷。
+            if (images.length === 1 && !ids[0]) return 'ameqp-resource:' + keys[0];
+            // 多题块仍须有共同卷号；混合答卷与未知分组不作猜测。
+            if (!ids[0] || !ids.every(id => id === ids[0])) return null;
+            return keys.some(key => new URL(key).search) ? JSON.stringify([ids[0], keys]) : ids[0];
         } catch (e) {
             return null;
         }
@@ -52,7 +81,7 @@ const AmeqpAdapter = {
     // 从 txt_que_N / txt_que_1_1 提取内部序号（必须抓全双段编号，#278：
     // 旧正则 /txt_que_(\d+)/ 对 txt_que_1_1 只截到 "1"，导致隐藏字段同步成为空操作）
     _indexOf(el) {
-        const m = (el.name || el.id || '').match(/txt_que_(\d+(?:_\d+)?)/);
+        const m = (el.name || el.id || '').match(/^txt_que_(\d+(?:_\d+)?)$/);
         return m ? m[1] : null;
     },
 
@@ -69,7 +98,7 @@ const AmeqpAdapter = {
     },
 
     _isPathMatch() {
-        return /\/AMEQP\/Webroot\/mar\//i.test(window.location.pathname);
+        return /^\/AMEQP\/Webroot\/mar\//i.test(window.location.pathname);
     },
 
     // 平台记分值的规范格式：与给分列表一致的 X.X（"4.0"）。实测写 "4" 不被记分登记（#278）
@@ -96,28 +125,35 @@ const AmeqpAdapter = {
 
     // 将单个分数写入输入框并触发平台记分事件（含按键事件，#278：
     // 平台登记处理可能绑定 keyup 等按键事件，旧实现只发 input/change/blur 不够）
-    _setInputValue(el, v) {
+    _setInputValue(el, v, isCurrent = () => true) {
+        if (!isCurrent()) return false;
         const fmt = this._fmt(v);
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(el, fmt);
         const types = ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur'];
-        types.forEach(t => {
+        for (const t of types) {
+            if (!isCurrent()) return false;
             try {
                 const ev = (t.indexOf('key') === 0)
                     ? new KeyboardEvent(t, { bubbles: true, cancelable: true, key: fmt })
                     : new Event(t, { bubbles: true, cancelable: true });
                 el.dispatchEvent(ev);
             } catch (e) { /* 旧内核兜底 */ }
-        });
+        }
         if (window.jQuery) {
             try {
+                if (!isCurrent()) return false;
                 const $el = window.jQuery(el);
                 $el.val(fmt);
-                types.forEach(t => { $el.trigger(t); });
+                for (const t of types) {
+                    if (!isCurrent()) return false;
+                    $el.trigger(t);
+                }
             } catch (e) {
                 console.warn('[AMEQP] jQuery trigger 失败:', e);
             }
         }
+        return isCurrent();
     },
 
     // 同步平台内部状态字段与记分视觉态（OnSubmit 靠这些判断"已给分"，#278）
@@ -141,13 +177,6 @@ const AmeqpAdapter = {
         const t = String(Math.round(total * 10) / 10);
         if (queVal) setter.call(queVal, t);
         if (queValOld) setter.call(queValOld, t);
-    },
-
-    // 单题登记校验：隐藏状态字段必须非空（捕捉选择器/编号失效类故障，#278）
-    _isRegistered(n) {
-        if (!n) return false;
-        const sub = document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${n}`);
-        return !!(sub && String(sub.value).trim() !== '');
     },
 
     // 把 img 在 .img_box 视口内的可视区域裁成 dataURL（题块图，而非整张答题卡）
@@ -191,16 +220,12 @@ const AmeqpAdapter = {
     // ---------- 生命周期 ----------
 
     shouldInitialize() {
-        // 路径特征（产品名锁在路径里，不锁 hostname）
-        if (this._isPathMatch()) return true;
-        // DOM 特征兜底（改名部署等场景）
-        if (this._hasDomSignature()) return true;
-        return false;
+        return this._hasDomSignature();
     },
 
     // 快速页面检查（不等待 DOM），用于 URL 变化监听器
     isMarkingPage() {
-        return this._isPathMatch();
+        return this._hasDomSignature();
     },
 
     async detectMarkingPage() {
@@ -247,15 +272,17 @@ const AmeqpAdapter = {
     async gatherAnswerImages() {
         // 等图片 src/解码就位（换卷后 src 异步更新）
         await new Promise(r => setTimeout(r, 800));
+        // src 已变并不代表图片已解码；过渡期不返回旧画面或失败图片。
+        for (let i = 0; i < 30 && !this._imagesReady(); i++) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+        if (!this._imagesReady()) {
+            console.warn('[AMEQP] 作答图尚未就绪，或无法确认所有题块属于同一份答卷');
+            return [];
+        }
         const imgs = this._answerImages();
-        // 等图片加载完成再裁切，否则 naturalWidth 为 0
-        await Promise.race([
-            Promise.all(imgs.map(img => (img.complete && img.naturalWidth) ? null : new Promise(res => {
-                img.addEventListener('load', res, { once: true });
-                img.addEventListener('error', res, { once: true });
-            }))),
-            new Promise(r => setTimeout(r, 3000)),
-        ]);
+        const paperId = this.getPaperIdentity();
+        const paths = imgs.map(img => this._resourceKey(img));
 
         const urls = [];
         imgs.forEach(img => {
@@ -266,12 +293,24 @@ const AmeqpAdapter = {
             if (cropped) {
                 urls.push(cropped);
             } else if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
-                // 裁切失败兜底：退回整图稳定路径
-                urls.push(src.startsWith('data:') ? src : this._stripQuery(src));
+                // 裁切失败兜底：保留整图访问参数
+                urls.push(src);
             }
         });
+        const current = this._answerImages();
+        if (!paperId || !this._imagesReady() || this.getPaperIdentity() !== paperId
+            || current.length !== imgs.length || urls.length !== imgs.length
+            || current.some((img, i) => img !== imgs[i] || this._resourceKey(img) !== paths[i])) return [];
+        this._collectedPaper = { id: paperId, task: this.getTaskIdentifier() };
         console.log(`[AMEQP] 找到答题卡图片: ${urls.length} 张（题块裁切，已排除批注层 tmpImg）`);
         return urls;
+    },
+
+    _imagesReady() {
+        const imgs = this._answerImages();
+        if (!imgs.length) return false;
+        const paperId = this.getPaperIdentity();
+        return !!paperId && imgs.every(img => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0);
     },
 
     async fetchImageAsBase64(url) {
@@ -290,10 +329,10 @@ const AmeqpAdapter = {
             const n = this._indexOf(el);
 
             // 满分三重来源：maxsco 属性 → hidden #max_sco_N → legend 文本
-            let maxScore = parseFloat(el.getAttribute('maxsco'));
-            if (!maxScore && n) {
+            let maxScore = Number(el.getAttribute('maxsco'));
+            if (!(maxScore > 0) && n) {
                 const hidden = document.querySelector(`#max_sco_${n}`);
-                if (hidden) maxScore = parseFloat(hidden.value);
+                if (hidden) maxScore = Number(hidden.value);
             }
 
             // 标签从 legend 解析题号（如 title="9(6.0分)" → 第9题）
@@ -308,7 +347,7 @@ const AmeqpAdapter = {
                 } else if (text) {
                     label = text;
                 }
-                if (!maxScore) {
+                if (!(maxScore > 0)) {
                     const sm = text.match(/(\d+(?:\.\d+)?)\s*分/);
                     if (sm) maxScore = parseFloat(sm[1]);
                 }
@@ -319,144 +358,147 @@ const AmeqpAdapter = {
                 label,
                 index: inputs.length,
                 maxScore: maxScore || 0,
+                questionId: n,
             });
         });
         return inputs;
     },
 
     fillScores(scores) {
+        this._pendingScores = null;
+        if (this._submitting) return false;
         const inputs = this.getScoreInputs();
-        if (inputs.length === 0) return false;
-
-        // 数据安全：全或无（#278）——任一题缺分即整体拒绝，不留半登记状态
-        for (let i = 0; i < inputs.length; i++) {
-            if (scores[i] === null || scores[i] === undefined) {
-                console.warn(`[AMEQP] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失），拒绝填分`);
-                return false;
-            }
-        }
-
-        // 先暂存：submitGrade 时会重新灌一遍，防止填分与提交间隔太短导致平台没记录
-        this._pendingScores = scores.slice();
+        const identity = this.getPaperIdentity();
+        const task = this.getTaskIdentifier();
+        if (!identity || !this._validScores(scores, inputs)
+            || new Set(inputs.map(unit => unit.questionId)).size !== inputs.length || inputs.some(unit =>
+            unit.element.disabled || unit.element.readOnly || !this._indexOf(unit.element)
+            || !document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${this._indexOf(unit.element)}`))) return false;
 
         for (let i = 0; i < inputs.length; i++) {
+            const sameTarget = () => this.getPaperIdentity() === identity && this.getTaskIdentifier() === task
+                && this._scoreInputs()[i] === inputs[i].element;
+            if (!sameTarget()) return false;
             const v = scores[i];
             const el = inputs[i].element;
             const n = this._indexOf(el);
             // 三路记分（#278）：平台给分列表原生链路 → 输入框写值+全事件 → 隐藏字段同步
             this._clickScoreOption(n, v);
-            this._setInputValue(el, v);
+            if (!sameTarget()) return false;
+            if (!this._setInputValue(el, v, sameTarget)) return false;
+            if (!sameTarget()) return false;
             this._syncPlatformState(n, v);
         }
 
-        // 登记校验：隐藏状态字段必须全部落上（能捕捉 #278 这类选择器/编号失效故障）
-        for (let i = 0; i < inputs.length; i++) {
-            const n = this._indexOf(inputs[i].element);
-            if (!this._isRegistered(n)) {
-                console.error(`[AMEQP] ${inputs[i].label} 记分登记校验失败（MarQueSubSco_${n} 为空），拒绝提交`);
-                return false;
-            }
-        }
+        const pending = { inputs, scores: scores.slice(), identity, task };
+        if (!this._matchesPending(pending)) return false;
+        this._pendingScores = pending;
         console.log(`[AMEQP] 填分完成并通过登记校验: ${inputs.length}/${inputs.length}`, scores);
         return true;
     },
 
-    // ---------- 提交 ----------
-
-    async submitGrade() {
-        // 重新灌一遍分 + 同步 hidden 字段，消除"填分→提交"间隔过短导致的"没给分"
-        if (this._pendingScores && this._pendingScores.length > 0) {
-            const inputs = this.getScoreInputs();
-            for (let i = 0; i < Math.min(this._pendingScores.length, inputs.length); i++) {
-                const v = this._pendingScores[i];
-                if (v === null || v === undefined) continue;
-                this._setInputValue(inputs[i].element, v);
-                this._syncPlatformState(this._indexOf(inputs[i].element), v);
-            }
-        }
-
-        // 给平台事件处理留出处理时间，再触发 OnSubmit(1)
-        await new Promise(r => setTimeout(r, 350));
-
-        // 提交前登记校验（#278）：任何一题未登记即显式失败，不静默续走提交
-        const checkInputs = this.getScoreInputs();
-        for (let i = 0; i < checkInputs.length; i++) {
-            const n = this._indexOf(checkInputs[i].element);
-            if (!this._isRegistered(n)) {
-                console.error(`[AMEQP] 提交前校验失败：${checkInputs[i].label} 未登记（MarQueSubSco_${n} 为空），中止提交`);
-                return false;
-            }
-        }
-
-        // 钩住 alert，捕获平台 OnSubmit 的"没给分"类提示并显式失败（#278）
-        let platformWarn = null;
-        const origAlert = window.alert;
-        window.alert = function (msg) {
-            platformWarn = String(msg || '');
-            console.warn('[AMEQP] 平台弹窗:', platformWarn);
-        };
-
-        const btn = document.querySelector(AMEQP_SELECTORS.SUBMIT_BUTTON);
-        if (btn && !btn.disabled) {
-            btn.click();
-            console.log('[AMEQP] 已点击提交');
-            this._pendingScores = null;
-            await new Promise(r => setTimeout(r, 800));
-            window.alert = origAlert;
-            if (platformWarn && /没给分|尚未给分|给分/.test(platformWarn)) {
-                console.error('[AMEQP] 平台提示记分异常，提交未完成:', platformWarn);
-                return false;
-            }
-            return true;
-        }
-        window.alert = origAlert;
-        console.warn('[AMEQP] 未找到可用的提交按钮');
-        return false;
+    _validScores(scores, inputs) {
+        return Array.isArray(scores) && inputs.length > 0 && scores.length === inputs.length
+            && scores.every((score, i) => typeof score === 'number' && Number.isFinite(score) && score >= 0
+                && Number.isFinite(inputs[i].maxScore) && inputs[i].maxScore > 0 && score <= inputs[i].maxScore
+                && Math.abs(score * 10 - Math.round(score * 10)) < 1e-8);
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        // 换卷检测以「试卷标识（考号）」为主信号（#281）：
-        // 旧信号（图片路径变化/分数框清空）在平台切换窗口期会抖动误判，
-        // 导致下一轮取到旧卷图、随后被答卷校验正确拦截并暂停（偶发"批改已暂停"）。
-        // 考号换卷必变、同卷 src 抖动不变，竞态窗口随之消除。
-        const oldId = this.getPaperIdentity();
-        let checkTimes = 0;
+    _matchesPending(pending) {
+        const inputs = this.getScoreInputs();
+        return !!pending && this.getPaperIdentity() === pending.identity && this.getTaskIdentifier() === pending.task
+            && this._validScores(pending.scores, inputs) && inputs.length === pending.inputs.length
+            && inputs.every((unit, i) => {
+                const hidden = document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${this._indexOf(unit.element)}`);
+                return unit.element === pending.inputs[i].element && unit.maxScore === pending.inputs[i].maxScore
+                    && unit.questionId === pending.inputs[i].questionId
+                    && !unit.element.disabled && !unit.element.readOnly
+                    && String(unit.element.value).trim() !== '' && Math.abs(Number(unit.element.value) - pending.scores[i]) < 1e-8
+                    && hidden && String(hidden.value).trim() !== '' && Math.abs(Number(hidden.value) - pending.scores[i]) < 1e-8;
+            });
+    },
 
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                checkTimes++;
+    // ---------- 提交 ----------
 
-                // 信号1（强）：试卷标识（考号）变化
-                const curId = this.getPaperIdentity();
-                const idMoved = oldId && curId && curId !== oldId;
-
-                // 信号2（弱，仅在拿不到标识时兜底）：答题卡图片路径变化（去缓存戳）
-                const imgPaths = this._answerImages()
-                    .map(img => this._stripQuery(img.src))
-                    .filter(Boolean);
-                const imgMoved = !oldId && imgPaths.length > 0 && oldImageUrl
-                    && !imgPaths.includes(this._stripQuery(oldImageUrl));
-
-                // 信号3：所有分数框被清空（平台换卷重置）
-                const inputs = this._scoreInputs();
-                const allEmpty = inputs.length > 0 && inputs.every(el => !el.value);
-
-                // 信号4：平台总分显示归零且分数框已清（提交成功后的重置）
-                const queVal = document.querySelector(AMEQP_SELECTORS.QUE_VAL);
-                const queReset = queVal && (queVal.value === '' || parseFloat(queVal.value) === 0);
-
-                if (idMoved || imgMoved || (!oldId && ((allEmpty && queReset && checkTimes >= 4) || (allEmpty && checkTimes >= 5)))) {
-                    clearInterval(timer);
-                    console.log('[AMEQP] 检测到下一份答卷', { idMoved, imgMoved, allEmpty, queReset, checkTimes, oldId, curId });
-                    resolve(true);
-                } else if (checkTimes > 100) {
-                    // 20s 超时
-                    clearInterval(timer);
-                    console.warn('[AMEQP] 等待下一份答卷超时');
-                    resolve(false);
+    async submitGrade(guard) {
+        if (this._submitting) return false;
+        const pending = this._pendingScores;
+        this._pendingScores = null;
+        if (!pending || guard?.signal?.aborted || (guard && !guard.isCurrent()) || !this._matchesPending(pending)) return false;
+        this._submitting = true;
+        try {
+            // 等原生记分事件完成；只核对本卷已填写的分数，不向新卷重新灌分。
+            await new Promise(r => setTimeout(r, 350));
+            if (guard) await guard.verify();
+            if (guard?.signal?.aborted || (guard && !guard.isCurrent()) || !this._matchesPending(pending)) return false;
+            const btn = document.querySelector(AMEQP_SELECTORS.SUBMIT_BUTTON);
+            if (!btn || btn.disabled) return false;
+            let platformWarn = null;
+            const origAlert = window.alert;
+            const captureAlert = function (msg) {
+                platformWarn = String(msg ?? '');
+                if (typeof origAlert === 'function') origAlert.call(window, msg);
+            };
+            // 在 click 前固定基准，平台可在事件内同步换卷。
+            this._submittedPaper = { id: pending.identity, task: pending.task };
+            try {
+                window.alert = captureAlert;
+                btn.click();
+                await new Promise(r => setTimeout(r, 800));
+                if (platformWarn !== null || guard?.signal?.aborted) {
+                    this._submittedPaper = null;
+                    return false;
                 }
-            }, 200);
+                return true;
+            } finally {
+                if (window.alert === captureAlert) window.alert = origAlert;
+            }
+        } catch (error) {
+            this._submittedPaper = null;
+            throw error;
+        } finally {
+            this._submitting = false;
+        }
+    },
+
+    async waitForNextPaper(oldImageUrl, options = {}) {
+        const task = this.getTaskIdentifier();
+        if (options.taskId && options.taskId !== task) return false;
+        const submitted = this._submittedPaper?.task === task ? this._submittedPaper.id : null;
+        const collected = this._collectedPaper?.task === task ? this._collectedPaper.id : null;
+        const fromUrl = /^https?:\/\//i.test(oldImageUrl || '')
+            ? this.getPaperIdentityForUrl(oldImageUrl) : null;
+        // 上下文/提交前/取图时的基准均早于换卷，不能以等待开始时的当前 DOM 为旧卷。
+        const oldId = options.paperId || submitted || collected || fromUrl;
+        if (!oldId || options.signal?.aborted) return false;
+        let checkTimes = 0;
+        return new Promise((resolve) => {
+            let timer, settled = false;
+            const finish = result => {
+                if (settled) return;
+                settled = true;
+                clearInterval(timer);
+                options.signal?.removeEventListener('abort', abort);
+                resolve(result);
+            };
+            const abort = () => finish(false);
+            const check = () => {
+                if (options.signal?.aborted || this.getTaskIdentifier() !== task) return finish(false);
+                const current = this.getPaperIdentity();
+                if (current && current !== oldId && this._imagesReady()) return finish(true);
+                if (++checkTimes > 100) finish(false);
+            };
+            options.signal?.addEventListener('abort', abort, { once: true });
+            check();
+            if (!settled) timer = setInterval(check, 200);
         });
+    },
+
+    getPaperIdentityForUrl(src) {
+        const key = this._resourceKey({ src, getAttribute: () => src });
+        if (!key) return null;
+        const id = this._paperIdFromSrc(key);
+        return id ? (new URL(key).search ? JSON.stringify([id, [key]]) : id) : 'ameqp-resource:' + key;
     },
 
     // ---------- 状态查询 ----------
@@ -469,6 +511,29 @@ const AmeqpAdapter = {
     },
 };
 
-if (AmeqpAdapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = AmeqpAdapter;
-}
+(function registerAmeqpAdapter() {
+    if (!AmeqpAdapter._isPathMatch() && !AmeqpAdapter.shouldInitialize()) return;
+    let observer, settled = false;
+    const attempt = () => {
+        if (settled) return true;
+        if (!AmeqpAdapter.shouldInitialize()) return false;
+        const existing = window.__AI_MARKER_ADAPTER__;
+        if (existing && existing !== AmeqpAdapter) {
+            console.error('[注册冲突] AMEQP 检测到已有适配器，保留当前平台:', existing.id || existing.name);
+        } else if (!existing) {
+            window.__AI_MARKER_ADAPTER__ = AmeqpAdapter;
+        }
+        settled = true;
+        observer?.disconnect();
+        return true;
+    };
+    if (attempt()) return;
+    const path = window.location.pathname;
+    observer = new MutationObserver(() => {
+        if (window.location.pathname !== path) { settled = true; observer.disconnect(); return; }
+        attempt();
+    });
+    observer.observe(document.documentElement || document.body, { childList: true, subtree: true,
+        attributes: true, attributeFilter: ['id', 'class', 'src', 'maxsco'] });
+    attempt();
+})();

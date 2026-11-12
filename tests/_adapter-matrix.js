@@ -2,12 +2,13 @@
 // 供 bundle-competition.test.js 与 adapter-registration.test.js 共用：
 //   - makeStub(form)：DOM 桩（选择器精确键控）+ MutationObserver 捕获 + 注册写计数
 //   - loadAdapters/loadOne：按 build.js bundle 顺序（同 bundle 语义）或单适配器加载
-//   - ADAPTERS：39 适配器的自家平台形态（own）与近似域名/部分签名（near）
+//   - ADAPTERS：41 适配器的自家平台形态（own）与近似域名/部分签名（near）
 // 约定：dom 的值仅作存在性桩（shouldInitialize 只看 querySelector 真值）；
 // 真实 DOM 中同一元素可命中多个选择器时，在 dom 里给多个键映射到同一桩对象。
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const QIGUANG = require('./_qiguang-signature.js');
 
 const ROOT = path.join(__dirname, '..');
 const AD_DIR = path.join(ROOT, 'src', 'adapters');
@@ -45,7 +46,7 @@ function allAdapterDirs() {
 }
 
 // 未入 build.js 的开发中适配器（登记制：交付合入 build.js 后即可从这里删除）
-const KNOWN_UNBUNDLED = [];
+const KNOWN_UNBUNDLED = ['dongni', 'xkw'];
 
 // 加载顺序 = build.js 顺序（每项是一个模块文件，selectors 与 adapter 分列），
 // 兜底追加未入 bundle 的目录（selectors+adapter 成对），保持矩阵全覆盖
@@ -63,7 +64,7 @@ function loadOrder() {
 // ---------- DOM 桩（strict-a.md 附录 D.1 补桩清单：加载错误=注册失明，桩必须让全量适配器零错误求值）----------
 function makeStub(form = {}) {
     const dom = {};
-    for (const [sel, v] of Object.entries(form.dom || {})) dom[sel] = v ? {} : null;
+    for (const [sel, v] of Object.entries(form.dom || {})) dom[sel] = v && typeof v === 'object' ? v : (v ? {} : null);
     const writes = [];
     const observers = [];
     const storage = () => {
@@ -89,7 +90,8 @@ function makeStub(form = {}) {
             pathname: form.path || '/',
             hash: form.hash || '',
             search: form.search || '',
-            href: 'https://' + (form.host || 'example.com') + (form.path || '/') + (form.hash || ''),
+            href: (form.protocol || 'https:') + '//' + (form.host || 'example.com')
+                + (form.port ? ':' + form.port : '') + (form.path || '/') + (form.search || '') + (form.hash || ''),
         },
         getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
         Event: class { constructor(t) { this.type = t; } },
@@ -113,6 +115,7 @@ function makeStub(form = {}) {
         addEventListener: () => {}, removeEventListener: () => {},
         setTimeout: (fn) => { return 0; }, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
         navigator: { userAgent: 'test' },
+        URL, URLSearchParams,
     };
     sb.HTMLInputElement = {
         prototype: {
@@ -199,6 +202,19 @@ function loadOne(sb, dir, opts = {}) {
 // own: 自家平台最小形态（隔离加载必注册；bundle 下除已知竞争外必须唯一命中）
 // near: 近似域名/缺条件形态（必须不注册 → 空槽）
 const ADAPTERS = [
+    { dir: 'jzsmartedu', id: 'jzsmartedu', name: '焦作精准教学',
+      own: { host: 'jzjx.jzsmartedu.cn', path: '/dnpc/', hash: '#/v2/read-paper?examPaperId=exam&readBlockId=block&readPaperType=1',
+        dom: { '#read-paper-score-board.page-read-paper-score-board': 1, '#tab-3': 1, '.body-center-main': 1 } },
+      near: [{ label: '焦作近似域名不注册', form: { host: 'jzjx.jzsmartedu.cn.example.com', path: '/dnpc/', hash: '#/v2/read-paper' } },
+             { label: '焦作题块列表不注册', form: { host: 'jzjx.jzsmartedu.cn', path: '/dnpc/', hash: '#/v2/read-paper/question-block',
+                dom: { '#read-paper-score-board.page-read-paper-score-board': 1, '#tab-3': 1, '.body-center-main': 1 } } },
+             { label: '焦作应用首页等待阅卷特征', form: { host: 'jzjx.jzsmartedu.cn', path: '/dnpc/', hash: '#/v2/read-paper' } }] },
+    { dir: 'qiguang', id: 'qiguang', name: '启光优测',
+      own: { host: '120.78.5.37', path: QIGUANG.ROUTE, dom: QIGUANG.signature() },
+      near: [{ label: '启光登录页不注册', form: { host: '120.78.5.37', path: '/Account/Login' } },
+             { label: '启光近似主机缺少平台特征', form: { host: '120.78.5.37.example.com', path: QIGUANG.ROUTE } },
+             { label: '启光同路径缺少入口模块', form: { host: 'other.school.example', path: QIGUANG.ROUTE,
+                 dom: { ...QIGUANG.signature(), 'script[src]': null } } }] },
     { dir: 'zhixue', id: 'zhixue', name: '智学网',
       own: { host: 'www.zhixue.com', path: '/' },
       near: [{ label: '近似域名 zhixue.cn', form: { host: 'zhixue.cn', path: '/' } }] },
@@ -264,7 +280,7 @@ const ADAPTERS = [
       own: { host: 'www.54xueba.cn', path: '/' },
       near: [{ label: '近似域名 54xueba.com', form: { host: '54xueba.com', path: '/' } }] },
     { dir: 'jiukexing', id: 'jiukexing', name: '九科星',
-      own: { host: 'marking.jkxjxw.com', path: '/' },
+      own: { host: 'marking.jkxjxw.com', path: '/marking' },
       near: [{ label: '近似域名 jkxjxw.com', form: { host: 'jkxjxw.com', path: '/' } },
              { label: '串台对：jxp.jkxjxw.com 归九科星(作业)', form: { host: 'jxp.jkxjxw.com', path: '/' } }] },
     { dir: 'huiyuejuan', id: 'huiyuejuan', name: '慧阅卷',
@@ -293,8 +309,10 @@ const ADAPTERS = [
       own: { host: 'zy.iclass30.com', path: '/' },
       near: [{ label: '近似域名 iclass30.com（缺 zy. 前缀）', form: { host: 'iclass30.com', path: '/' } }] },
     { dir: 'ameqp', id: 'ameqp', name: 'AMEQP网上评卷',
-      own: { host: '10.1.1.12', path: '/AMEQP/Webroot/mar/t1', dom: {} },
+      own: { host: '10.1.1.12', path: '/AMEQP/Webroot/mar/t1', dom: { '#Mark_main': 1, 'img.ansImg': 1,
+          'input.mark_tbx[maxsco]': 1, 'input#btn_submit.mark_btn': 1, '#queSco_all': 1 } },
       near: [{ label: '路径尾部缺 / 不算命中', form: { host: '10.1.1.12', path: '/AMEQP/Webroot/mar', dom: {} } },
+             { label: 'AMEQP 路径就绪前等待完整页面特征', form: { host: '10.1.1.12', path: '/AMEQP/Webroot/mar/mar_mark.aspx' } },
              { label: 'DOM 五特征缺一不注册（4/5）', form: { host: '10.1.1.12', path: '/x', dom: { '#Mark_main': 1, 'img.ansImg': 1, 'input.mark_tbx[maxsco]': 1, 'input#btn_submit.mark_btn': 1 } } }] },
     { dir: 'haoyuejuan', id: 'haoyuejuan', name: '阅小二',
       own: { host: 'www.haoyuejuan.com', path: '/' },
@@ -336,7 +354,14 @@ const ADAPTERS = [
       own: { host: 'ruiya.onlyets.com', path: '/mark/v1/view/1' },
       near: [{ label: '近似域名 xruiya.onlyets.com（精确租户不得吞）', form: { host: 'xruiya.onlyets.com', path: '/' } },
              { label: '串台对：wyna.onlyets.com 归威科姆', form: { host: 'wyna.onlyets.com', path: '/' } }] },
-
+    { dir: 'dongni', id: 'dongni', name: '懂你系统',
+      own: { host: 'www.dongni100.com', path: '/v2/exam/p1' },
+      near: [{ label: '裸域 dongni100.com 不算 www 精确匹配', form: { host: 'dongni100.com', path: '/v2/exam/p1' } },
+             { label: '路径缺 /v2/exam/ 不注册', form: { host: 'www.dongni100.com', path: '/other/' } }] },
+    { dir: 'xkw', id: 'xkw', name: '学科网e卷通',
+      own: { host: 'ejt.xkw.com', path: '/' },
+      near: [{ label: '近似域名 xkw.com', form: { host: 'xkw.com', path: '/' } },
+             { label: '近似域名 ejt.xkw.com.cn（子域规则不得吞后缀域）', form: { host: 'ejt.xkw.com.cn', path: '/' } }] },
 ];
 
 // 竞争矩阵中走「已知竞争」而非严格唯一命中断言的目录（见 bundle-competition.test.js KNOWN 块）

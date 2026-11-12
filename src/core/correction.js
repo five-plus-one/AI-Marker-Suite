@@ -353,14 +353,22 @@ function showCorrectionPanel(context) {
 
     // ---------- 确认得分并退出（仅修改分数 / 应用修改共用） ----------
     function confirmScore(fb, newAnswer, newRubric) {
-        const scoringConfig = PresetManager.getCurrentConfig().scoring || { roundStep: 1, roundMethod: 'round' };
-        const roundedTeacherScore = ScoreCalculator.round(fb.teacherScore, scoringConfig, scoringConfig.maxScore);
+        const scoringConfig = context.config?.scoring || { roundStep: 1, roundMethod: 'round' };
+        let roundedTeacherScore = ScoreCalculator.round(fb.teacherScore, scoringConfig, scoringConfig.maxScore);
         let correctedSubScores = context.subScores;
         if (fb.subScoreCorrections && context.subScores) {
             correctedSubScores = context.subScores.map((sq, i) => {
                 const t = fb.subScoreCorrections[i]?.teacherScore;
-                return { ...sq, score: t != null ? ScoreCalculator.round(t, scoringConfig, sq.maxScore) : sq.score };
+                const roundStep = scoringConfig.units?.[i]?.roundStep || sq.roundStep || scoringConfig.roundStep;
+                return { ...sq, score: t != null ? ScoreCalculator.round(t, { ...scoringConfig, roundStep }, sq.maxScore) : sq.score };
             });
+            if (correctedSubScores.every(sq => Number.isFinite(sq.score))) {
+                roundedTeacherScore = Math.round(correctedSubScores.reduce((sum, sq) => sum + sq.score, 0) * 1e8) / 1e8;
+            }
+        }
+        if (!Number.isFinite(roundedTeacherScore) || roundedTeacherScore < 0 || correctedSubScores?.some(sq => !Number.isFinite(sq.score) || sq.score < 0)) {
+            showAlertModal('请输入有效得分后再确认');
+            return;
         }
         const correctionInfo = {
             isCorrected: true,
@@ -455,7 +463,7 @@ function showCorrectionPanel(context) {
             ${scoresHtml}
             <div style="margin-bottom:16px;">
                 <div class="cor-score-label">识别答案</div>
-                <div class="cor-answer-block">${context.studentAnswer || '未能识别'}</div>
+                <div class="cor-answer-block"></div>
             </div>
             ${correctionHtml}
         `;
@@ -465,6 +473,8 @@ function showCorrectionPanel(context) {
             <button class="ai-modal-btn-confirm" id="cor-next">下一步分析</button>
         `;
         footer.className = 'cor-footer';
+
+        body.querySelector('.cor-answer-block').textContent = getGradingOutputText(context.studentAnswer, context.config, '识别答案', '未能识别');
 
         // Markdown 渲染：识别答案和小题评语
         if (window.__aiMarkdownRenderer) {

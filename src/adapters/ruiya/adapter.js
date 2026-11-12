@@ -271,7 +271,8 @@ const RuiyaAdapter = {
     },
 
     // ---------- 提交 ----------
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) {
             console.warn('[睿芽] 无分数框，无法提交');
@@ -297,7 +298,7 @@ const RuiyaAdapter = {
 
         btn.click();
         console.log('[睿芽] 已点击 #submitMark');
-        this._watchPostSubmitModals();
+        this._watchPostSubmitModals(guard);
         return true;
     },
 
@@ -484,15 +485,22 @@ const RuiyaAdapter = {
         if (cb.checked) console.warn('[睿芽] 「自动提交」取消失败，填分后可能被平台抢先交卷');
     },
 
-    _watchPostSubmitModals() {
+    _watchPostSubmitModals(guard) {
+        let checking = false;
         const start = Date.now();
-        const timer = setInterval(() => {
+        const timer = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(timer); return; }
+            if (checking) return;
             try {
                 // 0 分确认：必须确认，否则提交不会真正落库
                 if (this._visible(RUIYA_SELECTORS.ZERO_MODAL)) {
                     const okBtn = document.querySelector(RUIYA_SELECTORS.ZERO_MODAL_OK);
                     if (okBtn) {
+                        checking = true;
+                        try { if (guard) await guard.verify(); } catch (_) { clearInterval(timer); return; }
+                        if (guard && !guard.isCurrent()) { clearInterval(timer); return; }
                         okBtn.click();
+                        clearInterval(timer);
                         console.log('[睿芽] 0 分确认弹窗 → 已点确定');
                     }
                 }

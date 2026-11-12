@@ -223,28 +223,10 @@ const GuangdaAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    fillScore(request) {
-        const { total, subScores } = request;
-        console.log(`📝 [诊断] 光大阅卷 fillScore — 总分: ${total}, 小题分数:`, subScores);
-
-        // 获取所有小题容器
-        const scoreWraps = document.querySelectorAll('.score.big-score');
-        console.log(`📝 [诊断] 找到 ${scoreWraps.length} 个小题容器`);
-
-        if (scoreWraps.length === 0) {
-            // 没有小题容器，尝试直接点击总分
-            return this._fillSingleScore(total);
-        }
-
-        if (subScores && subScores.length > 0) {
-            // 有小题分数，为每个小题填入对应分数
-            return this._fillSubScores(subScores, scoreWraps);
-        } else {
-            // 没有小题分数，将总分填入第一个小题
-            console.log('📝 [诊断] 没有小题分数，将总分填入第一个小题');
-            return this._fillSingleScoreInContainer(total, scoreWraps[0]);
-        }
-    },
+    // legacy fillScore/_fillSubScores 已清理（X02 批，strict-a P2-2）：core 恒优先 fillScores
+    // （main.js:491-502 / ui-submit-dialog.js:13-18），旧接口链不可达；_fillSubScores 的
+    // `successCount > 0` 半成功谓词是 38 适配器唯一残留，随链移除。
+    // _fillSingleScore/_fillSingleScoreInContainer/_fillScoreViaComponent 为同链遗留辅助，暂留待复用。
 
     // 填入单个分数（没有小题结构时）
     _fillSingleScore(score) {
@@ -269,31 +251,6 @@ const GuangdaAdapter = {
 
         console.log('📝 [诊断] 未找到匹配分数项，尝试调用组件方法...');
         return this._fillScoreViaComponent(score);
-    },
-
-    // 为多个小题填入分数
-    _fillSubScores(subScores, scoreWraps) {
-        let successCount = 0;
-
-        for (let i = 0; i < Math.min(subScores.length, scoreWraps.length); i++) {
-            const subScore = subScores[i];
-            const container = scoreWraps[i];
-            const score = typeof subScore === 'object' ? subScore.score : subScore;
-
-            console.log(`📝 [诊断] 填入第 ${i + 1} 小题分数: ${score}`);
-
-            // 获取该小题的题号
-            const label = container.querySelector('.xtList label');
-            const questionNum = label ? label.textContent.trim() : `${i + 1}`;
-            console.log(`📝 [诊断] 题号: ${questionNum}`);
-
-            if (this._fillSingleScoreInContainer(score, container)) {
-                successCount++;
-            }
-        }
-
-        console.log(`📝 [诊断] 成功填入 ${successCount}/${subScores.length} 个小题分数`);
-        return successCount > 0;
     },
 
     // 在指定小题容器中填入分数
@@ -357,7 +314,8 @@ const GuangdaAdapter = {
         return false;
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard && !guard.isCurrent()) return false;
         console.log('📤 [诊断] 光大阅卷 — 开始提交分数...');
 
         // 查找"提交分数"按钮
@@ -367,7 +325,7 @@ const GuangdaAdapter = {
             submitBtn.click();
 
             // 等待并处理"给分详情"二次确认弹窗
-            this._handleConfirmDialog();
+            this._handleConfirmDialog(guard);
 
             return true;
         }
@@ -378,7 +336,7 @@ const GuangdaAdapter = {
             if (btn.textContent.trim().includes('提交分数')) {
                 console.log('✅ [诊断] 找到包含"提交分数"的按钮，点击中...');
                 btn.click();
-                this._handleConfirmDialog();
+                this._handleConfirmDialog(guard);
                 return true;
             }
         }
@@ -390,7 +348,7 @@ const GuangdaAdapter = {
             if (painterVm && typeof painterVm.commitDxj === 'function') {
                 console.log('✅ [诊断] 调用组件方法 commitDxj 提交分数');
                 painterVm.commitDxj();
-                this._handleConfirmDialog();
+                this._handleConfirmDialog(guard);
                 return true;
             }
         } catch (e) {
@@ -419,25 +377,31 @@ const GuangdaAdapter = {
     },
 
     // 处理"给分详情"二次确认弹窗
-    _handleConfirmDialog() {
+    _handleConfirmDialog(guard) {
         console.log('⏳ [诊断] 等待给分详情弹窗...');
 
         // 立即检查一次
         const immediateBtn = document.querySelector('.dialog-btns .sure');
-        if (immediateBtn) {
+        if (immediateBtn && (!guard || guard.isCurrent())) {
             console.log('✅ [诊断] 立即找到给分详情弹窗，自动点击确认');
             immediateBtn.click();
             return;
         }
 
         // 等待弹窗出现并自动点击确认
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
+        let checkCount = 0, checking = false;
+        const checkInterval = setInterval(async () => {
+            if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
+            if (checking) return;
             checkCount++;
 
             // 查找"确认"按钮（在 dialog-btns 容器中）
             const confirmBtn = document.querySelector('.dialog-btns .sure');
             if (confirmBtn) {
+                checking = true;
+                try { if (guard) await guard.verify(); }
+                catch (_) { clearInterval(checkInterval); return; }
+                if (guard && !guard.isCurrent()) { clearInterval(checkInterval); return; }
                 console.log('✅ [诊断] 找到给分详情弹窗，自动点击确认');
                 confirmBtn.click();
                 clearInterval(checkInterval);

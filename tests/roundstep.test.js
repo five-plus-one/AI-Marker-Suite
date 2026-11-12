@@ -81,11 +81,13 @@ test('mergeDualSubScores 默认配置下双评取平均与 Math.round 一致', (
     };
     // ai-engine.js 是浏览器脚本，这里只测 mergeDualSubScores，故单独抽出其源码执行
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'ai-engine.js'), 'utf8');
-    const fnMatch = src.match(/function mergeDualSubScores\(detailA, detailB, scoringConfig\) \{[\s\S]*?\n\}/);
-    assert.ok(fnMatch, 'mergeDualSubScores 函数未找到');
+    const fnMatch = src.match(/function mergeDualValue\([^)]*\) \{[\s\S]*?\n\}/);
+    const mergeMatch = src.match(/function mergeDualSubScores\([^)]*\) \{[\s\S]*?\n\}/);
+    assert.ok(fnMatch, 'mergeDualValue 函数未找到');
+    assert.ok(mergeMatch, 'mergeDualSubScores 函数未找到');
     const sandbox = { ScoreCalculator: score.ScoreCalculator, console, Math, JSON };
     vm.createContext(sandbox);
-    vm.runInContext(fnMatch[0] + ';__m = mergeDualSubScores;', sandbox);
+    vm.runInContext(fnMatch[0] + '\n' + mergeMatch[0] + ';__m = mergeDualSubScores;', sandbox);
 
     const a = { subScores: [{ label: '56', score: 2, comment: '' }, { label: '57', score: 1, comment: '' }] };
     const b = { subScores: [{ label: '56', score: 1, comment: '' }, { label: '57', score: 2, comment: '' }] };
@@ -98,11 +100,26 @@ test('mergeDualSubScores 默认配置下双评取平均与 Math.round 一致', (
     assert.strictEqual(out05[1].score, 1.5, '0.5 步长下 (1+2)/2=1.5 应保留');
 });
 
-test('默认配置下提示词小题分措辞逐字不变', () => {
-    // 构造 config，直接调用 buildSubQuestionPrompt 的内部片段逻辑验证
-    const { describeScoreStep } = loadCore('prompt.js');
-    // 默认配置（无 roundStep）→ 与历史输出逐字一致
-    const legacyLine = '（一个整数）';
-    assert.strictEqual(describeScoreStep(undefined), legacyLine);
-    assert.strictEqual(describeScoreStep(1), legacyLine);
+test('默认配置下真实提示词小题分措辞逐字不变（W15：升格为 buildSubQuestionPrompt 集成钉位）', () => {
+    // 原用例只重复调用 describeScoreStep（与 :25 逐字重复）却声称验证提示词——
+    // 现真正构建提示词，钉住默认配置的措辞落点（步长示例不得出现在默认配置）
+    const sandbox = {
+        console: { log() {}, warn() {}, error() {} }, window: {}, document: null,
+        setTimeout, clearTimeout, Promise, Math, JSON, Date, Error, RegExp, String, Number, Array, Object, parseFloat, parseInt, isNaN,
+    };
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'score.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'prompt.js'), 'utf8') +
+        ';__exports__ = { buildSubQuestionPrompt };', sandbox);
+    const p = sandbox.__exports__.buildSubQuestionPrompt({
+        question: { text: '解方程 x+1=2', images: [], format: 'plain' },
+        answer: { text: 'x=1', images: [], format: 'plain' },
+        rubric: { text: '正确得2分', images: [], format: 'plain' },
+        subQuestions: [{ id: 'a', label: '56(1)', maxScore: 2 }],
+        scoring: {}
+    });
+    assert.ok(p.includes('56(1)分数：'), '应含小题分数字段');
+    assert.ok(p.includes('（一个整数）'), '默认配置（无 roundStep）措辞应为「（一个整数）」');
+    assert.ok(!p.includes('0.5 的倍数'), '默认配置不得出现步长示例措辞');
 });

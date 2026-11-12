@@ -29,6 +29,21 @@ function extractFieldImages(field) {
     return [];
 }
 
+// 编辑器保留原始图片数组及索引；请求只取正文实际引用的图片。
+function extractReferencedFieldImages(field) {
+    const images = extractFieldImages(field);
+    const text = extractFieldText(field);
+    // 早期仅图片的字段没有 Markdown 正文，继续保留其原有资料。
+    if (!text.trim() && field?.format !== 'markdown') return images;
+    const content = text.replace(/(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*(?=\n|$)|(`+)[\s\S]*?\2/g, '');
+    const selected = new Set();
+    for (const match of content.matchAll(/!\[[^\]]*\]\(ai-img:\/\/(\d+)\)/g)) {
+        const escapes = content.slice(0, match.index).match(/\\+$/)?.[0].length || 0;
+        if (escapes % 2 === 0) selected.add(Number(match[1]));
+    }
+    return images.filter((image, index) => image && selected.has(index));
+}
+
 /**
  * 从 config 中收集所有字段的图片（题目/答案/评分标准）
  * @param {object} config
@@ -36,9 +51,9 @@ function extractFieldImages(field) {
  */
 function collectFieldImages(config) {
     var images = [];
-    var qImg = extractFieldImages(config.question);
-    var aImg = extractFieldImages(config.answer);
-    var rImg = extractFieldImages(config.rubric);
+    var qImg = extractReferencedFieldImages(config.question);
+    var aImg = extractReferencedFieldImages(config.answer);
+    var rImg = extractReferencedFieldImages(config.rubric);
     // 为每组图片添加标注，便于 AI 区分
     if (qImg.length) images.push.apply(images, qImg);
     if (aImg.length) images.push.apply(images, aImg);
@@ -50,9 +65,9 @@ function collectFieldImages(config) {
  * 构建图片归属说明（告知 AI 哪些图片属于题目/答案/评分标准）
  */
 function buildImageAnnotation(config) {
-    var qLen = extractFieldImages(config.question).length;
-    var aLen = extractFieldImages(config.answer).length;
-    var rLen = extractFieldImages(config.rubric).length;
+    var qLen = extractReferencedFieldImages(config.question).length;
+    var aLen = extractReferencedFieldImages(config.answer).length;
+    var rLen = extractReferencedFieldImages(config.rubric).length;
     if (qLen + aLen + rLen === 0) return '';
 
     var parts = [];
@@ -69,7 +84,7 @@ function buildImageAnnotation(config) {
         parts.push('第' + idx + '-' + (idx + rLen - 1) + '张为评分标准配图');
         idx += rLen;
     }
-    return '\n（图片说明：' + parts.join('，') + '）';
+    return '\n（图片说明：' + parts.join('，') + '。逐图用途以图片前的文字标签为准；参考资料不属于学生作答。）';
 }
 
 // ---------- 勤勉度 Prompt 片段 ----------
@@ -124,6 +139,10 @@ function buildCommonConstraints(startNum, scoreOnly) {
     }
     lines.push(n++ + '. 严格按照评分标准打分，不要随意给分');
     lines.push(n++ + '. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案');
+    lines.push(n++ + '. 只对学生在答卷上实际写出的内容评分；印刷题干、题号、预印图形、参考答案和评分标准均不属于学生作答。不得自行解题后将解答归给学生，也不得用参考答案补全学生未写的过程或结果');
+    lines.push(n++ + '. 整张答卷没有学生作答，或仅有题号、抄写题干等没有有效作答时，得分必须为0，勤勉等级为1；不能因试卷自带文字或图形给分');
+    lines.push(n++ + '. 有作答但无法辨认时，不得猜测其内容或照抄参考答案作为识别结果；仅给可以从学生原始作答确认的评分点打分');
+    if (!scoreOnly) lines.push(n++ + '. 整张答卷未作答时，【答案复述】只写“未作答”；答案复述仅转录学生实际作答，不写示范解答');
     return lines.join('\n');
 }
 
@@ -152,7 +171,8 @@ function buildStructuredPrompt(config) {
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
 
 ===== 输入信息 =====`;
-    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
+    if (imgAnnotation) prompt += imgAnnotation;
+    if (questionText) prompt += `\n【题目】\n${questionText}`;
     if (answerText) prompt += `\n【参考答案】\n${answerText}`;
     if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
     prompt += `\n【满分】\n${maxScoreText}`;
@@ -207,6 +227,7 @@ function buildPrompt(config) {
     if (_q) prompt += `**题目内容：**\n${_q}\n\n`;
     if (_a) prompt += `**标准答案：**\n${_a}\n\n`;
     if (_r) prompt += `**评分标准：**\n${_r}\n\n`;
+    prompt += buildImageAnnotation(config) + '\n' + buildCommonConstraints(1, true) + '\n';
     prompt += `请仔细查看图片中的学生答案，并按照以下格式返回评分结果（必须严格按此格式）：\n\n学生答案：[OCR识别出的学生答案文字内容]\n分数：[数字]\n评语：[简短评语]\n\n注意：\n1. 先OCR识别图片中的文字，将识别结果写在"学生答案"后\n2. 只返回数字分数，不要带单位\n3. 评语控制在100字以内\n4. 严格按照评分标准打分\n5. 被划掉、涂改、涂抹覆盖的内容视为无效，只评判最终保留的答案`;
     return prompt;
 }
@@ -470,7 +491,8 @@ ${resultB.calculation ? `老师B分数计算：${resultB.calculation}` : ''}
     prompt += `
 
 ===== 参考信息 =====`;
-    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
+    if (imgAnnotation) prompt += imgAnnotation;
+    if (questionText) prompt += `\n【题目】\n${questionText}`;
     if (answerText) prompt += `\n【参考答案】\n${answerText}`;
     if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
     prompt += `\n【满分】\n${maxScoreText}`;
@@ -566,7 +588,8 @@ function buildSubQuestionPrompt(config) {
     let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
 
 ===== 输入信息 =====`;
-    if (questionText) prompt += `\n【题目】${imgAnnotation}\n${questionText}`;
+    if (imgAnnotation) prompt += imgAnnotation;
+    if (questionText) prompt += `\n【题目】\n${questionText}`;
     // 顶层参考答案/评分标准（多小题共用；评分单元本身不携带答案/标准字段）
     if (answerText) prompt += `\n【参考答案】\n${answerText}`;
     if (rubricText) prompt += `\n【评分标准】\n${rubricText}`;
@@ -827,7 +850,7 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     const hasSub = subQuestions.length > 0;
 
     // 将派生的 subQuestions 注入 config 供 prompt 函数使用
-    const callConfig = { ...config, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: 3 } };
+    const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: 3 } };
 
     const prompt = hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig);
 
@@ -835,7 +858,7 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     const fieldImages = collectFieldImages(config);
 
     // 计算总满分
-    const maxScore = PresetManager.getMaxScore();
+    const maxScore = config.scoring?.maxScore ?? PresetManager.getMaxScore();
 
     if (hasSub) {
         console.log(`📋 [诊断] 评分单元配置 — 共 ${subQuestions.length} 个: ${subQuestions.map(sq => `${sq.label}(满分${sq.maxScore ?? '未设置'})`).join(', ')}`);

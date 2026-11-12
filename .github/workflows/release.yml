@@ -27,6 +27,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=low
+
+      - name: Test release commit
+        run: npm test
+
       # 守门 1：tag 必须与 config.js 的 VERSION 一致
       - name: Verify tag matches config.js VERSION
         run: |
@@ -38,14 +44,14 @@ jobs:
             exit 1
           fi
 
-      - name: Test release commit
-        run: npm test
-
       - name: Build (stable channel)
         run: npm run build -- --channel=stable
 
-      - name: Verify bundled platform registration
+      - name: Verify bundled platform initialization
         run: npm run verify:bundle
+
+      - name: Verify workflow forms in browser
+        run: npm run verify:browser
 
       # 守门 2：构建产物版本必须与 tag 一致
       - name: Verify built manifest version

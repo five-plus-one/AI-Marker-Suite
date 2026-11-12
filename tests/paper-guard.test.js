@@ -9,8 +9,13 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-function loadVerify() {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
+function loadVerify(mutate) {
+    let src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
+    if (mutate) {
+        // 变异自检通道：注入实现级变异，证明关键断言必红（红度实证，不改 src/）
+        assert.ok(src.includes(mutate.find), '变异目标未命中: ' + mutate.find);
+        src = src.split(mutate.find).join(mutate.replace);
+    }
     const grab = (name) => {
         const re = new RegExp('(?:async )?function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}');
         const m = src.match(re);
@@ -72,11 +77,10 @@ test('首图被过滤掉（未加载）但其余基准图仍在 -> 立即判未�
     assert.strictEqual(calls, 1, '不应触发复查');
 });
 
-test('全部基准图暂时缺失、复查后回来 -> 不拦截', async () => {
+test('全部基准图暂时缺失（首取空集）-> 无法判定早退放行（空集不触发复查）', async () => {
     const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
     let calls = 0;
     const adapter = {
-        // 第一次两张都被过滤（未加载），第二次都回来了
         gatherAnswerImages: async () => {
             calls++;
             return calls === 1 ? [] : ['https://x.com/a.png', 'https://x.com/b.png'];
@@ -85,6 +89,41 @@ test('全部基准图暂时缺失、复查后回来 -> 不拦截', async () => {
     };
     const r = await verify(adapter, baseline);
     assert.strictEqual(r.unchanged, null, '第一次取到空 -> 无法判定放行');
+    assert.strictEqual(calls, 1, '空集早退，不得触发复查（旧用例的第二次返回从未被消费——伪复查）');
+});
+
+test('基准全缺但有图 -> 复查后回来放行（复查路径真实消费）', async () => {
+    // W8 修复：旧用例首取空集即早退，"复查后回来"的桩第二次返回从未被消费。
+    // 现以「首取有图但不含基准」驱动真实复查路径，断言复查确实发生且恢复判定
+    const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
+    let calls = 0;
+    const adapter = {
+        gatherAnswerImages: async () => {
+            calls++;
+            return calls === 1 ? ['https://x.com/GONE.png'] : ['https://x.com/a.png', 'https://x.com/b.png'];
+        },
+        getScoreInputs: () => []
+    };
+    const r = await verify(adapter, baseline);
+    assert.strictEqual(r.unchanged, null, '复查后基准图回来 -> 过渡期放行');
+    assert.strictEqual(calls, 2, '复查必须真实消费第二次取图');
+    assert.ok(String(r.reason).includes('过渡期'), 'reason 应为复查后基准图仍在（过渡期），实际: ' + r.reason);
+});
+
+test('变异自检 W8：复查取图被删 -> 「复查后回来」断言必红（红度实证）', async () => {
+    const v = loadVerify({ find: 'const retryUrls = await adapter.gatherAnswerImages();', replace: 'const retryUrls = null;' });
+    const baseline = ['https://x.com/a.png', 'https://x.com/b.png'];
+    let calls = 0;
+    const adapter = {
+        gatherAnswerImages: async () => {
+            calls++;
+            return calls === 1 ? ['https://x.com/GONE.png'] : ['https://x.com/a.png', 'https://x.com/b.png'];
+        },
+        getScoreInputs: () => []
+    };
+    const r = await v(adapter, baseline);
+    assert.ok(!String(r.reason).includes('过渡期'),
+        '变异后 reason 不再是复查恢复——上一用例的 reason 断言会红（证明其可分辨）');
 });
 
 test('基准图两次都不再出现 -> 判定已切换', async () => {
@@ -126,38 +165,43 @@ test('gatherAnswerImages 抛异常时无法判定（放行）', async () => {
     assert.ok(r.reason.includes('boom'));
 });
 
-test('Canvas 型平台（data: URL）：仅「非空→清空」跃变判换卷（#253 语义修正）', async () => {
-    const dataUrl = 'data:image/png;base64,AAAA';
-    const mk = (value) => ({
-        gatherAnswerImages: async () => { throw new Error('不应被调用'); },
-        getScoreInputs: () => [{ element: { value } }]
-    });
+// ---------- Canvas 型平台换卷证据（#253 语义修正）——逐场景独立用例（W9 聚合拆分） ----------
+const dataUrl = 'data:image/png;base64,AAAA';
+const mkCanvas = (value) => ({
+    gatherAnswerImages: async () => { throw new Error('不应被调用'); },
+    getScoreInputs: () => [{ element: { value } }]
+});
 
-    // 取图时非空 → 校验时被清空：换卷证据成立
-    const r1 = await verify(mk(''), [dataUrl], ['5']);
+test('Canvas：非空→清空跃变判换卷', async () => {
+    const r1 = await verify(mkCanvas(''), [dataUrl], ['5']);
     assert.strictEqual(r1.unchanged, false, '非空→清空应判换卷');
+});
 
-    // 值为数字 0（合法分值）：不算清空（#253 复查修掉的 || 判空缺陷）
+test('Canvas：值为数字 0 是合法分值，不算清空（快照 0→清空仍判换卷）', async () => {
     const r0 = await verify({ gatherAnswerImages: async () => { throw new Error('不应被调用'); }, getScoreInputs: () => [{ element: { value: 0 } }] }, [dataUrl], ['5']);
     assert.strictEqual(r0.unchanged, null, '0 分是有效值，不得判清空');
-    const r0b = await verify(mk(''), [dataUrl], [0]);
+    const r0b = await verify(mkCanvas(''), [dataUrl], [0]);
     assert.strictEqual(r0b.unchanged, false, '快照 0 分（非空）→ 被清空应判换卷');
+});
 
-    // 空→空：填分前的正常状态，绝不误报（旧逻辑此处误判，已根治）
-    const r2 = await verify(mk(''), [dataUrl], ['']);
+test('Canvas：空→空是常态，绝不误报', async () => {
+    const r2 = await verify(mkCanvas(''), [dataUrl], ['']);
     assert.strictEqual(r2.unchanged, null, '空→空是常态，必须放行');
-    const r2b = await verify(mk(''), [dataUrl], [null]);
+    const r2b = await verify(mkCanvas(''), [dataUrl], [null]);
     assert.strictEqual(r2b.unchanged, null, '快照无值同样放行');
+});
 
-    // 无快照 = 不可判定
-    const r3 = await verify(mk(''), [dataUrl], null);
+test('Canvas：无快照 = 不可判定', async () => {
+    const r3 = await verify(mkCanvas(''), [dataUrl], null);
     assert.strictEqual(r3.unchanged, null, '无快照不得判换卷');
+});
 
-    // 非空 → 仍有值：未被清空
-    const r4 = await verify(mk('5'), [dataUrl], ['5']);
+test('Canvas：仍有值不算清空', async () => {
+    const r4 = await verify(mkCanvas('5'), [dataUrl], ['5']);
     assert.strictEqual(r4.unchanged, null, '仍有值不算清空');
+});
 
-    // 点击式分数容器（无 value 属性）：恒不参与判定（旧逻辑对此恒真误报）
+test('Canvas：点击式分数容器恒不参与判定', async () => {
     const clickAdapter = {
         gatherAnswerImages: async () => { throw new Error('不应被调用'); },
         getScoreInputs: () => [{ element: { className: 'score-box' }, type: 'click' }]

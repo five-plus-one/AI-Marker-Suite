@@ -198,6 +198,9 @@ const HistoryManager = {
         }
         try {
             this.records = saved ? JSON.parse(saved) : [];
+            if (!Array.isArray(this.records) || this.records.some(r => !r || typeof r !== 'object' || Array.isArray(r))) {
+                throw new Error('历史记录格式不正确');
+            }
         } catch (e) {
             // 解析失败：救下原始字节 + 只读降级（#293），旧历史优先于新写入
             console.warn('[历史] 历史数据解析失败，进入只读降级:', e);
@@ -207,6 +210,12 @@ const HistoryManager = {
         }
 
         // 迁移旧记录的 base64 到 IndexedDB + 清理 imageUrls 中的 data:URL
+        for (const record of this.records) {
+            if (!record.imageBase64s?.length && Array.isArray(record.imageUrls)) {
+                const embedded = record.imageUrls.filter(url => typeof url === 'string' && url.startsWith('data:'));
+                if (embedded.length) record.imageBase64s = embedded.map(url => url.slice(url.indexOf(',') + 1));
+            }
+        }
         const toMigrate = this.records.filter(r => r.imageBase64s && r.imageBase64s.length > 0);
         const hasDataUrls = this.records.some(r => Array.isArray(r.imageUrls) && r.imageUrls.some(u => typeof u === 'string' && u.startsWith('data:')));
         if (toMigrate.length > 0) {
@@ -236,23 +245,36 @@ const HistoryManager = {
 
         // 在阅卷平台：扫描 IndexedDB 构建图片元数据（首次运行时）
         if (window.__AI_MARKER_ADAPTER__) {
-            const existingMeta = GM_getValue(ImageStore.META_KEY, null);
-            if (!existingMeta || Object.keys(existingMeta).length === 0) {
-                await ImageStore.buildMetaFromIndexedDB();
-            }
+            try {
+                const existingMeta = GM_getValue(ImageStore.META_KEY, null);
+                if (!existingMeta || Object.keys(existingMeta).length === 0) await ImageStore.buildMetaFromIndexedDB();
+            } catch (error) { console.warn('[历史] 图片索引暂时无法读取:', error); }
         }
     },
 
     save() {
-        // 防御性剥离（#293）：序列化副本不含 base64（GM 存储不落图片），
-        // 内存保留 imageBase64s 供图片迁移重试——原实现在内存上 delete 会永久丢失迁移失败的图片
-        const ser = () => JSON.stringify(this.records.map(r => {
+        const unavailable = () => {
+            if (typeof showToast === 'function') showToast('历史记录暂时无法保存，请先导出评阅历史');
+            return false;
+        };
+        if (this._writeDisabled) {
+            console.warn('[历史] 存储处于只读降级，跳过保存以保护原历史');
+            if (typeof showToast === 'function') showToast('历史记录暂时无法保存，请稍后重试');
+            return false;
+        }
+        // 图片写入 IndexedDB 成功后剥离；迁移失败时保留可恢复的持久化副本。
+        const ser = records => JSON.stringify(records.map(r => {
             const c = Object.assign({}, r);
-            delete c.imageBase64s;
-            this._stripDataUrls(c);
+            // 迁移成功后内存已删除该字段；失败时保留原持久化载荷直到可重试。
+            if (!c.imageBase64s?.length) {
+                delete c.imageBase64s;
+                this._stripDataUrls(c);
+            }
             return c;
         }));
-        let json = ser();
+        let candidate = this.records;
+        let json = ser(candidate);
+        const completeJson = json;
         const sizeKB = (json.length / 1024).toFixed(1);
         const sizeMB = (json.length / 1024 / 1024).toFixed(2);
 
@@ -260,37 +282,39 @@ const HistoryManager = {
         const SAFE_LIMIT = 50 * 1024 * 1024; // 50MB 安全线
         if (json.length > SAFE_LIMIT) {
             console.warn(`[历史] ⚠️ 存储大小 ${sizeMB}MB 接近上限，开始防御性清理...`);
-            const before = this.records.length;
-            while (json.length > SAFE_LIMIT && this.records.length > 10) {
-                const cutCount = Math.max(Math.floor(this.records.length * 0.2), 1);
-                this.records = this.records.slice(0, this.records.length - cutCount);
-                json = ser();
+            try { GM_setValue('ai-grading-history-rescue', completeJson); }
+            catch (error) { console.error('[历史] 完整备份失败，保留全部记录:', error); return unavailable(); }
+            const before = candidate.length;
+            while (json.length > SAFE_LIMIT && candidate.length > 10) {
+                const cutCount = Math.max(Math.floor(candidate.length * 0.2), 1);
+                candidate = candidate.slice(0, candidate.length - cutCount);
+                json = ser(candidate);
             }
-            console.warn(`[历史] 防御性清理完成: ${before} → ${this.records.length} 条，当前 ${(json.length / 1024 / 1024).toFixed(2)}MB`);
+            console.warn(`[历史] 完整备份后缩减: ${before} → ${candidate.length} 条，当前 ${(json.length / 1024 / 1024).toFixed(2)}MB`);
         }
 
         try {
-            if (this._writeDisabled) {
-                console.warn('[历史] 存储处于只读降级，跳过保存以保护原历史（#293）');
-                if (typeof showToast === 'function') showToast('⚠️ 历史记录存储异常：本次批改历史未保存（原历史已保护）');
-                return;
-            }
             GM_setValue('ai-grading-history', json);
-            console.log(`[历史] 💾 保存成功: ${this.records.length} 条, ${sizeKB}KB`);
+            this.records = candidate;
+            console.log(`[历史] 💾 保存成功: ${candidate.length} 条, ${sizeKB}KB`);
+            return true;
         } catch (e) {
             console.warn(`[历史] ❌ 保存失败 (${sizeMB}MB)，尝试截断旧记录...`, e);
             // 截断是破坏性操作：先完整留底到 rescue（#293）
-            try { GM_setValue('ai-grading-history-rescue', json); } catch (_) {}
-            while (this.records.length > 10) {
-                this.records = this.records.slice(0, Math.floor(this.records.length / 2));
-                json = ser();
+            try { GM_setValue('ai-grading-history-rescue', completeJson); }
+            catch (error) { console.error('[历史] 完整备份失败，保留全部记录:', error); return unavailable(); }
+            while (candidate.length > 10) {
+                candidate = candidate.slice(0, Math.max(10, Math.floor(candidate.length / 2)));
+                json = ser(candidate);
                 try {
-                    if (!this._writeDisabled) GM_setValue('ai-grading-history', json); // #293 只读降级不覆写
-                    console.warn(`[历史] ⚠️ 已截断至 ${this.records.length} 条 (${(json.length / 1024).toFixed(1)}KB) 后保存成功`);
-                    return;
+                    GM_setValue('ai-grading-history', json);
+                    this.records = candidate;
+                    console.warn(`[历史] 完整备份后保存 ${candidate.length} 条 (${(json.length / 1024).toFixed(1)}KB)`);
+                    return true;
                 } catch (_) { /* 继续截断 */ }
             }
-            console.error('[历史] ❌ 无法保存，记录已截断至最少 (${this.records.length} 条)');
+            console.error('[历史] 保存失败，内存与完整备份保留全部记录');
+            return unavailable();
         }
     },
 
@@ -299,19 +323,25 @@ const HistoryManager = {
         record.timestamp = Date.now();
         record.status = record.status || 'submitted';
         record.isCorrected = record.isCorrected || false;
-        record.pageUrl = window.location.pathname + window.location.hash;
-        record.taskIdentifier = PresetManager.getTaskIdentifier();
+        record.pageUrl ??= window.location.pathname + window.location.hash;
+        record.taskIdentifier ??= PresetManager.getTaskIdentifier();
 
         const imageBase64s = record.imageBase64s;
-        delete record.imageBase64s;
-        this._stripDataUrls(record);
+        if (!window.aiGradingState.saveImages || !imageBase64s?.length) {
+            delete record.imageBase64s;
+            this._stripDataUrls(record);
+        }
 
         this.records.unshift(record);
         this.save();
 
         // 根据配置决定是否保存图片
         if (imageBase64s && imageBase64s.length > 0 && window.aiGradingState.saveImages) {
-            ImageStore.save(record.id, imageBase64s).catch(e =>
+            ImageStore.save(record.id, imageBase64s).then(() => {
+                delete record.imageBase64s;
+                this._stripDataUrls(record);
+                this.save();
+            }).catch(e =>
                 console.warn('[历史] 图片存入 IndexedDB 失败:', e)
             );
         } else if (imageBase64s && imageBase64s.length > 0) {
@@ -359,11 +389,11 @@ const HistoryManager = {
             const durSec = (r.durationMs !== null && r.durationMs !== undefined) ? (r.durationMs / 1000).toFixed(1) : '';
             const delaySec = (r.pacingDelayMs !== null && r.pacingDelayMs !== undefined) ? (r.pacingDelayMs / 1000).toFixed(1) : '';
             return [time, r.presetName, r.gradingMode, r.aiScore, r.finalScore,
-                r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(r.studentAnswer), esc(r.aiComment),
+                r.isCorrected ? '是' : '否', esc(r.correctionReason), esc(getGradingOutputText(r.studentAnswer, r, '识别答案', '')), esc(getGradingOutputText(r.aiComment, r, '评语', '')),
                 r.diligenceLevel || 0, r.diligenceBonus || 0, esc(r.diligenceReason || ''),
                 d ? '是' : '否',
-                d?.scoreA ?? '', esc(d?.detailA?.['评分依据'] ?? ''), esc(d?.detailA?.['分数计算'] ?? ''),
-                d?.scoreB ?? '', esc(d?.detailB?.['评分依据'] ?? ''), esc(d?.detailB?.['分数计算'] ?? ''),
+                d?.scoreA ?? '', esc(d ? getGradingOutputText(d.detailA?.['评分依据'], r, '评分依据', '') : ''), esc(d ? getGradingOutputText(d.detailA?.['分数计算'], r, '分数计算', '') : ''),
+                d?.scoreB ?? '', esc(d ? getGradingOutputText(d.detailB?.['评分依据'], r, '评分依据', '') : ''), esc(d ? getGradingOutputText(d.detailB?.['分数计算'], r, '分数计算', '') : ''),
                 d?.diff ?? '',
                 d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'average-fallback' ? '取平均' : '',
                 d?.arbScore ?? '', esc(d?.arbAnalysis ?? ''),
@@ -407,7 +437,7 @@ const HistoryManager = {
         if (includeImages) {
             for (const r of records) {
                 try {
-                    const base64s = await ImageStore.get(r.id);
+                    const base64s = r.imageBase64s?.length ? r.imageBase64s : await ImageStore.get(r.id);
                     if (base64s && base64s.length) {
                         for (let i = 0; i < base64s.length; i++) {
                             try {
@@ -490,7 +520,7 @@ const HistoryManager = {
             for (const r of records) {
                 const imgStatus = ImageStore.getImageStatus(r.id);
                 if (imgStatus.status === 'local') {
-                    const base64s = await ImageStore.get(r.id);
+                    const base64s = r.imageBase64s?.length ? r.imageBase64s : await ImageStore.get(r.id);
                     if (base64s) imageMap[r.id] = base64s;
                 } else if (imgStatus.status === 'remote') {
                     remoteCount++;
@@ -521,12 +551,12 @@ const HistoryManager = {
                     </div>
                     <div style="margin-top:8px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
                         <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师A 评分：<strong>${d.scoreA !== null ? d.scoreA + '分' : '失败'}</strong></div>
-                        ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(d.detailA['评分依据'] || '—')}</div></div>` : ''}
+                        ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(getGradingOutputText(d.detailA['评分依据'], r, '评分依据'))}</div></div>` : ''}
                         ${d.detailA && d.detailA['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailA['分数计算'])}</div></div>` : ''}
                     </div>
                     <div style="margin-top:6px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
                         <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师B 评分：<strong>${d.scoreB !== null ? d.scoreB + '分' : '失败'}</strong></div>
-                        ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(d.detailB['评分依据'] || '—')}</div></div>` : ''}
+                        ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(getGradingOutputText(d.detailB['评分依据'], r, '评分依据'))}</div></div>` : ''}
                         ${d.detailB && d.detailB['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailB['分数计算'])}</div></div>` : ''}
                     </div>
                     ${d.result === 'arbitration' ? `
@@ -545,8 +575,8 @@ const HistoryManager = {
                     ${correctedRow}
                     ${dualHtml}
                     <div style="font-size:13px;color:#4a4a4a;margin:8px 0;line-height:1.6;">
-                        <div><strong>识别答案：</strong><div class="md-content">${renderMd(r.studentAnswer || '未能识别')}</div></div>
-                        <div style="margin-top:4px;"><strong>AI评语：</strong><div class="md-content">${renderMd(r.aiComment || '无')}</div></div>
+                        <div><strong>识别答案：</strong><div class="md-content">${renderMd(getGradingOutputText(r.studentAnswer, r, '识别答案', '未能识别'))}</div></div>
+                        <div style="margin-top:4px;"><strong>AI评语：</strong><div class="md-content">${renderMd(getGradingOutputText(r.aiComment, r, '评语', '无'))}</div></div>
                     </div>
                     ${images ? `<div style="margin-top:8px;">${images}</div>` : ''}
                 </div>
@@ -1244,7 +1274,7 @@ function showHistoryPanel() {
                     ? '<span class="hist-tag image-remote">有图·无法导出</span>'
                     : '')
                 : '';
-            const answerText = r.studentAnswer || '未能识别答案';
+            const answerText = getGradingOutputText(r.studentAnswer, r, '识别答案', '未能识别答案');
             const answerPreview = answerText.length > 110 ? `${answerText.slice(0, 110)}...` : answerText;
             const presetName = r.presetName || '未命名方案';
             return `
@@ -1464,7 +1494,7 @@ function showHistoryDetail(record) {
                     ${record.dualEval.detailA ? `
                     <div style="margin-bottom:6px;">
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailA['评分依据'] || '—'}</div>
+                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${getGradingOutputText(record.dualEval.detailA['评分依据'], record, '评分依据')}</div>
                     </div>` : ''}
                     ${record.dualEval.detailA && record.dualEval.detailA['分数计算'] ? `
                     <div>
@@ -1481,7 +1511,7 @@ function showHistoryDetail(record) {
                     ${record.dualEval.detailB ? `
                     <div style="margin-bottom:6px;">
                         <div style="font-size:11px;color:#86868b;margin-bottom:4px;">评分依据</div>
-                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${record.dualEval.detailB['评分依据'] || '—'}</div>
+                        <div class="hist-md-content" style="font-size:12px;line-height:1.5;font-family:'SF Mono',monospace;background:rgba(255,255,255,0.6);padding:8px;border-radius:6px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);max-height:100px;overflow-y:auto;">${getGradingOutputText(record.dualEval.detailB['评分依据'], record, '评分依据')}</div>
                     </div>` : ''}
                     ${record.dualEval.detailB && record.dualEval.detailB['分数计算'] ? `
                     <div>
@@ -1503,8 +1533,8 @@ function showHistoryDetail(record) {
                     </div>` : ''}
                 </div>` : ''}
             </div>` : ''}
-            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.studentAnswer || '未能识别'}</div></div>
-            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${record.aiComment || '无'}</div></div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.studentAnswer, record, '识别答案', '未能识别')}</div></div>
+            <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.aiComment, record, '评语', '无')}</div></div>
             <div id="detail-images-container"><div style="color:#aaa;font-size:12px;">加载图片中...</div></div>
         </div>
     `;
@@ -1537,12 +1567,12 @@ function showHistoryDetail(record) {
     // 从 IndexedDB 加载图片（三态判断）
     const imgContainer = drawer.querySelector('#detail-images-container');
     const imgStatus = ImageStore.getImageStatus(record.id);
-    if (imgStatus.status === 'local') {
+    if (record.imageBase64s?.length || imgStatus.status === 'local') {
         // 有图·可导出：从当前 origin 的 IndexedDB 加载
-        ImageStore.get(record.id).then(base64s => {
+        (record.imageBase64s?.length ? Promise.resolve(record.imageBase64s) : ImageStore.get(record.id)).then(base64s => {
             if (base64s && base64s.length > 0) {
                 imgContainer.innerHTML = `<div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">答题卡图片</div>` +
-                    base64s.map(b64 => `<img src="data:image/png;base64,${b64}" style="max-width:100%;border-radius:8px;margin-bottom:8px;">`).join('');
+                    base64s.map(b64 => `<img src="data:image/png;base64,${escHistDeep(b64)}" style="max-width:100%;border-radius:8px;margin-bottom:8px;">`).join('');
             } else {
                 imgContainer.innerHTML = '<div style="color:#aaa;font-size:12px;">图片数据异常</div>';
             }

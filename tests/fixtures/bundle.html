@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><title>Bundle browser acceptance</title>
+<script>
+const storage={};
+window.GM_getValue=(key,fallback)=>storage[key]??fallback;
+window.GM_setValue=(key,value)=>storage[key]=value;
+window.GM_deleteValue=key=>delete storage[key];
+window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
+</script>
+<script src="../../dist/ai_marker.user.js"></script>
+<body><pre id="result"></pre><script>
+(async()=>{
+ const runId=new URLSearchParams(location.search).get('run');
+ try{
+  for(let attempt=0;attempt<100&&!window.__aiMarkdownRenderer;attempt++)await new Promise(resolve=>setTimeout(resolve,20));
+  const renderer=window.__aiMarkdownRenderer;if(!renderer)throw Error('完整脚本渲染器未初始化');
+  const template=document.createElement('template');template.innerHTML=renderer.render('[open](java&#x73;cript:alert%281%29)');
+  if(template.content.querySelector('a')?.protocol==='javascript:')throw Error('完整脚本保留危险链接');
+  template.innerHTML=renderer.render('$\\sqrt{x^2+1}$');
+  if(!template.content.querySelector('.katex svg path'))throw Error('完整脚本公式不完整');
+  if(window.__AI_MARKER_ADAPTER__)throw Error('未知宿主注册了阅卷平台');
+  document.getElementById('result').textContent=btoa(JSON.stringify({runId,passed:true,width:innerWidth,checks:4}));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))));}
+})();
+</script>

@@ -25,23 +25,10 @@ jobs:
           fetch-depth: 0
 
       - name: Verify version bumped before stable deploy
-        run: |
-          CONFIG_VERSION=$(node -e "const s=require('fs').readFileSync('src/core/config.js','utf8'); console.log(s.match(/VERSION\s*:\s*'([^']+)'/)[1])")
-          LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
-          if [ -z "$LATEST_TAG" ]; then
-            echo "仓库尚无 tag，跳过检查"
-            exit 0
-          fi
-          TAG_VERSION="${LATEST_TAG#v}"
-          echo "config.js VERSION: $CONFIG_VERSION / 最新 tag: $LATEST_TAG"
-          OLDER=$(printf '%s\n%s\n' "$CONFIG_VERSION" "$TAG_VERSION" | sort -V | head -1)
-          if [ "$OLDER" != "$TAG_VERSION" ]; then
-            echo "::error::config.js VERSION ($CONFIG_VERSION) 未高于最新 tag ($TAG_VERSION)。同版本号无法触发用户端更新，请先在 config.js 升版本号再发布 stable。"
-            exit 1
-          fi
-          echo "✅ 版本号检查通过"
+        run: node scripts/verify-stable-version.cjs
 
   build:
+    needs: version-guard
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -58,14 +45,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=low
+
       - name: Test release commit
         run: npm test
 
       - name: Build (stable channel)
         run: npm run build -- --channel=stable
 
-      - name: Verify bundled platform registration
+      - name: Verify bundled platform initialization
         run: npm run verify:bundle
+
+      - name: Verify workflow forms in browser
+        run: npm run verify:browser
 
       - name: Create redirect page
         run: |
