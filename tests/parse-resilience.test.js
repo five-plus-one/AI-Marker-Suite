@@ -68,7 +68,7 @@ test('小题行全角/中文数字经归一化可解析', () => {
     const r = parseSubQuestionResponse(text, {
         subQuestions: [{ id: 1, label: '第1题', maxScore: 10 }, { id: 2, label: '第2题', maxScore: 5 }]
     });
-    assert.strictEqual(r.score, 8);
+    assert.strictEqual(r.score, 10, '总分按 8+2 的完整小题明细汇总');
     assert.strictEqual(r.subScores[0].score, 8);
     assert.strictEqual(r.subScores[1].score, 2);
 });
