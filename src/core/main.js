@@ -296,6 +296,7 @@ async function startAutoGrading() {
         }
 
         const presetConfig = JSON.parse(JSON.stringify(PresetManager.getCurrentConfig()));
+        if (window.aiGradingState.gradingMode === 'unattended') requirePendingReviewCapacity(presetConfig);
         const effectiveUnits = PresetManager.getScoringUnits?.() || presetConfig.scoring?.units || [];
         const gradingMaxScore = PresetManager.getMaxScore();
         presetConfig.scoring = { ...presetConfig.scoring, maxScore: gradingMaxScore, units: JSON.parse(JSON.stringify(effectiveUnits)) };
@@ -514,19 +515,21 @@ async function startAutoGrading() {
         const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
             signal: runContext.controller.signal,
             imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
-        const result = isDualEval
-            ? await callDualEvaluation(base64DataArray, gradingConfig, (streamedText) => {
+        const result = await requestGradingWithRecognitionRetry(runContext, recognition => isDualEval
+            ? callDualEvaluation(base64DataArray, { ...gradingConfig, ...recognition }, (streamedText) => {
                 if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
             })
-            : await callAIGrading(base64DataArray, gradingConfig, (streamedText) => {
+            : callAIGrading(base64DataArray, { ...gradingConfig, ...recognition }, (streamedText) => {
                 if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
-            });
+            }));
 
         requireCurrentGradingContext(runContext);
         hideStreamPanel();
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
         if (result.score !== undefined && result.score !== null) {
+            if (result._needsRecognitionReview && (!Number.isFinite(result.score) || (result.rawScore != null && !Number.isFinite(result.rawScore)) ||
+                result.subScores?.some(unit => !Number.isFinite(unit?.score)))) throw new Error('AI 分数不完整或无效，请核对本卷后继续');
             recordOutputLimitOutcome(gradingConfig);
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
             const maxScore = gradingMaxScore;
@@ -535,7 +538,7 @@ async function startAutoGrading() {
             let diligenceLevel = result.diligenceLevel || 0;
             const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
             const explicitlyBlank = isExplicitlyBlankGradingResult(result);
-            if (answerLen <= 15 || explicitlyBlank) diligenceLevel = 0;
+            if (answerLen <= 15 || explicitlyBlank || result._needsRecognitionReview) diligenceLevel = 0;
 
             // 使用 ScoreCalculator 统一计算流水线
             // 将配置中的 roundStep 合并到 AI 返回的小题分数中
@@ -556,7 +559,8 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
-            requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
+            const needsReview = window.aiGradingState.gradingMode === 'unattended' && result._needsRecognitionReview === true;
+            requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)], { allowUnreadable: needsReview });
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
@@ -565,6 +569,17 @@ async function startAutoGrading() {
             // 复查确认：DOM 型 isMarkingPage 瞬时 false 不算离开
             await verifyGradingContext(runContext);
             requireGradingContextTarget(runContext);
+
+            if (needsReview) {
+                if (!validateScoresForFill([finalScore, ...(finalUnitScores || []).map(unit => unit.score)], '待复核评分')) throw new Error('AI 分数无效，请核对本卷后继续');
+                runContext.reviewId = await HistoryManager.savePendingReview(runContext, {
+                    aiScore: finalScore, studentAnswer: result.studentAnswer || '无法辨认', aiComment: result.comment || '',
+                    answerStatus: getGradingAnswerStatus(result), subScores: finalUnitScores || result.subScores,
+                    scoringDetails: result._sections || null, dualEval: result.dualEval || null
+                });
+                await verifyGradingContext(runContext);
+                requireGradingContextTarget(runContext);
+            }
 
             console.log(`✏️ [诊断] 准备填入分数: ${finalScore}，调用 fillScores...`);
 

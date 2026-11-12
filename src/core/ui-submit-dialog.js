@@ -922,7 +922,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     durationMs: humanPacingRecordCfg.recordDuration !== false ? durationMs : null,
                     pacingDelayMs: hpState.lastDelayMs || 0
                 };
-                if (rawExtraInfo?.regradeId) {
+                if (runContext.reviewId) {
+                    HistoryManager.confirmReviewSubmission(runContext.reviewId, {
+                        finalScore: score, subScores: rawSubScores, durationMs: historyEntry.durationMs, pacingDelayMs: historyEntry.pacingDelayMs
+                    });
+                } else if (rawExtraInfo?.regradeId) {
                     HistoryManager.update(rawExtraInfo.regradeId, {
                         finalScore: score, isCorrected: historyEntry.isCorrected,
                         correctionReason: historyEntry.correctionReason,
@@ -932,6 +936,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     HistoryManager.add(historyEntry);
                 }
             } catch (e) {
+                if (runContext.reviewId) throw e;
                 console.error('⚠️ [诊断] 历史记录保存失败（不影响批阅进度）:', e);
             }
             if (isGradingContextCurrent(runContext)) window.aiGradingState.cycleStartTime = null;
@@ -943,6 +948,8 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             }
         }
         if (!isGradingContextCurrent(runContext)) return;
+
+        if (submitted && mode === 'unattended') requirePendingReviewCapacity(runContext.configuration);
 
 
         if (submitted) {
@@ -1021,7 +1028,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         try {
             return await runConfirmSubmitOnce();
         } catch (error) {
-            if (isGradingContextCurrent(runContext)) { stopAutoGrading(); showToast(error.message); }
+            if (isGradingContextCurrent(runContext)) {
+                if (error.code === 'PENDING_REVIEW_LIMIT' || runContext.reviewId) pauseGradingForReview(error.message);
+                else { stopAutoGrading(); showToast(error.message); }
+            }
         } finally {
             confirmSubmitting = false;
         }

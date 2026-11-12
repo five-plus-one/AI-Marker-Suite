@@ -162,6 +162,10 @@ const PresetManager = {
                     cfg.retryPolicy = { maxRetries: 3, retryOnTimeout: true, retryOnEmpty: true };
                     changed = true;
                 }
+                if (!cfg.unattendedReview || getPendingReviewLimit(cfg) !== cfg.unattendedReview.maxPending) {
+                    cfg.unattendedReview = { maxPending: 5 };
+                    changed = true;
+                }
                 // 迁移：答卷校验缺失时补默认开启（不覆盖用户已有配置）
                 if (!cfg.paperGuard) {
                     cfg.paperGuard = { enabled: true };

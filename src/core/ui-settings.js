@@ -796,6 +796,9 @@ function createSettingsPanel(options) {
                         <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
                             <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
                         <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
+                        <div class="form-group" style="margin-top:12px;"><label for="unattended-review-limit">无人模式允许待复核数量</label>
+                            <input type="number" id="unattended-review-limit" min="0" max="1000" step="1" value="5"></div>
+                        <div class="mode-desc">无法辨认时重试一次，仍无法辨认则提交 AI 返回的分数并留待复核。待复核总数超过此数量后暂停，可在评阅历史中查看和完成复核。设为 0 时，首份待复核卷提交后暂停。</div>
                         <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
                     </div>
                 </div>
@@ -1996,6 +1999,8 @@ function fillFormFromActivePreset() {
     if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
     const retryTimeoutInput = document.getElementById('retry-on-timeout');
     if (retryTimeoutInput) retryTimeoutInput.checked = retryPolicyCfg.retryOnTimeout !== false;
+    const reviewLimitInput = document.getElementById('unattended-review-limit');
+    if (reviewLimitInput) reviewLimitInput.value = getPendingReviewLimit(config);
 
     document.getElementById('bind-url-checkbox').checked = (PresetManager.data.bindings[currentUrlId] === PresetManager.data.active);
 
@@ -2932,6 +2937,9 @@ function saveAISettings() {
     // 保存自动重试配置
     const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
+    const reviewLimitText = document.getElementById('unattended-review-limit')?.value?.trim();
+    const reviewLimitValue = reviewLimitText ? Number(reviewLimitText) : NaN;
+    const reviewLimit = Number.isInteger(reviewLimitValue) && reviewLimitValue >= 0 && reviewLimitValue <= 1000 ? reviewLimitValue : 5;
 
     // 保存空白答题卡检测配置
     const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
@@ -2984,6 +2992,7 @@ function saveAISettings() {
         },
         paperGuard: { enabled: paperGuardEnabled },
         questionGuard: { enabled: questionGuardEnabled },
+        unattendedReview: { maxPending: reviewLimit },
         outputMode: outputMode,
         retryPolicy: {
             maxRetries: retryMaxRetries,

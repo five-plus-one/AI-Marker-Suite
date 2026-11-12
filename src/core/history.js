@@ -17,6 +17,10 @@ function escHistDeep(obj) {
     return walk(obj);
 }
 
+function historyScoreText(record) {
+    return typeof record.finalScore === 'number' && Number.isFinite(record.finalScore) ? String(record.finalScore) : '待提交';
+}
+
 // ========== IndexedDB 图片存储 ==========
 const ImageStore = {
     DB_NAME: 'ai-marker-images',
@@ -84,6 +88,9 @@ const ImageStore = {
     },
 
     async delete(recordId) {
+        if (HistoryManager._readReviewRecords().some(r => r.id === recordId && r.reviewStatus === 'pending')) {
+            throw new Error('请先完成本卷复核，再清理答卷图片');
+        }
         const db = await this.getDB();
         await new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
@@ -115,6 +122,7 @@ const ImageStore = {
     },
 
     async clear() {
+        if (HistoryManager.getPendingReviewCount() > 0) throw new Error('请先完成待复核记录，再清理图片');
         const db = await this.getDB();
         await new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
@@ -175,6 +183,96 @@ const ImageStore = {
 const HistoryManager = {
     records: [],
     returnUrl: null,
+
+    _readReviewRecords() {
+        if (this._writeDisabled) throw new Error('评阅历史暂时无法保存，请恢复后继续批改');
+        try {
+            const raw = GM_getValue('ai-grading-history');
+            const records = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(records) || records.some(r => !r || typeof r !== 'object' || Array.isArray(r))) throw new Error('invalid history');
+            return records;
+        } catch (error) {
+            console.error('[待复核] 读取历史失败:', error);
+            throw new Error('待复核记录暂时无法读取，请恢复后继续批改');
+        }
+    },
+
+    _persistReviewRecords(records) {
+        try {
+            const json = JSON.stringify(records);
+            GM_setValue('ai-grading-history', json);
+            if (GM_getValue('ai-grading-history') !== json) throw new Error('history readback mismatch');
+            this.records = records;
+        } catch (error) {
+            console.error('[待复核] 保存历史失败:', error);
+            throw new Error('待复核记录尚未保存，请恢复后继续批改');
+        }
+    },
+
+    getPendingReviewCount() {
+        return new Set(this._readReviewRecords().filter(r => r.reviewStatus === 'pending').map(r => r.reviewKey || r.id)).size;
+    },
+
+    async savePendingReview(context, result) {
+        requireCurrentGradingContext(context);
+        const images = context.base64DataArray.slice();
+        if (!images.length) throw new Error('待复核答卷图片未保存，请核对本卷');
+        const prefix = JSON.stringify([location.origin, context.adapter?.id || '', context.taskId]);
+        let records = this._readReviewRecords();
+        let existing = context.paperId ? records.find(r => r.reviewKey === prefix + ':' + context.paperId) : null;
+        // 没有原生答卷编号时，逐字比较已经保存的图片，不用有碰撞可能的短摘要代替卷号。
+        if (!context.paperId) {
+            for (const record of records.filter(r => r.reviewOrigin === location.origin && r.taskIdentifier === context.taskId && r.reviewStatus === 'pending')) {
+                const saved = await ImageStore.get(record.id);
+                requireCurrentGradingContext(context);
+                if (JSON.stringify(saved) === JSON.stringify(images)) { existing = record; break; }
+            }
+        }
+        const id = existing?.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        try {
+            await ImageStore.save(id, images);
+            if (JSON.stringify(await ImageStore.get(id)) !== JSON.stringify(images)) throw new Error('image readback mismatch');
+        } catch (error) {
+            console.error('[待复核] 保存答卷图片失败:', error);
+            throw new Error('待复核答卷图片尚未保存，请恢复后继续批改');
+        }
+        requireCurrentGradingContext(context);
+        requireGradingContextTarget(context);
+        records = this._readReviewRecords();
+        const record = {
+            ...existing, ...result, id, timestamp: existing?.timestamp || Date.now(),
+            status: existing?.status || 'pending', finalScore: existing?.finalScore ?? null,
+            reviewStatus: 'pending', reviewReason: '重试后仍无法辨认作答',
+            reviewKey: context.paperId ? prefix + ':' + context.paperId : existing?.reviewKey || prefix + ':' + id,
+            reviewOrigin: location.origin, paperId: context.paperId, platformName: context.adapter?.name || '',
+            taskIdentifier: context.taskId, pageUrl: context.pageUrl, presetName: context.presetName,
+            gradingMode: 'unattended', outputMode: getGradingOutputMode(context.configuration), scriptVersion: SCRIPT_CONFIG.VERSION,
+            imageUrls: context.imageUrls.slice(),
+            configurationSnapshot: JSON.parse(JSON.stringify({ question: context.configuration.question, answer: context.configuration.answer,
+                rubric: context.configuration.rubric, scoring: context.configuration.scoring, outputMode: context.configuration.outputMode }))
+        };
+        this._stripDataUrls(record);
+        this._persistReviewRecords([record, ...records.filter(r => r.id !== id)]);
+        return id;
+    },
+
+    confirmReviewSubmission(id, updates) {
+        const records = this._readReviewRecords();
+        const record = records.find(r => r.id === id);
+        if (!record) throw new Error('分数已提交，待复核记录未找到，请核对评阅历史');
+        Object.assign(record, updates, { status: 'submitted', submittedAt: Date.now() });
+        this._persistReviewRecords(records);
+    },
+
+    markReviewed(id, reviewed = true) {
+        const records = this._readReviewRecords();
+        const record = records.find(r => r.id === id);
+        if (!record) return false;
+        record.reviewStatus = reviewed ? 'reviewed' : 'pending';
+        record.reviewedAt = Date.now();
+        this._persistReviewRecords(records);
+        return true;
+    },
 
     /** 将 imageUrls 中的 data:URL 替换为占位符，避免 base64 泄漏到 GM_setValue */
     _stripDataUrls(record) {
@@ -272,7 +370,18 @@ const HistoryManager = {
             }
             return c;
         }));
-        let candidate = this.records;
+        // 新标签页仍需保留其他页面保存的待复核卷；复核状态以最新持久化记录为准。
+        let candidate;
+        try {
+            const remoteReviews = this._readReviewRecords().filter(r => r.reviewKey);
+            const localIds = new Set(this.records.map(r => r.id));
+            candidate = this.records.filter(r => !r.reviewKey).concat(remoteReviews.filter(r => r.reviewStatus === 'pending' || localIds.has(r.id)));
+            candidate.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        } catch (_) { return unavailable(); }
+        const trim = (records, count) => {
+            const keep = new Set(records.filter(r => r.reviewStatus === 'pending').map(r => r.id));
+            return records.filter((r, i) => i < count || keep.has(r.id));
+        };
         let json = ser(candidate);
         const completeJson = json;
         const sizeKB = (json.length / 1024).toFixed(1);
@@ -287,7 +396,9 @@ const HistoryManager = {
             const before = candidate.length;
             while (json.length > SAFE_LIMIT && candidate.length > 10) {
                 const cutCount = Math.max(Math.floor(candidate.length * 0.2), 1);
-                candidate = candidate.slice(0, candidate.length - cutCount);
+                const next = trim(candidate, candidate.length - cutCount);
+                if (next.length === candidate.length) break;
+                candidate = next;
                 json = ser(candidate);
             }
             console.warn(`[历史] 完整备份后缩减: ${before} → ${candidate.length} 条，当前 ${(json.length / 1024 / 1024).toFixed(2)}MB`);
@@ -304,7 +415,9 @@ const HistoryManager = {
             try { GM_setValue('ai-grading-history-rescue', completeJson); }
             catch (error) { console.error('[历史] 完整备份失败，保留全部记录:', error); return unavailable(); }
             while (candidate.length > 10) {
-                candidate = candidate.slice(0, Math.max(10, Math.floor(candidate.length / 2)));
+                const next = trim(candidate, Math.max(10, Math.floor(candidate.length / 2)));
+                if (next.length === candidate.length) break;
+                candidate = next;
                 json = ser(candidate);
                 try {
                     GM_setValue('ai-grading-history', json);
@@ -357,6 +470,12 @@ const HistoryManager = {
         this._stripDataUrls(updates);
         const idx = this.records.findIndex(r => r.id === id);
         if (idx >= 0) {
+            if (this.records[idx].reviewKey) {
+                const records = this._readReviewRecords();
+                const record = records.find(r => r.id === id);
+                if (record) { Object.assign(record, updates); this._persistReviewRecords(records); }
+                return;
+            }
             Object.assign(this.records[idx], updates);
             this.save();
             const totalSize = (JSON.stringify(this.records).length / 1024).toFixed(1);
@@ -373,15 +492,20 @@ const HistoryManager = {
     },
 
     delete(id) {
+        if (this._readReviewRecords().some(r => r.id === id && r.reviewStatus === 'pending')) {
+            showToast('请先完成本卷复核，再删除记录');
+            return false;
+        }
         this.records = this.records.filter(r => r.id !== id);
-        this.save();
+        if (!this.save()) return false;
         ImageStore.delete(id).catch(() => {});
+        return true;
     },
 
     exportCSV(records) {
         records = records || this.records;
         // 注意：新列一律追加在末尾，避免破坏既有列序（下游按列号解析的用户不受影响）
-        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析,用时(秒),随机延迟(秒)\n';
+        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析,用时(秒),随机延迟(秒),复核状态,复核原因\n';
         const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const esc = s => '"' + String(s || '').replace(/"/g, '""') + '"';
@@ -397,7 +521,7 @@ const HistoryManager = {
                 d?.diff ?? '',
                 d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'average-fallback' ? '取平均' : '',
                 d?.arbScore ?? '', esc(d?.arbAnalysis ?? ''),
-                durSec, delaySec
+                durSec, delaySec, r.reviewStatus === 'pending' ? '待复核' : r.reviewStatus === 'reviewed' ? '已复核' : '', esc(r.reviewReason || '')
             ].join(',');
         }).join('\n');
         this._download(header + rows, '评阅历史_' + this._fileTimestamp() + '.csv', 'text/csv;charset=utf-8');
@@ -531,9 +655,10 @@ const HistoryManager = {
         const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const mode = modeLabel[r.gradingMode] || r.gradingMode;
-            const scoreText = r.isCorrected ? `${r.aiScore} → ${r.finalScore} ✓` : `${r.finalScore}`;
+            const scoreText = r.isCorrected ? `${r.aiScore} → ${historyScoreText(r)} ✓` : historyScoreText(r);
             const correctedRow = r.isCorrected ? `<div style="color:#0052FF;font-size:12px;margin-top:4px;">纠错理由：${r.correctionReason || '无'}</div>` : '';
-            const markedRow = r.status === 'marked' ? `<span style="color:#D93025;font-size:11px;margin-left:8px;">⚠ 待回评</span>` : '';
+            const markedRow = r.reviewStatus === 'pending' ? '<span style="color:#D93025;margin-left:8px;">待复核</span>'
+                : r.status === 'marked' ? `<span style="color:#D93025;font-size:11px;margin-left:8px;">⚠ 待回评</span>` : '';
             const base64s = imageMap[r.id] || [];
             const images = (r.imageUrls || []).map((url, j) => {
                 const b64 = base64s[j];
@@ -570,7 +695,7 @@ const HistoryManager = {
                 <div style="border:1px solid #e5e5e5;border-radius:10px;padding:16px;margin-bottom:12px;page-break-inside:avoid;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                         <span style="color:#86868b;font-size:12px;">${time} · ${r.presetName} · ${mode}模式</span>
-                        <span style="font-size:16px;font-weight:600;">${scoreText}分${markedRow}</span>
+                        <span style="font-size:16px;font-weight:600;">${scoreText}${typeof r.finalScore === 'number' ? '分' : ''}${markedRow}</span>
                     </div>
                     ${correctedRow}
                     ${dualHtml}
@@ -953,7 +1078,7 @@ function showHistoryPanel() {
                 <span style="color:#aaa;font-size:12px;">~</span>
                 <input type="date" id="hist-filter-end" title="结束日期">
                 <select id="hist-filter-preset"><option value="">全部方案</option></select>
-                <select id="hist-filter-status" title="标记状态"><option value="">全部状态</option><option value="marked">仅已标记·待回评</option><option value="submitted">仅未标记</option></select>
+                <select id="hist-filter-status" aria-label="标记状态"><option value="">全部状态</option><option value="review">待复核</option><option value="marked">仅已标记·待回评</option><option value="submitted">仅未标记</option></select>
                 <div id="hist-filter-images-wrap" style="display:none;"><select id="hist-filter-images"><option value="">全部图片</option><option value="local">有图可导出</option><option value="remote">有图·无法导出</option><option value="none">无图</option></select></div>
                 <button class="primary" id="hist-filter-apply">筛选</button>
                 <button id="hist-filter-reset">重置</button>
@@ -980,7 +1105,7 @@ function showHistoryPanel() {
             if (filterState.presetName && r.presetName !== filterState.presetName) return false;
             if (filterState.markStatus) {
                 const st = r.status || 'submitted';
-                if (st !== filterState.markStatus) return false;
+                if (filterState.markStatus === 'review' ? r.reviewStatus !== 'pending' : st !== filterState.markStatus) return false;
             }
             if (filterState.startDate) {
                 if (r.timestamp < new Date(filterState.startDate).getTime()) return false;
@@ -1134,7 +1259,9 @@ function showHistoryPanel() {
 
     document.getElementById('hist-batch-delete').onclick = async () => {
         if (selectedIds.size === 0) { showToast('请先选择要删除的记录'); return; }
+        if (HistoryManager._readReviewRecords().some(r => selectedIds.has(r.id) && r.reviewStatus === 'pending')) { showToast('请先完成选中记录的复核，再删除记录'); return; }
         if (await showConfirmModal(`确定要删除选中的 ${selectedIds.size} 条记录吗？`)) {
+            if (HistoryManager._readReviewRecords().some(r => selectedIds.has(r.id) && r.reviewStatus === 'pending')) { showToast('请先完成选中记录的复核，再删除记录'); return; }
             for (const id of selectedIds) {
                 await ImageStore.delete(id).catch(() => {});
             }
@@ -1185,7 +1312,9 @@ function showHistoryPanel() {
 
     // 清理图片缓存
     document.getElementById('hist-clear-images').onclick = async () => {
+        if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清理图片'); return; }
         if (await showConfirmModal('确定要清理所有图片缓存吗？历史记录保留，但导出HTML时将无法嵌入图片。')) {
+            if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清理图片'); return; }
             await ImageStore.clear().catch(() => {});
             loadStorageInfo();
             showToast('图片缓存已清理');
@@ -1195,7 +1324,7 @@ function showHistoryPanel() {
     // 清理30天前记录
     document.getElementById('hist-clear-old').onclick = async () => {
         const cutoff = Date.now() - 30 * 86400000;
-        const oldRecords = HistoryManager.records.filter(r => r.timestamp < cutoff);
+        const oldRecords = HistoryManager.records.filter(r => r.timestamp < cutoff && r.reviewStatus !== 'pending');
         if (oldRecords.length === 0) {
             showToast('没有30天前的记录');
             return;
@@ -1204,7 +1333,7 @@ function showHistoryPanel() {
             for (const r of oldRecords) {
                 await ImageStore.delete(r.id).catch(() => {});
             }
-            HistoryManager.records = HistoryManager.records.filter(r => r.timestamp >= cutoff);
+            HistoryManager.records = HistoryManager.records.filter(r => r.timestamp >= cutoff || r.reviewStatus === 'pending');
             HistoryManager.save();
             currentFilteredRecords = getFilteredRecords();
             const totalPagesAfter = Math.max(1, Math.ceil(currentFilteredRecords.length / paginationState.pageSize));
@@ -1218,7 +1347,9 @@ function showHistoryPanel() {
 
     // 清空全部
     document.getElementById('hist-clear-all').onclick = async () => {
+        if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清空历史'); return; }
         if (await showConfirmModal('确定要清空所有评阅历史和图片缓存吗？此操作不可撤销。')) {
+            if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清空历史'); return; }
             HistoryManager.records = [];
             HistoryManager.save();
             await ImageStore.clear().catch(() => {});
@@ -1260,8 +1391,9 @@ function showHistoryPanel() {
             const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[r.gradingMode] || r.gradingMode;
             const scoreHtml = r.isCorrected
                 ? `<span>${r.aiScore}</span><span class="arrow">&rarr;</span><span class="corrected">${r.finalScore}</span>`
-                : `<span>${r.finalScore}</span>`;
-            const markedTag = r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
+                : `<span>${historyScoreText(r)}</span>`;
+            const markedTag = r.reviewStatus === 'pending' ? '<span class="hist-tag marked-tag">待复核</span>'
+                : r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
             const correctedTag = r.isCorrected ? '<span class="hist-tag corrected">已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span class="hist-tag ${r.dualEval.result === 'arbitration' ? 'arbitration' : 'dual'}">双评</span>` : '';
             const diligenceTag = r.diligenceBonus && r.diligenceBonus > 0 ? `<span class="hist-tag" style="color:#34A853;background:rgba(52,168,83,0.08);border-color:rgba(52,168,83,0.15);">+${r.diligenceBonus}勤勉</span>` : '';
@@ -1291,11 +1423,12 @@ function showHistoryPanel() {
                     <div class="hist-item-side">
                         <div class="hist-item-score">
                             <span class="hist-score-label">${r.isCorrected ? '分数修正' : '最终分数'}</span>
-                            <span class="hist-score-value">${scoreHtml}<span class="hist-score-unit">分</span></span>
+                            <span class="hist-score-value">${scoreHtml}${typeof r.finalScore === 'number' ? '<span class="hist-score-unit">分</span>' : ''}</span>
                         </div>
                         <div class="hist-item-actions">
                             <button class="hist-detail-btn primary" data-id="${r.id}">详情</button>
-                            ${r.status !== 'marked' ? `<button class="hist-mark-btn danger" data-id="${r.id}">标记</button>` : ''}
+                            ${r.reviewKey ? `<button class="hist-review-btn" data-id="${r.id}" style="min-height:44px;">${r.reviewStatus === 'pending' ? '完成复核' : '标为待复核'}</button>`
+                                : r.status !== 'marked' ? `<button class="hist-mark-btn danger" data-id="${r.id}">标记</button>` : ''}
                         </div>
                     </div>
                 </div>
@@ -1342,6 +1475,17 @@ function showHistoryPanel() {
         });
         listEl.querySelectorAll('.hist-mark-btn').forEach(btn => {
             btn.onclick = () => { HistoryManager.markIncorrect(btn.dataset.id); renderList(currentFilteredRecords); showToast('已标记为不正确'); };
+        });
+        listEl.querySelectorAll('.hist-review-btn').forEach(btn => {
+            btn.onclick = () => {
+                try {
+                    const pending = HistoryManager.getById(btn.dataset.id)?.reviewStatus === 'pending';
+                    HistoryManager.markReviewed(btn.dataset.id, pending);
+                    currentFilteredRecords = getFilteredRecords();
+                    updateCount(currentFilteredRecords); renderList(currentFilteredRecords);
+                    showToast(pending ? '已完成复核' : '已标为待复核');
+                } catch (error) { showToast(error.message); }
+            };
         });
         // 事件绑定：checkbox
         listEl.querySelectorAll('.hist-item-check input').forEach(cb => {
@@ -1437,7 +1581,7 @@ function showHistoryDetail(record) {
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">方案 / 模式</div><div style="font-size:13px;">${record.presetName} &middot; ${modeLabel}</div></div>
                 ${durationCell}
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">AI评分</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;">${record.aiScore}</div></div>
-                <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">最终分数</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:${record.isCorrected ? '#0052FF' : '#1d1d1f'};">${record.finalScore}${record.isCorrected ? ' &#10003;' : ''}</div></div>
+                <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">${record.reviewStatus === 'pending' ? '待复核 · 提交分数' : '最终分数'}</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:${record.isCorrected ? '#0052FF' : '#1d1d1f'};">${historyScoreText(record)}${record.isCorrected ? ' &#10003;' : ''}</div></div>
             </div>
             ${record.subScores && record.subScores.length > 0 ? `
             <div style="margin-bottom:16px;">
@@ -1535,6 +1679,8 @@ function showHistoryDetail(record) {
             </div>` : ''}
             <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.studentAnswer, record, '识别答案', '未能识别')}</div></div>
             <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.aiComment, record, '评语', '无')}</div></div>
+            ${record.reviewReason ? `<p>${record.reviewReason}。请在阅卷平台核对并修正分数，再完成复核。</p>` : ''}
+            ${record.configurationSnapshot ? `<details style="margin-bottom:14px;"><summary>本卷评分方案</summary><p>题目：${extractFieldText(record.configurationSnapshot.question)}</p><p>参考答案：${extractFieldText(record.configurationSnapshot.answer)}</p><p>评分标准：${extractFieldText(record.configurationSnapshot.rubric)}</p></details>` : ''}
             <div id="detail-images-container"><div style="color:#aaa;font-size:12px;">加载图片中...</div></div>
         </div>
     `;

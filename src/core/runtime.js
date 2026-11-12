@@ -144,22 +144,46 @@ function getGradingAnswerStatus(result) {
     return status;
 }
 
-function requireGradingEvidence(result, scores = [result?.score]) {
+function requireGradingEvidence(result, scores = [result?.score], options = {}) {
     const status = getGradingAnswerStatus(result);
     const positive = scores.some(score => Number.isFinite(score) && score > 0);
     let message;
     if (status === 'conflict') message = 'AI 对作答是否可辨认的说明相互矛盾，请核对本卷';
-    else if (status === 'unreadable') message = 'AI 无法辨认本卷作答，请核对原图后评分';
+    else if (status === 'unreadable' && options.allowUnreadable !== true) message = 'AI 无法辨认本卷作答，请核对原图后评分';
     else if (status === 'blank' && positive) message = 'AI 将答卷识别为未作答，却给出了正分，请核对本卷后继续';
     if (message) {
         const error = new Error(message);
         error.code = 'GRADING_EVIDENCE_REVIEW';
+        error.answerStatus = status;
+        error.gradingResult = result;
         throw error;
     }
 }
 
-function requireCompatibleGradingEvidence(resultA, resultB) {
-    for (const result of [resultA, resultB]) requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+async function requestGradingWithRecognitionRetry(context, request) {
+    const unattended = window.aiGradingState.gradingMode === 'unattended';
+    for (let attempt = 0; ; attempt++) {
+        requireCurrentGradingContext(context);
+        if (attempt > 0) await verifyGradingContext(context);
+        try {
+            const result = await request({ allowUnreadable: unattended && attempt > 0 });
+            requireCurrentGradingContext(context);
+            // 识别重试独立于接口错误重试；继续使用本轮冻结的图片和评分标准。
+            if (unattended && (getGradingAnswerStatus(result) === 'unreadable' || result?._needsRecognitionReview)) {
+                if (attempt === 0) requireGradingEvidence({ ...result, answerStatus: 'unreadable' });
+                result._needsRecognitionReview = true;
+            }
+            return result;
+        } catch (error) {
+            requireCurrentGradingContext(context);
+            if (!unattended || attempt > 0 || error.code !== 'GRADING_EVIDENCE_REVIEW' || error.answerStatus !== 'unreadable') throw error;
+            console.warn('[识别] 本卷作答尚未辨认，重新识别一次');
+        }
+    }
+}
+
+function requireCompatibleGradingEvidence(resultA, resultB, options = {}) {
+    for (const result of [resultA, resultB]) requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)], options);
     const a = getGradingAnswerStatus(resultA), b = getGradingAnswerStatus(resultB);
     if ((a === 'blank' && b !== 'blank' && b !== 'unknown') || (b === 'blank' && a !== 'blank' && a !== 'unknown') ||
         (a === 'blank' && resultB?.score > 0) || (b === 'blank' && resultA?.score > 0)) {
@@ -167,6 +191,38 @@ function requireCompatibleGradingEvidence(resultA, resultB) {
         error.code = 'GRADING_EVIDENCE_REVIEW';
         throw error;
     }
+}
+
+function getPendingReviewLimit(config) {
+    const value = config?.unattendedReview?.maxPending;
+    return Number.isInteger(value) && value >= 0 && value <= 1000 ? value : 5;
+}
+
+function requirePendingReviewCapacity(config) {
+    const count = HistoryManager.getPendingReviewCount();
+    const limit = getPendingReviewLimit(config);
+    if (count > limit) {
+        const error = new Error(`待复核已有 ${count} 份，超过设定的 ${limit} 份，请先在评阅历史中复核或调整数量`);
+        error.code = 'PENDING_REVIEW_LIMIT';
+        throw error;
+    }
+}
+
+function pauseGradingForReview(message) {
+    invalidateGradingRun();
+    const state = window.aiGradingState;
+    state.isRunning = false;
+    state.isPaused = true;
+    sessionStorage.removeItem('ai-grading-auto-resume');
+    sessionStorage.removeItem('ai-grading-retry-count');
+    const button = document.querySelector('.ai-grade-btn');
+    if (button) {
+        button.textContent = '继续批改';
+        button.classList.remove('running', 'unattended', 'trial');
+        button.classList.add('paused');
+    }
+    hideStreamPanel();
+    showToast(message);
 }
 
 function createGradingContext(manual = false) {
