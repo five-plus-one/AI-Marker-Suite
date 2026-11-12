@@ -202,6 +202,14 @@ function loadOne(sb, dir, opts = {}) {
 // own: 自家平台最小形态（隔离加载必注册；bundle 下除已知竞争外必须唯一命中）
 // near: 近似域名/缺条件形态（必须不注册 → 空槽）
 const ADAPTERS = [
+    { dir: 'wentongyun', id: 'wentongyun', name: '文通云',
+      own: { host: 'www.wtjy.com', path: '/', hash: '#/mark/new-mark-question?examPaperId=exam&sheetDetailId=sheet&questionNum=20&type=1&again=0&isClass=0',
+        dom: { '.mark .question-cotnent': 1, '.mark .score-board': 1 } },
+      near: [{ label: '文通云近似域名不注册', form: { host: 'www.wtjy.com.example.com', path: '/', hash: '#/mark/new-mark-question?examPaperId=exam',
+                dom: { '.mark .question-cotnent': 1, '.mark .score-board': 1 } } },
+             { label: '文通云登录页不注册', form: { host: 'www.wtjy.com', path: '/', hash: '#/login',
+                dom: { '.mark .question-cotnent': 1, '.mark .score-board': 1 } } },
+             { label: '文通云阅卷页等待原生结构', form: { host: 'www.wtjy.com', path: '/', hash: '#/mark/new-mark-question?examPaperId=exam' } }] },
     { dir: 'jzsmartedu', id: 'jzsmartedu', name: '焦作精准教学',
       own: { host: 'jzjx.jzsmartedu.cn', path: '/dnpc/', hash: '#/v2/read-paper?examPaperId=exam&readBlockId=block&readPaperType=1',
         dom: { '#read-paper-score-board.page-read-paper-score-board': 1, '#tab-3': 1, '.body-center-main': 1 } },
