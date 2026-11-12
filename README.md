@@ -2,7 +2,7 @@
 
 > 用 AI 识别手写答案、按标准评分，让教师把时间留给核对与反馈。
 
-AI 批改助手是开源的 Tampermonkey 浏览器脚本，支持 43 个阅卷平台，提供试改确认、连续批改、双评仲裁和评阅历史导出。当前稳定版为 **1.21.20.0**（2026-11-12）。
+AI 批改助手是开源的 Tampermonkey 浏览器脚本，支持 43 个阅卷平台，提供试改确认、连续批改、双评仲裁和评阅历史导出。当前稳定版为 **1.21.21.0**（2026-11-12）。
 
 [![版本](https://img.shields.io/github/v/release/five-plus-one/AI-Marker-Suite?label=stable)](https://github.com/five-plus-one/AI-Marker-Suite)
 [![许可证](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
