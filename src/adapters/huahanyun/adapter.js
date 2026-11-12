@@ -1,4 +1,4 @@
-// 华翰云云阅卷适配器（yj.lcedu.net.cn 鹿城区部署实测；产品=吉林华翰云"云阅卷"）
+// 华翰云云阅卷适配器（鹿城 yj.lcedu.net.cn、温州 yuejuan.wzedu.cn）
 // 平台特征：单题块单分框——一个阅卷任务=一个题块（如"书写 7(4分)"），一个 #compuinput 分数框
 // 答卷图=OBS 题块裁剪图：obsyj.{域}/.../student/{考生号}/{hash}/{questionId}.png?X-Amz-签名
 //   → 考生号在 URL 路径里 = 强换卷信号（同卷签名抖动只在 query，路径不变）（#301）
@@ -6,6 +6,28 @@
     'use strict';
 
     const HY_HELPERS = {
+        isWenzhou() {
+            return (location.hostname || '').toLowerCase() === 'yuejuan.wzedu.cn';
+        },
+
+        isKnownHost() {
+            const host = (location.hostname || '').toLowerCase();
+            return HY_HELPERS.isWenzhou() || host === 'lcedu.net.cn' || host.endsWith('.lcedu.net.cn');
+        },
+
+        // 温州生产页面暴露 Vue 应用的 Vuex store；只读取阅卷状态，通过既有 mutation 填分。
+        // SET_SCOREING 仅更新分数；键盘 input 事件会触发平台的快捷提交，不能用于试改填分。
+        wenzhouStore() {
+            if (!HY_HELPERS.isWenzhou()) return null;
+            const pageWindow = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
+            return pageWindow.document.querySelector('#app')?.__vue_app__?.config?.globalProperties?.$store || null;
+        },
+
+        scoreInput() {
+            return document.querySelector(HY_HELPERS.isWenzhou()
+                ? window.HUAHANYUN_SELECTORS.WENZHOU_SCORE_INPUT : window.HUAHANYUN_SELECTORS.SCORE_INPUT);
+        },
+
         // 真可见答卷图（#306）：el-image 换卷过渡期常新旧图并存——隐藏残留/离屏预载
         // 能骗过尺寸过滤，必须用 checkVisibility（opacity/visibility/content-visibility）
         // + 计算样式兜底剔除；只留"真可见"的大图
@@ -72,25 +94,18 @@
     };
 
     const adapter = {
-        name: '云阅卷(华翰云)',
+        name: HY_HELPERS.isWenzhou() ? '温州云阅卷' : '云阅卷(华翰云)',
         platformKey: 'huahanyun',
         version: '1.0.0',
 
         shouldInitialize() {
-            // X05 产品裁决（#324 铁律：宁可保守不劫持）：三条件全必要，宿主无关兜底已删除——
-            //   ① 已知宿主边界匹配（hostMatches：精确域或 .lcedu.net.cn 子域，粘连域出局）
-            //   ② 精确批改路由 #/marking/grading(\?|$)（gradingList 子串页不得认领）
-            //   ③ DOM 三特征（分数框 + 给分按钮，_hasDomSignature 含②）
-            // 改名部署需加宿主白名单（docs 已写明支持路径），不再走无宿主 DOM 兜底
-            const h = (location.hostname || '').toLowerCase();
-            const hostKnown = h === 'lcedu.net.cn' || h.endsWith('.lcedu.net.cn');
-            return hostKnown && this._hasDomSignature();
+            return HY_HELPERS.isKnownHost() && this._hasDomSignature();
         },
 
         // 三特征识别（#284 防串台）：批改路由 + 分数框 + 给分按钮
         _hasDomSignature() {
             return /#\/marking\/grading(\?|$)/.test(location.hash)
-                && !!document.querySelector(window.HUAHANYUN_SELECTORS.SCORE_INPUT)
+                && !!HY_HELPERS.scoreInput()
                 && !!document.querySelector(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON);
         },
 
@@ -105,11 +120,21 @@
 
         // 任务标识：URL questionId（稳定）
         getTaskIdentifier() {
+            if (HY_HELPERS.isWenzhou()) {
+                const params = new URLSearchParams(location.hash.split('?')[1] || '');
+                return `huahanyun#wzedu#${params.get('questionId') || ''}#${params.get('choiceIndex') || '0'}`;
+            }
             const m = location.hash.match(/questionId=(\d+)/);
             return m ? `huahanyun#${m[1]}` : `huahanyun#${location.hash.split('?')[0]}`;
         },
 
         isRegradeMode() {
+            if (HY_HELPERS.isWenzhou()) {
+                const params = new URLSearchParams(location.hash.split('?')[1] || '');
+                const state = HY_HELPERS.wenzhouStore()?.state?.mark;
+                if (['review', 'markReview', 'readonly'].some(key => params.get(key) === 'true')
+                    || state?.markReview || state?.reviewProps?.review || state?.reviewProps?.readonly) return true;
+            }
             // #312：委托核心回评态——此前恒 false 会短路核心自身的 isRegrading，
             // 导致回评面板开着时仍跑新题引导（方案切换+OOBE 叠加）。
             // 平台自身回评 URL 语义（thisType）仍待真机复现，暂无额外识别
@@ -118,8 +143,17 @@
 
         // 单题块单分框：一个任务一个分框（label/满分取自面板标题「书写 7(4分)」）
         getScoreInputs() {
-            const el = document.querySelector(window.HUAHANYUN_SELECTORS.SCORE_INPUT);
+            const el = HY_HELPERS.scoreInput();
             if (!el) return [];
+            if (HY_HELPERS.isWenzhou()) {
+                const state = HY_HELPERS.wenzhouStore()?.state?.mark;
+                // 合批、分项、批量和批注给分需独立评分模型，单题适配仅接管键盘/一键给分。
+                if (state && (state.haveJoin || state.IsSubItemscoring || state.batchGrading
+                    || ![1, 2].includes(Number(state.markingType)))) return [];
+                const question = state?.readOverInfo?.question;
+                if (question) return [{ element: el, label: question.questionName || '本题',
+                    maxScore: Number(question.score) || 0, index: 0 }];
+            }
             const title = HY_HELPERS.parseTaskTitle();
             return [{
                 element: el,
@@ -131,6 +165,7 @@
 
         // 单分框全或无（#296 模板）：缺分/多分/空框写入失败 → 显式 false，不留半填状态
         fillScores(scores) {
+            if (HY_HELPERS.isWenzhou() && (!this.isMarkingPage() || this.isRegradeMode())) return false;
             const inputs = this.getScoreInputs();
             if (inputs.length === 0) return false;
             if (!Array.isArray(scores) || scores.length === 0) return false;
@@ -140,7 +175,7 @@
                 return false;
             }
             const score = scores[0];
-            if (score === null || score === undefined) {
+            if (typeof score !== 'number' && (typeof score !== 'string' || !score.trim())) {
                 console.warn(`⚠️ [云阅卷华翰云] 无 AI 分数 → 拒绝`);
                 return false;
             }
@@ -152,8 +187,20 @@
                 return false;
             }
             const input = inputs[0];
-            HY_HELPERS.setNativeValue(input.element, score);
-            if (String(input.element.value) !== String(score)) {
+            if (HY_HELPERS.isWenzhou()) {
+                const store = HY_HELPERS.wenzhouStore();
+                if (!store || typeof store.commit !== 'function') return false;
+                store.commit('mark/SET_SCOREING', num);
+                if (store.state.mark.questionScore !== num) return false;
+                // Vue 在下一次渲染更新控件；同步写入展示值供核心即时校验，不派发快捷提交事件。
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(input.element, String(num));
+                const info = store.state.mark.readOverInfo;
+                this._wenzhouFill = { studentId: info.studentId, sheetId: info.sheetId,
+                    questionId: info.questionId, score: num, task: this.getTaskIdentifier(),
+                    identity: this.getPaperIdentity() };
+            } else HY_HELPERS.setNativeValue(input.element, num);
+            if (String(input.element.value) !== String(num)) {
                 console.warn(`⚠️ [云阅卷华翰云] ${input.label} 写入校验失败（${input.element.value}≠${score}）→ 拒绝`);
                 return false;
             }
@@ -167,23 +214,107 @@
         },
 
         // 给分提交：点击 submitscorebtn；按钮缺失/禁用 → 显式 false（#296 不静默续走）
-        submitGrade() {
-            const btn = document.querySelector(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON);
+        submitGrade(guard) {
+            if (HY_HELPERS.isWenzhou() && (!this.isMarkingPage() || this.isRegradeMode()
+                || this.getScoreInputs().length !== 1)) return false;
+            const buttons = Array.from(document.querySelectorAll(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON));
+            const btn = HY_HELPERS.isWenzhou() ? buttons.find(el => el.getClientRects().length > 0)
+                : document.querySelector(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON);
             if (!btn) {
                 console.warn('⚠️ [云阅卷华翰云] 未找到给分按钮 → 拒绝提交');
                 return false;
             }
-            if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
+            if (btn.disabled || btn.getAttribute('aria-disabled') === 'true' || btn.classList?.contains('is-loading')) {
                 console.warn('⚠️ [云阅卷华翰云] 给分按钮禁用 → 拒绝提交');
                 return false;
             }
+            if (HY_HELPERS.isWenzhou()) return this._submitWenzhou(btn, guard);
             btn.click();
             return true;
+        },
+
+        // 保留平台按钮生成请求，等同卷同分的保存回执后才让核心记账、换卷。
+        // 仅在本次提交期间观察页面 XHR；不重试保存，避免回执丢失时重复给分。
+        async _submitWenzhou(btn, guard = {}) {
+            if (this._wenzhouSubmitting) return false;
+            this._wenzhouSubmitting = true;
+            try {
+                if (guard.verify) await guard.verify();
+                const pending = this._wenzhouFill;
+                const state = HY_HELPERS.wenzhouStore()?.state?.mark;
+                const info = state?.readOverInfo;
+                if (!pending?.identity || !info || guard.signal?.aborted || guard.isCurrent?.() === false
+                    || pending.task !== this.getTaskIdentifier() || pending.identity !== this.getPaperIdentity()
+                    || pending.score !== state.questionScore
+                    || ['studentId', 'sheetId', 'questionId'].some(key => pending[key] == null
+                        || String(pending[key]) !== String(info[key]))) return false;
+                const pageWindow = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
+                const proto = pageWindow.XMLHttpRequest?.prototype;
+                if (!proto) return false;
+                return await new Promise(resolve => {
+                    const originalOpen = proto.open, originalSend = proto.send;
+                    const candidates = new WeakSet();
+                    let settled = false, observed = null;
+                    const restore = () => {
+                        if (proto.open === open) proto.open = originalOpen;
+                        if (proto.send === send) proto.send = originalSend;
+                    };
+                    const finish = ok => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer); restore();
+                        guard.signal?.removeEventListener('abort', cancelled);
+                        if (observed) for (const type of ['load', 'error', 'timeout', 'abort']) {
+                            observed.removeEventListener(type, type === 'load' ? loaded : cancelled);
+                        }
+                        resolve(ok);
+                    };
+                    const cancelled = () => finish(false);
+                    const loaded = () => {
+                        try {
+                            const body = observed.responseType === 'json' ? observed.response
+                                : JSON.parse(observed.responseText);
+                            const result = body?.data;
+                            finish(observed.status >= 200 && observed.status < 300 && body?.code === 200
+                                && (result?.exist === true || (result?.exist === false && result.resultType === 1)));
+                        } catch (_) { finish(false); }
+                    };
+                    function open(method, url, ...args) {
+                        try {
+                            const target = new URL(url, pageWindow.location.href);
+                            if (String(method).toUpperCase() === 'POST' && target.origin === new URL(pageWindow.location.href).origin
+                                && /^\/v2\/(?:union|exam)\/mark\/submit$/.test(target.pathname)) candidates.add(this);
+                        } catch (_) { /* 其他请求继续原有行为 */ }
+                        return originalOpen.call(this, method, url, ...args);
+                    }
+                    function send(body) {
+                        if (!settled && !observed && candidates.has(this)) {
+                            try {
+                                const request = JSON.parse(body);
+                                if (['studentId', 'sheetId', 'questionId', 'score'].every(key =>
+                                    request[key] != null && String(request[key]) === String(pending[key]))) {
+                                    observed = this;
+                                    for (const type of ['load', 'error', 'timeout', 'abort']) {
+                                        this.addEventListener(type, type === 'load' ? loaded : cancelled);
+                                    }
+                                    restore();
+                                }
+                            } catch (_) { /* 只接受平台生成的同卷评分请求 */ }
+                        }
+                        return originalSend.call(this, body);
+                    }
+                    const timer = setTimeout(cancelled, 15000);
+                    guard.signal?.addEventListener('abort', cancelled, { once: true });
+                    try { proto.open = open; proto.send = send; btn.click(); }
+                    catch (_) { finish(false); }
+                });
+            } finally { this._wenzhouSubmitting = false; }
         },
 
         // 取图（#312 A1 单考生一致性）：只取带考生号的题块图，且**可见集必须同属一个考生**——
         // 混入他人图/头像（el-image 通用类）时整体拒绝（宁可不取，防错卷喂 AI）
         async gatherAnswerImages() {
+            if (HY_HELPERS.isWenzhou() && !this.isMarkingPage()) return [];
             const keyed = HY_HELPERS.getVisibleAnswerImages()
                 .map(it => ({ it, key: HY_HELPERS.extractStudentKey(it.src) }))
                 .filter(x => x.key);
@@ -219,7 +350,7 @@
                         for (const x of keyed) {
                             if (x.key === oldKey) { oldStillThere = true; break; }
                         }
-                        if (!oldStillThere) return true;
+                        if (!oldStillThere && new Set(keyed.map(x => x.key)).size === 1) return true;
                     }
                 } else {
                     // 兜底：考生号提取失败（非标准 URL）——按路径集合判定（拿不准宁可等待）
@@ -239,6 +370,12 @@
 
         // 纸卷身份：考生号（换卷必变、同卷签名抖动不变）（#281 强信号）
         getPaperIdentity() {
+            if (HY_HELPERS.isWenzhou()) {
+                if (!this.isMarkingPage()) return null;
+                const keys = new Set(HY_HELPERS.getVisibleAnswerImages()
+                    .map(it => HY_HELPERS.extractStudentKey(it.src)).filter(Boolean));
+                return keys.size === 1 ? [...keys][0] : null;
+            }
             const cur = HY_HELPERS.getVisibleAnswerImage();
             return cur ? HY_HELPERS.extractStudentKey(cur.src) : null;
         },
@@ -279,9 +416,7 @@
     if (!tryRegisterHuahanyun()) {
         // 已知宿主的列表页可通过 SPA 进入阅卷页；路由与 DOM 就绪后再按完整条件注册。
         try {
-            const h = (location.hostname || '').toLowerCase();
-            const hostKnown = h === 'lcedu.net.cn' || h.endsWith('.lcedu.net.cn');
-            if (hostKnown && typeof MutationObserver === 'function') {
+            if (HY_HELPERS.isKnownHost() && typeof MutationObserver === 'function') {
                 const tryLater = () => {
                     if (tryRegisterHuahanyun()) {
                         obs.disconnect(); window.removeEventListener('hashchange', tryLater);

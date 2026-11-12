@@ -1,0 +1,62 @@
+<!doctype html><meta charset="utf-8"><title>温州云阅卷验收</title>
+<style>img{width:300px;height:100px}.panel{max-width:340px}button,input{font-size:16px}</style>
+<div id="app"><main class="panel"><span>三、综合题 31(1)(3分)</span>
+<div class="redbiginput"><input class="el-input__inner" placeholder="请给分" readonly></div>
+<input type="number" placeholder="请输入" value="1" aria-label="步长">
+<button class="submitscorebtn">给分</button><div class="paper"></div></main></div><pre id="result"></pre>
+<script>
+const params=new URLSearchParams(location.search),mode=params.get('mode'),runId=params.get('run');
+const storage={'ai-grading-show-onboarding':false};
+window.GM_getValue=(k,v)=>storage[k]??v;window.GM_setValue=(k,v)=>storage[k]=v;
+window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
+const app=document.getElementById('app'),panel=document.querySelector('.panel'),input=document.querySelector('input');
+if(mode==='keyboard'){input.id='compuinput';input.readOnly=false;input.parentElement.className='questionInputs'}
+const mark={markingType:mode==='keyboard'?1:2,questionScore:null,reviewProps:{},markReview:false,
+ haveJoin:false,batchGrading:false,IsSubItemscoring:false,
+ readOverInfo:{studentId:'A',sheetId:101,questionId:42,question:{questionName:'31(1)',score:3},inputFastSumbitFlag:true}};
+let commits=0,submits=0,nativeInputs=0;
+app.__vue_app__={config:{globalProperties:{$store:{state:{mark},commit(key,value){
+ if(key!=='mark/SET_SCOREING')throw Error('Unexpected mutation');
+ commits++;mark.questionScore=value;queueMicrotask(()=>input.value=value==null?'':value);
+}}}}};
+input.addEventListener('input',()=>{nativeInputs++;submits++});
+function paper(student,hidden=false){const img=document.createElement('img');img.className='el-image__inner';
+ img.src=location.origin+'/r/deployment:/union_new/exam/subject/school/student/'+student+'/hash/web/42.svg';
+ if(hidden)img.hidden=true;return img}
+const papers=document.querySelector('.paper');papers.append(paper('A'));
+document.querySelector('button').onclick=()=>{submits++;const xhr=new XMLHttpRequest();
+ xhr.open('POST','/v2/union/mark/submit');xhr.onload=()=>setTimeout(()=>papers.replaceChildren(paper('B')),80);
+ xhr.send(JSON.stringify({studentId:mark.readOverInfo.studentId,sheetId:101,questionId:42,score:mark.questionScore}))};
+if(mode==='late'||mode==='spa')panel.remove();
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{
+ const wait=ms=>new Promise(r=>setTimeout(r,ms)),assert=(ok,message)=>{if(!ok)throw Error(message)};
+ try{
+  if(mode==='late'||mode==='spa'){
+   assert(!window.__AI_MARKER_ADAPTER__,'页面就绪前等待');
+   if(mode==='spa')location.hash='/marking/grading?questionId=42&choiceIndex=0';
+   await wait(100);app.append(panel);
+  }
+  for(let i=0;i<160&&!document.querySelector('.ai-grade-btn');i++)await wait(50);
+  const a=window.__AI_MARKER_ADAPTER__;
+  assert(a?.name==='温州云阅卷'&&a.isMarkingPage(),'完整脚本识别温州页面');
+  assert(document.querySelectorAll('.ai-grade-btn').length===1,'唯一批改入口');
+  assert(a.getScoreInputs().length===1&&a.getScoreInputs()[0].maxScore===3,'读取题目满分并排除步长框');
+  const urls=await a.gatherAnswerImages(),old=a.getPaperIdentity();assert(urls.length===1&&old,'答卷图及身份就绪');
+  for(const value of [0,2.5,3]){assert(a.fillScores([value]),'合法分数填入');await wait(0);
+   assert(mark.questionScore===value&&Number(input.value)===value,'显示与平台评分状态一致')}
+  assert(commits===3&&submits===0&&nativeInputs===0,'平台快捷给分开启时仍只填分');
+  assert(!a.fillScores([4])&&!a.fillScores([''])&&mark.questionScore===3,'非法分数保留当前分数');
+  const button=document.querySelector('button');button.disabled=true;assert(!a.submitGrade(),'禁用时停止');button.disabled=false;
+  assert(await a.submitGrade(),'通过平台按钮提交并确认保存');assert(await a.waitForNextPaper(urls[0]),'新答卷图出现后继续');
+  assert(submits===1&&a.getPaperIdentity()!==old,'一次提交及明确换卷');
+  papers.append(paper('C'));assert((await a.gatherAnswerImages()).length===0&&a.getPaperIdentity()===null,'混卷过渡期停止');
+  papers.replaceChildren(paper('B'),paper('A',true));assert((await a.gatherAnswerImages()).length===1,'隐藏旧图不参与');
+  for(const key of ['review','markReview','readonly']){location.hash='/marking/grading?questionId=42&'+key+'=true';
+   assert(a.isRegradeMode()&&!a.fillScores([1])&&!a.submitGrade(),'复查、回评及只读保护')}
+  location.hash='/marking/gradingList/list';assert(!a.isMarkingPage()&&(await a.gatherAnswerImages()).length===0,'离开阅卷后停止');
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,mode,checks:22}))));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))))}
+})();
+</script>
