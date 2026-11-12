@@ -308,7 +308,7 @@ test('多命中冲突必须 console.error 红灯且保留先到者（X07 形态�
 
 // ================= 4. 好分数 586e544 补强（strict-a H1） =================
 
-test('H1：_sheetIdentity 签名抖动/裁切漂移不是换卷证据，sheetSerial 才是', () => {
+test('H1：单张图片身份忽略签名与裁切变化，图片序号变化时区分图片', () => {
     const { id } = winner({
         hostname: 'yue.haofenshu.com', pathname: '/minions/subject/10501730/mark/27228560/normal/4',
         elements: [],
@@ -323,8 +323,8 @@ test('H1：_sheetIdentity 签名抖动/裁切漂移不是换卷证据，sheetSer
     const u1 = 'https://yj-oss.yunxiao.com/v1/baidu-raw/cutimage/10501730/66880/10/000117/7D3D0C34-AB12_1158_84_988_303.jpg?authorization=bce-auth-v1/x';
     const u2 = 'https://yj-oss.yunxiao.com/v1/baidu-raw/cutimage/10501730/66880/10/000117/7D3D0C34-AB12_10_50_1000_400.jpg?authorization=bce-auth-v1/OTHER';
     const u3 = 'https://yj-oss.yunxiao.com/v1/baidu-raw/cutimage/10501730/66880/10/000118/99AA0C34-CD77_1158_84_988_303.jpg?authorization=bce-auth-v1/x';
-    assert.strictEqual(a._sheetIdentity(u1), a._sheetIdentity(u2), '同卷签名抖动+裁切漂移必须同一身份');
-    assert.notStrictEqual(a._sheetIdentity(u1), a._sheetIdentity(u3), 'sheetSerial 变化必须是新身份');
+    assert.strictEqual(a._sheetIdentity(u1), a._sheetIdentity(u2), '同图签名更新与裁切调整保持图片身份');
+    assert.notStrictEqual(a._sheetIdentity(u1), a._sheetIdentity(u3), '不同图片序号具有不同图片身份，任务关系由原生任务核对');
     assert.strictEqual(a._sheetIdentity('https://x.com/a/b_1_2_3_4.jpg?q=1'), 'https://x.com/a/b.jpg', '非 cutimage 回退去 query+裁切后缀');
 });
 

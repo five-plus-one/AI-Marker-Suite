@@ -48,7 +48,7 @@ async function connect(url) {
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
             'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
-            'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'zhixue']
+            'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'zhixue', 'haofenshu']
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -58,6 +58,7 @@ async function connect(url) {
         const ameqpHtml = fs.readFileSync(path.join(root, 'tests/fixtures/ameqp.html'), 'utf8');
         const jzsmarteduHtml = fs.readFileSync(path.join(root, 'tests/fixtures/jzsmartedu.html'), 'utf8');
         const jiukexingHtml = fs.readFileSync(path.join(root, 'tests/fixtures/jiukexing.html'), 'utf8');
+        const haofenshuHtml = fs.readFileSync(path.join(root, 'tests/fixtures/haofenshu.html'), 'utf8');
         const zhixueHtml = fs.readFileSync(path.join(root, 'tests/fixtures/zhixue.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
@@ -74,7 +75,12 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.hostname === 'www.zhixue.com' && url.pathname === '/webmarking/marking/personal/') {
+                if (url.hostname === 'yue.haofenshu.com' && url.pathname.startsWith('/minions/subject/')) {
+                    body = haofenshuHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 'yue.haofenshu.com' && url.pathname.startsWith('/v1/baidu-raw/')) {
+                    body = '<svg xmlns="http://www.w3.org/2000/svg" width="1494" height="673"><text x="10" y="40">fixture answer</text></svg>';
+                    type = 'image/svg+xml'; status = 200;
+                } else if (url.hostname === 'www.zhixue.com' && url.pathname === '/webmarking/marking/personal/') {
                     body = zhixueHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'marking.jkxjxw.com' && ['/marking', '/task/taskDetail'].includes(url.pathname)) {
                     body = jiukexingHtml; type = 'text/html; charset=utf-8'; status = 200;
@@ -126,9 +132,10 @@ async function connect(url) {
             const ameqp = fixture.startsWith('ameqp-');
             const jzsmartedu = fixture.startsWith('jzsmartedu-');
             const jiukexing = fixture.startsWith('jiukexing-');
+            const haofenshu = fixture === 'haofenshu';
             const zhixue = fixture === 'zhixue';
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -148,6 +155,7 @@ async function connect(url) {
                 if (jiukexing) url = 'https://marking.jkxjxw.com/' + (fixture === 'jiukexing-spa' ? 'task/taskDetail' : 'marking')
                     + '?run=' + runId + '&mode=' + fixture.slice(10) + '&examId=exam&subjectId=subject&questionBlockId=block&isdp=1';
             }
+            if (haofenshu) url = 'https://yue.haofenshu.com/minions/subject/10500001/mark/1/normal/0?run=' + runId;
             if (zhixue) url = 'https://www.zhixue.com/webmarking/marking/personal/?run=' + runId;
             navigation++;
             await client.send('Page.navigate', { url });

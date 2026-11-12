@@ -18,12 +18,16 @@ function image(url, options = {}) {
     };
 }
 
-function loadAdapter(images, mode = 'normal') {
+function loadAdapter(images, mode = 'normal', nativeTask) {
+    const root = nativeTask ? { __vue__: nativeTask } : null;
     const sandbox = {
         console: { log() {}, warn() {}, error() {} },
         location: { hostname: 'yue.haofenshu.com', pathname: '/minions/subject/10500001/mark/1/normal/0' },
         aiGradingState: { gradingMode: mode },
-        document: { querySelectorAll: selector => selector.includes('.images-box svg image.svg-image') ? images : [] },
+        document: {
+            querySelector: selector => selector === '#subjectmark_content_img' ? root : null,
+            querySelectorAll: selector => selector.includes('.images-box svg image.svg-image') ? images : [],
+        },
         getComputedStyle: element => element.style,
         __AI_MARKER_WAIT_WINDOW_MS__: 60,
         setTimeout,
@@ -41,6 +45,116 @@ test('好分数现场格式：原始裁剪图在普通、试改和无人模式�
         const adapter = loadAdapter([image(raw())], mode);
         assert.deepEqual(Array.from(await adapter.gatherAnswerImages()), [raw()], mode);
         assert.equal(adapter.getPaperIdentity(), '10500001|0|000117');
+    }
+});
+
+// 脱敏现场：同一 taskKey 的 blockImg 含两张不同图片序号的裁剪图，pos.i 为 0、1。
+const pageOne = cut('000231').replace('AABBCCDD_10_20_1000_1030.jpg', 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE_18_1900_1514_211.png');
+const pageTwo = cut('000415').replace('AABBCCDD_10_20_1000_1030.jpg', 'FFFFFFFF-BBBB-CCCC-DDDD-EEEEEEEEEEEE_18_100_1494_673.png');
+
+test('第30题四给分项的两张原生题块图：不同图片序号属于同一任务，三模式均完整取图', async () => {
+    for (const mode of ['normal', 'trial', 'unattended']) {
+        const task = { taskKey: 'fixture-current-task', imgUrl: [pageOne, pageTwo] };
+        const adapter = loadAdapter([image(pageOne), image(pageTwo)], mode, task);
+        assert.deepEqual(Array.from(await adapter.gatherAnswerImages()), [pageOne, pageTwo]);
+        assert.equal(adapter.getPaperIdentity(), JSON.stringify([adapter.getTaskIdentifier(), task.taskKey]));
+    }
+});
+
+test('当前任务只读图片容器的父组件，不读取预加载任务', async () => {
+    const task = { taskKey: 'current', imgUrl: [pageOne, pageTwo] };
+    const adapter = loadAdapter([image(pageOne), image(pageTwo)], 'normal', { $parent: task });
+    assert.equal((await adapter.gatherAnswerImages()).length, 2);
+});
+
+test('组合题缺图、顺序不符、混入旧图、原生任务未就绪时整体等待', async () => {
+    const cases = [
+        [[image(pageOne)], { taskKey: 'current', imgUrl: [pageOne, pageTwo] }],
+        [[image(pageOne), image(pageTwo), image(raw())], { taskKey: 'current', imgUrl: [pageOne, pageTwo] }],
+        [[image(pageTwo), image(pageOne)], { taskKey: 'current', imgUrl: [pageOne, pageTwo] }],
+        [[image(pageOne), image(pageTwo)], { taskKey: '', imgUrl: [pageOne, pageTwo] }],
+        [[image(pageOne)], { taskKey: 'current', imgUrl: '' }],
+        [[image(pageOne)], { taskKey: 'current', imgUrl: [pageOne, 'javascript:invalid'] }],
+        [[image(pageOne)], { taskKey: 'current', imgUrl: [pageOne, pageOne] }],
+        [[image(pageOne), image(pageTwo, { visible: false })], { taskKey: 'current', imgUrl: [pageOne, pageTwo] }],
+    ];
+    for (const [images, task] of cases) {
+        const adapter = loadAdapter(images, 'normal', task);
+        assert.deepEqual(Array.from(await adapter.gatherAnswerImages()), []);
+        assert.equal(adapter.getPaperIdentity(), null);
+    }
+});
+
+test('原生任务签名更新保持身份，完整新任务加载后才能进入下一份', async () => {
+    const images = [image(pageOne), image(pageTwo)];
+    const task = { taskKey: 'current', imgUrl: [pageOne, pageTwo] };
+    const adapter = loadAdapter(images, 'unattended', task);
+    await adapter.gatherAnswerImages();
+    const identity = adapter.getPaperIdentity();
+    images.splice(0, 2, image(pageOne.replace('fixture', 'rotated')), image(pageTwo.replace('fixture', 'rotated')));
+    assert.equal(adapter.getPaperIdentity(), identity);
+    assert.equal(await adapter.waitForNextPaper(pageOne), false);
+
+    // 任务已切换但图未换齐，或只剩旧任务的一部分，均不能放行。
+    task.taskKey = 'next';
+    const nextOne = cut('000232'), nextTwo = cut('000416');
+    task.imgUrl = [nextOne, nextTwo];
+    images.splice(0, 2, image(nextOne), image(pageTwo));
+    assert.equal(await adapter.waitForNextPaper(pageOne), false);
+    images.splice(0, 2, image(nextOne));
+    assert.equal(await adapter.waitForNextPaper(pageOne), false);
+    images.push(image(nextTwo));
+    assert.notEqual(adapter.getPaperIdentity(), identity);
+    assert.equal(await adapter.waitForNextPaper(pageOne), true);
+});
+
+test('原生任务变化但保留旧图时，不将任务字段单独作为换卷成功', async () => {
+    const task = { taskKey: 'current', imgUrl: [pageOne, pageTwo] };
+    const adapter = loadAdapter([image(pageOne), image(pageTwo)], 'unattended', task);
+    await adapter.gatherAnswerImages();
+    task.taskKey = 'next';
+    assert.equal(await adapter.waitForNextPaper(pageOne), false);
+});
+
+test('取图后任务变化或缺图时，填分与提交均显式失败', async () => {
+    const images = [image(pageOne), image(pageTwo)];
+    const task = { taskKey: 'current', imgUrl: [pageOne, pageTwo] };
+    const adapter = loadAdapter(images, 'normal', task);
+    await adapter.gatherAnswerImages();
+    assert.equal(adapter._collectedTaskIsCurrent(), true);
+    task.taskKey = 'next';
+    assert.equal(adapter.fillScores([1, 2, 1, 3]), false);
+    assert.equal(adapter.submitGrade(), false);
+    task.taskKey = 'current';
+    images.pop();
+    assert.equal(adapter.fillScores([1, 2, 1, 3]), false);
+    assert.equal(adapter.submitGrade(), false);
+});
+
+test('原生组件重建期间不降级成图片序号，恢复后仍为原任务', async () => {
+    const task = { taskKey: 'current', imgUrl: [pageOne] };
+    const adapter = loadAdapter([image(pageOne)], 'normal', task);
+    await adapter.gatherAnswerImages();
+    const identity = adapter.getPaperIdentity();
+    delete task.taskKey;
+    delete task.imgUrl;
+    assert.equal(adapter.getPaperIdentity(), null);
+    assert.deepEqual(Array.from(await adapter.gatherAnswerImages()), []);
+    assert.equal(adapter.fillScores([1]), false);
+    Object.assign(task, { taskKey: 'current', imgUrl: [pageOne] });
+    assert.equal(adapter.getPaperIdentity(), identity);
+});
+
+test('填分前取消原生自动提交；平台未成功关闭时拒绝继续', () => {
+    for (const stuck of [false, true]) {
+        const root = { checked: true, click() { if (!stuck) this.checked = false; } };
+        // 保留独立的 DOM 探针，验证实际 checkbox 点击及关闭结果。
+        const sandbox = { console: { warn() {}, error() {} }, window: { location: { hostname: 'yue.haofenshu.com', pathname: '/minions/' } },
+            document: { querySelector: () => root } };
+        vm.createContext(sandbox);
+        for (const file of ['selectors.js', 'adapter.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/adapters/haofenshu', file), 'utf8'), sandbox);
+        assert.equal(sandbox.window.__AI_MARKER_ADAPTER__.prepareGrading(), !stuck);
+        assert.equal(root.checked, stuck);
     }
 });
 
