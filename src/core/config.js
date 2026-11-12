@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.22.0',
+    VERSION: '1.21.23.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.23': [
+            '【修复】好分数组合题按当前任务读取完整答题卡，支持同题跨多张图片，并核对填分与换卷状态',
+            '【修复】好分数填分前关闭平台自动提交，按确认流程保存成绩',
+        ],
         '1.21.22': [
             '【修复】多小题评分完整解析给分算式，按小题明细汇总总分，并统一单评、双评和仲裁结果',
         ],

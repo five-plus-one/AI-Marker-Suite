@@ -8,9 +8,8 @@
 //       /v1/baidu-raw/{subject}/{exam}/{part}/{sheetSerial}/{hash}.jpg%40c_…
 //     - query 为 OSS 签名，同一份卷两次取图会抖动 → **不得**当换卷证据
 //     - 尾部 _{x}_{y}_{w}_{h} 为裁切坐标，重裁会变 → 也不得当换卷证据
-//     - 两类路径均以 subject/exam/part/sheetSerial 编排；sheetSerial 为答题卡序号
-//       （如 000117），同卷各小题裁剪图共用，换卷必变
-//       → 换卷强信号（getPaperIdentity/waitForNextPaper 只认它）
+//     - 路径序号属于图片，组合题可跨多张图片，不能要求同任务的序号相同。
+//       当前图片组件的 taskKey + imgUrl 关联完整题块，和已显示图片一致后才可取图。
 //     - 偶发 942×4 残片/小图标 → 过滤（兜底宁可不取，坏图批改比空图严重）
 //   分数输入：#scoringBoard .quick-mark > .score-list（span.block-title「一.12」+ input.score-input，
 //     placeholder「满分4分」「满分3分」，首行带 active）
@@ -64,8 +63,47 @@ const HaofenshuAdapter = {
         return window.location.pathname;
     },
 
+    // 原生图片组件在加载任务时同步赋值 taskKey 和 imgUrl（blockImg.split(',')）。
+    // 只读当前图片容器及其父组件，避免从预加载队列或其他题块取得任务。
+    _nativeImageTask() {
+        const seen = new Set();
+        for (let node = document.querySelector('#subjectmark_content_img'); node; node = node.parentElement) {
+            for (let page = node.__vue__; page && !seen.has(page); page = page.$parent) {
+                seen.add(page);
+                if ('taskKey' in page && 'imgUrl' in page) {
+                    return { key: page.taskKey, urls: page.imgUrl };
+                }
+            }
+        }
+        return null;
+    },
+
+    _imagePath(url) {
+        return typeof url === 'string' && /^https?:\/\//i.test(url.trim())
+            ? url.trim().split(/[?#]/)[0] : '';
+    },
+
+    // 当前任务和页面图集必须完整对应。签名轮换不改变对应关系，缺图、旧图或多图均不放行。
+    _imageSnapshot() {
+        const urls = this._visibleImageUrls();
+        const task = this._nativeImageTask();
+        if (task) {
+            const key = task.key == null ? '' : String(task.key).trim();
+            if (!key || !Array.isArray(task.urls) || !task.urls.length) return null;
+            const expected = task.urls.map(u => this._imagePath(u));
+            const actual = urls.map(u => this._imagePath(u));
+            if (expected.some(u => !u) || new Set(expected).size !== expected.length ||
+                actual.length !== expected.length || actual.some((u, i) => u !== expected[i])) return null;
+            return { urls, identity: JSON.stringify([this.getTaskIdentifier(), key]), native: true };
+        }
+        // 没有原生关联时，仅沿用已验证的同路径序号兼容规则，不能猜测不同序号属于同卷。
+        const keyed = urls.map(u => ({ u, key: this._sheetKey(u) })).filter(x => x.key);
+        const keys = new Set(keyed.map(x => x.key));
+        return keys.size === 1 ? { urls: keyed.map(x => x.u), identity: [...keys][0], native: false } : null;
+    },
+
     // ---- 图片身份（换卷强信号）----
-    // 已知答题卡路径里的 sheetSerial 同卷稳定、换卷必变；提取不到时回退
+    // 单张图片的路径序号；仅作原生任务数据缺失时的兼容依据。提取不到时回退
     // 「去 query + 去裁切坐标后缀」的路径（仍可容忍签名抖动/重裁切）
     _sheetIdentity(url) {
         if (typeof url !== 'string' || !url) return '';
@@ -74,7 +112,7 @@ const HaofenshuAdapter = {
         return url.split('?')[0].split('#')[0].replace(/_\d+_\d+_\d+_\d+(\.\w+)$/, '$1');
     },
 
-    // 两类题块图共享 subject|exam|sheetSerial；裁剪参数和签名不参与身份。
+    // 两类图片路径共享 subject|exam|imageSerial；裁剪参数和签名不参与。
     _sheetKey(url) {
         const path = typeof url === 'string' ? url.split(/[?#]/)[0] : '';
         const m = path.match(/\/(?:cutimage|baidu-raw)\/(\d+)\/(\d+)\/\d+\/(\d+)\//);
@@ -140,28 +178,18 @@ const HaofenshuAdapter = {
         return urls;
     },
 
-    // 取图（#312 单卷一致性，对齐 huahanyun）：只认带 sheetSerial 的题块图，且**可见集
-    // 必须同属一份卷**——混入他卷残留/他人图时整体拒绝（宁可不取，防错卷喂 AI）；
-    // 非题块图（无已知路径序列）剔除不参与
+    // 原生任务给出组合题的完整图集；不能用单张图片序号替代整份任务身份。
     async gatherAnswerImages() {
         // 等待 SVG 裁剪图渲染/懒加载
         await new Promise(r => setTimeout(r, 1000));
-        const raw = this._rawImageUrls();
-        const keyed = this._visibleImageUrls()
-            .map(u => ({ u, key: this._sheetKey(u) }))
-            .filter(x => x.key);
-        const keys = new Set(keyed.map(x => x.key));
-        if (keys.size === 0) {
-            console.warn(`⚠️ [好分数] 可见图中无题块序列图（候选 ${raw.length} 张）→ 不取图（宁可不取）`);
+        const snapshot = this._imageSnapshot();
+        if (!snapshot) {
+            console.warn('⚠️ [好分数] 当前任务与完整答题卡图片尚未对应，暂不取图');
             return [];
         }
-        if (keys.size > 1) {
-            console.warn(`⚠️ [好分数] 可见图卷标识不一致（${[...keys].join('、')}）→ 整体拒绝取图（宁可不取，防新旧混图喂 AI）`);
-            return [];
-        }
-        const urls = keyed.map(x => x.u);
-        console.log(`🖼️ [诊断] SVG image 元素 ${raw.length} 个，单卷一致性过滤后 ${urls.length} 张（${[...keys][0]}）`);
-        return urls;
+        this._collectedImageSnapshot = snapshot;
+        console.log(`🖼️ [好分数] 已取得完整答题卡 ${snapshot.urls.length} 张`);
+        return snapshot.urls;
     },
 
     async fetchImageAsBase64(url) {
@@ -169,19 +197,28 @@ const HaofenshuAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    // 试卷稳定标识（#281 强信号，strict-a H1-a 补强）：sheetSerial 同卷稳定（同卷各小题
-    // 裁剪图共用），换卷必变；OSS 签名抖动/裁切坐标漂移不影响。
-    // 取「可见图（废图/隐藏残留已剔除）」的身份并集——过渡期"旧残留+新图"并存时残留会退场，
-    // 原始并集会把残留 serial 记进身份导致换卷误报；口径与 waitForNextPaper 一致。
-    // 取不到返回 null → core 退回 URL 归一化比对
+    prepareGrading() {
+        const auto = document.querySelector(HAO_FENSHU_SELECTORS.AUTO_SUBMIT_CHECKBOX + ' input[type="checkbox"]');
+        if (auto?.checked) auto.click();
+        if (auto?.checked) {
+            this.lastFillError = '请先关闭平台自动提交';
+            return false;
+        }
+        return true;
+    },
+
+    _collectedTaskIsCurrent() {
+        if (!this._collectedImageSnapshot?.native) return true;
+        const current = this._imageSnapshot();
+        if (current?.native && current.identity === this._collectedImageSnapshot.identity) return true;
+        this.lastFillError = '当前答题卡已变化或尚未加载完整，请重新批改';
+        return false;
+    },
+
+    // 身份和取图共用快照；未完成的过渡状态返回 null，交由 core 重查。
     getPaperIdentity() {
         try {
-            const ids = [];
-            for (const u of this._visibleImageUrls()) {
-                const id = this._sheetKey(u);
-                if (id && !ids.includes(id)) ids.push(id);
-            }
-            return ids.length ? ids.sort().join(',') : null;
+            return this._imageSnapshot()?.identity || null;
         } catch (e) {
             return null;
         }
@@ -207,6 +244,8 @@ const HaofenshuAdapter = {
     },
 
     fillScores(scores) {
+        this.lastFillError = '';
+        if (!this._collectedTaskIsCurrent() || !this.prepareGrading()) return false;
         const inputs = this.getScoreInputs();
         if (inputs.length === 0) return false;
 
@@ -260,6 +299,7 @@ const HaofenshuAdapter = {
     },
 
     submitGrade() {
+        if (!this._collectedTaskIsCurrent()) return false;
         const submitBtn = document.querySelector(HAO_FENSHU_SELECTORS.SUBMIT_BUTTON);
         if (!submitBtn) {
             console.warn('⚠️ [好分数] 未找到提交按钮 → 拒绝提交');
@@ -274,11 +314,8 @@ const HaofenshuAdapter = {
         return true;
     },
 
-    // 换卷判定（#306 集合退出 + #309 阻塞式窗口 + #312 正向证据，对齐 huahanyun）：
-    // 阻塞式等待——内部轮询至窗口结束（默认 25s 与全仓对齐），旧卷标识退出**且
-    // 题块图集非空**（新卷图已出现）才返回 true；窗口耗尽才 false 交 core 重试。
-    // 签名 query 抖动/裁切坐标漂移不得当换卷证据；输入框清空是弱信号不参与判定
-    async waitForNextPaper(oldImageUrl) {
+    // 新任务的完整图集出现且旧图退出后才继续；签名变化、清空分数和部分换图均不是完成证据。
+    async waitForNextPaper(oldImageUrl, options = {}) {
         // 空旧图无从比较（#315 G5）：宁等勿错——fail-open 会同卷重复批改
         if (!oldImageUrl) return false;
         const win = Number(window.__AI_MARKER_WAIT_WINDOW_MS__);
@@ -288,22 +325,23 @@ const HaofenshuAdapter = {
         const oldKey = this._sheetKey(oldImageUrl);
         const oldId = this._sheetIdentity(oldImageUrl);
         while (true) {
+            if (options.signal?.aborted) return false;
             try {
-                const urls = this._visibleImageUrls();
-                if (oldKey) {
-                    // 强标识路径（#312 正向证据）：只认题块序列图（旁图/残片不参与判定），
-                    // 题块图非空且旧卷标识退出 → 换卷成立（可见集只含新卷，防混图喂 AI）
-                    const keys = new Set(urls.map(u => this._sheetKey(u)).filter(Boolean));
-                    if (keys.size > 0 && !keys.has(oldKey)) {
-                        console.log(`✅ [好分数] 新试卷已加载（旧标识 ${oldKey} 退出可见集，现集合 ${[...keys].join('、')}）`);
-                        return true;
-                    }
-                } else {
-                    // 兜底：非标准 URL（无已知路径序列）——按归一化路径集合判定（拿不准宁可等待）
-                    const cur = new Set(urls.map(u => this._sheetIdentity(u)).filter(Boolean));
-                    if (cur.size > 0 && !cur.has(oldId)) {
-                        console.log(`✅ [好分数] 新试卷已加载（路径集合判定，旧 ${oldId} 已退出）`);
-                        return true;
+                const current = this._imageSnapshot();
+                const collected = this._collectedImageSnapshot;
+                if (collected?.native && collected.urls.some(u => this._imagePath(u) === this._imagePath(oldImageUrl))) {
+                    // 新任务身份、完整新图集及旧图退出必须同时成立，部分换图不能算换卷。
+                    const oldPaths = new Set(collected.urls.map(u => this._imagePath(u)));
+                    if (current?.native && current.identity !== collected.identity &&
+                        current.urls.every(u => !oldPaths.has(this._imagePath(u)))) return true;
+                } else if (current) {
+                    const urls = current.urls;
+                    if (oldKey) {
+                        const keys = new Set(urls.map(u => this._sheetKey(u)).filter(Boolean));
+                        if (keys.size > 0 && !keys.has(oldKey)) return true;
+                    } else {
+                        const cur = new Set(urls.map(u => this._sheetIdentity(u)).filter(Boolean));
+                        if (cur.size > 0 && !cur.has(oldId)) return true;
                     }
                 }
             } catch (e) { /* 读取瞬态失败继续等 */ }

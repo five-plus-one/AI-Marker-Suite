@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8"><title>好分数组合题验收</title>
+<style>svg{display:block;width:700px;max-width:95vw;height:120px}input{width:80px}</style>
+<main><div id="subjectmark_content_img"><div class="images-box"></div></div>
+<div id="scoringBoard"><div class="quick-mark"></div><footer class="submit-auto"><label class="el-checkbox"><input id="native-auto" type="checkbox" checked>自动提交</label></footer><button class="submit-button">提交</button></div></main>
+<pre id="result"></pre>
+<script>
+const runId=new URLSearchParams(location.search).get('run'),store={'ai-grading-show-onboarding':false};
+window.GM_getValue=(key,fallback)=>store[key]??fallback;window.GM_setValue=(key,value)=>store[key]=value;
+window.GM_deleteValue=key=>delete store[key];window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
+const box=document.querySelector('.images-box'),vm={taskKey:'',imgUrl:[]},scores=[],auto=document.getElementById('native-auto');
+document.querySelector('#subjectmark_content_img').__vue__={$parent:vm};
+let saves=0;const path=(serial,name)=>location.origin+'/v1/baidu-raw/cutimage/10500001/0/10/'+serial+'/'+name+'_18_100_1494_673.png?authorization=fixture';
+function paper(key){vm.taskKey=key;vm.imgUrl=[path(key==='A'?'000231':'000232','page-one'),path(key==='A'?'000415':'000416','page-two')];box.innerHTML=vm.imgUrl.map(url=>'<svg xmlns="http://www.w3.org/2000/svg" class="svg-wrapper" viewBox="0 0 1494 673"><image class="svg-image" href="'+url+'" width="1494" height="673"/></svg>').join('')}
+for(const [i,max]of [2,4,2,4].entries()){const row=document.createElement('div');row.className='score-list';row.innerHTML='<span class="block-title">二.30.'+(i+1)+'</span><input class="score-input" placeholder="满分'+max+'分">';row.querySelector('input').oninput=event=>{scores[i]=event.target.value;if(auto.checked&&scores.length===4&&scores.every(x=>x!==''))saves++};document.querySelector('.quick-mark').append(row)}
+document.querySelector('.submit-button').onclick=()=>{saves++;paper('B')};paper('A');
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),assert=(ok,message)=>{if(!ok)throw Error(message)};let checks=0;const check=(ok,message)=>{checks++;assert(ok,message)};
+try{
+for(let i=0;i<120&&!window.__AI_MARKER_ADAPTER__;i++)await wait(50);
+const a=window.__AI_MARKER_ADAPTER__;check(a?.id==='haofenshu','选择好分数适配器');
+const original=await a.gatherAnswerImages(),identity=a.getPaperIdentity();
+check(original.length===2&&a._sheetKey(original[0])!==a._sheetKey(original[1]),'同一任务接受两张不同图片序号的图');
+check(a.getScoreInputs().map(x=>x.label).join(',')==='二.30.1,二.30.2,二.30.3,二.30.4','四个给分项顺序');
+check(a.fillScores([1,3,0,2]),'四项分数全部写入');check(scores.join(',')==='1,3,0,2'&&!auto.checked&&saves===0,'关闭原生自动提交且准确登记分数');
+check(!a.fillScores([1,3,0]),'缺少分项时拒绝填写');
+vm.imgUrl=vm.imgUrl.map(x=>x.replace('authorization=fixture','authorization=rotated'));check(a.getPaperIdentity()===identity,'签名变化保持身份');
+const removed=box.lastElementChild;removed.remove();check((await a.gatherAnswerImages()).length===0&&!a.fillScores([1,3,0,2]),'缺图时阻止取图和填分');box.append(removed);
+vm.taskKey='other';check(!a.fillScores([1,3,0,2])&&!a.submitGrade()&&saves===0,'切换任务后拒绝旧分数');vm.taskKey='A';
+check(a.submitGrade()&&saves===1,'同一任务确认后仅保存一次');
+check(await a.waitForNextPaper(original[0]),'完整新任务图集到齐后继续');
+check(a.getPaperIdentity()!==identity&&(await a.gatherAnswerImages()).length===2,'下一任务取得完整图集');
+document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
+}catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))))}})();
+</script>
