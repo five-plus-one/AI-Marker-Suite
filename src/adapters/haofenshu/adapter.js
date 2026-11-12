@@ -3,10 +3,13 @@
 //
 // 实测现场（用户完整诊断，/minions/subject/{subjectId}/mark/{taskId}/normal/{index}）：
 //   答案图：div#subjectmark_content_img > .images-box > svg.svg-wrapper > image.svg-image
-//     xlink:href=https://yj-oss.yunxiao.com/v1/baidu-raw/cutimage/{subject}/{exam}/{part}/{sheetSerial}/{hash}_{x}_{y}_{w}_{h}.jpg?authorization=…
+//     xlink:href 支持两类路径：
+//       /v1/baidu-raw/cutimage/{subject}/{exam}/{part}/{sheetSerial}/{hash}_{x}_{y}_{w}_{h}.jpg
+//       /v1/baidu-raw/{subject}/{exam}/{part}/{sheetSerial}/{hash}.jpg%40c_…
 //     - query 为 OSS 签名，同一份卷两次取图会抖动 → **不得**当换卷证据
 //     - 尾部 _{x}_{y}_{w}_{h} 为裁切坐标，重裁会变 → 也不得当换卷证据
-//     - sheetSerial（cutimage 第 4 段，如 000117）= 答题卡序号：同卷各小题裁剪图共用，换卷必变
+//     - 两类路径均以 subject/exam/part/sheetSerial 编排；sheetSerial 为答题卡序号
+//       （如 000117），同卷各小题裁剪图共用，换卷必变
 //       → 换卷强信号（getPaperIdentity/waitForNextPaper 只认它）
 //     - 偶发 942×4 残片/小图标 → 过滤（兜底宁可不取，坏图批改比空图严重）
 //   分数输入：#scoringBoard .quick-mark > .score-list（span.block-title「一.12」+ input.score-input，
@@ -62,18 +65,19 @@ const HaofenshuAdapter = {
     },
 
     // ---- 图片身份（换卷强信号）----
-    // cutimage 路径里的 sheetSerial 同卷稳定、换卷必变；提取不到时回退
+    // 已知答题卡路径里的 sheetSerial 同卷稳定、换卷必变；提取不到时回退
     // 「去 query + 去裁切坐标后缀」的路径（仍可容忍签名抖动/重裁切）
     _sheetIdentity(url) {
         if (typeof url !== 'string' || !url) return '';
-        const m = url.match(/\/cutimage\/(\d+)\/(\d+)\/\d+\/(\d+)\//);
-        if (m) return m[1] + '|' + m[2] + '|' + m[3];   // subject|exam|sheetSerial
+        const key = this._sheetKey(url);
+        if (key) return key;
         return url.split('?')[0].split('#')[0].replace(/_\d+_\d+_\d+_\d+(\.\w+)$/, '$1');
     },
 
-    // 严格题块键（#312 单卷一致性用）：只认 cutimage sheetSerial，非题块图返回 null（剔除）
+    // 两类题块图共享 subject|exam|sheetSerial；裁剪参数和签名不参与身份。
     _sheetKey(url) {
-        const m = typeof url === 'string' ? url.match(/\/cutimage\/(\d+)\/(\d+)\/\d+\/(\d+)\//) : null;
+        const path = typeof url === 'string' ? url.split(/[?#]/)[0] : '';
+        const m = path.match(/\/(?:cutimage|baidu-raw)\/(\d+)\/(\d+)\/\d+\/(\d+)\//);
         return m ? m[1] + '|' + m[2] + '|' + m[3] : null;
     },
 
@@ -138,7 +142,7 @@ const HaofenshuAdapter = {
 
     // 取图（#312 单卷一致性，对齐 huahanyun）：只认带 sheetSerial 的题块图，且**可见集
     // 必须同属一份卷**——混入他卷残留/他人图时整体拒绝（宁可不取，防错卷喂 AI）；
-    // 非题块图（无 cutimage 序列）剔除不参与
+    // 非题块图（无已知路径序列）剔除不参与
     async gatherAnswerImages() {
         // 等待 SVG 裁剪图渲染/懒加载
         await new Promise(r => setTimeout(r, 1000));
@@ -174,7 +178,7 @@ const HaofenshuAdapter = {
         try {
             const ids = [];
             for (const u of this._visibleImageUrls()) {
-                const id = this._sheetIdentity(u);
+                const id = this._sheetKey(u);
                 if (id && !ids.includes(id)) ids.push(id);
             }
             return ids.length ? ids.sort().join(',') : null;
@@ -295,7 +299,7 @@ const HaofenshuAdapter = {
                         return true;
                     }
                 } else {
-                    // 兜底：非标准 URL（无 cutimage 序列）——按归一化路径集合判定（拿不准宁可等待）
+                    // 兜底：非标准 URL（无已知路径序列）——按归一化路径集合判定（拿不准宁可等待）
                     const cur = new Set(urls.map(u => this._sheetIdentity(u)).filter(Boolean));
                     if (cur.size > 0 && !cur.has(oldId)) {
                         console.log(`✅ [好分数] 新试卷已加载（路径集合判定，旧 ${oldId} 已退出）`);
