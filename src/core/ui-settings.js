@@ -808,7 +808,7 @@ function createSettingsPanel(options) {
                             AI 请求期间若翻卷，防止把旧卷分数填进新卷并误提交。<br>
                             <b>若遇到误报</b>（被「答卷已切换」拦下、但实际并未换卷），可先<b>取消勾选此项</b>继续批改，并把日志反馈给我们。
                         </div>
-                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="question-guard-enabled"><label for="question-guard-enabled">题号变化时暂停批改（实验性）</label></div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="question-guard-enabled"><label for="question-guard-enabled" style="display:flex;align-items:center;min-height:44px;flex:1;">题号变化时暂停批改（实验性）</label></div>
                         <div class="mode-desc" style="font-size:12px;margin-top:6px;">开启后核对页面题号与小题满分，换题时暂停，请先核对评分方案再继续。目前支持智学网和好分数，默认关闭。</div>
                     </div>
                 </div>

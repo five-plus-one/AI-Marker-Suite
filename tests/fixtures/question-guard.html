@@ -53,6 +53,7 @@ try {
  panel.querySelector('.settings-nav-item[data-page=grading]').click();
  assert(!document.getElementById('question-guard-enabled').checked,'选项默认关闭');
  document.getElementById('question-guard-enabled').focus();assert(document.activeElement.id==='question-guard-enabled','选项可键盘聚焦');
+ assert(document.querySelector('label[for="question-guard-enabled"]').getBoundingClientRect().height>=44,'选项标签可触屏点击');
  assert(!document.getElementById('btn-add-unit'),'评分项由页面检测');
  assert(panel.textContent.includes('请联系作者适配'),'检测反馈提示');
  const section=document.getElementById('question-guard-enabled').closest('.form-section');section.classList.remove('collapsed');
