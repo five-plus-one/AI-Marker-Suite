@@ -1,0 +1,16 @@
+{
+  "question": "化学第16题（4）—（6），按参考答案和评分标准分别给分。",
+  "answer": "（4）2.5。\n（5）4（1分），293（1分）。\n（6）取两份相同的酸性高锰酸钾溶液和草酸混合溶液，其中一份加入少量MnSO4溶液，另一份加入等量蒸馏水，记录从反应开始到溶液褪色的时间。也可在其中一份直接加入少量MnSO4固体。",
+  "rubric": "平台题组满分6分，本验收每问2分。（4）写2.5或5/2均给2分。（5）写4给1分，写293给1分。（6）写出加入MnSO4固体，或写出一份加入MnSO4溶液、另一份加入等量蒸馏水，即给2分。仅按学生实际作答给分。",
+  "units": [{"label":"（4）","maxScore":2,"index":0,"roundStep":1},{"label":"（5）","maxScore":2,"index":1,"roundStep":1},{"label":"（6）","maxScore":2,"index":2,"roundStep":1}],
+  "cases": {
+    "workflow-solid": {"answer":"（4）2.5\n（5）4，293\n（6）其中一份加入少量MnSO4固体。","scores":[2,2,2]},
+    "workflow-fraction": {"answer":"（4）5/2\n（5）4，293\n（6）其中一份加入少量MnSO4固体。","scores":[2,2,2]},
+    "workflow-heading": {"answer":"（4）5/2\n（5）4，293\n（6）其中一份加入少量MnSO4固体。","scores":[2,2,2],"heading":true},
+    "workflow-business-failure": {"answer":"（4）2.5\n（5）4，293\n（6）其中一份加入少量MnSO4固体。","scores":[2,2,2],"failure":true},
+    "workflow-solution": {"answer":"（4）2.5\n（5）4，293\n（6）一份加入MnSO4溶液，另一份加入等量蒸馏水。","scores":[2,2,2]},
+    "workflow-partial": {"answer":"（4）2.5\n（5）4，300\n（6）其中一份加入少量MnSO4固体。","scores":[2,1,2]},
+    "workflow-zero": {"answer":"（4）7\n（5）6，300\n（6）加入氯化钠。","scores":[0,0,0]},
+    "workflow-no-score": {"answer":"（4）2.5\n（5）4，293\n（6）其中一份加入少量MnSO4固体。","scores":null}
+  }
+}
