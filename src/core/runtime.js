@@ -177,8 +177,17 @@ function createGradingContext(manual = false) {
     configuration.scoring = { ...configuration.scoring,
         maxScore: PresetManager.getMaxScore?.() ?? configuration.scoring?.maxScore,
         units: JSON.parse(JSON.stringify(PresetManager.getScoringUnits?.() || configuration.scoring?.units || [])) };
+    const questionGuardEnabled = configuration.questionGuard?.enabled === true;
+    const observedQuestion = questionGuardEnabled ? readGradingQuestionContext(adapter) : null;
+    const sessionQuestion = state.questionGuardSession;
+    const questionBaseline = !manual && sessionQuestion?.adapter === adapter && sessionQuestion.presetName === PresetManager.data.active
+        ? sessionQuestion.snapshot : observedQuestion;
+    if (questionGuardEnabled && !manual && !sessionQuestion && observedQuestion) {
+        state.questionGuardSession = { adapter, presetName: PresetManager.data.active, snapshot: observedQuestion };
+    }
     const context = {
         controller: new AbortController(), adapter, manual, configuration,
+        questionGuardEnabled, questionBaseline,
         taskId: PresetManager.getTaskIdentifier?.() || '', presetName: PresetManager.data.active,
         pageUrl: (window.location?.pathname || '') + (window.location?.hash || ''),
         paperGuardEnabled: PresetManager.getCurrentConfig?.()?.paperGuard?.enabled !== false,
@@ -211,8 +220,35 @@ function gradingContextError(message) {
     return error;
 }
 
+// 只消费适配器确认过的题号来源；分数、份数与 DOM 下标不构成题号证据。
+function readGradingQuestionContext(adapter) {
+    try {
+        const value = adapter?.getQuestionContext?.();
+        if (!value || typeof value.question !== 'string' || !Array.isArray(value.units) || !value.units.length) return null;
+        const normalize = text => String(text ?? '').normalize('NFKC').replace(/\s+/g, '').trim();
+        const question = normalize(value.question);
+        const units = value.units.map(unit => ({ label: normalize(unit.label), maxScore: Number(unit.maxScore) }));
+        if (!question || units.some(unit => !unit.label || !Number.isFinite(unit.maxScore) || unit.maxScore <= 0)) return null;
+        return { question, units, key: JSON.stringify([question, units.map(unit => [unit.label, unit.maxScore])]) };
+    } catch (_) { return null; }
+}
+
+function requireGradingQuestionContext(context) {
+    if (context?.questionGuardEnabled !== true) return;
+    const current = readGradingQuestionContext(context.adapter);
+    if (!context.questionBaseline || !current) {
+        throw gradingContextError('暂未识别到完整题号，请等待页面加载后重试；检测不正确请联系作者适配');
+    }
+    if (context.questionBaseline.key !== current.key) {
+        const error = gradingContextError('题号或小题满分已变化，请核对当前题目和评分方案后继续');
+        error.code = 'GRADING_QUESTION_CHANGED';
+        throw error;
+    }
+}
+
 function requireGradingContextTarget(context) {
     requireCurrentGradingContext(context);
+    requireGradingQuestionContext(context);
     if (PresetManager.data.active !== context.presetName) throw gradingContextError('配置方案已切换，请重新批改');
     const taskId = PresetManager.getTaskIdentifier?.() || '';
     if (context.taskId && taskId && context.taskId !== taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
@@ -222,6 +258,7 @@ function requireGradingContextTarget(context) {
 
 async function verifyGradingContext(context) {
     requireCurrentGradingContext(context);
+    requireGradingQuestionContext(context);
     const taskId = PresetManager.getTaskIdentifier?.() || '';
     if (context.taskId && taskId && taskId !== context.taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
     if (await confirmLeftMarkingPage(context.adapter)) throw gradingContextError('已离开批改页面，请返回后继续');

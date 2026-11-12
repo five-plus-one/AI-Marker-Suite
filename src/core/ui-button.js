@@ -592,6 +592,7 @@ function setupDraggable(element) {
 
 // ========== 恢复批改（从暂停状态） ==========
 function resumeGrading(btn) {
+    window.aiGradingState.questionGuardSession = null;
     window.aiGradingState.isRunning = true;
     window.aiGradingState.isPaused = false;
     window.aiGradingState.errorRetryCount = 0;
