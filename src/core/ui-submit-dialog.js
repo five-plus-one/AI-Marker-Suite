@@ -908,6 +908,8 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     taskIdentifier: runContext.taskId, pageUrl: runContext.pageUrl,
                     gradingMode: mode,
                     outputMode: getGradingOutputMode(runContext.configuration),
+                    scriptVersion: SCRIPT_CONFIG.VERSION,
+                    answerStatus: rawExtraInfo?.answerStatus || 'unknown',
                     imageUrls, studentAnswer: rawStudentAnswer,
                     aiScore: rawExtraInfo?.correction?.aiScore ?? score, aiComment: rawExtraInfo?.correction?.aiComment ?? rawComment,
                     finalScore: score, isCorrected: !!rawExtraInfo?.correction?.isCorrected, correctionReason: rawExtraInfo?.correction?.correctionReason || '',

@@ -185,7 +185,7 @@ test('真实双评及第三模型仲裁均接收同一参考资料和学生答�
     sandbox.GM_xmlhttpRequest = options => {
         const request = JSON.parse(options.data); requests.push(request);
         const score = request.model === 'secondary' ? 5 : 0;
-        const response = `【答案复述】\n${score ? 'I=3A' : '未作答'}\n【评分依据】\n依据实际书写\n【得分】\n${score}`;
+        const response = `【作答状态】\n可辨认\n【答案复述】\n${score ? 'I=3A' : 'I=2A'}\n【评分依据】\n依据实际书写\n【得分】\n${score}`;
         queueMicrotask(() => options.onload({ status: 200, responseText: 'data: ' + JSON.stringify({ choices: [{
             delta: { content: response }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n' }));
         return { abort() {} };
