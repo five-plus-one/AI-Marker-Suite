@@ -1119,6 +1119,9 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         throw failure || new Error('双评结果不完整，请检查两个模型的回答后继续批改');
     }
 
+    // 先检查原始两侧，再合并分数；不得用主模型的复述覆盖另一侧的空白或弃权结论。
+    requireCompatibleGradingEvidence(detailA, detailB);
+
     const diff = Math.abs(scoreA - scoreB);
     console.log(`🔄 [双评] 结果 — 主模型: ${scoreA}, 副模型: ${scoreB}, 分差: ${diff}`);
 
@@ -1256,12 +1259,13 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         }
     }
 
+    requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
     return {
         ...arbParsed,
         score: arbFinalScore,
         rawScore: arbFinalScore,
         subScores: arbSubScores,
-        studentAnswer: detailA?.studentAnswer || detailB?.studentAnswer || arbParsed.studentAnswer || '未能识别',
+        studentAnswer: arbParsed.studentAnswer || '未能识别',
         diligenceLevel: arbDiligenceLevel,
         diligenceReason: detailA?.diligenceReason || '',
         dualEval: {

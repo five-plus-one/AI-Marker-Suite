@@ -142,6 +142,8 @@ function buildCommonConstraints(startNum, scoreOnly) {
     lines.push(n++ + '. 只对学生在答卷上实际写出的内容评分；印刷题干、题号、预印图形、参考答案和评分标准均不属于学生作答。不得自行解题后将解答归给学生，也不得用参考答案补全学生未写的过程或结果');
     lines.push(n++ + '. 整张答卷没有学生作答，或仅有题号、抄写题干等没有有效作答时，得分必须为0，勤勉等级为1；不能因试卷自带文字或图形给分');
     lines.push(n++ + '. 有作答但无法辨认时，不得猜测其内容或照抄参考答案作为识别结果；仅给可以从学生原始作答确认的评分点打分');
+    lines.push(n++ + '. 先判断【作答状态】：可辨认、部分不清、无法辨认、未作答，四选一。无法辨认不等于未作答，不能据此判零分；由教师核对。部分不清时保留可确认的作答与得分');
+    lines.push(n++ + '. 逐项核对题号、原文和最终保留内容；不得将其他小题的结果挪来给分或凭结果补出未写的步骤。完整正确的等价方法按相同标准给分，不强求参考解答的形式');
     if (!scoreOnly) lines.push(n++ + '. 整张答卷未作答时，【答案复述】只写“未作答”；答案复述仅转录学生实际作答，不写示范解答');
     return lines.join('\n');
 }
@@ -182,13 +184,16 @@ function buildStructuredPrompt(config) {
         prompt += `
 
 ===== 输出要求 =====
-只输出分数，不要输出任何分析、评语或计算过程。严格按照以下格式：
+只输出作答状态和分数，不要输出任何分析、评语或计算过程。严格按照以下格式：
+
+【作答状态】
+（可辨认、部分不清、无法辨认、未作答，四选一）
 
 【得分】
 （一个数字，可以是小数，表示准确性得分）${buildDiligencePromptSection(config)}
 
 ===== 重要约束 =====
-1. 只输出【得分】一行数字，不要任何其他内容
+1. 只输出【作答状态】和【得分】，以及启用的勤勉度，不要任何其他内容
 2. 【得分】必须只有一行，只包含数字，可以是小数
 ${buildCommonConstraints(3, true)}`;
     } else {
@@ -197,11 +202,14 @@ ${buildCommonConstraints(3, true)}`;
 ===== 输出要求 =====
 你必须严格按照以下格式输出，不得添加任何额外内容：
 
+【作答状态】
+（可辨认、部分不清、无法辨认、未作答，四选一）
+
 【答案复述】
-（逐条列出学生答案要点，每条一行，用序号标注）
+（按题号逐字转录学生最终保留的作答，公式可用LaTeX；不改写、不补全，看不清处标注[无法辨认]，不抄参考答案或印刷题干）
 
 【评分依据】
-（逐项评分，每条格式：序号.评分项名(满分X分): 得分理由）
+（逐项评分，每条格式：序号.评分项名(满分X分): 对应作答原文“…”；判定及得X分。没有原文依据的步骤不得补写给分，排除划去内容，接受完整正确的等价方法）
 
 【分数计算】
 （写出计算公式，如：1+2+0+2=5）
@@ -306,6 +314,8 @@ function parseStructuredResponse(text, maxScore) {
 
     return {
         studentAnswer: studentAnswer,
+        answerStatus: sections['作答状态'] || '',
+        _answerProvided: !!sections['答案复述'],
         score: finalScore,
         rawScore: rawScore,
         scoringBasis: sections['评分依据'] || '',
@@ -441,6 +451,7 @@ function parseLegacyResponse(text, maxScore) {
         comment: comment || text,
         diligenceLevel: 0,
         diligenceReason: '',
+        _answerProvided: !!studentAnswerMatch,
         _sections: {}
     };
 }
@@ -508,8 +519,11 @@ ${resultB.calculation ? `老师B分数计算：${resultB.calculation}` : ''}
 ===== 输出要求 =====
 请先独立分析学生答案，再对比两位老师的评分，最后给出你的裁定。严格按照以下格式输出：
 
+【作答状态】
+（可辨认、部分不清、无法辨认、未作答，四选一）
+
 【答案复述】
-（用自己的话简要概述学生实际写了什么内容，不要遗漏关键步骤或答案）
+（按题号逐字转录学生最终保留的作答，公式可用LaTeX；不改写、不补全，看不清处标注[无法辨认]，不抄参考答案或两位老师的复述）
 
 【评分依据】
 （抛开两位老师的评分，仅根据评分标准和学生实际作答内容，逐条分析应得分和扣分点）`;
@@ -609,18 +623,24 @@ function buildSubQuestionPrompt(config) {
 ===== 输出要求 =====
 你必须严格按照以下格式输出，不得添加任何额外内容：
 
+【作答状态】
+（可辨认、部分不清、无法辨认、未作答，四选一）
+
 【答案复述】
-（逐条列出学生答案要点，每条一行，用序号标注）
+（按题号逐字转录学生最终保留的作答，公式可用LaTeX；不改写、不补全，看不清处标注[无法辨认]，不抄参考答案或印刷题干）
 
 【评分依据】
-（逐项评分，每条格式：序号.评分项名(满分X分): 得分理由）
+（逐项评分，每条格式：序号.评分项名(满分X分): 对应作答原文“…”；判定及得X分。排除划去内容，不跨题挪用或补写步骤，接受完整正确的等价方法）
 
 【分数计算】
 （写出各小题计算公式）`;
     } else {
         prompt += `
 ===== 输出要求 =====
-只输出各小题分数和总分，不要输出任何分析、评语或计算过程。`;
+只输出作答状态、各小题分数和总分，不要输出任何分析、评语或计算过程。
+
+【作答状态】
+（可辨认、部分不清、无法辨认、未作答，四选一）`;
     }
 
     for (const sq of config.subQuestions) {
@@ -635,7 +655,7 @@ function buildSubQuestionPrompt(config) {
 
 ===== 重要约束 =====
 ${isScoreOnlyMode(config)
-        ? `1. 只输出各小题分数和【得分】，不要输出分析、评语或计算过程
+        ? `1. 只输出【作答状态】、各小题分数和【得分】，以及启用的勤勉度，不要输出分析、评语或计算过程
 2. 各小题分数和【得分】必须各只有一行，只包含数字
 3. 各小题分数之和应等于【得分】`
         : `1. 必须使用【】作为段落标记
@@ -832,7 +852,7 @@ function parseLegacySubQuestionResponse(text, config) {
     if (subScores.some(item => item.score === null)) totalScore = null;
 
     console.log(`🧠 [诊断] 分小题解析结果 — 总分: ${totalScore}, 各小题: ${subScores.map(s => s.label + '=' + s.score).join(', ')}`);
-    return { studentAnswer, score: totalScore, rawScore: totalScore, comment: '', subScores, diligenceLevel: 0, diligenceReason: '', _sections: {} };
+    return { studentAnswer, _answerProvided: !!studentAnswerMatch, score: totalScore, rawScore: totalScore, comment: '', subScores, diligenceLevel: 0, diligenceReason: '', _sections: {} };
 }
 
 // ========== 打分专用函数 ==========
