@@ -264,7 +264,8 @@ const ZhixueAdapter = {
         const units = inputs.map(input => {
             const el = input.element;
             const label = el?.getAttribute('disptitle') || el?.closest('li')?.querySelector('.label')?.textContent;
-            return { label: label?.trim() || (inputs.length === 1 ? question.trim() : ''), maxScore: input.maxScore };
+            const maxScore = Number(el?.getAttribute('score')) || Number(el?.placeholder?.match(/满分\s*(\d+(?:\.\d+)?)/)?.[1]) || 0;
+            return { label: label?.trim() || (inputs.length === 1 ? question.trim() : ''), maxScore };
         });
         return { question: question.trim().replace(/^第\s*|\s*题$/g, ''), units };
     },

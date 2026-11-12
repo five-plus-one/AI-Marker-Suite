@@ -1062,7 +1062,7 @@ function resumeGradingAfterReload() {
     window.aiGradingState.errorRetryCount = parseInt(sessionStorage.getItem('ai-grading-retry-count') || '0');
     sessionStorage.removeItem('ai-grading-retry-count');
     if (PresetManager.getCurrentConfig()?.questionGuard?.enabled === true) {
-        showToast('页面已刷新，请核对当前题目和评分方案后点击继续批改');
+        showToast('页面已刷新，请核对当前题目和评分方案后重新开始批改');
         return;
     }
     setTimeout(() => toggleAutoGrading(), 3000);
