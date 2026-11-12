@@ -131,6 +131,20 @@ test('取图后任务变化或缺图时，填分与提交均显式失败', async
     assert.equal(adapter.submitGrade(), false);
 });
 
+test('原生组件重建期间不降级成图片序号，恢复后仍为原任务', async () => {
+    const task = { taskKey: 'current', imgUrl: [pageOne] };
+    const adapter = loadAdapter([image(pageOne)], 'normal', task);
+    await adapter.gatherAnswerImages();
+    const identity = adapter.getPaperIdentity();
+    delete task.taskKey;
+    delete task.imgUrl;
+    assert.equal(adapter.getPaperIdentity(), null);
+    assert.deepEqual(Array.from(await adapter.gatherAnswerImages()), []);
+    assert.equal(adapter.fillScores([1]), false);
+    Object.assign(task, { taskKey: 'current', imgUrl: [pageOne] });
+    assert.equal(adapter.getPaperIdentity(), identity);
+});
+
 test('填分前取消原生自动提交；平台未成功关闭时拒绝继续', () => {
     for (const stuck of [false, true]) {
         const root = { checked: true, click() { if (!stuck) this.checked = false; } };

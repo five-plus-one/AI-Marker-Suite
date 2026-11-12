@@ -96,6 +96,8 @@ const HaofenshuAdapter = {
                 actual.length !== expected.length || actual.some((u, i) => u !== expected[i])) return null;
             return { urls, identity: JSON.stringify([this.getTaskIdentifier(), key]), native: true };
         }
+        // 已取得原生任务后，组件短暂重建不降级为图片序号，避免把未知状态报告成另一份卷。
+        if (this._collectedImageSnapshot?.native) return null;
         // 没有原生关联时，仅沿用已验证的同路径序号兼容规则，不能猜测不同序号属于同卷。
         const keyed = urls.map(u => ({ u, key: this._sheetKey(u) })).filter(x => x.key);
         const keys = new Set(keyed.map(x => x.key));
