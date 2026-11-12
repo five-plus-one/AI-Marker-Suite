@@ -66,7 +66,7 @@ if(caseName==='steps') fixtures['/api/v1/marking/QueInfo'].stepDataList=[4,5,6].
 }));
 
 if (caseName === 'all') (async () => {
-    const names=['total','compact','auto','steps','delayed-save','server-failure','business-failure','network-failure',
+    const names=['total','compact','auto','steps','late-load','delayed-save','server-failure','business-failure','network-failure',
         'workflow-solid','workflow-fraction','workflow-solution','workflow-heading','workflow-partial','workflow-zero',
         'workflow-no-score','workflow-business-failure'];
     await fs.mkdir(assets,{recursive:true}); const results=[];
@@ -163,13 +163,23 @@ else (async () => {
         await context.addInitScript(seedUserscript, { chemistry, spec, png, count });
         await context.addInitScript({ content: "document.addEventListener('DOMContentLoaded', () => {\n"
             + await fs.readFile(path.join(root, 'dist/ai_marker.user.js'), 'utf8') + "\n}, {once:true});" });
-    } else await context.addInitScript({ content: (await fs.readFile(path.join(root, 'src/adapters/wuyue/selectors.js'), 'utf8'))
+    } else if(caseName!=='late-load') await context.addInitScript({ content: (await fs.readFile(path.join(root, 'src/adapters/wuyue/selectors.js'), 'utf8'))
         + '\n' + await fs.readFile(path.join(root, 'src/adapters/wuyue/adapter.js'), 'utf8') });
     const page = await context.newPage();
     page.on('pageerror', e => errors.push(e.message));
     try {
         await page.goto(origin + '/yuejuan/#/reading');
         await page.waitForSelector('.computeItem input.el-input__inner:not([disabled])', { timeout: 30000 });
+        if(caseName==='late-load') {
+            await page.addScriptTag({content:(await fs.readFile(path.join(root,'src/adapters/wuyue/selectors.js'),'utf8'))
+                +'\n'+await fs.readFile(path.join(root,'src/adapters/wuyue/adapter.js'),'utf8')});
+            const result=await page.evaluate(()=>({filled:__AI_MARKER_ADAPTER__.fillScores([2,2,2]),
+                error:__AI_MARKER_ADAPTER__.lastFillError}));
+            assert.equal(result.filled,false);assert.match(result.error,/退出阅卷后重新进入/);
+            assert.equal(await page.locator('#inputOne').inputValue(),'');assert.equal(submissions.length,0);
+            assert.deepEqual(errors,[]);assert.deepEqual(unknown,[]);
+            console.log(JSON.stringify({caseName,passed:true,productionApiRequests:0}));return;
+        }
         if (spec) {
             await page.waitForSelector('.ai-grade-btn'); await page.locator('.ai-grade-btn').click();
             if (spec.scores) {

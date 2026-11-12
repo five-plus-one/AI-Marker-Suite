@@ -178,7 +178,7 @@ const WuyueAdapter = {
             return fail('当前答卷或给分板尚未就绪，请等待加载完成后继续');
         }
         const metadata = WUYUE_HELPERS.paper(task, WUYUE_HELPERS.images());
-        if (!metadata?.id || metadata.ambiguous) return fail('请刷新阅卷页面后重新批改，以确认当前答卷');
+        if (!metadata?.id || metadata.ambiguous) return fail('请退出阅卷后重新进入，再继续批改，以确认当前答卷');
         if (!Array.isArray(scores) || !scores.length || scores.some(score => WUYUE_HELPERS.number(score) === null)) {
             return fail('评分结果不完整，请核对每个小题的分数');
         }

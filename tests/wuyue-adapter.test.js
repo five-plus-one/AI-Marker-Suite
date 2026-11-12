@@ -82,6 +82,17 @@ test('五岳禁用和只读给分板拒绝填写',()=>{
         assert.equal(f.adapter.fillScores([2]),false);assert.equal(f.fields[0].writes,0);
     }
 });
+test('五岳已打开页面中途加载脚本时等待重新进入阅卷确认答卷',()=>{
+    const f=setup();f.sb.wyHelper.papers.clear();
+    assert.equal(f.adapter.fillScores([2,2,2]),false);
+    assert.match(f.adapter.lastFillError,/退出阅卷后重新进入/);
+    assert.equal(f.fields[0].writes,0);assert.equal(f.sent.length,0);
+    const xhr=new f.sb.XMLHttpRequest();xhr.open('POST','https://pcmarking.wylkyj.com/api/v2/marking/Init');
+    xhr.send(JSON.stringify({esubNo:'subject',queNo:'16',IsArb:false}));
+    xhr.respond({code:200,datas:{info:{id:'paper-A'},imageDatas:[{imageData:f.image.src}]}});
+    assert.equal(f.adapter.fillScores([2,2,2]),true);
+    assert.equal(f.fields[0].value,'6');
+});
 test('五岳兼容填分接口同样拒绝缺失小题分',()=>{
     const f=setup();assert.equal(f.adapter.fillScore({total:4,subScores:[{label:'（4）',score:null}]}),false);
     assert.equal(f.fields[0].writes,0);
