@@ -554,9 +554,7 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
-            if (explicitlyBlank && (finalScore > 0 || finalUnitScores?.some(unit => unit.score > 0))) {
-                throw new Error('AI 将答卷识别为未作答，却给出了正分，请核对本卷后继续');
-            }
+            requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
@@ -623,6 +621,7 @@ async function startAutoGrading() {
             showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
                 runContext,
                 scoringDetails: result._sections || null,
+                answerStatus: getGradingAnswerStatus(result),
                 dualEval: result.dualEval || null,
                 rawScore: result.rawScore || result.score,
                 diligence: {
