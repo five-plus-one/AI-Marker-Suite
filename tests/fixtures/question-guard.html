@@ -1,0 +1,64 @@
+<!doctype html><meta charset="utf-8"><title>Question change acceptance</title>
+<script>
+const storage={},notices=[];
+window.GM_getValue=(k,d)=>storage[k]??d;window.GM_setValue=(k,v)=>storage[k]=v;
+window.getUIRoot=()=>document.body;window.showToast=(...args)=>notices.push(args);
+</script>
+<script src="../../src/core/config.js"></script><script src="../../src/core/state.js"></script>
+<script src="../../src/core/runtime.js"></script><script src="../../src/core/score.js"></script>
+<script src="../../src/core/ai-engine.js"></script><script src="../../src/core/preset.js"></script>
+<script src="../../src/core/ui-modal.js"></script><script src="../../src/core/ui-settings.js"></script>
+<script src="../../src/adapters/zhixue/selectors.js"></script><script src="../../src/adapters/zhixue/adapter.js"></script>
+<script src="../../src/adapters/haofenshu/selectors.js"></script><script src="../../src/adapters/haofenshu/adapter.js"></script>
+<body style="margin:0;font-family:system-ui;background:#eef0f3;">
+<div id="native">
+<span id="currentTopicIndex">第17题</span>
+<ul id="containter_topicTxt">
+<li><div class="label">17</div><input id="totalScore" disptitle="17" readonly></li>
+<li><div class="label">1</div><input name="topicTxt" disptitle="1" score="4" placeholder="满分4"></li>
+<li><div class="label">2</div><input name="topicTxt" disptitle="2" score="5" placeholder="满分5"></li>
+<li><div class="label">3</div><input name="topicTxt" disptitle="3" score="1" placeholder="满分1"></li>
+</ul>
+<div id="scoringBoard"><div class="quick-mark"><div class="score-list"><span class="block-title">一.12</span><input class="score-input" placeholder="满分4分"></div></div></div>
+</div><pre id="result" hidden></pre>
+<script>
+(async()=>{
+const runId=new URLSearchParams(location.search).get('run'),checks=[];
+const assert=(value,name)=>{if(!value)throw Error(name);checks.push(name);};
+try {
+ window.__AI_MARKER_ADAPTER__=ZhixueAdapter;
+ let native=readGradingQuestionContext(ZhixueAdapter);
+ assert(native.question==='17' && native.units.map(u=>u.maxScore).join(',')==='4,5,1','评分栏大题与小题满分');
+ const cfg=PresetManager.getCurrentConfig();cfg.questionGuard={enabled:true};
+ aiGradingState.isRunning=true;aiGradingState.isPaused=false;
+ let context=createGradingContext();
+ document.querySelectorAll('input[name=topicTxt]').forEach(input=>input.value='');
+ requireGradingQuestionContext(context);assert(true,'同题分数清空仍可继续');
+ document.getElementById('totalScore').setAttribute('disptitle','18');
+ let waiting=false;try{requireGradingQuestionContext(context);}catch(error){waiting=error.message.includes('暂未识别到完整题号');}
+ assert(waiting,'顶部与评分栏尚未同步时等待就绪');
+ document.getElementById('currentTopicIndex').textContent='第18题';
+ let blocked=false;try{requireGradingQuestionContext(context);}catch(error){blocked=error.code==='GRADING_QUESTION_CHANGED';}
+ assert(blocked,'小题序号未变而大题变化时拦截');
+ context=createGradingContext();blocked=false;try{requireGradingQuestionContext(context);}catch(error){blocked=true;}
+ assert(blocked,'下一轮仍保留启动基准');
+ cfg.questionGuard.enabled=false;context=createGradingContext();requireGradingQuestionContext(context);assert(true,'关闭后按原流程');
+ const hf=readGradingQuestionContext(HaofenshuAdapter);assert(hf.question==='一.12'&&hf.units[0].maxScore===4,'好分数读取输入框前题号');
+ invalidateGradingRun();document.getElementById('native').hidden=true;
+ window.getChannelName=()=> 'dev';window.getBuildChannel=()=> 'dev';window.getBuildChannelLabel=()=> 'dev';
+ loadSettings=()=>{};renderChangelog=()=>{};renderPresetDropdown=()=>{};fillFormFromActivePreset=()=>{};
+ createSettingsPanel({deferOpen:true});
+ const panel=document.getElementById('ai-grading-settings');
+ panel.style.transform='translateX(0)';panel.classList.add('open');
+ panel.querySelector('.settings-nav-item[data-page=grading]').click();
+ assert(!document.getElementById('question-guard-enabled').checked,'选项默认关闭');
+ document.getElementById('question-guard-enabled').focus();assert(document.activeElement.id==='question-guard-enabled','选项可键盘聚焦');
+ assert(document.querySelector('label[for="question-guard-enabled"]').getBoundingClientRect().height>=44,'选项标签可触屏点击');
+ assert(!document.getElementById('btn-add-unit'),'评分项由页面检测');
+ assert(panel.textContent.includes('请联系作者适配'),'检测反馈提示');
+ const section=document.getElementById('question-guard-enabled').closest('.form-section');section.classList.remove('collapsed');
+ const bounds=panel.getBoundingClientRect();assert(bounds.left>=-1&&bounds.right<=innerWidth+1,'配置面板在窗口内');
+ document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
+}catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))));}
+})();
+</script>
