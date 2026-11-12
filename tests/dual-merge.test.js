@@ -230,6 +230,49 @@ function setupDual({ mergeMode, threshold, scoring, scores }) {
     return fx.callDualEvaluation(['IMG'], { workflowId: 'dual', scoring: scoring || { roundStep: 1, roundMethod: 'round' } }, null);
 }
 
+async function runExpressionDual(responses, threshold) {
+    const { fx, sandbox } = loadEngine();
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/prompt.js'), 'utf8'), sandbox);
+    const units = [{ label: '1', maxScore: 4 }, { label: '2', maxScore: 5 }, { label: '3', maxScore: 1 }];
+    const calls = [];
+    sandbox.PresetManager = { getMaxScore: () => 10 };
+    sandbox.__provider = provider => ({ apiKey: 'fixture', model: provider, endpoint: 'https://fixture.invalid' });
+    sandbox.__response = async (prompt, images, config) => { calls.push(config.model); return responses[config.model]; };
+    sandbox.__workflow = () => ({ model: { provider: 'a', model: 'a' }, dualEval: { enabled: true,
+        threshold, secondary: { provider: 'b', model: 'b' }, arbitration: { provider: 'arb', model: 'arb' } } });
+    vm.runInContext('ProviderManager.getCallConfig = __provider; WorkflowManager.getWorkflow = __workflow; callAIWithRetry = __response;', sandbox);
+    const result = await fx.callDualEvaluation(['fixture-image'], { workflowId: 'fixture',
+        scoring: { units, maxScore: 10, roundStep: 1, roundMethod: 'round' } }, null);
+    return { result, calls };
+}
+
+test('真实小题算式解析接入双评：按明细和比较阈值，两个 2 分结果直接达成共识', async () => {
+    const { result, calls } = await runExpressionDual({
+        a: '【答案复述】示例\n【分数计算】\n1分数：0+1+0\n2分数：0+0+0+0\n3分数：1\n【得分】3',
+        b: '【答案复述】示例\n【分数计算】\n1分数：1+0=1\n2分数：0\n3分数：1\n【得分】2'
+    }, 0);
+    assert.strictEqual(result.dualEval.scoreA, 2);
+    assert.strictEqual(result.dualEval.scoreB, 2);
+    assert.strictEqual(result.dualEval.diff, 0);
+    assert.strictEqual(result.dualEval.result, 'consensus');
+    assert.strictEqual(result.score, 2);
+    assert.deepStrictEqual(host(result.subScores.map(s => s.score)), [1, 0, 1]);
+    assert.deepStrictEqual(calls, ['a', 'b']);
+});
+
+test('真实小题算式解析接入仲裁：裁定 3、1、0，总分 4', async () => {
+    const answer = '【答案复述】示例\n【分数计算】\n';
+    const { result, calls } = await runExpressionDual({
+        a: answer + '1分数：1+0+2=3\n2分数：1\n3分数：0\n【得分】4',
+        b: answer + '1分数：1\n2分数：1\n3分数：0\n【得分】2',
+        arb: answer + '1分数：1+0+2=3\n2分数：0+0+0+1=1\n3分数：0\n【最终得分】4'
+    }, 0);
+    assert.strictEqual(result.score, 4);
+    assert.strictEqual(result.rawScore, 4);
+    assert.deepStrictEqual(host(result.subScores.map(s => s.score)), [3, 1, 0]);
+    assert.deepStrictEqual(calls, ['a', 'b', 'arb']);
+});
+
 test('共识路径接线：mergeMode=min 时总分与小题分都取低分', async () => {
     const result = await setupDual({
         mergeMode: 'min', threshold: 5,
