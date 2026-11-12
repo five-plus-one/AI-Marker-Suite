@@ -808,6 +808,8 @@ function createSettingsPanel(options) {
                             AI 请求期间若翻卷，防止把旧卷分数填进新卷并误提交。<br>
                             <b>若遇到误报</b>（被「答卷已切换」拦下、但实际并未换卷），可先<b>取消勾选此项</b>继续批改，并把日志反馈给我们。
                         </div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="question-guard-enabled"><label for="question-guard-enabled" style="display:flex;align-items:center;min-height:44px;flex:1;">题号变化时暂停批改（实验性）</label></div>
+                        <div class="mode-desc" style="font-size:12px;margin-top:6px;">开启后核对页面题号与小题满分，换题时暂停，请先核对评分方案再继续。目前支持智学网和好分数，默认关闭。</div>
                     </div>
                 </div>
 
@@ -886,8 +888,8 @@ function createSettingsPanel(options) {
                             </div>
                             <div class="scoring-actions">
                                 <button class="preset-btn" id="btn-detect-inputs">检测页面输入框</button>
-                                <button class="preset-btn" id="btn-add-unit">手动添加单元</button>
                             </div>
+                            <div class="mode-desc" style="font-size:12px;margin-top:8px;">评分项根据页面输入框生成；如果没有正确检测，请联系作者适配。</div>
                         </div>
                         <div id="scoring-units-warning" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(217,48,37,0.06);border:1px solid rgba(217,48,37,0.15);border-radius:8px;font-size:12px;color:#D93025;">
                             请为所有评分单元填写小题分后再保存
@@ -1474,13 +1476,6 @@ function createSettingsPanel(options) {
             showToast('当前平台不支持自动检测');
         }
     };
-    panel.querySelector('#btn-add-unit').onclick = () => {
-        addScoringUnitItem({ source: 'manual' });
-        refreshScoringTotal();
-        validateRequiredFields({ showErrors: false });
-        markUnsavedChanges();
-        updateSettingsNavBadges();
-    };
 
     loadSettings();
     renderChangelog();
@@ -1937,6 +1932,8 @@ function fillFormFromActivePreset() {
     const paperGuardCfg = config.paperGuard || {};
     const paperGuardInput = document.getElementById('paper-guard-enabled');
     if (paperGuardInput) paperGuardInput.checked = paperGuardCfg.enabled !== false;
+    const questionGuardInput = document.getElementById('question-guard-enabled');
+    if (questionGuardInput) questionGuardInput.checked = config.questionGuard?.enabled === true;
 
     // 批改节奏（实验性开关）
     const humanPacingCfg = config.humanPacing || {};
@@ -2927,6 +2924,7 @@ function saveAISettings() {
 
     // 保存答卷校验开关
     const paperGuardEnabled = document.getElementById('paper-guard-enabled')?.checked !== false;
+    const questionGuardEnabled = document.getElementById('question-guard-enabled')?.checked === true;
 
     // 保存输出模式
     const outputMode = document.querySelector('input[name="output-mode"]:checked')?.value || 'detailed';
@@ -2985,6 +2983,7 @@ function saveAISettings() {
             }
         },
         paperGuard: { enabled: paperGuardEnabled },
+        questionGuard: { enabled: questionGuardEnabled },
         outputMode: outputMode,
         retryPolicy: {
             maxRetries: retryMaxRetries,
@@ -3027,6 +3026,7 @@ function saveAISettings() {
         batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig },
         retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy },
         paperGuard: { ...oldConfig?.paperGuard, ...config.paperGuard },
+        questionGuard: { enabled: config.questionGuard.enabled },
         humanPacing: {
             ...oldConfig?.humanPacing,
             ...config.humanPacing,

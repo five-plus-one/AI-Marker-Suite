@@ -248,6 +248,28 @@ const ZhixueAdapter = {
         return baseUrl + (questionIdentifier ? '___' + questionIdentifier : '');
     },
 
+    getQuestionContext() {
+        const doc = this._answerSnapshot().doc || this._getIframeDoc() || document;
+        const inputs = this.getScoreInputs();
+        if (!inputs.length) return null;
+        // 评分栏大题总分框前的题号优先；顶部题号作兼容回退。
+        const total = doc.querySelector('#containter_topicTxt #totalScore');
+        const question = total?.getAttribute('disptitle') || total?.closest('li')?.querySelector('.label')?.textContent ||
+            doc.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX)?.textContent;
+        if (!question?.trim()) return null;
+        const normalize = value => String(value || '').normalize('NFKC').replace(/\s/g, '').replace(/^第|题$/g, '');
+        const heading = doc.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX)?.textContent;
+        if (heading?.trim() && normalize(heading) !== normalize(question)) return null;
+        if (inputs.some(input => input.element?.getClientRects && !input.element.getClientRects().length)) return null;
+        const units = inputs.map(input => {
+            const el = input.element;
+            const label = el?.getAttribute('disptitle') || el?.closest('li')?.querySelector('.label')?.textContent;
+            const maxScore = Number(el?.getAttribute('score')) || Number(el?.placeholder?.match(/满分\s*(\d+(?:\.\d+)?)/)?.[1]) || 0;
+            return { label: label?.trim() || (inputs.length === 1 ? question.trim() : ''), maxScore };
+        });
+        return { question: question.trim().replace(/^第\s*|\s*题$/g, ''), units };
+    },
+
     _answerResourceKey(src) {
         if (typeof src !== 'string' || !src.trim()) return null;
         try {

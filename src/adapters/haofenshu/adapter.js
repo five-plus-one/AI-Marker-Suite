@@ -67,6 +67,17 @@ const HaofenshuAdapter = {
     // ---- 图片身份（换卷强信号）----
     // 已知答题卡路径里的 sheetSerial 同卷稳定、换卷必变；提取不到时回退
     // 「去 query + 去裁切坐标后缀」的路径（仍可容忍签名抖动/重裁切）
+    getQuestionContext() {
+        const inputs = this.getScoreInputs();
+        if (!inputs.length) return null;
+        const units = inputs.map(input => ({
+            label: input.element?.closest('.score-list')?.querySelector('.block-title')?.textContent?.trim() || '',
+            maxScore: input.maxScore
+        }));
+        if (units.some(unit => !unit.label)) return null;
+        return { question: units.map(unit => unit.label).join('、'), units };
+    },
+
     _sheetIdentity(url) {
         if (typeof url !== 'string' || !url) return '';
         const key = this._sheetKey(url);

@@ -337,6 +337,8 @@ async function startAutoGrading() {
         }
         requireCurrentGradingContext(runContext);
 
+        requireGradingQuestionContext(runContext);
+
         // AI 失败重试时复用已下载的图片，避免重新抓取（拦截器缓冲可能已清空）
         const isRetry = runContext.paperId && runContext.paperId === window.aiGradingState.currentPaperId && window.aiGradingState.errorRetryCount > 0
             && window.aiGradingState.currentBase64DataArray.length > 0;
@@ -884,12 +886,7 @@ async function runInitBody() {
         showToast(`配置已从备份恢复（备份于 v${restoredFrom}）`);
     }
 
-    if (sessionStorage.getItem('ai-grading-auto-resume') === 'true') {
-        sessionStorage.removeItem('ai-grading-auto-resume');
-        window.aiGradingState.errorRetryCount = parseInt(sessionStorage.getItem('ai-grading-retry-count') || '0');
-        sessionStorage.removeItem('ai-grading-retry-count');
-        setTimeout(() => toggleAutoGrading(), 3000);
-    }
+    resumeGradingAfterReload();
 
     // 检查是否有回评任务（strict-a C.1）：读取即消费 + 页内门闩——
     // init 可被任务切换重调度重跑，两路都读到同一 sessionStorage 会弹双回评面板（对同一记录双改）。
@@ -1059,6 +1056,18 @@ async function runNewTaskOnboardingFlow(currentUrlId) {
 
 // #304 SPA 渲染竞态防护：登记的待重试任务与当前一致、且未在批改/暂停态才补跑
 // （#315 G7：迟到 pending 不得在暂停期换活动方案）
+function resumeGradingAfterReload() {
+    if (sessionStorage.getItem('ai-grading-auto-resume') !== 'true') return;
+    sessionStorage.removeItem('ai-grading-auto-resume');
+    window.aiGradingState.errorRetryCount = parseInt(sessionStorage.getItem('ai-grading-retry-count') || '0');
+    sessionStorage.removeItem('ai-grading-retry-count');
+    if (PresetManager.getCurrentConfig()?.questionGuard?.enabled === true) {
+        showToast('页面已刷新，请核对当前题目和评分方案后重新开始批改');
+        return;
+    }
+    setTimeout(() => toggleAutoGrading(), 3000);
+}
+
 function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning, isPaused) {
     return !!pendingId && pendingId === currentUrlId && !isRunning && !isPaused;
 }
@@ -1067,8 +1076,32 @@ function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning, isPaused
 let lastUrlId = PresetManager.getTaskIdentifier();
 let pendingNewTaskFlowId = null;
 let newTaskFlowInFlight = false; // #312 防重入：并发生 tick 不得双跑新题引导（双弹窗）
+
+// 运行期间保留启动时的题目基准；普通换卷不得重置基准。
+// 未读到题号仅表示页面可能在加载，交给取图/填分/提交前的就绪检查。
+function monitorGradingQuestionChange() {
+    const context = window.aiGradingState.activeRun;
+    if (!isGradingContextCurrent(context) || context.questionGuardEnabled !== true || !context.questionBaseline) return;
+    const current = readGradingQuestionContext(context.adapter);
+    if (!current || current.key === context.questionBaseline.key) return;
+    invalidateGradingRun();
+    window.aiGradingState.isRunning = false;
+    window.aiGradingState.isPaused = true;
+    sessionStorage.removeItem('ai-grading-auto-resume');
+    sessionStorage.removeItem('ai-grading-retry-count');
+    const btn = document.querySelector('.ai-grade-btn');
+    if (btn) {
+        btn.textContent = '继续批改';
+        btn.classList.remove('running', 'unattended', 'trial');
+        btn.classList.add('paused');
+    }
+    hideStreamPanel();
+    showToast('题号或小题满分已变化，批改已暂停。请核对当前题目和评分方案后继续');
+}
+
 setInterval(async () => {
     recoverMarkingUIIfReady();
+    monitorGradingQuestionChange();
     const currentUrlId = PresetManager.getTaskIdentifier();
     if (currentUrlId !== lastUrlId) {
         lastUrlId = currentUrlId;
