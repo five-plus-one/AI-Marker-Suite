@@ -121,3 +121,17 @@ test('配置迁移默认关闭、保留布尔选择，导入时非布尔启用�
     const imported = e.sb.pm.sanitizePreset(JSON.parse(JSON.stringify(e.sb.pm.data.list.enabled)));
     assert.equal(imported.questionGuard.enabled, true);
 });
+
+test('自动刷新后的恢复先消费标记，启用题号检测时等待教师核对', () => {
+    for (const enabled of [true, false]) {
+        const e = scene(enabled), saved = new Map([['ai-grading-auto-resume', 'true'], ['ai-grading-retry-count', '2']]);
+        e.sb.sessionStorage = { getItem: key => saved.get(key), removeItem: key => saved.delete(key) };
+        const previous = new Set(e.timeouts.keys()); let resumed = 0; e.sb.toggleAutoGrading = () => resumed++;
+        e.sb.resumeGradingAfterReload(); e.sb.resumeGradingAfterReload();
+        const callbacks = [...e.timeouts].filter(([id]) => !previous.has(id)).map(([, callback]) => callback);
+        callbacks.forEach(callback => callback());
+        assert.equal(resumed, enabled ? 0 : 1);
+        assert.equal(saved.size, 0); assert.equal(e.state.errorRetryCount, 2);
+        if (enabled) assert.ok(e.calls.toasts.some(message => message.includes('页面已刷新')));
+    }
+});

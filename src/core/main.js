@@ -886,12 +886,7 @@ async function runInitBody() {
         showToast(`配置已从备份恢复（备份于 v${restoredFrom}）`);
     }
 
-    if (sessionStorage.getItem('ai-grading-auto-resume') === 'true') {
-        sessionStorage.removeItem('ai-grading-auto-resume');
-        window.aiGradingState.errorRetryCount = parseInt(sessionStorage.getItem('ai-grading-retry-count') || '0');
-        sessionStorage.removeItem('ai-grading-retry-count');
-        setTimeout(() => toggleAutoGrading(), 3000);
-    }
+    resumeGradingAfterReload();
 
     // 检查是否有回评任务（strict-a C.1）：读取即消费 + 页内门闩——
     // init 可被任务切换重调度重跑，两路都读到同一 sessionStorage 会弹双回评面板（对同一记录双改）。
@@ -1061,6 +1056,18 @@ async function runNewTaskOnboardingFlow(currentUrlId) {
 
 // #304 SPA 渲染竞态防护：登记的待重试任务与当前一致、且未在批改/暂停态才补跑
 // （#315 G7：迟到 pending 不得在暂停期换活动方案）
+function resumeGradingAfterReload() {
+    if (sessionStorage.getItem('ai-grading-auto-resume') !== 'true') return;
+    sessionStorage.removeItem('ai-grading-auto-resume');
+    window.aiGradingState.errorRetryCount = parseInt(sessionStorage.getItem('ai-grading-retry-count') || '0');
+    sessionStorage.removeItem('ai-grading-retry-count');
+    if (PresetManager.getCurrentConfig()?.questionGuard?.enabled === true) {
+        showToast('页面已刷新，请核对当前题目和评分方案后点击继续批改');
+        return;
+    }
+    setTimeout(() => toggleAutoGrading(), 3000);
+}
+
 function shouldRetryPendingTaskFlow(pendingId, currentUrlId, isRunning, isPaused) {
     return !!pendingId && pendingId === currentUrlId && !isRunning && !isPaused;
 }

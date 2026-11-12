@@ -70,6 +70,7 @@ function makeSessionStore(init) {
 function loadMainInit({ session, panelCalls, buttonCalls } = {}) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
     const body = grab(src, /(?:async )?function runInitBody\([^)]*\) \{[\s\S]*?\n\}/, 'runInitBody');
+    const resume = grab(src, /function resumeGradingAfterReload\([^)]*\) \{[\s\S]*?\n\}/, 'resumeGradingAfterReload');
     const latch = grab(src, /let _initInFlight = false;[\s\S]*?async function init\(\) \{[\s\S]*?\n\}/, 'init 重入闩');
     const panels = panelCalls || { n: 0 };
     const buttons = buttonCalls || { main: 0, settings: 0, history: 0 };
@@ -116,7 +117,7 @@ function loadMainInit({ session, panelCalls, buttonCalls } = {}) {
     sandbox.window.top = sandbox.window;   // window === window.top（非 iframe）
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(body + '\n' + latch + '\n;__exports__ = { init };', sandbox);
+    vm.runInContext(resume + '\n' + body + '\n' + latch + '\n;__exports__ = { init };', sandbox);
     return { init: sandbox.__exports__.init, panels, buttons, sandbox };
 }
 
