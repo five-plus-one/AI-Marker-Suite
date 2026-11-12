@@ -27,7 +27,7 @@ test('文通云图片未齐备、模型与图片不同卷及未知图片域名�
     for (const change of [f => f.image.complete = false, f => f.image.naturalWidth = 0,
         f => f.image.src = 'https://static.wtjy.com/old.jpg', f => f.image.currentSrc = 'https://static.wtjy.com/old.jpg',
         f => f.parent.scanRecordId = 'old', f => f.parent.questionQetailsData[0].id = '',
-        f => f.parent.workloadData.readCount = 1,
+        f => f.parent.workloadData.readCount = NaN,
         f => f.parent.questionQetailsData[0].questionUrl = 'https://other.example/card.jpg',
         f => f.state.extraImage = { ...f.image }, f => f.parent.loading = true, f => f.boardVm.loading = true]) {
         const f = fixture(); change(f);
@@ -36,6 +36,23 @@ test('文通云图片未齐备、模型与图片不同卷及未知图片域名�
         assert.equal(await f.adapter.submitGrade(), false);
         assert.equal(f.state.clicks, 0);
     }
+});
+
+test('文通云答卷详情计数与教师已阅进度独立，已有进度与连续阅卷均可识别', async () => {
+    const f = fixture();
+    f.parent.workloadData.readCount = 17;
+    f.parent.questionQetailsData[0].readCount = '0';
+    assert.equal(f.adapter.isMarkingPage(), true);
+    const before = f.adapter.getPaperIdentity();
+    assert.equal(f.adapter.fillScores([2]), true);
+    assert.equal(await f.adapter.submitGrade(), true);
+    assert.equal(f.parent.workloadData.readCount, 18);
+    f.parent.questionQetailsData[0].readCount = '0';
+    assert.equal(await f.adapter.waitForNextPaper(null, { paperId: before }), true);
+    assert.equal(f.adapter.fillScores([3]), true);
+    assert.equal(await f.adapter.submitGrade(), true);
+    assert.equal(f.parent.workloadData.readCount, 19);
+    assert.equal(f.state.clicks, 2);
 });
 
 test('文通云各合法档位含零分只暂存，提交阶段一次原生点击并确认保存', async () => {
