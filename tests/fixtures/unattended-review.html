@@ -1,0 +1,48 @@
+<!doctype html><meta charset="utf-8"><title>Unattended review acceptance</title>
+<script>
+const storage={},notices=[];
+window.GM_getValue=(key,fallback)=>storage[key]??fallback;window.GM_setValue=(key,value)=>storage[key]=value;
+window.GM_deleteValue=key=>delete storage[key];window.getUIRoot=()=>document.body;window.showToast=message=>notices.push(message);
+window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'dev';window.hideStreamPanel=()=>{};window.clearUnsavedChanges=window.markUnsavedChanges=()=>{};window.dockFloatingButtons=()=>{};
+</script>
+<script src="../../src/core/config.js"></script><script src="../../src/core/state.js"></script>
+<script src="../../src/core/runtime.js"></script><script src="../../src/core/score.js"></script>
+<script src="../../src/core/ai-engine.js"></script><script src="../../src/core/preset.js"></script>
+<script src="../../src/core/prompt.js"></script><script src="../../src/core/ui-modal.js"></script>
+<script src="../../src/core/ui-markdown.js"></script><script src="../../src/core/ui-settings.js"></script>
+<script src="../../src/core/blank-detector.js"></script><script src="../../src/core/zip.js"></script>
+<script src="../../src/core/history.js"></script>
+<body style="margin:0;font-family:system-ui;background:#eef0f3;"><pre id="result" hidden></pre><script>
+(async()=>{
+ const runId=new URLSearchParams(location.search).get('run'),checks=[];
+ const assert=(ok,label)=>{if(!ok)throw Error(label);checks.push(label);};
+ try{
+  ProviderManager.init();WorkflowManager.init();PresetManager.init();PresetManager.migrateAll();
+  const cfg=PresetManager.getCurrentConfig();cfg.answerReview={maxPending:0};
+  cfg.answer={text:'参考答案示例'};cfg.rubric={text:'按学生实际作答逐项给分'};cfg.scoring={maxScore:10,roundStep:1,roundMethod:'round',units:[]};
+  window.__AI_MARKER_ADAPTER__={id:'fixture',name:'阅卷平台',getPaperIdentity:()=> 'paper-A',getTaskIdentifier:()=> 'task-A',getScoreInputs:()=> []};
+  const canvas=document.createElement('canvas');canvas.width=640;canvas.height=320;
+  const paint=canvas.getContext('2d');paint.fillStyle='white';paint.fillRect(0,0,640,320);paint.fillStyle='#172033';paint.font='24px sans-serif';paint.fillText('学生答卷示例',40,70);
+  const context=createGradingContext(true);context.base64DataArray=[canvas.toDataURL().split(',')[1]];context.imageUrls=['data:image/png;base64,'+context.base64DataArray[0]];
+  const id=await HistoryManager.savePendingReview(context,{aiScore:3,studentAnswer:'无法辨认',aiComment:'需核对原图'});
+  assert(HistoryManager.getPendingReviewCount()===1,'待复核记录已保存');assert((await ImageStore.get(id)).length===1,'原图可读取');
+  HistoryManager.confirmReviewSubmission(id,{finalScore:3});renderChangelog=()=>{};createSettingsPanel({deferOpen:true});
+  openSettingsPanel();document.querySelector('.settings-nav-item[data-page="automation"]').click();
+  assert(document.getElementById('unattended-review-limit').value==='0','允许数量保留零值');
+  const reviewToggle=document.getElementById('answer-review-enabled');
+  assert(!reviewToggle.checked&&document.getElementById('unattended-review-limit').disabled,'状态核对默认关闭');
+  reviewToggle.click();assert(!document.getElementById('unattended-review-limit').disabled,'主动开启后可设置允许数量');
+  document.getElementById('unattended-review-limit').focus();assert(document.activeElement.id==='unattended-review-limit','数量输入可键盘聚焦');
+  document.getElementById('ai-grading-settings').remove();document.getElementById('ai-settings-overlay')?.remove();
+  showHistoryPanel();await new Promise(requestAnimationFrame);
+  await Promise.all(document.getElementById('ai-history-panel').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));
+  const filter=document.getElementById('hist-filter-status');filter.value='review';filter.dispatchEvent(new Event('change'));
+  const button=document.querySelector('.hist-review-btn');assert(button?.textContent==='完成复核','待复核入口可用');assert(button.getBoundingClientRect().height>=44,'复核操作支持触屏');
+  button.click();assert(HistoryManager.getPendingReviewCount()===0,'完成复核后数量减少');
+  filter.value='';filter.dispatchEvent(new Event('change'));document.querySelector('.hist-review-btn').click();assert(HistoryManager.getPendingReviewCount()===1,'可以重新标为待复核');
+  document.querySelector('.hist-detail-btn').click();assert(document.body.textContent.includes('本卷评分方案'),'可查看评分方案');document.getElementById('detail-close').click();
+  const panel=document.getElementById('ai-history-panel').getBoundingClientRect();assert(panel.width<=innerWidth&&panel.left>=-1,'评阅历史适配窗口宽度');
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:String(error),stack:error.stack}))));}
+})();
+</script>

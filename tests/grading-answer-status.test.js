@@ -2,9 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { env, load, vm } = require('./_audit-harness');
 
-async function runResponse(text, outputMode = 'detailed') {
+async function runResponse(text, outputMode = 'detailed', gradingMode = 'unattended') {
     const e = env(); load(e, 'src/core/prompt.js'); load(e, 'src/core/main.js'); load(e, 'src/core/ui-submit-dialog.js');
-    e.cfg.outputMode = outputMode; e.sb.response = text;
+    e.cfg.answerReview = {enabled:true,maxPending:5};
+    e.cfg.outputMode = outputMode; e.state.gradingMode = gradingMode; e.sb.response = text;
     const parsed = vm.runInContext('parseStructuredResponse(response, 10)', e.sb);
     let calls = 0; e.sb.callAIGrading = async () => { calls++; return parsed; };
     await e.sb.startAutoGrading();
@@ -16,13 +17,13 @@ test('叙述式整卷空白正分在真实主流程填分前暂停', async () =>
     assert.equal(e.calls.fill.length, 0); assert.equal(e.state.isPaused, true); assert.equal(calls, 1);
 });
 
-test('明确无法辨认的零分与正分均交教师核对，详细和精简模式一致', async () => {
-    for (const mode of ['detailed', 'score-only']) for (const score of [0, 10]) {
-        const { e, calls } = await runResponse(`【作答状态】无法辨认\n【得分】${score}`, mode);
+test('普通与试改模式明确无法辨认时交教师核对，详细和精简模式一致', async () => {
+    for (const gradingMode of ['normal', 'trial']) for (const mode of ['detailed', 'score-only']) for (const score of [0, 10]) {
+        const { e, calls } = await runResponse(`【作答状态】无法辨认\n【得分】${score}`, mode, gradingMode);
         assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0);
         assert.equal(e.state.isPaused, true); assert.equal(calls, 1);
     }
-    const { e } = await runResponse('【答案复述】未能识别\n【得分】10');
+    const { e } = await runResponse('【答案复述】未能识别\n【得分】10', 'detailed', 'normal');
     assert.equal(e.calls.fill.length, 0);
 });
 
@@ -54,7 +55,7 @@ test('双评空白冲突对主副顺序与分差阈值均不敏感，停止前�
         if (reverse) e.sb.answers.reverse();
         e.sb.calls = 0;
         vm.runInContext('callAIGrading = async () => { calls++; return answers.shift(); }; ProviderManager.getCallConfig = () => ({model:"test",endpoint:"https://test",apiKey:"test"});', e.sb);
-        const cfg = { scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold, secondary: {}, arbitration: {} } } };
+        const cfg = { answerReview:{enabled:true}, scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold, secondary: {}, arbitration: {} } } };
         await assert.rejects(() => e.sb.callDualEvaluation(['IMAGE'], cfg), /分歧/);
         assert.equal(e.sb.calls, 2);
     }
