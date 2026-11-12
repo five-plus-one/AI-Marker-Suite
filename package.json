@@ -1,6 +1,6 @@
 {
   "name": "zhixue-ai-marking",
-  "version": "1.21.23.2",
+  "version": "1.21.23.3",
   "description": "AI 批改助手 — 支持 44 个阅卷平台的开源浏览器脚本，提供手写识别、按标准评分、双评仲裁与评阅历史导出",
   "scripts": {
     "build": "node build.js",
