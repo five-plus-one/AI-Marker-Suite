@@ -3,7 +3,7 @@
 const storage={},notices=[];
 window.GM_getValue=(key,fallback)=>storage[key]??fallback;window.GM_setValue=(key,value)=>storage[key]=value;
 window.GM_deleteValue=key=>delete storage[key];window.getUIRoot=()=>document.body;window.showToast=message=>notices.push(message);
-window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'dev';window.hideStreamPanel=()=>{};window.clearUnsavedChanges=()=>{};window.dockFloatingButtons=()=>{};
+window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'dev';window.hideStreamPanel=()=>{};window.clearUnsavedChanges=window.markUnsavedChanges=()=>{};window.dockFloatingButtons=()=>{};
 </script>
 <script src="../../src/core/config.js"></script><script src="../../src/core/state.js"></script>
 <script src="../../src/core/runtime.js"></script><script src="../../src/core/score.js"></script>
@@ -18,7 +18,7 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
  const assert=(ok,label)=>{if(!ok)throw Error(label);checks.push(label);};
  try{
   ProviderManager.init();WorkflowManager.init();PresetManager.init();PresetManager.migrateAll();
-  const cfg=PresetManager.getCurrentConfig();cfg.unattendedReview={maxPending:0};
+  const cfg=PresetManager.getCurrentConfig();cfg.answerReview={maxPending:0};
   cfg.answer={text:'参考答案示例'};cfg.rubric={text:'按学生实际作答逐项给分'};cfg.scoring={maxScore:10,roundStep:1,roundMethod:'round',units:[]};
   window.__AI_MARKER_ADAPTER__={id:'fixture',name:'阅卷平台',getPaperIdentity:()=> 'paper-A',getTaskIdentifier:()=> 'task-A',getScoreInputs:()=> []};
   const canvas=document.createElement('canvas');canvas.width=640;canvas.height=320;
@@ -29,6 +29,9 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
   HistoryManager.confirmReviewSubmission(id,{finalScore:3});renderChangelog=()=>{};createSettingsPanel({deferOpen:true});
   openSettingsPanel();document.querySelector('.settings-nav-item[data-page="automation"]').click();
   assert(document.getElementById('unattended-review-limit').value==='0','允许数量保留零值');
+  const reviewToggle=document.getElementById('answer-review-enabled');
+  assert(!reviewToggle.checked&&document.getElementById('unattended-review-limit').disabled,'状态核对默认关闭');
+  reviewToggle.click();assert(!document.getElementById('unattended-review-limit').disabled,'主动开启后可设置允许数量');
   document.getElementById('unattended-review-limit').focus();assert(document.activeElement.id==='unattended-review-limit','数量输入可键盘聚焦');
   document.getElementById('ai-grading-settings').remove();document.getElementById('ai-settings-overlay')?.remove();
   showHistoryPanel();await new Promise(requestAnimationFrame);

@@ -27,6 +27,7 @@ test('模型明确未作答时，三种模式均填入零分并保留原始识�
 test('未作答却给正分的冲突不会走无人模式待复核自动提交通道', async () => {
     for (const mode of ['normal', 'trial', 'unattended']) {
         const e = env(); e.state.gradingMode = mode;
+        e.cfg.answerReview = {enabled:true,maxPending:5};
         load(e, 'src/core/main.js'); let requests = 0;
         e.sb.callAIGrading = async () => { requests++; return { score: 10, answerStatus: '未作答', studentAnswer: '未作答' }; };
         await e.sb.startAutoGrading();

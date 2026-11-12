@@ -2,9 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { env, load, vm } = require('./_audit-harness');
 
-function scene(limit = 5) {
+function scene(limit = 5, enabled = true) {
     const e = env(), store = {}, images = new Map();
-    e.cfg.unattendedReview = { maxPending: limit };
+    e.cfg.answerReview = { enabled, maxPending: limit };
     e.sb.location.origin = 'https://x.test';
     e.sb.GM_getValue = (key, fallback) => store[key] ?? fallback;
     e.sb.GM_setValue = (key, value) => { store[key] = value; };
@@ -126,18 +126,40 @@ test('未复核记录和原图保留到完成复核后，删除检查读取最�
 
 test('允许待复核数量保留零值，缺省和无效值采用默认值', () => {
     const e = scene();
-    for (const value of [0, 1, 5, 1000]) assert.equal(e.sb.getPendingReviewLimit({unattendedReview:{maxPending:value}}), value);
-    for (const value of [undefined, null, '', -1, 1.5, 1001, '0']) assert.equal(e.sb.getPendingReviewLimit({unattendedReview:{maxPending:value}}), 5);
+    for (const value of [0, 1, 5, 1000]) assert.equal(e.sb.getPendingReviewLimit({answerReview:{maxPending:value}}), value);
+    for (const value of [undefined, null, '', -1, 1.5, 1001, '0']) assert.equal(e.sb.getPendingReviewLimit({answerReview:{maxPending:value}}), 5);
 });
 
 test('方案迁移和导入保留允许数量零值，为旧方案补齐默认数量', () => {
     const e = env(); e.sb.GM_getValue = (key, fallback) => fallback; e.sb.GM_setValue = () => {};
     load(e, 'src/core/preset.js'); vm.runInContext('this.pm = PresetManager', e.sb);
-    e.sb.pm.data.list = { old: {}, zero: {unattendedReview:{maxPending:0}}, malformed: {unattendedReview:{maxPending:'0'}} };
+    e.sb.pm.data.list = { old: {}, zero: {answerReview:{maxPending:0}}, enabled:{answerReview:{enabled:true,maxPending:8}}, malformed: {answerReview:{enabled:'true',maxPending:'0'}} };
     e.sb.pm.migrateAll();
-    assert.equal(e.sb.pm.data.list.old.unattendedReview.maxPending, 5);
-    assert.equal(e.sb.pm.data.list.zero.unattendedReview.maxPending, 0);
-    assert.equal(e.sb.pm.data.list.malformed.unattendedReview.maxPending, 5);
+    assert.equal(e.sb.pm.data.list.old.answerReview.maxPending, 5);
+    assert.equal(e.sb.pm.data.list.old.answerReview.enabled, false);
+    assert.equal(e.sb.pm.data.list.zero.answerReview.maxPending, 0);
+    assert.equal(e.sb.pm.data.list.malformed.answerReview.maxPending, 5);
+    assert.equal(e.sb.pm.data.list.malformed.answerReview.enabled, false);
+    assert.equal(e.sb.pm.data.list.enabled.answerReview.enabled, true);
+    assert.equal(e.sb.pm.data.list.enabled.answerReview.maxPending, 8);
     const imported = e.sb.pm.sanitizePreset(JSON.parse(JSON.stringify(e.sb.pm.data.list.zero)));
-    assert.equal(imported.unattendedReview.maxPending, 0);
+    assert.equal(imported.answerReview.maxPending, 0);
+    assert.equal(imported.answerReview.enabled, false);
+});
+
+test('默认关闭状态核对，三种模式均沿用有效分数处理流程，不重试或累计复核', async () => {
+    for (const mode of ['normal','trial','unattended']) for (const enabled of [undefined,false,'true']) {
+        const e = scene(0,false); e.state.gradingMode = mode;
+        if (enabled === undefined) delete e.cfg.answerReview;
+        else e.cfg.answerReview.enabled = enabled;
+        e.store['ai-grading-history'] = JSON.stringify([{id:'existing',reviewKey:'existing',reviewStatus:'pending'}]);
+        let requests = 0;
+        e.sb.callAIGrading = async () => { requests++; return {score:7,studentAnswer:'无法辨认',answerStatus:'无法辨认'}; };
+        await e.sb.startAutoGrading();
+        assert.equal(requests,1); assert.deepEqual(e.calls.fill,[{paper:'A',scores:[7]}]);
+        await e.ids.get('auto-submit-dialog').confirmSubmit();
+        assert.equal(e.calls.submit.length,1); assert.equal(e.state.isPaused,false);
+        assert.equal(e.records().filter(record=>record.reviewStatus==='pending').length,1);
+        assert.equal(e.records().find(record=>record.id!=='existing').finalScore,7);
+    }
 });

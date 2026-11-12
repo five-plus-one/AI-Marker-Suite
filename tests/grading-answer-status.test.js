@@ -4,6 +4,7 @@ const { env, load, vm } = require('./_audit-harness');
 
 async function runResponse(text, outputMode = 'detailed', gradingMode = 'unattended') {
     const e = env(); load(e, 'src/core/prompt.js'); load(e, 'src/core/main.js'); load(e, 'src/core/ui-submit-dialog.js');
+    e.cfg.answerReview = {enabled:true,maxPending:5};
     e.cfg.outputMode = outputMode; e.state.gradingMode = gradingMode; e.sb.response = text;
     const parsed = vm.runInContext('parseStructuredResponse(response, 10)', e.sb);
     let calls = 0; e.sb.callAIGrading = async () => { calls++; return parsed; };
@@ -54,7 +55,7 @@ test('双评空白冲突对主副顺序与分差阈值均不敏感，停止前�
         if (reverse) e.sb.answers.reverse();
         e.sb.calls = 0;
         vm.runInContext('callAIGrading = async () => { calls++; return answers.shift(); }; ProviderManager.getCallConfig = () => ({model:"test",endpoint:"https://test",apiKey:"test"});', e.sb);
-        const cfg = { scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold, secondary: {}, arbitration: {} } } };
+        const cfg = { answerReview:{enabled:true}, scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold, secondary: {}, arbitration: {} } } };
         await assert.rejects(() => e.sb.callDualEvaluation(['IMAGE'], cfg), /分歧/);
         assert.equal(e.sb.calls, 2);
     }

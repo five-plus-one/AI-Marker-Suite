@@ -1024,7 +1024,7 @@ function showHistoryPanel() {
                     </div>
                     <div class="hist-summary" id="hist-storage">
                         <div class="hist-storage-item"><span class="label">记录</span><span class="value" id="hist-storage-count">--</span></div>
-                        <div class="hist-storage-item"><span class="label">数据库</span><span class="value" id="hist-storage-db">--</span></div>
+                        <div class="hist-storage-item"><span class="label">记录占用</span><span class="value" id="hist-storage-db">--</span></div>
                         <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span></div>
                         <div class="hist-storage-item"><span class="label">当前视图</span><span class="value" id="hist-count">共 ${HistoryManager.records.length} 条</span></div>
                     </div>

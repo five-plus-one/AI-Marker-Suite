@@ -512,7 +512,7 @@ async function startAutoGrading() {
             outputLimitEnabled: config.outputLimitEnabled !== false,
             maxOutputTokens: config.maxOutputTokens || 2048
         });
-        const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
+        const gradingConfig = { ...config, answerReview: presetConfig.answerReview, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
             signal: runContext.controller.signal,
             imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
         const result = await requestGradingWithRecognitionRetry(runContext, recognition => isDualEval
@@ -525,10 +525,12 @@ async function startAutoGrading() {
 
         requireCurrentGradingContext(runContext);
         hideStreamPanel();
+        const answerReviewEnabled = isAnswerReviewEnabled(presetConfig);
+        const needsReview = answerReviewEnabled && window.aiGradingState.gradingMode === 'unattended' && result._needsRecognitionReview === true;
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
         if (result.score !== undefined && result.score !== null) {
-            if (result._needsRecognitionReview && (!Number.isFinite(result.score) || (result.rawScore != null && !Number.isFinite(result.rawScore)) ||
+            if (needsReview && (!Number.isFinite(result.score) || (result.rawScore != null && !Number.isFinite(result.rawScore)) ||
                 result.subScores?.some(unit => !Number.isFinite(unit?.score)))) throw new Error('AI 分数不完整或无效，请核对本卷后继续');
             recordOutputLimitOutcome(gradingConfig);
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
@@ -537,8 +539,8 @@ async function startAutoGrading() {
             // 字数 ≤ 15 或未作答时，强制无勤勉分
             let diligenceLevel = result.diligenceLevel || 0;
             const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
-            const explicitlyBlank = isExplicitlyBlankGradingResult(result);
-            if (answerLen <= 15 || explicitlyBlank || result._needsRecognitionReview) diligenceLevel = 0;
+            const explicitlyBlank = isExplicitlyBlankGradingResult(result) || answerReviewEnabled && getGradingAnswerStatus(result) === 'blank';
+            if (answerLen <= 15 || explicitlyBlank || needsReview) diligenceLevel = 0;
 
             // 使用 ScoreCalculator 统一计算流水线
             // 将配置中的 roundStep 合并到 AI 返回的小题分数中
@@ -559,8 +561,10 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
-            const needsReview = window.aiGradingState.gradingMode === 'unattended' && result._needsRecognitionReview === true;
-            requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)], { allowUnreadable: needsReview });
+            if (isExplicitlyBlankGradingResult(result) && (finalScore > 0 || finalUnitScores?.some(unit => unit.score > 0))) {
+                throw new Error('AI 将答卷识别为未作答，却给出了正分，请核对本卷后继续');
+            }
+            requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)], { enabled: answerReviewEnabled, allowUnreadable: needsReview });
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;

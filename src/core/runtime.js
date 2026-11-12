@@ -122,7 +122,9 @@ function invalidateGradingRun() {
 }
 
 function isExplicitlyBlankGradingResult(result) {
-    return getGradingAnswerStatus(result) === 'blank';
+    const answer = String(result?._sections?.['答案复述'] ?? result?.studentAnswer ?? '')
+        .replace(/[\s。.!！]/g, '');
+    return /^(?:(?:学生|本卷|整张答卷|该答卷|答卷)(?:均|完全|全部)?)?(?:未作答|没有作答|无作答|未填写答案|空白卷|空白答卷)$/.test(answer);
 }
 
 function getGradingAnswerStatus(result) {
@@ -145,6 +147,7 @@ function getGradingAnswerStatus(result) {
 }
 
 function requireGradingEvidence(result, scores = [result?.score], options = {}) {
+    if (options.enabled === false) return;
     const status = getGradingAnswerStatus(result);
     const positive = scores.some(score => Number.isFinite(score) && score > 0);
     let message;
@@ -161,28 +164,30 @@ function requireGradingEvidence(result, scores = [result?.score], options = {}) 
 }
 
 async function requestGradingWithRecognitionRetry(context, request) {
+    const enabled = isAnswerReviewEnabled(context.configuration);
     const unattended = window.aiGradingState.gradingMode === 'unattended';
     for (let attempt = 0; ; attempt++) {
         requireCurrentGradingContext(context);
         if (attempt > 0) await verifyGradingContext(context);
         try {
-            const result = await request({ allowUnreadable: unattended && attempt > 0 });
+            const result = await request({ allowUnreadable: !enabled || unattended && attempt > 0 });
             requireCurrentGradingContext(context);
             // 识别重试独立于接口错误重试；继续使用本轮冻结的图片和评分标准。
-            if (unattended && (getGradingAnswerStatus(result) === 'unreadable' || result?._needsRecognitionReview)) {
+            if (enabled && unattended && (getGradingAnswerStatus(result) === 'unreadable' || result?._needsRecognitionReview)) {
                 if (attempt === 0) requireGradingEvidence({ ...result, answerStatus: 'unreadable' });
                 result._needsRecognitionReview = true;
             }
             return result;
         } catch (error) {
             requireCurrentGradingContext(context);
-            if (!unattended || attempt > 0 || error.code !== 'GRADING_EVIDENCE_REVIEW' || error.answerStatus !== 'unreadable') throw error;
+            if (!enabled || !unattended || attempt > 0 || error.code !== 'GRADING_EVIDENCE_REVIEW' || error.answerStatus !== 'unreadable') throw error;
             console.warn('[识别] 本卷作答尚未辨认，重新识别一次');
         }
     }
 }
 
 function requireCompatibleGradingEvidence(resultA, resultB, options = {}) {
+    if (options.enabled === false) return;
     for (const result of [resultA, resultB]) requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)], options);
     const a = getGradingAnswerStatus(resultA), b = getGradingAnswerStatus(resultB);
     if ((a === 'blank' && b !== 'blank' && b !== 'unknown') || (b === 'blank' && a !== 'blank' && a !== 'unknown') ||
@@ -193,12 +198,17 @@ function requireCompatibleGradingEvidence(resultA, resultB, options = {}) {
     }
 }
 
+function isAnswerReviewEnabled(config) {
+    return config?.answerReview?.enabled === true;
+}
+
 function getPendingReviewLimit(config) {
-    const value = config?.unattendedReview?.maxPending;
+    const value = config?.answerReview?.maxPending;
     return Number.isInteger(value) && value >= 0 && value <= 1000 ? value : 5;
 }
 
 function requirePendingReviewCapacity(config) {
+    if (!isAnswerReviewEnabled(config)) return;
     const count = HistoryManager.getPendingReviewCount();
     const limit = getPendingReviewLimit(config);
     if (count > limit) {

@@ -1120,8 +1120,9 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     // 先检查原始两侧，再合并分数；不得用主模型的复述覆盖另一侧的空白或弃权结论。
-    requireCompatibleGradingEvidence(detailA, detailB, { allowUnreadable: config.allowUnreadable === true });
-    const needsRecognitionReview = [detailA, detailB].some(detail => getGradingAnswerStatus(detail) === 'unreadable');
+    const answerReviewEnabled = isAnswerReviewEnabled(config);
+    requireCompatibleGradingEvidence(detailA, detailB, { enabled: answerReviewEnabled, allowUnreadable: config.allowUnreadable === true });
+    const needsRecognitionReview = answerReviewEnabled && [detailA, detailB].some(detail => getGradingAnswerStatus(detail) === 'unreadable');
     if (needsRecognitionReview && [detailA, detailB].some(detail => !Number.isFinite(detail?.score) ||
         detail.subScores?.some(unit => !Number.isFinite(unit?.score)))) {
         throw new Error('双评 AI 分数不完整或无效，请核对本卷后继续');
@@ -1233,7 +1234,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         arbParsed = parseStructuredResponse(arbResult);
     }
 
-    if ((needsRecognitionReview || getGradingAnswerStatus(arbParsed) === 'unreadable') &&
+    if (answerReviewEnabled && (needsRecognitionReview || getGradingAnswerStatus(arbParsed) === 'unreadable') &&
         (!Number.isFinite(arbParsed.score) || arbParsed.subScores?.some(unit => !Number.isFinite(unit?.score)))) {
         throw new Error('仲裁 AI 分数不完整或无效，请核对本卷后继续');
     }
@@ -1271,10 +1272,10 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         }
     }
 
-    requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)], { allowUnreadable: config.allowUnreadable === true });
+    requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)], { enabled: answerReviewEnabled, allowUnreadable: config.allowUnreadable === true });
     return {
         ...arbParsed,
-        _needsRecognitionReview: needsRecognitionReview || getGradingAnswerStatus(arbParsed) === 'unreadable',
+        _needsRecognitionReview: answerReviewEnabled && (needsRecognitionReview || getGradingAnswerStatus(arbParsed) === 'unreadable'),
         score: arbFinalScore,
         rawScore: arbFinalScore,
         subScores: arbSubScores,

@@ -7,6 +7,7 @@ const readable = () => ({ score: 6, studentAnswer: 'I=3A', answerStatus: '可辨
 
 function scene() {
     const e = env();
+    e.cfg.answerReview = {enabled:true,maxPending:5};
     load(e, 'src/core/main.js');
     e.sb.showAutoSubmitDialog = (...args) => e.calls.dialogs.push(args);
     return e;
@@ -96,7 +97,7 @@ test('双评的任一侧连续无法辨认时只重试一轮，并保留合并�
         vm.runInContext('callAIGrading = async () => { requests++; return answers.shift(); }; ProviderManager.getCallConfig = () => null;', e.sb);
         // 仲裁配置缺省，主副配置可用，走平台既有的双评合并规则。
         vm.runInContext('ProviderManager.getCallConfig = (provider) => provider === "arb" ? null : ({model:"test",endpoint:"https://test",apiKey:"test"});', e.sb);
-        const config = { scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold: 0, secondary: {}, arbitration: {provider:'arb'} } } };
+        const config = { answerReview:{enabled:true}, scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold: 0, secondary: {}, arbitration: {provider:'arb'} } } };
         const context = e.sb.createGradingContext();
         const result = await e.sb.requestGradingWithRecognitionRetry(context, recognition => e.sb.callDualEvaluation(['IMAGE'], {...config,...recognition}));
         assert.equal(e.sb.requests, 4); assert.equal(result.score, 3); assert.equal(result._needsRecognitionReview, true);
@@ -108,7 +109,7 @@ test('仲裁连续无法辨认时重试整轮双评，返回有效仲裁分数�
     const e = scene(); load(e, 'src/core/prompt.js'); load(e, 'src/core/score.js'); load(e, 'src/core/ai-engine.js');
     e.sb.requests = 0; e.sb.arbitrations = 0;
     vm.runInContext('callAIGrading = async () => ({...({score: requests++ % 2 ? 6 : 0}),studentAnswer:"I=3A",answerStatus:"可辨认"}); ProviderManager.getCallConfig = () => ({model:"test",endpoint:"https://test",apiKey:"test"}); callAIWithRetry = async () => { arbitrations++; return "【作答状态】无法辨认\\n【答案复述】无法辨认\\n【最终得分】2"; };', e.sb);
-    const config = { scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold: 0, secondary: {}, arbitration: {} } } };
+    const config = { answerReview:{enabled:true}, scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold: 0, secondary: {}, arbitration: {} } } };
     const context = e.sb.createGradingContext();
     const result = await e.sb.requestGradingWithRecognitionRetry(context, recognition => e.sb.callDualEvaluation(['IMAGE'], {...config,...recognition}));
     assert.equal(e.sb.requests, 4); assert.equal(e.sb.arbitrations, 2);
@@ -127,5 +128,19 @@ test('识别期间暂停、换卷或换题后，不再向模型发送本轮重�
         assert.equal(requests, 1);
         assert.equal(e.calls.fill.length, 0);
         assert.equal(e.calls.submit.length, 0);
+    }
+});
+
+test('实验选项关闭时双评与仲裁保持单轮评分，不标记待复核', async () => {
+    for (const threshold of [0,20]) {
+        const e = scene(); delete e.cfg.answerReview;
+        load(e, 'src/core/prompt.js'); load(e, 'src/core/score.js'); load(e, 'src/core/ai-engine.js');
+        e.sb.requests=0; e.sb.arbitrations=0; e.sb.answers=[unreadable(),readable()];
+        vm.runInContext('callAIGrading = async () => { requests++; return answers.shift(); }; ProviderManager.getCallConfig = () => ({model:"test",endpoint:"https://test",apiKey:"test"}); callAIWithRetry = async () => { arbitrations++; return "【作答状态】无法辨认\\n【答案复述】无法辨认\\n【最终得分】2"; };',e.sb);
+        const config={scoring:{maxScore:10},workflowSnapshot:{model:{},dualEval:{enabled:true,threshold,secondary:{},arbitration:{}}}};
+        const context=e.sb.createGradingContext();
+        const result=await e.sb.requestGradingWithRecognitionRetry(context,recognition=>e.sb.callDualEvaluation(['IMAGE'],{...config,...recognition}));
+        assert.equal(e.sb.requests,2);assert.equal(e.sb.arbitrations,threshold===0?1:0);
+        assert.equal(result._needsRecognitionReview,false);assert.equal(result.score,threshold===0?2:3);
     }
 });
