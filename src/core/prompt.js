@@ -667,192 +667,79 @@ ${buildCommonConstraints(isScoreOnlyMode(config) ? 4 : 5, isScoreOnlyMode(config
 }
 
 // ========== 分小题结果解析 ==========
+// 得分字段允许数字、加减算式及等式；只计算明确的数值，不执行模型返回的代码。
+function parseSubQuestionScoreValue(value, maxScore) {
+    const clean = normalizeScoreText(value).trim()
+        .replace(/＋/g, '+').replace(/＝/g, '=');
+    const parts = clean.split('=');
+    const values = [];
+    for (const part of parts) {
+        const match = part.trim().match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:\s*[+-]\s*(?:\d+(?:\.\d*)?|\.\d+))*/);
+        if (!match) return null;
+        const rest = part.trim().slice(match[0].length).trim();
+        // 算式未结束、未知运算或比值不能退回首项。普通说明与“3。4分”保留兼容。
+        if (rest && !/^(?:分(?:\s|$|[，,。；;（(])|[，,。；;（(])/.test(rest)) return null;
+        const terms = match[0].replace(/\s/g, '').match(/[+-]?(?:\d+(?:\.\d*)?|\.\d+)/g);
+        const number = terms.reduce((sum, term) => sum + Number(term), 0);
+        if (!Number.isFinite(number)) return null;
+        values.push(Math.round(number * 1e8) / 1e8);
+    }
+    if (values.some(number => Math.abs(number - values[0]) > 1e-8)) return null;
+    const upper = maxScore > 0 ? maxScore : 999;
+    return Math.max(0, Math.min(values[0], upper));
+}
+
+function parseSubQuestionScores(text, config, base) {
+    const clean = normalizeScoreText(text.replace(/\*\*([^*\r\n]+)\*\*/g, '$1'));
+    // OCR 复述可能包含“1：…”等学生原文，不作为模型给分字段。
+    const scoreText = clean.replace(/【(?:答案复述|学生答案)】[\s\S]*?(?=【|$)/g, '')
+        .replace(/(^|\n)[ \t]*学生答案[ \t]*:[\s\S]*?(?=\n[^\n]*分数[ \t]*:|【|$)/g, '$1')
+        .replace(/【[^】]+】/g, '\n');
+    const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const subScores = config.subQuestions.map(sq => {
+        const label = normalizeScoreText(sq.label);
+        const escapedLabel = escape(label);
+        const prefix = '^\\s*(?:[-•]\\s*)?';
+        const candidates = pattern => {
+            const line = (prefix + pattern + '\\s*([^\\r\\n]*)$').replace(/\\s/g, '[^\\S\\r\\n]');
+            return Array.from(scoreText.matchAll(new RegExp(line, 'gm')), m => m[1]);
+        };
+        let fields = candidates(escapedLabel + '\\s*分数\\s*:\\s*');
+        // 保留旧模型将父题号写为单个括号子题的格式；多个子题时不把其中一个冒充父题。
+        if (fields.length === 0) {
+            const bracketLabels = Array.from(scoreText.matchAll(new RegExp(prefix + '(' + escapedLabel + '\\(\\d+\\))\\s*(?:分数\\s*)?:', 'gm')), m => m[1]);
+            const labels = [...new Set(bracketLabels)];
+            if (labels.length === 1 && !config.subQuestions.some(other => normalizeScoreText(other.label) === labels[0])) {
+                fields = candidates(escape(labels[0]) + '\\s*(?:分数\\s*)?:\\s*');
+            }
+        }
+        if (fields.length === 0) fields = candidates(escapedLabel + '\\s*:\\s*');
+        if (fields.length === 0) fields = candidates(escapedLabel + '\\s+').filter(field => /分/.test(field));
+        const scores = fields.map(field => parseSubQuestionScoreValue(field, sq.maxScore));
+        // 缺失、无效或互相矛盾的重复字段保留待核查状态，不补零或取任意一条。
+        const score = scores.length > 0 && scores.every(value => value !== null && value === scores[0]) ? scores[0] : null;
+        const commentPattern = (prefix + escapedLabel + '\\s*评语\\s*:\\s*(.+?)(?=\\n|$)').replace(/\\s/g, '[^\\S\\r\\n]');
+        const commentMatch = clean.match(new RegExp(commentPattern, 'm'));
+        return { id: sq.id, label: sq.label, score, maxScore: sq.maxScore, comment: commentMatch ? commentMatch[1].trim() : '' };
+    });
+    const score = subScores.length > 0 && subScores.every(item => item.score !== null)
+        ? Math.round(subScores.reduce((sum, item) => sum + item.score, 0) * 1e8) / 1e8 : null;
+    if (score !== null && base.score !== null && Math.abs(score - base.score) > 1e-8) {
+        console.warn(`⚠️ [解析] 模型总分(${base.score})与小题之和(${score})不一致，按小题汇总`);
+    }
+    console.log(`🧠 [诊断] 分小题解析结果 — 总分: ${score}, 各小题: ${subScores.map(s => s.label + '=' + s.score).join(', ')}`);
+    return { ...base, score, rawScore: score, subScores };
+}
+
 function parseSubQuestionResponse(text, config) {
-    // 计算总满分
     const maxScore = config.subQuestions
         ? config.subQuestions.reduce((sum, sq) => sum + (sq.maxScore || 0), 0)
         : resolveMaxScore(config);
-    // 先尝试结构化解析
-    const structured = parseStructuredResponse(text, maxScore);
-
-    // 如果结构化解析成功提取到分数
-    if (structured.score !== null) {
-        // 尝试提取各小题分数
-        // 抗格式漂移（#287/#289 二轮审计 A-5）：小题行的全角/中文数字同样归一化
-        const clean = normalizeScoreText(text.replace(/\*\*/g, '').replace(/\*/g, ''));
-        const subScores = [];
-        let calculatedTotal = 0;
-
-        for (const sq of config.subQuestions) {
-            // 双侧归一（#297）：label 与正文都过 normalizeScoreText，防止"五分题/5分题"类改写漂移
-            const normLabel = normalizeScoreText(sq.label);
-            const escapedLabel = normLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            let score = null;
-
-            // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
-            // 策略1: 精确匹配 label + "分数" 格式（最可靠）
-            // 格式1a: "25(1)分数：8" 或 "第1题分数：8"
-            let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-            if (scoreMatch) {
-                score = parseFloat(scoreMatch[1]);
-            }
-
-            // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
-            // 例如：label="25"，文本="25(1)分数：2"，应该匹配 "25(1)" 而不是 "25"
-            if (score === null) {
-                // 检查文本中是否存在 label 后跟括号数字的模式
-                const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
-                const bracketMatch = clean.match(bracketPattern);
-                if (bracketMatch) {
-                    // 找到了括号格式，使用完整的 label（包括括号）进行匹配
-                    const fullLabel = normLabel + '(' + bracketMatch[1] + ')';
-                    const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-                    // 尝试匹配 "25(1)分数：2"
-                    const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-                    if (fullScoreMatch) {
-                        score = parseFloat(fullScoreMatch[1]);
-                    }
-
-                    // 如果还是没匹配到，尝试匹配 "25(1)：2"
-                    if (score === null) {
-                        const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
-                        if (fullScoreMatch2) {
-                            score = parseFloat(fullScoreMatch2[1]);
-                        }
-                    }
-                }
-            }
-
-            // 策略3: 直接匹配 label + 冒号格式（可能误匹配，所以放在后面）
-            if (score === null) {
-                scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
-                if (scoreMatch) score = parseFloat(scoreMatch[1]);
-            }
-
-            // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
-            if (score === null) {
-                scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
-                if (scoreMatch) score = parseFloat(scoreMatch[1]);
-            }
-
-            // 小题分数范围截断
-            if (score !== null) {
-                if (score < 0) score = 0;
-                if (sq.maxScore > 0 && score > sq.maxScore) {
-                    console.warn(`⚠️ [解析] ${sq.label}分数超出满分(${score} > ${sq.maxScore})，截断为满分`);
-                    score = sq.maxScore;
-                }
-            }
-
-            const commentMatch = clean.match(new RegExp(escapedLabel + '评语[：:]\\s*(.+?)(?=\\n|$)'));
-            if (score !== null) calculatedTotal += score;
-            subScores.push({
-                id: sq.id,
-                label: sq.label,
-                score: score,
-                maxScore: sq.maxScore,
-                comment: commentMatch ? commentMatch[1].trim() : ''
-            });
-        }
-
-        console.log(`🧠 [诊断] 分小题解析结果 — 总分: ${structured.score}, 各小题: ${subScores.map(s => s.label + '=' + s.score).join(', ')}`);
-        if (subScores.some(item => item.score === null)) {
-            return { ...structured, score: null, subScores };
-        }
-        return { ...structured, subScores };
-    }
-
-    // 回退到旧格式解析
-    return parseLegacySubQuestionResponse(text, config);
+    return parseSubQuestionScores(text, config, parseStructuredResponse(text, maxScore));
 }
 
 function parseLegacySubQuestionResponse(text, config) {
-    const clean = text.replace(/\*\*/g, '');
-
-    const studentAnswerMatch = clean.match(/学生答案[：:]\s*(.+?)(?=\n.*?分数|$)/s);
-    const studentAnswer = studentAnswerMatch ? studentAnswerMatch[1].trim() : '未能识别';
-
-    const subScores = [];
-    let calculatedTotal = 0;
-    for (const sq of config.subQuestions) {
-        const escapedLabel = sq.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-        let score = null;
-
-        // 改进的匹配逻辑：优先精确匹配，然后尝试模糊匹配
-        // 策略1: 精确匹配 label + "分数" 格式（最可靠）
-        let scoreMatch = clean.match(new RegExp(escapedLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-        if (scoreMatch) {
-            score = parseFloat(scoreMatch[1]);
-        }
-
-        // 策略2: 如果精确匹配失败，尝试在文本中查找 label 后跟括号数字的格式
-        if (score === null) {
-            const bracketPattern = new RegExp(escapedLabel + '\\((\\d+)\\)');
-            const bracketMatch = clean.match(bracketPattern);
-            if (bracketMatch) {
-                const fullLabel = sq.label + '(' + bracketMatch[1] + ')';
-                const escapedFullLabel = fullLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-                const fullScoreMatch = clean.match(new RegExp(escapedFullLabel + '分数[：:]\\s*(\\d+\\.?\\d*)'));
-                if (fullScoreMatch) {
-                    score = parseFloat(fullScoreMatch[1]);
-                }
-
-                if (score === null) {
-                    const fullScoreMatch2 = clean.match(new RegExp(escapedFullLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
-                    if (fullScoreMatch2) {
-                        score = parseFloat(fullScoreMatch2[1]);
-                    }
-                }
-            }
-        }
-
-        // 策略3: 直接匹配 label + 冒号格式
-        if (score === null) {
-            scoreMatch = clean.match(new RegExp(escapedLabel + '[：:]\\s*(\\d+\\.?\\d*)'));
-            if (scoreMatch) score = parseFloat(scoreMatch[1]);
-        }
-
-        // 策略4: 匹配 label + 空格 + 数字 + "分" 格式
-        if (score === null) {
-            scoreMatch = clean.match(new RegExp(escapedLabel + '\\s+(\\d+\\.?\\d*)\\s*分'));
-            if (scoreMatch) score = parseFloat(scoreMatch[1]);
-        }
-
-        // 小题分数范围截断
-        if (score !== null) {
-            if (score < 0) score = 0;
-            if (sq.maxScore > 0 && score > sq.maxScore) {
-                console.warn(`⚠️ [解析] ${sq.label}分数超出满分(${score} > ${sq.maxScore})，截断为满分`);
-                score = sq.maxScore;
-            }
-        }
-
-        const commentMatch = clean.match(new RegExp(escapedLabel + '评语[：:]\\s*(.+?)(?=\\n|$)'));
-        if (score !== null) calculatedTotal += score;
-        subScores.push({
-            id: sq.id,
-            label: sq.label,
-            score: score,
-            maxScore: sq.maxScore,
-            comment: commentMatch ? commentMatch[1].trim() : ''
-        });
-    }
-
-    let totalScore = null;
-    let totalMatch = clean.match(/总分[：:]\s*(\d+\.?\d*)/);
-    if (totalMatch) totalScore = parseFloat(totalMatch[1]);
-    if (totalScore === null) {
-        totalMatch = clean.match(/总分\s*(\d+\.?\d*)\s*分/);
-        if (totalMatch) totalScore = parseFloat(totalMatch[1]);
-    }
-    if (totalScore === null && subScores.every(item => item.score !== null)) totalScore = calculatedTotal;
-    if (subScores.some(item => item.score === null)) totalScore = null;
-
-    console.log(`🧠 [诊断] 分小题解析结果 — 总分: ${totalScore}, 各小题: ${subScores.map(s => s.label + '=' + s.score).join(', ')}`);
-    return { studentAnswer, _answerProvided: !!studentAnswerMatch, score: totalScore, rawScore: totalScore, comment: '', subScores, diligenceLevel: 0, diligenceReason: '', _sections: {} };
+    return parseSubQuestionScores(text, config, parseLegacyResponse(text));
 }
 
 // ========== 打分专用函数 ==========
