@@ -49,6 +49,7 @@ test('文通云各合法档位含零分只暂存，提交阶段一次原生点�
         assert.equal(f.parent.scoreBoard[0].score, score);
         assert.equal(await f.adapter.submitGrade(), false);
         assert.equal(await f.adapter.waitForNextPaper(null, { paperId: before }), true);
+        assert.equal(await f.adapter.waitForNextPaper(), true);
     }
 });
 
@@ -142,6 +143,19 @@ test('文通云换卷等待响应取消与换任务', async () => {
     assert.equal(await f.adapter.waitForNextPaper(null, { paperId: old, signal: { aborted: true } }), false);
     f.sb.location.hash = f.sb.location.hash.replace('sheetDetailId=sheet', 'sheetDetailId=other');
     assert.equal(await f.adapter.waitForNextPaper(null, { paperId: old, taskId }), false);
+    assert.equal(await f.adapter.waitForNextPaper(null, { paperId: old }), false);
+});
+
+test('文通云同卷裁剪变化使暂存失效，但不能充当下一份答卷', async () => {
+    const f = fixture(), old = f.adapter.getPaperIdentity();
+    assert.equal(f.adapter.fillScores([2]), true);
+    const changed = f.image.src.replace('x_20', 'x_30');
+    f.image.src = f.image.currentSrc = f.parent.questionQetailsData[0].questionUrl = changed;
+    assert.notEqual(f.adapter.getPaperIdentity(), old);
+    assert.equal(await f.adapter.submitGrade(), false);
+    assert.equal(f.state.clicks, 0);
+    assert.equal(await f.adapter.waitForNextPaper(null, { paperId: old }), false);
+    assert.equal(await f.adapter.waitForNextPaper(null, { paperId: 'invalid' }), false);
 });
 
 test('文通云从首页延迟进入阅卷才注册，并保留其他已注册适配器', () => {

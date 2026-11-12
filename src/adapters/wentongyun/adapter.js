@@ -77,6 +77,7 @@ const WentongyunAdapter = {
             || item.abnormalState === 0 || item.switchStatus === 1
             || !this._imageIdentity(item.questionUrl) || typeof vm.getBoolean !== 'function' || vm.getBoolean()) return null;
         return { root, board, vm, parent, common, item, count, task: this.getTaskIdentifier(),
+            paperKey: JSON.stringify([this.getTaskIdentifier(), item.id, item.scanRecordId, item.studentId]),
             identity: JSON.stringify([this.getTaskIdentifier(), item.id, item.scanRecordId, item.studentId,
                 this._imageIdentity(item.questionUrl)]) };
     },
@@ -99,7 +100,7 @@ const WentongyunAdapter = {
                 || (i > 0 && value <= values[i - 1]) || buttons[i].classList.contains('ban')
                 || buttons[i].textContent.trim().replace(/\s+/g, '') !== `${value}分`)
             || values[0] !== 0 || values[values.length - 1] !== max) return null;
-        return { element: state.board, label: state.item.questionNum, index: 0, maxScore: max,
+        return { element: state.board, label: String(state.item.questionNum), index: 0, maxScore: max,
             buttons, options: [...values], signature: JSON.stringify([max, values]) };
     },
     getPaperIdentity() {
@@ -146,6 +147,7 @@ const WentongyunAdapter = {
             const count = parent.workloadData?.readCount;
             if (!Number.isInteger(count) || count < 0) return false;
             const button = current.unit.buttons[current.unit.options.indexOf(pending.score)];
+            this._submittedPaper = pending.state.identity;
             button.click();
             // 原生失败分支也会重新取卷；换图本身不能证明成绩已保存。
             for (let poll = 0; poll < 120; poll++) {
@@ -164,13 +166,22 @@ const WentongyunAdapter = {
             return false;
         } finally { this._submitting = false; }
     },
-    async waitForNextPaper(oldImageUrl, options = {}) {
+    async waitForNextPaper(_oldImageUrl, options = {}) {
+        let baseline = null, baselineTask = null;
+        try {
+            const parts = JSON.parse(options.paperId || this._submittedPaper);
+            if (Array.isArray(parts) && parts.length === 5 && typeof parts[0] === 'string') {
+                baseline = JSON.stringify(parts.slice(0, 4)); baselineTask = parts[0];
+            }
+        } catch (_) { /* 无法确认基线时停止等待 */ }
+        if (!baseline) return false;
         let candidate = null;
         for (let poll = 0; poll < 150; poll++) {
-            if (options.signal?.aborted || (options.taskId && options.taskId !== this.getTaskIdentifier()) || this._blocked()) return false;
+            if (options.signal?.aborted || baselineTask !== this.getTaskIdentifier()
+                || (options.taskId && options.taskId !== baselineTask) || this._blocked()) return false;
             const state = this._state(), unit = this._unit(state);
-            const changed = state && unit && (options.paperId ? state.identity !== options.paperId
-                : oldImageUrl && this._imageIdentity(state.item.questionUrl) !== this._imageIdentity(oldImageUrl));
+            // 同一业务答卷重新裁剪也会改变完整校验指纹，但不能成为下一份答卷。
+            const changed = state && unit && state.paperKey !== baseline;
             if (changed && candidate === state.identity) return true;
             candidate = changed ? state.identity : null;
             await new Promise(resolve => setTimeout(resolve, 100));
