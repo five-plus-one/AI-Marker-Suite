@@ -179,16 +179,6 @@ const HaofenshuyizeAdapter = {
                     return;
                 }
 
-                // 检测输入框被清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-                const scoreInput = document.querySelector(HAOFENSHUYIZE_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && String(scoreInput.value).trim() === '';
-                if (inputCleared && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('✅ 云阅卷(好分数) — 新试卷已加载（输入框清空）');
-                    resolve(true);
-                    return;
-                }
-
                 if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
                     clearInterval(timer);
                     console.warn('⚠️ 云阅卷(好分数) — 等待下一份试卷超时');

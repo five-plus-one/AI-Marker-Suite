@@ -179,14 +179,7 @@ const XinkaoAdapter = {
                 checkTimes++;
                 const currentImg = document.querySelector(XINKAO_SELECTORS.ANSWER_IMAGE);
                 const currentUrl = currentImg ? currentImg.src : null;
-                const input = document.querySelector(XINKAO_SELECTORS.SCORE_INPUT);
-                // 仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷（#285）
-                const inputCleared = input && String(input.value).trim() === '';
-
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
-                    clearInterval(timer);
-                    resolve(true);
-                } else if (inputCleared && checkTimes > 3) {
                     clearInterval(timer);
                     resolve(true);
                 } else if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器

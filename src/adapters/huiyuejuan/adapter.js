@@ -563,6 +563,12 @@ const HuiyuejuanAdapter = {
 
         return new Promise((resolve) => {
             const timer = setInterval(() => {
+                if (Date.now() - startTime > maxWait) {
+                    clearInterval(timer);
+                    console.warn('⚠️ [慧阅卷] 等待下一份试卷超时');
+                    resolve(false);
+                    return;
+                }
                 const frameDoc = this._getFrameDoc();
                 if (!frameDoc) return;
 
@@ -584,27 +590,6 @@ const HuiyuejuanAdapter = {
                     return;
                 }
 
-                // 检测3: 分数状态重置为"未评分"
-                const scoreText = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.CURRENT_SCORE_TEXT);
-                if (scoreText && scoreText.textContent.includes('未评分')) {
-                    const panel = frameDoc.querySelector(HUIYUEJUAN_SELECTORS.SCORE_PANEL);
-                    if (panel) {
-                        const elapsed = Date.now() - startTime;
-                        if (elapsed > 2000) {
-                            clearInterval(timer);
-                            console.log('✅ [慧阅卷] 新试卷已加载（分数重置为未评分）');
-                            resolve(true);
-                            return;
-                        }
-                    }
-                }
-
-                // 超时检测
-                if (Date.now() - startTime > maxWait) {
-                    clearInterval(timer);
-                    console.warn('⚠️ [慧阅卷] 等待下一份试卷超时');
-                    resolve(false);
-                }
             }, 500);
         });
     },

@@ -22,8 +22,6 @@ const RUIYA_TIMING = {
     DETECT_TIMEOUT_MS: 12000,
     NEXT_PAPER_TIMEOUT_MS: 26000,
     NEXT_PAPER_POLL_MS: 250,
-    NEXT_PAPER_GRACE_MS: 1500,     // 宽限期内不认「输入框被清空」
-    NEXT_PAPER_EMPTY_HITS: 3,      // 连续 3 次全空 ≈ 750ms
     MODAL_WATCH_MS: 3000,
     MODAL_WATCH_POLL_MS: 200,
     // 资源时间线兜底：默认关闭（宁可返回空图，不可批错卷）
@@ -308,9 +306,6 @@ const RuiyaAdapter = {
         const basePaperNo = this._paperNo();
         const baseStu = this._stuId();
         const basePath = this._imagePath(oldImageUrl) || this._imagePath(this._rawImageSrc());
-        const hadValueBefore = this.getScoreInputs().some(x => String(x.element.value || '').trim() !== '')
-            || !!this._lastFillSignature;
-        let emptyHits = 0;
 
         console.log(`[睿芽] 等待下一份 密号=${basePaperNo || '-'} 图=${basePath ? basePath.slice(-40) : '-'}`);
 
@@ -334,19 +329,6 @@ const RuiyaAdapter = {
             if (basePath && path && path !== basePath) {
                 console.log('[睿芽] 换卷（答题图路径变化）');
                 return true;
-            }
-
-            // 弱信号：全框清空 —— 必须①过宽限期 ②填分前确有值 ③连续 3 次
-            // 绝不把 "0" 当空（0 分是合法分值），否则 0 分卷会被误判翻卷 → 重复提交
-            if (Date.now() - start > RUIYA_TIMING.NEXT_PAPER_GRACE_MS && hadValueBefore) {
-                const cur = this.getScoreInputs();
-                const allEmpty = cur.length > 0
-                    && cur.every(x => String(x.element.value || '').trim() === '');
-                emptyHits = allEmpty ? emptyHits + 1 : 0;
-                if (emptyHits >= RUIYA_TIMING.NEXT_PAPER_EMPTY_HITS) {
-                    console.warn('[睿芽] 仅凭「输入框持续清空」判定翻卷（密号与图片未变），请留意');
-                    return true;
-                }
             }
 
             await new Promise(r => setTimeout(r, RUIYA_TIMING.NEXT_PAPER_POLL_MS));

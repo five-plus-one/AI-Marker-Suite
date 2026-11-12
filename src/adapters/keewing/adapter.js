@@ -70,13 +70,14 @@ const KeewingAdapter = {
         // 优先从 SVG <image> 标签获取带裁切参数的图片
         const svgImages = document.querySelectorAll(KEEWING_SELECTORS.SVG_IMAGE);
         svgImages.forEach(img => {
-            const url = img.getAttribute('xlink:href') || img.getAttribute('href') || img.getAttribute('src');
-            if (url && url.startsWith('http')) {
-                // 只保留带裁切参数的 URL（当前题目区域）
-                if (url.includes('x-oss-process=image/crop')) {
-                    urls.push(url);
-                }
-            }
+            const raw = img.getAttribute('xlink:href') || img.getAttribute('href') || img.getAttribute('src');
+            if (!raw) return;
+            try {
+                const url = new URL(raw, location.href);
+                // query 按 URL 规则解码；裁切区域仍由平台参数确定。
+                const crop = url.searchParams.get('x-oss-process') || '';
+                if (/^https?:$/.test(url.protocol) && /^image\/crop(?:,|$)/.test(crop)) urls.push(url.href);
+            } catch (_) { /* 无效资源不参与取图 */ }
         });
 
         // 如果没有找到带裁切参数的图片，回退到普通 img 标签
@@ -322,15 +323,6 @@ const KeewingAdapter = {
                     }
                 }
 
-                // 检测输入框被清空（提交后平台会清空输入框）
-                const scoreInput = document.querySelector(KEEWING_SELECTORS.SCORE_INPUT);
-                if (scoreInput && scoreInput.value === '' && Date.now() - startTime > 1000) {
-                    clearInterval(timer);
-                    console.log('✅ [科耘] 新试卷已加载（输入框已清空）');
-                    resolve(true);
-                    return;
-                }
-
                 // 超时检测
                 if (Date.now() - startTime > maxWait) {
                     clearInterval(timer);
@@ -346,10 +338,12 @@ const KeewingAdapter = {
         const images = document.querySelectorAll(KEEWING_SELECTORS.SVG_IMAGE);
         const urls = [];
         images.forEach(img => {
-            let url = img.getAttribute('xlink:href') || img.getAttribute('href') || img.getAttribute('src');
-            if (url && url.startsWith('http')) {
-                urls.push(url);
-            }
+            const raw = img.getAttribute('xlink:href') || img.getAttribute('href') || img.getAttribute('src');
+            if (!raw) return;
+            try {
+                const url = new URL(raw, location.href);
+                if (/^https?:$/.test(url.protocol)) urls.push(url.href);
+            } catch (_) { /* 无效资源不参与换卷判断 */ }
         });
         return urls;
     },

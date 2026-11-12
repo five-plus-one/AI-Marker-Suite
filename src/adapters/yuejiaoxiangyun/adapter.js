@@ -235,18 +235,9 @@ const YuejiaoxiangyunAdapter = {
                 const currentImg = document.querySelector(YUEJIAOXIANGYUN_SELECTORS.ANSWER_IMAGE);
                 const currentUrl = currentImg ? currentImg.src : null;
 
-                // 检测输入框清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-                const input = document.querySelector(YUEJIAOXIANGYUN_SELECTORS.SCORE_INPUT)
-                    || document.querySelector(YUEJIAOXIANGYUN_SELECTORS.SCORE_INPUT_ALT);
-                const inputCleared = input && String(input.value).trim() === '';
-
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);
                     console.log('[粤教翔云] 新试卷已加载（图片变化）');
-                    resolve(true);
-                } else if (inputCleared && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('[粤教翔云] 新试卷已加载（输入框清空）');
                     resolve(true);
                 } else if (checkTimes > 60) {
                     clearInterval(timer);
