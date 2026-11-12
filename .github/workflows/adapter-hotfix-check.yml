@@ -17,3 +17,4 @@ jobs:
       - run: npm test
       - run: npm run build -- --channel=stable
       - run: npm run verify:bundle
+      - run: npm run verify:browser

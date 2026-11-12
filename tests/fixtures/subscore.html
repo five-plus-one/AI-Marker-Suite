@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><title>Subscore browser acceptance</title>
+<script>
+const units = [{ label: '1', maxScore: 4 }, { label: '2', maxScore: 5 }, { label: '3', maxScore: 1 }];
+const fixtureConfig = { scoring: { units, maxScore: 10, roundStep: 1, roundMethod: 'round' },
+    answer: '17（1）③：催化剂只改变化学反应速率，不改变生成物的质量；或其他条件相同，催化剂不改变生成物的量。两点各1分。' };
+window.GM_getValue = (key, fallback) => fallback;
+window.GM_setValue = () => {};
+window.getUIRoot = () => document.body;
+window.showToast = () => {};
+window.PresetManager = { data: { active: '示例方案' }, getCurrentConfig: () => fixtureConfig,
+    getMaxScore: () => 10, getTaskIdentifier: () => 'fixture', getActiveCallConfig: () => ({}) };
+window.aiGradingState = { isRunning: false, isPaused: false, gradingMode: 'trial', currentStudentAnswer: '示例作答',
+    currentImageUrls: [], currentBase64DataArray: [] };
+</script>
+<script src="../../src/core/runtime.js"></script>
+<script src="../../src/core/score.js"></script>
+<script src="../../src/core/prompt.js"></script>
+<script src="../../src/core/ui-modal.js"></script>
+<script src="../../src/core/ui-submit-dialog.js"></script>
+<script src="../../src/adapters/zhixue/selectors.js"></script>
+<script src="../../src/adapters/zhixue/adapter.js"></script>
+<body style="margin:0;background:#eef0f3;">
+<ul id="containter_topicTxt">
+<li><span class="label">1</span><input id="txt_marking_1" name="topicTxt" score="4" value=""></li>
+<li><span class="label">2</span><input id="txt_marking_2" name="topicTxt" score="5" value=""></li>
+<li><span class="label">3</span><input id="txt_marking_3" name="topicTxt" score="1" value=""></li>
+</ul><pre id="result" hidden></pre>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const assert = (ok, message) => { if (!ok) throw Error(message); };
+    const adapter = window.__AI_MARKER_ADAPTER__ = ZhixueAdapter;
+    let checks = 0;
+    try {
+        const inputs = adapter.getScoreInputs();
+        assert(inputs.map(input => input.maxScore).join(',') === '4,5,1', '原生小题满分'); checks++;
+        const prompt = buildSubQuestionPrompt({ ...fixtureConfig, subQuestions: units });
+        assert(prompt.includes('两点各1分') && prompt.includes('其他条件相同'), '采用更新后的评分标准'); checks++;
+        const text = '【答案复述】示例作答\n【分数计算】\n1分数：1+0+2=3\n1评语：示例\n2分数：0+0+0+1=1\n2评语：示例\n3分数：0\n3评语：未作答\n【得分】4';
+        const parsed = parseSubQuestionResponse(text, { subQuestions: units });
+        const final = ScoreCalculator.calculate({ aiScore: parsed.rawScore, diligenceLevel: 0, maxScore: 10,
+            scoringConfig: fixtureConfig.scoring, aiUnitScores: parsed.subScores });
+        assert(final.finalScore === 4 && final.finalUnitScores.map(unit => unit.score).join(',') === '3,1,0', '解析与汇总'); checks++;
+        for (const mode of ['normal', 'unattended', 'trial']) {
+            aiGradingState.gradingMode = mode; aiGradingState.isRunning = true;
+            const runContext = createGradingContext(false);
+            assert(adapter.fillScores(final.finalUnitScores.map(unit => unit.score)), mode + ' 填分'); checks++;
+            assert(inputs.map(input => input.element.value).join(',') === '3,1,0', mode + ' 原生输入值'); checks++;
+            const dialog = showAutoSubmitDialog(final.finalScore, '', final.finalUnitScores,
+                { runContext, scoringDetails: parsed._sections, rawScore: parsed.rawScore });
+            assert(dialog.querySelector('.asd-score-num').textContent === '4', mode + ' 确认总分'); checks++;
+            const block = [...dialog.querySelectorAll('.asd-info-block')].find(node => node.querySelector('.asd-info-label')?.textContent === '各小题得分');
+            assert(block && /3\s*\/4/.test(block.textContent) && /1\s*\/5/.test(block.textContent) && /0\s*\/1/.test(block.textContent), mode + ' 确认明细'); checks++;
+            assert(mode === 'trial' ? !dialog.countdownTimer : !!dialog.countdownTimer, mode + ' 模式路径'); checks++;
+            // 测试只经过填分与确认，普通/无人计时在保存前销毁。
+            if (mode !== 'trial') { destroySubmitDialog(dialog); invalidateGradingRun(); }
+        }
+        document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, passed: true, width: innerWidth, checks }))));
+    } catch (error) {
+        document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, passed: false, error: String(error), stack: error.stack }))));
+    }
+})();
+</script>
