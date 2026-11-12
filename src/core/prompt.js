@@ -691,10 +691,17 @@ function parseSubQuestionScoreValue(value, maxScore) {
 
 function parseSubQuestionScores(text, config, base) {
     const clean = normalizeScoreText(text.replace(/\*\*([^*\r\n]+)\*\*/g, '$1'));
+    const scoreHeaders = new Map(config.subQuestions.map(sq => {
+        const label = normalizeScoreText(sq.label);
+        return [label + '分数', label];
+    }));
     // OCR 复述可能包含“1：…”等学生原文，不作为模型给分字段。
     const scoreText = clean.replace(/【(?:答案复述|学生答案)】[\s\S]*?(?=【|$)/g, '')
         .replace(/(^|\n)[ \t]*学生答案[ \t]*:[\s\S]*?(?=\n[^\n]*分数[ \t]*:|【|$)/g, '$1')
-        .replace(/【[^】]+】/g, '\n');
+        .replace(/【([^】\r\n]+)】[^\S\r\n]*:?[^\S\r\n]*(?:\r?\n[^\S\r\n]*)?/g, (whole, header) => {
+            const label = scoreHeaders.get(header.trim());
+            return label ? '\n' + label + '分数:' : '\n';
+        });
     const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const subScores = config.subQuestions.map(sq => {
         const label = normalizeScoreText(sq.label);

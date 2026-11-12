@@ -1,6 +1,7 @@
 // ========== 五岳阅卷 DOM 选择器常量 ==========
 
 const WUYUE_SELECTORS = {
+    SCORE_PANEL: '.giveCard, .simplifyHandle',
     // 答题卡图片容器
     IMAGE_BOX: '.imageBox',
     OUT_BOX: '.outBox',
@@ -23,7 +24,7 @@ const WUYUE_SELECTORS = {
     SCORE_ITEM_INPUT: '.computeItem .el-input__inner',
 
     // 提交按钮
-    SUBMIT_BUTTON: '.btnSubmit',
+    SUBMIT_BUTTON: '.btnSubmit, .simplifySub',
     SUBMIT_BUTTON_TEXT: '提交得分',
 
     // 回评按钮
