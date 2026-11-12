@@ -54,11 +54,17 @@ function openScene(directory) {
 }
 
 function adapterProbe(scene, ref = 'working') {
-    const allowed = new Set(['working', 'v1.21.19.0', 'v1.21.20.0', 'origin/stable']);
+    const allowed = new Set(['working', 'v1.21.19.0', 'v1.21.20.0', 'v1.21.21.0', 'origin/stable']);
     if (!allowed.has(ref)) throw Error('Unsupported probe version');
     if (scene.capture.platform !== 'haofenshu') throw Error('Adapter replay needs a platform-specific harness');
     const source = ['selectors.js', 'adapter.js'].map(file => {
         const rel = `src/adapters/haofenshu/${file}`;
+        const archived = scene.capture.adapterVersions?.[ref]?.[file];
+        if (archived) {
+            const absolute = path.resolve(scene.root, archived);
+            if (!absolute.startsWith(scene.root + path.sep)) throw Error('Adapter outside scene directory');
+            return fs.readFileSync(absolute, 'utf8');
+        }
         return ref === 'working' ? fs.readFileSync(path.join(ROOT, rel), 'utf8')
             : cp.execFileSync('git', ['show', `${ref}:${rel}`], { cwd: ROOT, encoding: 'utf8', maxBuffer: 5e6 });
     }).join('\n');

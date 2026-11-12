@@ -5,6 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { once } = require('node:events');
+const vm = require('node:vm');
 const { openScene, serveScene, adapterProbe } = require('../scripts/platform-scene.cjs');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
@@ -54,4 +55,23 @@ test('冻结回放隔离平台脚本与写请求，只提供已归档资源', as
     const image = await fetch(base + '/resources/answer.png');
     assert.equal(image.headers.get('content-type'), 'image/png');
     assert.equal(await image.text(), 'captured-image');
+});
+
+test('历史适配器从本地档案读取，并限制在场景目录内', async t => {
+    const {root,write} = capturedScene(t);
+    const capture = JSON.parse(fs.readFileSync(path.join(root,'capture.json')));
+    capture.adapterVersions = {'v1.21.21.0':{'selectors.js':'selectors.js','adapter.js':'adapter.js'}};
+    write('selectors.js', 'const SAVED_VERSION = "captured";');
+    write('adapter.js', 'window.__AI_MARKER_ADAPTER__={gatherAnswerImages:async()=>[SAVED_VERSION]};');
+    write('capture.json', JSON.stringify(capture));
+    const manifest = JSON.parse(fs.readFileSync(path.join(root,'files.json')));
+    manifest.files.find(file => file.path === 'capture.json').sha256 = hash(fs.readFileSync(path.join(root,'capture.json')));
+    for (const file of ['selectors.js','adapter.js']) manifest.files.push({path:file,sha256:hash(fs.readFileSync(path.join(root,file)))});
+    write('files.json', JSON.stringify(manifest));
+    const scene = openScene(root), sb = {URL,document:{}};
+    sb.window = sb;
+    vm.runInNewContext(adapterProbe(scene,'v1.21.21.0'),sb);
+    assert.equal((await sb.sceneProbe.run()).images,1);
+    scene.capture.adapterVersions['v1.21.21.0']['adapter.js'] = '../outside.js';
+    assert.throws(() => adapterProbe(scene,'v1.21.21.0'), /outside scene directory/);
 });
