@@ -64,8 +64,7 @@ const WentongyunAdapter = {
         }
         const item = entries[0];
         const count = parent.workloadData?.readCount;
-        if (!Number.isInteger(count) || count < 0 || !this._id(item.readCount)
-            || Number(item.readCount) !== count) return null;
+        if (!Number.isInteger(count) || count < 0) return null;
         for (const key of ['examPaperId', 'sheetDetailId', 'questionNum']) {
             if (q.getAll(key).length !== 1 || !this._id(q.get(key)) || String(common[key]) !== q.get(key)
                 || String(item[key]) !== q.get(key) || String(parent.queryData?.[key]) !== q.get(key)) return null;
