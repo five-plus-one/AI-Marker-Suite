@@ -89,7 +89,7 @@ test('D.5-1 域名子串匹配只减不增：hostname.includes(/h.includes( 存�
         'lehua': 1, 'nhcisc': 1, 'qiguang': 0, 'jzsmartedu': 0, 'qitian': 4, 'qitian-new': 2, 'ruiya': 1, 'runjian': 3,
         'sipd': 1, 'wuyue': 1, 'wuyuetong': 1, 'xfkj': 1, 'xinjiaoyu': 2, 'xinkao': 0,
         'xinkao-2': 0, 'xinkao-campus': 0, 'xkw': 0, 'xueba54': 1, 'yuejiaoxiangyun': 1,
-        'yuejuan': 1, 'yunyuejuan': 0, 'zhixue': 1, 'wentongyun': 0, 'yuandingbang': 0, 'xiaoxianai': 0,
+        'yuejuan': 1, 'yunyuejuan': 0, 'zhixue': 1, 'wentongyun': 0, 'yuandingbang': 0, 'xiaoxianai': 0, 'huixue': 0,
     };
     const offenders = [];
     for (const a of adapters) {

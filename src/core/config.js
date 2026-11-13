@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.23.8',
+    VERSION: '1.21.23.9',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.23.9': [
+            '【新平台】支持天喻慧学普通阅卷，按本题有效分值填分，确认保存后继续下一份（#451）',
+        ],
         '1.21.23.8': [
             '【新平台】支持小闲 AI 网上阅卷的普通单题键盘给分、题块识别与保存确认（#416）',
         ],
