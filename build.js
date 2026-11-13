@@ -36,6 +36,7 @@ const NODE_MODULES_DIR = path.join(__dirname, 'node_modules');
 
 // 外部库（内联打包，按依赖顺序）
 const VENDOR_LIBS = [
+    { name: 'fiveplusone-embedded-ui', path: path.join(NODE_MODULES_DIR, '@fiveplusone/embedded-ui/index.cjs') },
     { name: 'dompurify', path: path.join(NODE_MODULES_DIR, 'dompurify/dist/purify.min.js') },
     { name: 'marked', path: path.join(NODE_MODULES_DIR, 'marked/lib/marked.umd.js') },
     { name: 'katex',  path: path.join(NODE_MODULES_DIR, 'katex/dist/katex.min.js') },
