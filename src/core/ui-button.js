@@ -23,6 +23,7 @@ const AI_UI_ROOTS = [
     '#ai-crop-overlay', '.ai-img-choice-overlay', '.ai-recog-overlay',
     '#ai-history-overlay', '#ai-history-panel', '#ai-history-detail',
     '#ai-tools-page',
+    '.fp-embedded-toolbar-menu',
     '.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn',
     '#ai-batch-progress',
 ];
@@ -85,7 +86,11 @@ function ensureUIIsolation() {
         });
     }
 
-    // ---- 2. 样式防御 ----
+    // ---- 2. 嵌入界面公共样式边界与即时提示 ----
+    FivePlusOneEmbeddedUI.installBoundary(document, AI_UI_ROOTS);
+    FivePlusOneEmbeddedUI.installTooltips(document, AI_UI_ROOTS);
+
+    // ---- 3. 样式防御 ----
     // (a) 按钮反制「压窄导致文字竖排」；
     // (b) 批改完成弹窗的布局保护：平台全局 CSS 会概率性打乱弹窗尺寸/网格/底部按钮排布
     //     （弹窗超出视口、按钮被挤变形、倒计时圆环错位）。只保布局，不碰 transform/定位——
@@ -99,7 +104,7 @@ function ensureUIIsolation() {
             box-sizing: border-box !important;
         }
         ${AI_UI_BUTTON_SELECTOR} {
-            min-width: max-content !important;
+            min-width: max-content;
             white-space: nowrap !important;
             word-break: keep-all !important;
             writing-mode: horizontal-tb !important;

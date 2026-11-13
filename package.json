@@ -11,6 +11,7 @@
   "author": "5plus1",
   "license": "GPL-3.0",
   "devDependencies": {
+    "@fiveplusone/embedded-ui": "file:vendor/fiveplusone-embedded-ui-0.1.0.tgz",
     "dompurify": "^3.4.17",
     "katex": "^0.18.10",
     "marked": "^18.0.4",
