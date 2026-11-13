@@ -6,6 +6,7 @@ window.HUAHANYUN_SELECTORS = {
     SCORE_INPUT: '#compuinput',
     // 温州 Vue 3 单题面板：键盘给分、一键给分。步长输入框不参与评分。
     WENZHOU_SCORE_INPUT: 'input#compuinput, #compuinput input.el-input__inner, .redbiginput input.el-input__inner[placeholder="请给分"]',
+    WENZHOU_BOUND_INPUT: '.givescorebox.isbind .bindinputs input.el-input__inner',
     // 给分提交按钮
     SUBMIT_BUTTON: 'button.submitscorebtn',
     // 答卷图（OBS 题块裁剪图；另有 data: 小图标需过滤）

@@ -11,6 +11,7 @@ window.GM_getValue=(k,v)=>storage[k]??v;window.GM_setValue=(k,v)=>storage[k]=v;
 window.GM_registerMenuCommand=()=>{};
 window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
 const app=document.getElementById('app'),panel=document.querySelector('.panel'),input=document.querySelector('input');
+const bound=mode==='bound';
 if(mode==='keyboard'){input.id='compuinput';input.readOnly=false;input.parentElement.className='questionInputs'}
 const mark={markingType:mode==='keyboard'?1:2,questionScore:null,reviewProps:{},markReview:false,
  haveJoin:false,batchGrading:false,IsSubItemscoring:false,
@@ -20,6 +21,24 @@ app.__vue_app__={config:{globalProperties:{$store:{state:{mark},commit(key,value
  if(key!=='mark/SET_SCOREING')throw Error('Unexpected mutation');
  commits++;mark.questionScore=value;queueMicrotask(()=>input.value=value==null?'':value);
 }}}}};
+let boundModels, boundInputs;
+if(bound){
+ panel.className='panel givescorebox isbind';
+ panel.querySelector('span').textContent='绑定批阅：17（1）与17（2）';
+ input.parentElement.remove();
+ mark.haveJoin=true;mark.markingType=4;mark.selectArea=[
+  {questionId:42,questionName:'17（1）',score:7},{questionId:43,questionName:'17（2）',score:8}];
+ boundModels=[null,null];
+ boundInputs=mark.selectArea.map((q,i)=>{const row=document.createElement('div');row.className='bindinputs';
+  row.append(document.createTextNode(q.questionName));const el=document.createElement('input');
+  el.name=String(i);el.className='el-input__inner';el.placeholder='满分'+q.score+'分';row.append(el);panel.prepend(row);
+  el.addEventListener('input',()=>{nativeInputs++;submits++});return el});
+ const props=boundInputs.map((el,i)=>({modelValue:null}));
+ const component={exposed:{countScoreMultiple(values){values.forEach(v=>{const i=mark.selectArea.findIndex(q=>q.questionId===v.id);
+  boundModels[i]=v.score;queueMicrotask(()=>{props[i].modelValue=v.score;boundInputs[i].value=v.score==null?'':v.score})})}},
+  subTree:{children:boundInputs.map((el,i)=>({component:{exposed:{input:{value:el}},vnode:{props:props[i]}}}))}};
+ app.__vue_app__._container={_vnode:{component}};
+}
 input.addEventListener('input',()=>{nativeInputs++;submits++});
 function paper(student,hidden=false){const img=document.createElement('img');img.className='el-image__inner';
  img.src=location.origin+'/r/deployment:/union_new/exam/subject/school/student/'+student+'/hash/web/42.svg';
@@ -27,7 +46,8 @@ function paper(student,hidden=false){const img=document.createElement('img');img
 const papers=document.querySelector('.paper');papers.append(paper('A'));
 document.querySelector('button').onclick=()=>{submits++;const xhr=new XMLHttpRequest();
  xhr.open('POST','/v2/union/mark/submit');xhr.onload=()=>setTimeout(()=>papers.replaceChildren(paper('B')),80);
- xhr.send(JSON.stringify({studentId:mark.readOverInfo.studentId,sheetId:101,questionId:42,score:mark.questionScore}))};
+ xhr.send(JSON.stringify({studentId:mark.readOverInfo.studentId,sheetId:101,questionId:42,score:mark.questionScore,
+  ...(bound?{haveJoin:true,questionSubmitList:boundModels.map((score,i)=>({questionId:42+i,score}))}:{})}))};
 if(mode==='late'||mode==='spa')panel.remove();
 </script><script src="/__fixture/ai_marker.user.js"></script><script>
 (async()=>{
@@ -42,12 +62,20 @@ if(mode==='late'||mode==='spa')panel.remove();
   const a=window.__AI_MARKER_ADAPTER__;
   assert(a?.name==='温州云阅卷'&&a.isMarkingPage(),'完整脚本识别温州页面');
   assert(document.querySelectorAll('.ai-grade-btn').length===1,'唯一批改入口');
-  assert(a.getScoreInputs().length===1&&a.getScoreInputs()[0].maxScore===3,'读取题目满分并排除步长框');
+  assert(a.getScoreInputs().length===(bound?2:1)&&a.getScoreInputs()[0].maxScore===(bound?7:3),'读取题目满分并排除步长框');
   const urls=await a.gatherAnswerImages(),old=a.getPaperIdentity();assert(urls.length===1&&old,'答卷图及身份就绪');
+  if(bound){
+   for(const scores of [[0,0],[2.5,8],[7,0]]){assert(a.fillScores(scores),'绑定题完整填入');await wait(0);
+    assert(boundModels.every((v,i)=>v===scores[i]&&Number(boundInputs[i].value)===v),'模型与展示完整同步')}
+   assert(submits===0&&nativeInputs===0,'绑定题试改只填分');
+   assert(!a.fillScores([1])&&!a.fillScores([1,9]),'绑定题完整范围校验');
+   assert(a.fillScores([7,0]),'提交前重新填入完整分数');await wait(0);
+  }else{
   for(const value of [0,2.5,3]){assert(a.fillScores([value]),'合法分数填入');await wait(0);
    assert(mark.questionScore===value&&Number(input.value)===value,'显示与平台评分状态一致')}
   assert(commits===3&&submits===0&&nativeInputs===0,'平台快捷给分开启时仍只填分');
   assert(!a.fillScores([4])&&!a.fillScores([''])&&mark.questionScore===3,'非法分数保留当前分数');
+  }
   const button=document.querySelector('button');button.disabled=true;assert(!a.submitGrade(),'禁用时停止');button.disabled=false;
   assert(await a.submitGrade(),'通过平台按钮提交并确认保存');assert(await a.waitForNextPaper(urls[0]),'新答卷图出现后继续');
   assert(submits===1&&a.getPaperIdentity()!==old,'一次提交及明确换卷');
