@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>园丁邦阅卷练习</title>
+<style>body{margin:0;font:16px system-ui;color:#253d39;background:#f6faf8}header{background:#34404a;color:white;padding:18px}main{display:flex;padding:24px;gap:24px}#imgdiv{flex:1;background:white;padding:16px}img{width:100%}aside{width:240px}input{padding:10px;width:100px}#tjfsbtn{display:block;width:100%;margin-top:20px;border:0;background:#1ab394;color:white}.dfddiv{display:flex;align-items:center;gap:10px}.score{margin-top:20px}</style>
+<header>化学练习 ｜ 第22题 ｜ 单评</header><main><div id="imgdiv"><img id="mainimg_0"></div><aside><div id="dfdxx"><div class="dfddiv"><span class="dfdspan">22(1-2)</span><input id="dfd0" placeholder="满分6" oninput="countSum()"></div></div><div class="score">合计：0 分</div><input type="button" id="tjfsbtn" value="提交分数（回车）" onclick="tjfs()"><input hidden id="copyvalue"></aside></main>
+<script>
+var ksdm='100',kmdm='B21',stbh='2',loadok=true,err=false,sfhp=false,dfms='1',sfsp='0',tjfsFlag=true,dtkgs='1';
+var zgtxx={STBH:'2',KMDM:'B21',STMC:'22(1-2)',DFDMC:'22(1-2)',DFDFS:'6',DFDSL:1,STMF:6,DFBC:'0',DFBCMS:'1',PYCS:1,SFSP:'0',SFYGMS:'0',SFFP:'0',SFMP:'0',TXQY:'3',TXDZ:'https://yuejuan-img.yuandingbang.cn/Examimg/'};
+var dfdmc=['22(1-2)'],dfdfs=['6'],txqy=['3'],rwxx,sum=0,dfd='',fixtureRequests=[];
+function setPaper(id){rwxx={RWID:'task-'+id,DQPC:'1',BMH:id,STBH:'2',PYCS:1,SFYC:'0',SFZC:'0',ZJBZ:'0',PYCJ_1:null,PYSJ_1:null};document.querySelector('#copyvalue').value=id;document.querySelector('#mainimg_0').src=zgtxx.TXDZ+'1359/100/B21/'+id+'/'+id+'_3.jpg?v=123';document.querySelector('#dfd0').value='';countSum()}
+function countSum(){document.querySelector('.score').textContent='合计：'+(document.querySelector('#dfd0').value||0)+' 分'}
+function checkDfd(){var value=document.querySelector('#dfd0').value;if(!/^\d+(\.\d+)?$/.test(value)||Number(value)>6||Number(value)%1)return false;sum=Number(value);dfd=value;return true}
+class FixtureXHR extends EventTarget{open(method,url){this.url=url}send(body){fixtureRequests.push({url:this.url,body});this.status=200;this.responseText=JSON.stringify({res:true});setTimeout(()=>{this.dispatchEvent(new Event('load'));setPaper('fixture-B')},0)}}
+window.XMLHttpRequest=FixtureXHR;
+function tjfs(){if(!checkDfd())return;const xhr=new XMLHttpRequest();xhr.open('POST',location.origin+'/sjpy_tjfs.do');xhr.send(new URLSearchParams({ksdm,kmdm,stbh,rwid:rwxx.RWID,dqpc:rwxx.DQPC,pycs:1,sfmp:0,pycj:sum,pydfd:dfd}).toString())}
+setPaper('fixture-A');
+</script></html>
