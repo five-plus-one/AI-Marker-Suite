@@ -3,12 +3,13 @@ const assert = require('node:assert/strict');
 const M = require('./_adapter-matrix.js');
 
 const SCORE = '.redbiginput input.el-input__inner[placeholder="请给分"]';
+const BOUND = '.givescorebox.isbind .bindinputs input.el-input__inner';
 const OLD = 'https://yuejuan.wzedu.cn/r/deployment:/union_new/exam/subject/school/student/A/hash/web/42.png';
 const NEXT = OLD.replace('/student/A/', '/student/B/');
 function image(src, visible = true) {
     return { getAttribute: () => src, getBoundingClientRect: () => ({ width: 1030, height: 400 }), checkVisibility: () => visible };
 }
-function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboard = false, late = false } = {}) {
+function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboard = false, late = false, bound = false } = {}) {
     const sb = M.makeStub({ host: 'yuejuan.wzedu.cn', path: '/static-v2/exam/index.html', hash });
     const input = { _v: '', get value() { return this._v; },
         dispatchEvent() { throw Error('填分不能派发快捷提交事件'); } };
@@ -21,6 +22,7 @@ function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboar
         removeEventListener(type) { this.listeners.delete(type); }
         send(body) { this.body = JSON.parse(body); request = this;
             if (autoRespond) setTimeout(() => this.respond(response), 0); }
+        abort() { this.aborted = true; }
         respond(body, type = 'load') { this.responseText = JSON.stringify(body); this.listeners.get(type)?.(); }
     }
     sb.XMLHttpRequest = XHR;
@@ -29,7 +31,8 @@ function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboar
         clicks++;
         const xhr = new sb.XMLHttpRequest(); xhr.open('POST', '/v2/union/mark/submit');
         xhr.send(JSON.stringify({ studentId: state.readOverInfo.studentId, sheetId: state.readOverInfo.sheetId,
-            questionId: state.readOverInfo.questionId, score: state.questionScore }));
+            questionId: state.readOverInfo.questionId, score: state.questionScore,
+            ...(bound ? { haveJoin: true, questionSubmitList: models.map((score, i) => ({ questionId: 42 + i, score })) } : {}) }));
     } };
     const state = { markingType: keyboard ? 1 : 2, haveJoin: false, IsSubItemscoring: false, batchGrading: false,
         questionScore: null, reviewProps: {}, markReview: false,
@@ -39,7 +42,18 @@ function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboar
         assert.equal(key, 'mark/SET_SCOREING'); state.questionScore = value;
     } };
     sb.__dom['#app'] = { __vue_app__: { config: { globalProperties: { $store: store } } } };
-    const key = keyboard ? 'input#compuinput' : SCORE;
+    const models = [null, null], fields = [input, { _v: '', get value() { return this._v; }, dispatchEvent: input.dispatchEvent }];
+    let panel;
+    if (bound) {
+        Object.assign(state, { haveJoin: true, markingType: 4, selectArea: [
+            { questionId: 42, questionName: '17（1）', score: 7 }, { questionId: 43, questionName: '17（2）', score: 8 }] });
+        fields.forEach((el, i) => { el.name = String(i); el.matches = sel => sel === BOUND; });
+        panel = { exposed: { countScoreMultiple(values) { values.forEach((v, i) => { models[i] = v.score; }); } },
+            subTree: { children: fields.map((el, i) => ({ component: { exposed: { input: { value: el } },
+                vnode: { props: { get modelValue() { return models[i]; } } } } })) } };
+        sb.__dom['#app'].__vue_app__._container = { _vnode: { component: panel } };
+    }
+    const key = bound ? BOUND : keyboard ? 'input#compuinput' : SCORE;
     function mount() { sb.__dom[key] = input; sb.__dom['button.submitscorebtn'] = button; }
     if (!late) mount();
     let images = [image(OLD)];
@@ -49,7 +63,7 @@ function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboar
     sb.setTimeout = setTimeout;
     const result = M.loadOne(sb, 'huahanyun');
     assert.deepEqual(result.errors, []);
-    return { sb, input, button, state, store, mount, clicks: () => clicks,
+    return { sb, input, button, state, store, mount, fields, panel, models, clicks: () => clicks,
         xhr: () => request, response: value => { response = value; }, delay: () => { autoRespond = false; },
         images: value => { images = value; }, adapter: () => sb.__AI_MARKER_ADAPTER__ };
 }
@@ -197,4 +211,94 @@ test('温州答卷：同考生图集与身份一致，多考生过渡期等待',
     f.sb.location.hash = '#/marking/gradingList/list';
     assert.equal(a.getPaperIdentity(), null);
     assert.equal((await a.gatherAnswerImages()).length, 0);
+});
+
+test('温州绑定批阅：题块顺序、满分、零分与小数同步，整组保存一次', async () => {
+    const f = setup({ bound: true }), a = f.adapter();
+    assert.equal(a.shouldInitialize(), true);
+    assert.deepEqual(Array.from(a.getScoreInputs(), i => [i.label, i.maxScore]), [['17（1）', 7], ['17（2）', 8]]);
+    assert.equal(a.detectSubQuestions().length, 2);
+    for (const scores of [[0, 0], [2.5, 8], [7, 0]]) {
+        assert.equal(a.fillScores(scores), true);
+        assert.deepEqual(f.models, scores);
+        assert.deepEqual(f.fields.map(el => Number(el.value)), scores);
+        assert.equal(f.clicks(), 0);
+    }
+    assert.equal(await a.submitGrade(), true);
+    assert.equal(f.clicks(), 1);
+    assert.deepEqual(f.xhr().body.questionSubmitList, [{ questionId: 42, score: 7 }, { questionId: 43, score: 0 }]);
+});
+
+test('温州绑定批阅：完整校验评分范围、个数与平台可用分数', () => {
+    const f = setup({ bound: true }), a = f.adapter();
+    assert.equal(a.fillScores([6, 7]), true);
+    for (const scores of [[], [1], [1, 2, 3], [1, 9], [8, 1], [1, -1], [1, NaN], [null, 1], ['', 1], [true, 1], [1.001, 1]]) {
+        assert.equal(a.fillScores(scores), false);
+        assert.deepEqual(f.models, [6, 7]);
+    }
+    f.state.selectArea[0].markValues = '0,1,2,3,4,5,6,7';
+    assert.equal(a.fillScores([2.5, 7]), false);
+    assert.deepEqual(f.models, [6, 7]);
+});
+
+test('温州绑定批阅：模型、控件、题块、答卷及回评变化后停止提交', async () => {
+    for (const change of [f => { f.models[1] = null; }, f => { f.fields[1]._v = ''; },
+        f => { f.state.selectArea.reverse(); }, f => { f.images([image(NEXT)]); },
+        f => { f.state.readOverInfo.studentId = 'B'; }, f => { f.state.reviewProps.review = true; },
+        f => { f.state.markingType = 5; }, f => { f.panel.subTree.children.pop(); }]) {
+        const f = setup({ bound: true }), a = f.adapter();
+        assert.equal(a.fillScores([0, 0]), true); change(f);
+        assert.equal(await a.submitGrade(), false);
+        assert.equal(f.clicks(), 0);
+    }
+});
+
+test('温州绑定批阅：填分与提交核对平台模型，阻止不一致的原生请求', async () => {
+    const f = setup({ bound: true }), a = f.adapter();
+    assert.equal(a.fillScores([6, 7]), true);
+    f.button.click = () => {
+        const xhr = new f.sb.XMLHttpRequest(); xhr.open('POST', '/v2/union/mark/submit');
+        xhr.send(JSON.stringify({ studentId: 'A', sheetId: 101, questionId: 42, haveJoin: true,
+            questionSubmitList: [{ questionId: 42, score: 6 }, { questionId: 43, score: 8 }] }));
+        assert.equal(xhr.aborted, true);
+    };
+    assert.equal(await a.submitGrade(), false);
+    assert.equal(f.xhr(), undefined);
+});
+
+test('温州绑定批阅：字段缺失、重复题块及批注模式停止填分', () => {
+    for (const change of [f => { f.fields[1].name = '0'; }, f => { f.state.selectArea[1].questionId = 42; },
+        f => { f.state.multipleDraw = true; }, f => { f.state.areaMark = true; },
+        f => { f.fields[1].readOnly = true; }, f => { f.state.selectArea[1].score = NaN; }]) {
+        const f = setup({ bound: true }), a = f.adapter(); change(f);
+        assert.equal(a.getScoreInputs().length, 0);
+        assert.equal(a.fillScores([1, 2]), false);
+        assert.deepEqual(f.models, [null, null]);
+    }
+});
+
+test('温州绑定批阅：提交等待期间保留原分数，保存后同次填分只提交一次', async () => {
+    const f = setup({ bound: true }), a = f.adapter(); f.delay();
+    assert.equal(a.fillScores([6, 7]), true);
+    const submission = a.submitGrade(); await Promise.resolve();
+    assert.equal(a.fillScores([0, 0]), false);
+    assert.equal(await a.submitGrade(), false);
+    assert.deepEqual(f.models, [6, 7]);
+    f.xhr().respond({ code: 200, data: { exist: true } });
+    assert.equal(await submission, true);
+    assert.equal(await a.submitGrade(), false);
+    assert.equal(f.clicks(), 1);
+});
+
+test('温州绑定批阅：控件写入异常时还原整组评分', () => {
+    const f = setup({ bound: true }), a = f.adapter();
+    assert.equal(a.fillScores([6, 7]), true);
+    f.fields[1]._fail = true;
+    const setter = f.sb.HTMLInputElement.prototype;
+    Object.defineProperty(setter, 'value', { configurable: true, set(value) {
+        if (this._fail) { this._fail = false; throw Error('输入框已重建'); } this._v = value;
+    } });
+    assert.equal(a.fillScores([0, 0]), false);
+    assert.deepEqual(f.models, [6, 7]);
+    assert.deepEqual(f.fields.map(el => el.value), ['6', '7']);
 });
