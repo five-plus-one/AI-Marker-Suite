@@ -234,11 +234,12 @@ const ZhixueAdapter = {
         const baseUrl = actualPath + window.location.hash.split('&_t=')[0];
         let questionIdentifier = '';
         try {
-            const exactElement = document.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX);
+            const searchDoc = this._answerSnapshot().doc || document;
+            const exactElement = searchDoc.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX);
             if (exactElement && exactElement.textContent) {
                 questionIdentifier = exactElement.textContent.trim();
             } else {
-                const titleElement = document.querySelector(ZHIXUE_SELECTORS.TOPIC_TITLE);
+                const titleElement = searchDoc.querySelector(ZHIXUE_SELECTORS.TOPIC_TITLE);
                 if (titleElement) {
                     questionIdentifier = titleElement.getAttribute('title') || titleElement.textContent.trim();
                 }
@@ -247,37 +248,112 @@ const ZhixueAdapter = {
         return baseUrl + (questionIdentifier ? '___' + questionIdentifier : '');
     },
 
-    async gatherAnswerImages() {
-        // 获取iframe文档（新版微前端架构）
-        const iframeDoc = this._getIframeDoc();
-        const searchDoc = iframeDoc || document;
-
-        // 先尝试旧版选择器
-        let imgElements = searchDoc.querySelectorAll(ZHIXUE_SELECTORS.ANSWER_IMAGE);
-        if (imgElements.length > 0) {
-            console.log(`🖼️ [诊断] 旧版选择器找到答题卡图片数量: ${imgElements.length} (在${iframeDoc ? 'iframe' : '主页面'})`);
-            return Array.from(imgElements).map(img => img.src);
-        }
-        // 再尝试新版选择器
-        imgElements = searchDoc.querySelectorAll(ZHIXUE_SELECTORS.ANSWER_IMAGE_NEW);
-        if (imgElements.length > 0) {
-            console.log(`🖼️ [诊断] 新版选择器找到答题卡图片数量: ${imgElements.length} (在${iframeDoc ? 'iframe' : '主页面'})`);
-            return Array.from(imgElements).map(img => img.src);
-        }
-        // 如果iframe中没找到，也检查主页面
-        if (iframeDoc) {
-            imgElements = document.querySelectorAll(ZHIXUE_SELECTORS.ANSWER_IMAGE) || document.querySelectorAll(ZHIXUE_SELECTORS.ANSWER_IMAGE_NEW);
-            if (imgElements.length > 0) {
-                console.log(`🖼️ [诊断] 主页面找到答题卡图片数量: ${imgElements.length}`);
-                return Array.from(imgElements).map(img => img.src);
+    _answerResourceKey(src) {
+        if (typeof src !== 'string' || !src.trim()) return null;
+        // 增强图直接显示为内嵌 PNG；摘要只用于比对，取图始终保留完整字节。
+        if (/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(src)) {
+            let a = 2166136261, b = 5381;
+            for (let i = 0; i < src.length; i++) {
+                a = Math.imul(a ^ src.charCodeAt(i), 16777619);
+                b = Math.imul(b, 33) ^ src.charCodeAt(i);
             }
+            return `zhixue:inline:${src.length}:${a >>> 0}:${b >>> 0}`;
         }
-        console.warn('⚠️ [诊断] 未找到答题卡图片');
+        try {
+            const url = new URL(src, window.location.href);
+            if (!/^https?:$/.test(url.protocol)) return null;
+            // crop 决定答题区域；签名、缩放和亮度等显示变换不决定作答来源。
+            const crops = (url.searchParams.get('x-oss-process') || '').split('/').filter(op => /^crop(?:,|$)/.test(op));
+            if (crops.length) url.searchParams.set('x-oss-process', 'image/' + crops.join('/'));
+            else url.searchParams.delete('x-oss-process');
+            for (const key of [...url.searchParams.keys()]) {
+                if (/^(?:Expires|OSSAccessKeyId|Signature|Policy|Key-Pair-Id|x-amz-(?:algorithm|credential|date|expires|signedheaders|signature|security-token))$/i.test(key)) url.searchParams.delete(key);
+            }
+            url.hash = ''; url.searchParams.sort();
+            return url.href;
+        } catch (_) { return null; }
+    },
+
+    _nativeImageState(image) {
+        // 只读取当前图片所属的阅卷组件，不使用预加载的 nextTopicInfo/nextCatchImage。
+        for (let el = image; el; el = el.parentElement) {
+            const state = el.__vue__?.$data;
+            if (Array.isArray(state?.topicImageIds) && state.topicImageIds.length) return state;
+        }
+        return null;
+    },
+
+    _answerSnapshot() {
+        const mainDoc = typeof unsafeWindow !== 'undefined' ? unsafeWindow.document : document;
+        let iframeDoc;
+        try {
+            const iframe = mainDoc.querySelector('iframe');
+            const visible = !iframe?.getClientRects || iframe.getClientRects().length > 0;
+            const style = iframe?.ownerDocument?.defaultView?.getComputedStyle(iframe);
+            if (visible && style?.visibility !== 'hidden' && style?.display !== 'none') iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+        } catch (_) { /* 跨域 iframe 不可读时仍检查主页面。 */ }
+        for (const doc of [iframeDoc, mainDoc].filter(Boolean)) {
+            let images = [];
+            for (const selector of [ZHIXUE_SELECTORS.ANSWER_IMAGE, ZHIXUE_SELECTORS.ANSWER_IMAGE_NEW]) {
+                images = Array.from(doc.querySelectorAll(selector)).filter(image => {
+                    if (!image.src || (image.getClientRects && !image.getClientRects().length)) return false;
+                    const style = image.ownerDocument?.defaultView?.getComputedStyle(image);
+                    return !style || (style.visibility !== 'hidden' && style.display !== 'none');
+                });
+                if (images.length) break;
+            }
+            if (!images.length) continue;
+            const urls = [...new Set(images.map(image => image.src))];
+            const native = this._nativeImageState(images[0]);
+            const keys = images.map(image => {
+                if (native && image.src.startsWith('data:')) {
+                    const sources = Object.entries(native.catchImage || {}).filter(([, value]) => value === image.src)
+                        .map(([source]) => this._answerResourceKey(source));
+                    return sources.length && sources.every(key => key && key === sources[0]) ? sources[0] : null;
+                }
+                // 普通 DOM 回退按元素缓存摘要，避免轮询重复扫描大幅增强图。
+                this._imageKeys ||= new WeakMap();
+                const cached = this._imageKeys.get(image);
+                if (cached?.src === image.src) return cached.key;
+                const key = this._answerResourceKey(image.src);
+                this._imageKeys.set(image, { src: image.src, key });
+                return key;
+            });
+            const nativeKeys = native?.topicImageIds.map(source => this._answerResourceKey(source));
+            const matchesNative = !native || (nativeKeys.length === keys.length && keys.every((key, i) => key && key === nativeKeys[i]
+                && this._nativeImageState(images[i]) === native));
+            return { doc, urls, keys, ready: matchesNative && images.every(image => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
+                identity: keys.every(Boolean) ? 'zhixue:images:' + JSON.stringify([...new Set(keys)].sort()) : null };
+        }
+        return { urls: [], keys: [], ready: false, identity: null };
+    },
+
+    getPaperIdentity() {
+        // 使用整组作答资源标识；平台未暴露可信原生ID时不猜测DOM字段。
+        const snapshot = this._answerSnapshot();
+        return snapshot.ready ? snapshot.identity : null;
+    },
+
+    async gatherAnswerImages() {
+        let previous = null;
+        for (let count = 0; count < 125; count++) {
+            if (window.aiGradingState?.abortController?.signal.aborted) return [];
+            const snapshot = this._answerSnapshot();
+            if (snapshot.ready && snapshot.identity && previous === snapshot.identity) return snapshot.urls;
+            previous = snapshot.ready ? snapshot.identity : null;
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
         return [];
     },
 
-    async fetchImageAsBase64(url) {
-        return fetchImageAsBase64(url);
+    async fetchImageAsBase64(url, signal = window.aiGradingState?.abortController?.signal) {
+        if (signal?.aborted || window.aiGradingState?.isPaused) throw new Error('用户主动暂停');
+        if (url.startsWith('data:')) {
+            const match = url.match(/^data:image\/(?:png|jpe?g|webp|gif);base64,([A-Za-z0-9+/]+=*)$/);
+            if (!match) throw new Error('答题卡图片格式无效，请重新加载后继续');
+            return match[1];
+        }
+        return fetchImageAsBase64(url, signal);
     },
 
     fillScore(request) {
@@ -367,57 +443,39 @@ const ZhixueAdapter = {
         return false;
     },
 
-    async waitForNextPaper(oldImageUrl) {
+    async waitForNextPaper(oldImageUrl, context = {}) {
         let checkTimes = 0;
-        // 获取iframe文档（新版微前端架构）
-        const iframeDoc = this._getIframeDoc();
-        const searchDoc = iframeDoc || document;
-
+        let candidate = null, stableChecks = 0;
+        const oldKey = this._answerResourceKey(oldImageUrl);
+        if (!context.paperId && !oldKey) return false;
+        let oldKeys = oldKey ? [oldKey] : [];
+        if (context.paperId?.startsWith('zhixue:images:')) {
+            try { oldKeys = JSON.parse(context.paperId.slice('zhixue:images:'.length)); } catch (_) { return false; }
+            if (!Array.isArray(oldKeys) || !oldKeys.length || !oldKeys.every(key => typeof key === 'string')) return false;
+        }
         return new Promise((resolve) => {
+            const finish = value => {
+                clearInterval(checkNextTimer);
+                context.signal?.removeEventListener('abort', abort);
+                resolve(value);
+            };
+            const abort = () => finish(false);
             const checkNextTimer = setInterval(() => {
                 checkTimes++;
-
-                // 检测1：图片 src 变化（旧版）
-                const currentImgOld = searchDoc.querySelector(ZHIXUE_SELECTORS.ANSWER_IMAGE);
-                if (currentImgOld && currentImgOld.src !== oldImageUrl) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（旧版图片变化）');
-                    resolve(true);
-                    return;
-                }
-
-                // 检测1b：图片 src 变化（新版）
-                const currentImgNew = searchDoc.querySelector(ZHIXUE_SELECTORS.ANSWER_IMAGE_NEW);
-                if (currentImgNew && currentImgNew.src !== oldImageUrl) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（新版图片变化）');
-                    resolve(true);
-                    return;
-                }
-
-                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框；仅真清空算空，'0' 是合法分值，#285）
-                // 旧版输入框
-                const scoreInputOld = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
-                                   searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
-                const inputClearedOld = scoreInputOld && String(scoreInputOld.value).trim() === '';
-                // 新版输入框
-                const scoreInputNew = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW) ||
-                                   searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_NEW);
-                const inputClearedNew = scoreInputNew && String(scoreInputNew.value).trim() === '';
-
-                if ((inputClearedOld || inputClearedNew) && checkTimes > 3) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（输入框清空）');
-                    resolve(true);
-                    return;
-                }
-
-                if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
-                    clearInterval(checkNextTimer);
-                    console.warn('⚠️ 等待下一份试卷超时');
-                    resolve(false);
-                }
+                if (context.signal?.aborted || (context.taskId && this.getTaskIdentifier() !== context.taskId)) return finish(false);
+                const snapshot = this._answerSnapshot();
+                const changed = snapshot.ready && snapshot.identity && !snapshot.keys.some(key => oldKeys.includes(key)) && (context.paperId
+                    ? snapshot.identity !== context.paperId
+                    : !snapshot.keys.includes(oldKey));
+                if (changed) {
+                    stableChecks = candidate === snapshot.identity ? stableChecks + 1 : 1;
+                    candidate = snapshot.identity;
+                    if (stableChecks >= 2) return finish(true);
+                } else { candidate = null; stableChecks = 0; }
+                if (checkTimes >= 125) finish(false);
             }, 200);
+            context.signal?.addEventListener('abort', abort, { once: true });
+            if (context.signal?.aborted) finish(false);
         });
     },
 
