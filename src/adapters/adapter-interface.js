@@ -45,6 +45,9 @@
  * @property {() => string} getTaskIdentifier
  *   返回当前题目的唯一标识字符串，用于方案绑定和 URL 变化检测。
  *   同一题目应始终返回相同值，不同题目应返回不同值。
+ * @property {() => string} [getGradingTaskIdentifier]
+ *   返回原生题目基准，启用跨轮次切题停止保护。必须同题换学生保持不变，
+ *   题号暂不可读时返回空串；不得包含学生、答卷或瞬态加载标识。
  *
  * === 图片获取 ===
  * @property {() => Promise<string[]>} gatherAnswerImages

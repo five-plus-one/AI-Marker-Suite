@@ -677,6 +677,7 @@ function toggleAutoGrading() {
 // ========== 停止打分 ==========
 function stopAutoGrading() {
     invalidateGradingRun();
+    window.aiGradingState.gradingTaskId = null;
     window.aiGradingState.isRunning = false;
     window.aiGradingState.isPaused = false;
     window.aiGradingState.gradingMode = 'normal';

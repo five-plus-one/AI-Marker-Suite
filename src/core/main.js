@@ -267,6 +267,7 @@ function handleLeaveMarkingPage() {
 // ========== 主控流程 ==========
 async function startAutoGrading() {
     if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
+    if (stopIfGradingTaskChanged()) return;
     const runContext = createGradingContext();
     // 批改节奏：本卷用时计时起点（开始处理 → 提交，含随机延迟）
     // 已有起点（翻卷检测时刻）时不覆盖，保住「检测到→提交」的完整窗口
@@ -420,7 +421,7 @@ async function startAutoGrading() {
             console.log(`✅ [诊断] 图片下载完成，各图片Base64大小: ${base64DataArray.map(b => Math.round(b.length / 1024) + 'KB').join(', ')}`);
         }
 
-        requireCurrentGradingContext(runContext);
+        requireGradingContextTarget(runContext);
         runContext.imageUrls = imageUrls.slice();
         runContext.inputSnapshot = window.aiGradingState.paperGuardInputSnapshot || [];
         runContext.base64DataArray = base64DataArray.slice();
@@ -1070,6 +1071,7 @@ let pendingNewTaskFlowId = null;
 let newTaskFlowInFlight = false; // #312 防重入：并发生 tick 不得双跑新题引导（双弹窗）
 setInterval(async () => {
     recoverMarkingUIIfReady();
+    stopIfGradingTaskChanged();
     const currentUrlId = PresetManager.getTaskIdentifier();
     if (currentUrlId !== lastUrlId) {
         lastUrlId = currentUrlId;
@@ -1125,7 +1127,7 @@ setInterval(async () => {
             return;
         }
 
-        if (!window.aiGradingState.isRunning) {
+        if (!window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
             // 非阅卷页面不弹窗，直接返回
             // 优先使用快速检查（不等待 DOM），回退到完整检测
             const onMarkingPage = adapter.isMarkingPage

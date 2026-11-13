@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><title>Zhixue transition acceptance</title>
+<div name="topicImg"><img src="/__fixture/answer.svg?paper=A&Expires=1&Signature=one"></div>
+<span id="currentTopicIndex">第31题</span>
+<ul id="containter_topicTxt"><li><span class="label">31</span><input name="topicTxt" id="txt_marking_31" disptitle="31" score="10" placeholder="满分10"></li></ul>
+<button id="bnt_save">提交分数</button>
+<input id="txt_marking_all" value=""><pre id="result" hidden></pre>
+<script>
+const storage={
+ 'ai-grading-show-onboarding':false,
+ 'ai-grading-presets':JSON.stringify({list:{Fixture:{question:'第31题',answer:'参考答案',rubric:'逐项给分',workflowId:'fixture',gradingMode:'unattended',
+  scoring:{maxScore:10,roundStep:1,roundMethod:'round'},blankDetection:{enabled:false}}},active:'Fixture',bindings:{}}),
+ 'ai-grading-providers-v2':JSON.stringify({providers:{'5plus1官方':{apiKey:'fixture'},Fixture:{endpoint:'https://ai.fixture.invalid/v1/chat/completions',apiKey:'fixture',models:{fixture:{}}}},activeProvider:'Fixture',activeModel:'fixture'}),
+ 'ai-grading-workflows':JSON.stringify({workflows:{Fixture:{id:'fixture',model:{provider:'Fixture',model:'fixture'},dualEval:null}},activeWorkflow:'fixture'})
+};
+const effects={requests:0,submits:0,aborts:0};
+window.GM_getValue=(key,fallback)=>storage[key]??fallback;
+window.GM_setValue=(key,value)=>storage[key]=value;window.GM_registerMenuCommand=()=>{};window.GM_deleteValue=key=>delete storage[key];
+window.GM_xmlhttpRequest=options=>{
+ if(options.method==='POST'&&options.url==='https://ai.fixture.invalid/v1/chat/completions'){
+  effects.requests++;effects.complete=()=>options.onload({status:200,responseText:JSON.stringify({choices:[{message:{content:'【答案复述】\n未作答\n【得分】\n0'},finish_reason:'stop'}]})});
+ }else queueMicrotask(()=>options.onerror?.());
+ return{abort(){effects.aborts++;}};
+};
+document.getElementById('bnt_save').onclick=()=>effects.submits++;
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{
+ const params=new URLSearchParams(location.search),runId=params.get('run'),checks=[];
+ const assert=(value,name)=>{if(!value)throw Error(name);checks.push(name);};
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ const until=async check=>{for(let n=0;n<400;n++){if(check())return;await wait(50);}throw Error('等待状态未完成');};
+ const image=document.querySelector('img'),a=window.__AI_MARKER_ADAPTER__;
+ const loaded=()=>image.complete&&image.naturalWidth>0?Promise.resolve():new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;});
+ try{
+  await loaded();assert(a?.id==='zhixue','打包后由智学网适配器接管');
+  const old=a.getPaperIdentity(),controller=new AbortController();let changed=false;
+  const pending=a.waitForNextPaper(image.src,{paperId:old,signal:controller.signal}).then(value=>changed=value);
+  await wait(1050);assert(!changed,'清空分数框超过旧判定时间仍不换卷');
+  image.src='/__fixture/answer.svg?paper=A&Expires=2&Signature=two';await loaded();
+  assert(a.getPaperIdentity()===old,'签名更新维持同卷标识');await wait(450);assert(!changed,'签名续期不换卷');
+  image.src='/__fixture/answer.svg?paper=B';await loaded();await wait(500);await pending;
+  assert(changed,'完整新作答资源稳定后继续');assert((await a.gatherAnswerImages()).length===1,'取图与身份来源相同');
+  const canvas=document.createElement('canvas');canvas.width=942;canvas.height=513;
+  const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,942,513);
+  ctx.fillStyle='black';ctx.fillText('30. answer A',20,30);const dataA=canvas.toDataURL('image/png');
+  ctx.fillText('answer B',20,70);const dataB=canvas.toDataURL('image/png');
+  image.src=dataA;await loaded();const inlineId=a.getPaperIdentity();assert(!!inlineId,'内嵌增强图拥有答卷身份');
+  assert(await a.fetchImageAsBase64(dataA)===dataA.split(',')[1],'增强图取图保留完整字节');
+  let inlineChanged=false;const inlinePending=a.waitForNextPaper(dataA,{paperId:inlineId}).then(v=>inlineChanged=v);
+  image.src=dataB;await loaded();await inlinePending;assert(inlineChanged,'内嵌增强图换卷完成');
+  const source=location.origin+'/__fixture/answer.svg?x-oss-process=image/crop,x_10,y_20,w_942,h_513';
+  const sourceKey=a._answerResourceKey(source),native={topicImageIds:[source],catchImage:{[sourceKey]:dataB}};
+  image.parentElement.__vue__={$data:native};
+  const nativeId=a.getPaperIdentity();assert(!!nativeId,'增强图绑定当前原生切图');
+  native.catchImage[location.origin+'/__fixture/answer.svg?paper=previous']=dataB;
+  assert(a.getPaperIdentity()===nativeId,'历史缓存中相同内容不妨碍当前增强答卷');
+  image.style.height='1600px';
+  assert((await a.gatherAnswerImages())[0]===dataB,'答卷超出窗口仍获取完整图片');
+  image.src=source;await loaded();assert(a.getPaperIdentity()===nativeId,'关闭增强维持同卷身份');
+  image.src=dataB;await loaded();native.topicImageIds=[source.replace('x_10','x_30')];
+  assert(a.getPaperIdentity()===null,'原生切图已更新且旧增强图未替换时等待');
+  delete image.parentElement.__vue__;image.src=dataB;await loaded();
+  assert(a.getGradingTaskIdentifier().endsWith('___第31题'),'原生题号作为批改基准');
+  assert(a.prepareGrading(),'平台满分与方案匹配');
+  await until(()=>document.querySelector('.ai-grade-btn'));
+  document.querySelector('.ai-grade-btn').click();await until(()=>effects.requests===1);
+  const run=window.aiGradingState.activeRun;
+  document.getElementById('currentTopicIndex').textContent='第30题';
+  const score=document.querySelector('input[name="topicTxt"]');score.setAttribute('disptitle','30');score.setAttribute('score','8');
+  document.querySelector('#containter_topicTxt .label').textContent='30';
+  assert(!a.prepareGrading(),'原生满分与旧方案不匹配时拒绝评分准备');
+  await until(()=>!window.aiGradingState.isRunning&&run.controller.signal.aborted);
+  effects.complete();await wait(150);
+  assert(effects.submits===0&&score.value===''&&effects.requests===1,'原生切题取消识别，迟到0分结果不得填入或提交');
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:error.message}))));}
+})();
+</script>
