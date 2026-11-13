@@ -75,6 +75,7 @@ test('AMEQP 核心等待使用本轮上下文，图片已经换卷时一轮完�
     const context = { paperId: '1001', controller: new AbortController() };
     f.sandbox.isGradingContextCurrent = value => value === context;
     f.sandbox.readGradingPaperIdentity = adapter => adapter.getPaperIdentity();
+    f.sandbox.stopIfGradingTaskChanged = () => false;
     const main = fs.readFileSync(path.join(root, 'src/core/ui-submit-dialog.js'), 'utf8');
     const body = main.match(/async function waitForNextPaperWithRetry\([^)]*\) \{[\s\S]*?\n\}/)[0];
     vm.runInContext(body + '; window.wait = waitForNextPaperWithRetry;', f.sandbox);
