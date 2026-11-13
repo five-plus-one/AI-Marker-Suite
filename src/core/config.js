@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.23.4',
+    VERSION: '1.21.24.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.24': [
+            '【修复】智学网开启清晰度增强后可正常读取完整答卷并继续下一份',
+            '【修复】智学网按完整答题区域核对换卷，兼容增强开关与图片签名续期',
+        ],
         '1.21.23.4': [
             '【修复】五岳题组按小题合计填入总分，兼容右侧和底部给分板',
             '【优化】五岳阅卷核对当前答卷与平台保存结果，异常时暂停核对',
