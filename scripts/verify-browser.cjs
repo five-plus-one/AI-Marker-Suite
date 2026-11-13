@@ -43,7 +43,7 @@ async function connect(url) {
         await client.send('Runtime.enable');
         await client.send('Network.enable');
         const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
-        const fixtures = ['workflow', 'renderer', 'bundle', 'output-mode', 'subscore', 'question-guard', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
+        const fixtures = ['embedded-ui', 'workflow', 'renderer', 'bundle', 'output-mode', 'subscore', 'question-guard', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
@@ -145,10 +145,11 @@ async function connect(url) {
                 interceptionError = new Error(`${error.message} (${event.params.request.url}; request ${event.params.networkId}; navigation ${requestNavigation}/${navigation})`);
             });
         });
-        for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
+        for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) for (const touch of fixture === 'embedded-ui' ? [false,true] : [false]) {
             consoleMessages = [];
             await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
             await client.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
+            await client.send('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: 1 });
             const runId = `${fixture}-${width}-${theme}-${Date.now()}`;
             const startup = fixture.startsWith('startup');
             const mode = fixture === 'startup-registration' ? 'late-registration' : fixture === 'startup-navigation' ? 'spa-entry' : 'late-dom';
@@ -194,6 +195,7 @@ async function connect(url) {
             if (youfen) url = 'http://liankao.1000cb.com/Home/Mark?run=' + runId;
             if (xiaoleyouyue) url = 'https://yy.eduer.co/pages/exam/review/review.aspx?subjectid=10&blockid=20&id=30&type=0&run=' + runId + '&mode=' + fixture.slice(13);
             if (xiaoxianai) url = 'https://ls.xiaoxianai.cn/webPaper/newMarkPaper?run=' + runId + '&mode=' + fixture.slice(11);
+            await client.send('Emulation.setFocusEmulationEnabled', { enabled: fixture === 'embedded-ui' });
             navigation++;
             await client.send('Page.navigate', { url });
             let result;
@@ -210,7 +212,7 @@ async function connect(url) {
                 const page = await client.send('Runtime.evaluate', { expression: 'document.body.innerText.slice(-3000)', returnByValue: true });
                 throw Error(JSON.stringify({ ...(result || { error: 'No browser result' }), consoleMessages, page: page.result?.value }));
             }
-            results.push({ fixture, width, theme, ...result });
+            results.push({ fixture, width, theme, touch, ...result });
         }
         if (interceptionError) throw interceptionError;
         console.log(JSON.stringify({ passed: true, cancelledInterceptions, results }));
