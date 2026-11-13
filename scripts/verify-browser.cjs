@@ -197,7 +197,7 @@ async function connect(url) {
             navigation++;
             await client.send('Page.navigate', { url });
             let result;
-            for (let count = 0; count < (ameqp ? 650 : startup ? 400 : 200); count++) {
+            for (let count = 0; count < (ameqp || zhixue ? 650 : startup ? 400 : 200); count++) {
                 if (interceptionError) throw interceptionError;
                 const reply = await client.send('Runtime.evaluate', { expression: "document.getElementById('result')?.textContent || ''", returnByValue: true });
                 if (reply.result?.value) {

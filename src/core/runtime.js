@@ -188,12 +188,14 @@ function createGradingContext(manual = false) {
     const context = {
         controller: new AbortController(), adapter, manual, configuration,
         questionGuardEnabled, questionBaseline,
-        taskId: PresetManager.getTaskIdentifier?.() || '', presetName: PresetManager.data.active,
+        taskId: readGradingTaskIdentifier(), presetName: PresetManager.data.active,
         pageUrl: (window.location?.pathname || '') + (window.location?.hash || ''),
         paperGuardEnabled: PresetManager.getCurrentConfig?.()?.paperGuard?.enabled !== false,
         paperId: readGradingPaperIdentity(adapter),
         imageUrls: [], inputSnapshot: [], base64DataArray: []
     };
+    // 同一次连续批改保留题目基准；换卷与手动暂停均不能重新接受另一个题目。
+    if (!manual && adapter?.getGradingTaskIdentifier && !state.gradingTaskId && context.taskId) state.gradingTaskId = context.taskId;
     state.abortController = context.controller;
     state.activeRun = context;
     return context;
@@ -246,11 +248,36 @@ function requireGradingQuestionContext(context) {
     }
 }
 
+function readGradingTaskIdentifier() {
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    try {
+        return (adapter?.getGradingTaskIdentifier ? adapter.getGradingTaskIdentifier() : PresetManager.getTaskIdentifier?.()) || '';
+    } catch (error) {
+        console.warn('[题目校验] 暂时无法读取当前题目:', error);
+        return '';
+    }
+}
+
+function stopIfGradingTaskChanged(context) {
+    const state = window.aiGradingState;
+    // 只有声明了可信题目标识的适配器启用跨轮次保护，避免将学生或临时地址当作题目。
+    if (!window.__AI_MARKER_ADAPTER__?.getGradingTaskIdentifier) return false;
+    if (!state.isRunning || state.isPaused || context?.manual || (!context && state.activeRun?.manual)) return false;
+    if (context && !isGradingContextCurrent(context)) return false;
+    const baseline = state.gradingTaskId || state.activeRun?.taskId;
+    const taskId = readGradingTaskIdentifier();
+    if (!baseline || !taskId || baseline === taskId) return false;
+    stopAutoGrading();
+    showToast('当前题目已切换，批改已停止，请核对当前题目的方案后继续');
+    return true;
+}
+
 function requireGradingContextTarget(context) {
     requireCurrentGradingContext(context);
+    if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后重新批改');
     requireGradingQuestionContext(context);
     if (PresetManager.data.active !== context.presetName) throw gradingContextError('配置方案已切换，请重新批改');
-    const taskId = PresetManager.getTaskIdentifier?.() || '';
+    const taskId = readGradingTaskIdentifier();
     if (context.taskId && taskId && context.taskId !== taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
     const paperId = readGradingPaperIdentity(context.adapter);
     if (context.paperGuardEnabled !== false && context.paperId && paperId && context.paperId !== paperId) throw gradingContextError('答卷已切换，请核对后重新批改');
@@ -259,7 +286,7 @@ function requireGradingContextTarget(context) {
 async function verifyGradingContext(context) {
     requireCurrentGradingContext(context);
     requireGradingQuestionContext(context);
-    const taskId = PresetManager.getTaskIdentifier?.() || '';
+    const taskId = readGradingTaskIdentifier();
     if (context.taskId && taskId && taskId !== context.taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
     if (await confirmLeftMarkingPage(context.adapter)) throw gradingContextError('已离开批改页面，请返回后继续');
     requireCurrentGradingContext(context);

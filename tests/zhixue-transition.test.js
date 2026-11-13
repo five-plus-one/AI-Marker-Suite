@@ -12,7 +12,7 @@ function fixture({ iframe = false, oldUI = false } = {}) {
     const mainDoc = { querySelectorAll: iframe ? () => [] : doc.querySelectorAll,
         querySelector: selector => selector === 'iframe' ? (iframe ? { contentDocument: doc } : null) : doc.querySelector(selector) };
     e.sb.document = mainDoc; load(e, 'src/adapters/zhixue/selectors.js'); load(e, 'src/adapters/zhixue/adapter.js');
-    const a = vm.runInContext('ZhixueAdapter', e.sb); a.getTaskIdentifier = () => 'task';
+    const a = vm.runInContext('ZhixueAdapter', e.sb); a.getTaskIdentifier = () => 'task'; a.getGradingTaskIdentifier = () => 'task';
     const tick = async (count = 1) => { for (let i=0;i<count;i++) { for (const fn of [...e.intervals.values()]) fn(); await Promise.resolve(); } };
     const gather = async () => {
         const result = a.gatherAnswerImages();
@@ -102,6 +102,16 @@ test('原生多图必须齐全，增强图缺少当前来源映射时等待', ()
     f.setImages([image(a,{parentElement:parent}),image(data,{parentElement:parent})]);
     assert.equal(f.a.getPaperIdentity(),null);
     state.catchImage[b]=data; assert.ok(f.a.getPaperIdentity());
+});
+
+test('历史缓存与当前增强图内容相同仍可取图并识别换卷',async()=>{
+    const f=fixture(), a='https://oss.test/A.png', b='https://oss.test/B.png', data=inline('identical blank area');
+    const state={topicImageIds:[a],catchImage:{[a]:data,[b]:data}},parent={__vue__:{$data:state}};
+    f.setImages([image(data,{parentElement:parent})]);const old=f.a.getPaperIdentity();
+    assert.ok(old); assert.deepEqual(Array.from(await f.gather()),[data]);
+    const pending=f.a.waitForNextPaper(data,{paperId:old});state.topicImageIds=[b];
+    await f.tick(2); assert.equal(await pending,true);
+    assert.notEqual(f.a.getPaperIdentity(),old);
 });
 
 test('OSS裁切坐标参与身份，签名及显示缩放不影响身份', () => {
