@@ -39,7 +39,9 @@ if(mode!=='late-registration')window.__AI_MARKER_ADAPTER__=fixtureAdapter;
   assert(document.querySelectorAll('.ai-history-btn').length===1,'历史按钮保持唯一');
   assert(!document.getElementById('ai-history-only-style'),'历史按钮采用完整操作区的位置');
   const history=document.querySelector('.ai-history-btn');
-  assert(getComputedStyle(history).bottom==='95px','历史按钮恢复标准位置');
+  assert(getComputedStyle(history).bottom==='193px','历史按钮恢复标准位置');
+  const status=document.getElementById('ai-grading-status');
+  assert(status && status.getBoundingClientRect().top>=document.querySelector('.ai-grade-btn').getBoundingClientRect().bottom,'启动后日志位于批改按钮下方');
   assert(Object.values(effects).every(count=>count===0)&&!window.aiGradingState.isRunning,'恢复入口保持待操作状态');
   // 持续轮询不得重复创建入口。
   await wait(1100);

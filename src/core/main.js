@@ -268,6 +268,10 @@ function handleLeaveMarkingPage() {
 async function startAutoGrading() {
     if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
     const runContext = createGradingContext();
+    const reportStatus = message => {
+        if (isGradingContextCurrent(runContext)) window.aiGradingState.onGradingStatus?.(message);
+    };
+    reportStatus('开始处理当前答卷');
     // 批改节奏：本卷用时计时起点（开始处理 → 提交，含随机延迟）
     // 已有起点（翻卷检测时刻）时不覆盖，保住「检测到→提交」的完整窗口
     if (!window.aiGradingState.cycleStartTime) {
@@ -393,6 +397,7 @@ async function startAutoGrading() {
                 gradeBtn.textContent = imageUrls.length > 1 ? `📥 下载多图(${imageUrls.length})...` : '📥 下载图片...';
             }
 
+            reportStatus(`正在下载答卷图片（${imageUrls.length} 张）`);
             console.log(`📥 [诊断] 开始下载 ${imageUrls.length} 张图片...`);
             const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
             base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, runContext.controller.signal)));
@@ -512,6 +517,7 @@ async function startAutoGrading() {
             maxOutputTokens: config.maxOutputTokens || 2048
         });
         const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
+            onStatus: reportStatus,
             signal: runContext.controller.signal,
             imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
         const result = isDualEval
@@ -620,6 +626,7 @@ async function startAutoGrading() {
                 } catch (e) { /* 静默失败，不影响主流程 */ }
             }
             requireCurrentGradingContext(runContext);
+            reportStatus('分数已填入，等待确认或自动提交');
             showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
                 runContext,
                 scoringDetails: result._sections || null,
@@ -649,6 +656,7 @@ async function startAutoGrading() {
         }
 
         console.error('❌ 打分失败:', error);
+        reportStatus(`批改失败，已暂停：${error.message}`);
         console.error('❌ 批改失败，已暂停:', error);
         window.aiGradingState.isRunning = false;
         window.aiGradingState.isPaused = true;
