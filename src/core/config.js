@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.23.4',
+    VERSION: '1.21.23.5',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.23.5': [
+            '【优化】温州云阅卷支持绑定批阅，分别填写各题分数并确认整组保存',
+        ],
         '1.21.23.4': [
             '【修复】五岳题组按小题合计填入总分，兼容右侧和底部给分板',
             '【优化】五岳阅卷核对当前答卷与平台保存结果，异常时暂停核对',
