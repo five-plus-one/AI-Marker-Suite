@@ -76,6 +76,16 @@ https://yuejuan.wzedu.cn/r/{deployment}:/union_new/{exam}/{subject}/{school}/stu
 
 ## 复验
 
+绑定批阅以第 17（1）题（7 分）和第 17（2）题（8 分）重放原站 Vue 给分组件。组件监听完整评分后会延迟 300ms 检查原站“自动给分”；助手在填分前关闭本页该选项，随后由确认、保存回执和换卷流程统一提交。该选项在本页保持关闭，人工可通过平台复选框重新开启。
+
+`verify-wzedu-bound-runtime.cjs` 使用已缓存的原站静态前端及合成接口、答卷与受控模型评分响应，覆盖连续两份试改、等待确认超过 700ms、零分、小数分、满分、连续无人值守、服务器拒绝、业务拒绝、断网、取消和评分中换卷。试改确认前提交为零；每份请求核对两题分数与考生、答卷、题块，成功历史在保存回执后增加。生产服务器持久化和真实模型评分质量需在在线验收中另外核对。
+
+绑定重放使用本地静态资源缓存，通过 `--assets` 指定保存有原站 `index.html`、JavaScript 和 CSS 的目录：
+
+```powershell
+node scripts/verify-wzedu-bound-runtime.cjs --assets=本地原站资源目录
+```
+
 在代码工作目录执行：
 
 ```powershell

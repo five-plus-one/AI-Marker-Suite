@@ -29,7 +29,7 @@
             return document.querySelector(window.HUAHANYUN_SELECTORS.SCORE_INPUT);
         },
 
-        // 生产 Vue 组件公开 countScoreMultiple：只更新各题模型，不触发自动给分。
+        // 生产 Vue 组件公开 countScoreMultiple 更新各题模型；填分前接管原站自动给分。
         // 从当前应用的组件树定位，避免依赖生产页面未暴露的 DOM 调试属性。
         wenzhouBoundPanel() {
             const page = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
@@ -273,6 +273,11 @@
                 score: panel.fields.find(f => f.element === input.element).props.modelValue }));
             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
             try {
+                // 原站深度监听绑定评分列表，填齐后延迟 300ms 自动保存。
+                // 保持本页自动给分关闭，由核心确认、回执及换卷流程统一提交。
+                const state = HY_HELPERS.wenzhouStore().state.mark;
+                state.MultipleAuto = false;
+                if (state.MultipleAuto !== false) return false;
                 panel.component.exposed.countScoreMultiple(inputs.map((input, i) => ({ id: input.questionId, score: values[i] })));
                 inputs.forEach((input, i) => setter.call(input.element, String(values[i])));
                 if (inputs.some((input, i) => input.element.value !== String(values[i]))) throw Error('评分框写入失败');
