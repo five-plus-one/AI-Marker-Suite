@@ -1,9 +1,10 @@
 // 天喻慧学：绑定原生题目、答卷与评分板，提交后核对原生成功状态。
 const HuixueAdapter = {
-    name: '天喻慧学', id: 'huixue', iconUrl: '',
-    urlPatterns: ['*://hx-webscan.tyhuixue.com/web-reviewer/*'],
+    name: window.location.hostname === 'hx-webscan.hzjy.edu.cn' ? '惠州市智慧教育平台' : '天喻慧学',
+    id: 'huixue', iconUrl: '',
+    urlPatterns: ['*://hx-webscan.tyhuixue.com/web-reviewer/*', '*://hx-webscan.hzjy.edu.cn/web-reviewer/*'],
     shouldInitialize() {
-        return window.location.hostname === 'hx-webscan.tyhuixue.com'
+        return ['hx-webscan.tyhuixue.com', 'hx-webscan.hzjy.edu.cn'].includes(window.location.hostname)
             && /^\/web-reviewer\//.test(window.location.pathname);
     },
     _window() { return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window; },

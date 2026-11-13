@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.23.12',
+    VERSION: '1.21.23.13',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.23.13': [
+            '【新平台】支持惠州市智慧教育平台普通阅卷，按本题有效分值填分，确认保存后继续下一份（#461）',
+        ],
         '1.21.23.12': [
             '【新平台】支持小乐优阅初评题块取图、按评分项填分与保存确认',
         ],

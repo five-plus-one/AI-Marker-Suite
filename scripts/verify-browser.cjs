@@ -50,7 +50,7 @@ async function connect(url) {
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
             'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
             'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'zhixue', 'haofenshu',
-            'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'youfen-ready', 'xiaoleyouyue-ready', 'xiaoleyouyue-multi', 'xiaoleyouyue-late', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa', 'huixue-ready', 'huixue-late', 'huixue-spa']
+            'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'youfen-ready', 'xiaoleyouyue-ready', 'xiaoleyouyue-multi', 'xiaoleyouyue-late', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa', 'huixue-ready', 'huixue-late', 'huixue-spa', 'huizhou-ready', 'huizhou-late', 'huizhou-spa']
             .filter(fixture => !selected || fixture === selected || fixture.startsWith(selected + '-'));
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -87,7 +87,7 @@ async function connect(url) {
                 } else if (url.hostname === 'yyaitantao.oss-cn-shenzhen.aliyuncs.com') {
                     body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><rect width="300" height="80" fill="white"/><text x="10" y="40">Fixture answer 17(3.4)</text></svg>';
                     type = 'image/svg+xml'; status = 200;
-                } else if (url.hostname === 'hx-webscan.tyhuixue.com' && ['/web-reviewer/', '/study-exam/'].includes(url.pathname)) {
+                } else if (['hx-webscan.tyhuixue.com', 'hx-webscan.hzjy.edu.cn'].includes(url.hostname) && ['/web-reviewer/', '/study-exam/'].includes(url.pathname)) {
                     body = huixueHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'liankao.1000cb.com' && url.pathname === '/Home/Mark') {
                     body = youfenHtml; type = 'text/html; charset=utf-8'; status = 200;
@@ -159,7 +159,8 @@ async function connect(url) {
             const haofenshu = fixture === 'haofenshu';
             const zhixue = fixture === 'zhixue';
             const wzedu = fixture.startsWith('wzedu-');
-            const huixue = fixture.startsWith('huixue-');
+            const huizhou = fixture.startsWith('huizhou-');
+            const huixue = fixture.startsWith('huixue-') || huizhou;
             const xiaoxianai = fixture.startsWith('xiaoxianai-');
             const youfen = fixture.startsWith('youfen-');
             const xiaoleyouyue = fixture.startsWith('xiaoleyouyue-');
@@ -188,7 +189,8 @@ async function connect(url) {
             if (zhixue) url = 'https://www.zhixue.com/webmarking/marking/personal/?run=' + runId;
             if (wzedu) url = 'https://yuejuan.wzedu.cn/static-v2/exam/index.html?run=' + runId + '&mode=' + fixture.slice(6)
                 + (fixture === 'wzedu-spa' ? '#/marking/gradingList/list' : '#/marking/grading?questionId=42&choiceIndex=0');
-            if (huixue) url = 'https://hx-webscan.tyhuixue.com/web-reviewer/?run=' + runId + '&mode=' + fixture.slice(7) + (fixture === 'huixue-spa' ? '#/home' : '#/generalReview');
+            if (huixue) url = 'https://' + (huizhou ? 'hx-webscan.hzjy.edu.cn' : 'hx-webscan.tyhuixue.com')
+                + '/web-reviewer/?run=' + runId + '&mode=' + fixture.slice(huizhou ? 8 : 7) + (fixture.endsWith('-spa') ? '#/home' : '#/generalReview');
             if (youfen) url = 'http://liankao.1000cb.com/Home/Mark?run=' + runId;
             if (xiaoleyouyue) url = 'https://yy.eduer.co/pages/exam/review/review.aspx?subjectid=10&blockid=20&id=30&type=0&run=' + runId + '&mode=' + fixture.slice(13);
             if (xiaoxianai) url = 'https://ls.xiaoxianai.cn/webPaper/newMarkPaper?run=' + runId + '&mode=' + fixture.slice(11);
