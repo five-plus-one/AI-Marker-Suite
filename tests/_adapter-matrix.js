@@ -202,6 +202,11 @@ function loadOne(sb, dir, opts = {}) {
 // own: 自家平台最小形态（隔离加载必注册；bundle 下除已知竞争外必须唯一命中）
 // near: 近似域名/缺条件形态（必须不注册 → 空槽）
 const ADAPTERS = [
+    { dir: 'leascent', id: 'leascent', name: '丽升阅卷',
+      own: { host: '120.55.199.134', port: '9090', path: '/home/index', protocol: 'http:' },
+      near: [{ label: '登录端口', form: { host: '120.55.199.134', port: '8088', path: '/home/index', protocol: 'http:' } },
+             { label: '审核页面', form: { host: '120.55.199.134', port: '9090', path: '/home/MarkCheck', protocol: 'http:' } },
+             { label: '其他站点', form: { host: '120.55.199.134.example.com', port: '9090', path: '/home/index', protocol: 'http:' } }] },
     { dir: 'wentongyun', id: 'wentongyun', name: '文通云',
       own: { host: 'www.wtjy.com', path: '/', hash: '#/mark/new-mark-question?examPaperId=exam&sheetDetailId=sheet&questionNum=20&type=1&again=0&isClass=0',
         dom: { '.mark .question-cotnent': 1, '.mark .score-board': 1 } },

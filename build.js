@@ -168,6 +168,8 @@ const BUILD_CONFIGS = [
             'adapters/yuandingbang/adapter.js',
             'adapters/xiaoxianai/selectors.js',
             'adapters/xiaoxianai/adapter.js',
+            'adapters/leascent/selectors.js',
+            'adapters/leascent/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
@@ -207,6 +209,7 @@ const BUILD_CONFIGS = [
                 'https://wtjy.com/*',
                 '*://yuejuan.yuandingbang.cn/web/*',
                 'https://ls.xiaoxianai.cn/webPaper*',
+                'http://120.55.199.134/*',
                 '*://wyna.onlyets.com/*',
                 '*://zy.iclass30.com/*',
                 '*://*/AMEQP/Webroot/mar/*',
