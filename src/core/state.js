@@ -3,6 +3,7 @@ window.aiGradingState = {
     isRunning: false, isPaused: false, currentStudentAnswer: '', currentImageUrls: [],
     currentBase64DataArray: [],
     abortController: null, countdownPaused: false, autoRefreshOn403: true,
+    gradingTaskId: null,
     gradingMode: 'normal', errorRetryCount: 0, maxRetries: 5,
     outputLimitPolicy: null,
     hasUnsavedChanges: false, isRegrading: false,

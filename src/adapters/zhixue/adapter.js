@@ -228,23 +228,38 @@ const ZhixueAdapter = {
         }
     },
 
+    _taskQuestions() {
+        const doc = this._answerSnapshot().doc || this._getIframeDoc() || document;
+        const label = element => element?.getAttribute('disptitle') || element?.closest('li')?.querySelector('.label')?.textContent;
+        // 多小题的序号不是大题号；只有总分栏或唯一评分栏可补充顶部题号。
+        const total = doc.querySelector('#containter_topicTxt #totalScore');
+        const inputs = Array.from(doc.querySelectorAll('input[name="topicTxt"]')).filter(el => !el.getClientRects || el.getClientRects().length);
+        const scoringQuestion = label(total) || (inputs.length === 1 ? label(inputs[0]) : '');
+        const heading = doc.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX)?.textContent;
+        const title = doc.querySelector(ZHIXUE_SELECTORS.TOPIC_TITLE);
+        const normalize = value => {
+            value = String(value || '').normalize('NFKC').trim();
+            const number = value.match(/^(?:第\s*)?(\d+(?:\s*[-~～至、,，]\s*\d+)*)(?:\s*题)?$/);
+            return number ? `第${number[1].replace(/\s/g, '')}题` : value;
+        };
+        return { heading: normalize(heading), scoring: normalize(scoringQuestion),
+            question: normalize(heading || scoringQuestion || title?.getAttribute('title') || title?.textContent) };
+    },
+
+    getGradingTaskIdentifier() {
+        const { question, heading, scoring } = this._taskQuestions();
+        // 组件重载时只剩页面地址，不能把题号暂不可读解释为切题。
+        if (!question) return '';
+        // 顶部与评分栏任一明确变题即停止，覆盖两者先后更新的过渡窗口。
+        const identity = heading && scoring && heading !== scoring ? `${heading}|${scoring}` : question;
+        return this._getActualPath() + window.location.hash.split('&_t=')[0] + '___' + identity;
+    },
+
     getTaskIdentifier() {
         // 使用实际路径（新版SPA从 app-1 参数解码）
         const actualPath = this._getActualPath();
         const baseUrl = actualPath + window.location.hash.split('&_t=')[0];
-        let questionIdentifier = '';
-        try {
-            const searchDoc = this._answerSnapshot().doc || document;
-            const exactElement = searchDoc.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX);
-            if (exactElement && exactElement.textContent) {
-                questionIdentifier = exactElement.textContent.trim();
-            } else {
-                const titleElement = searchDoc.querySelector(ZHIXUE_SELECTORS.TOPIC_TITLE);
-                if (titleElement) {
-                    questionIdentifier = titleElement.getAttribute('title') || titleElement.textContent.trim();
-                }
-            }
-        } catch (e) {}
+        const questionIdentifier = this._taskQuestions().question;
         return baseUrl + (questionIdentifier ? '___' + questionIdentifier : '');
     },
 
@@ -305,11 +320,14 @@ const ZhixueAdapter = {
             if (!images.length) continue;
             const urls = [...new Set(images.map(image => image.src))];
             const native = this._nativeImageState(images[0]);
-            const keys = images.map(image => {
+            const nativeKeys = native?.topicImageIds.map(source => this._answerResourceKey(source));
+            const keys = images.map((image, index) => {
                 if (native && image.src.startsWith('data:')) {
-                    const sources = Object.entries(native.catchImage || {}).filter(([, value]) => value === image.src)
-                        .map(([source]) => this._answerResourceKey(source));
-                    return sources.length && sources.every(key => key && key === sources[0]) ? sources[0] : null;
+                    // 不同学生的空白区域可能生成完全相同的 PNG；按当前题块的对应来源核对，
+                    // 不能因历史缓存中另有相同内容就拒绝当前答卷。
+                    const expected = nativeKeys[index];
+                    return expected && Object.entries(native.catchImage || {}).some(([source, value]) =>
+                        value === image.src && this._answerResourceKey(source) === expected) ? expected : null;
                 }
                 // 普通 DOM 回退按元素缓存摘要，避免轮询重复扫描大幅增强图。
                 this._imageKeys ||= new WeakMap();
@@ -319,7 +337,6 @@ const ZhixueAdapter = {
                 this._imageKeys.set(image, { src: image.src, key });
                 return key;
             });
-            const nativeKeys = native?.topicImageIds.map(source => this._answerResourceKey(source));
             const matchesNative = !native || (nativeKeys.length === keys.length && keys.every((key, i) => key && key === nativeKeys[i]
                 && this._nativeImageState(images[i]) === native));
             return { doc, urls, keys, ready: matchesNative && images.every(image => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
@@ -354,6 +371,29 @@ const ZhixueAdapter = {
             return match[1];
         }
         return fetchImageAsBase64(url, signal);
+    },
+
+    _scoreMaximum(element) {
+        const values = [Number(element?.getAttribute('score')), Number(element?.placeholder?.match(/满分\s*(\d+(?:\.\d+)?)/)?.[1])];
+        return values.find(value => Number.isFinite(value) && value > 0) || 0;
+    },
+
+    prepareGrading() {
+        this.lastFillError = '';
+        const inputs = this.getScoreInputs();
+        const maxima = inputs.map(({ element }) => {
+            if (!element || (element.getClientRects && !element.getClientRects().length)) return 0;
+            return this._scoreMaximum(element);
+        });
+        const configured = Number(PresetManager.getMaxScore());
+        if (maxima.length && maxima.every(max => Number.isFinite(max) && max > 0) && configured > 0) {
+            const total = maxima.reduce((sum, max) => sum + max, 0);
+            if (Math.abs(total - configured) > 1e-6) {
+                this.lastFillError = `当前题目满分为${total}分，批改方案为${configured}分，请核对后继续`;
+                return false;
+            }
+        }
+        return true;
     },
 
     fillScore(request) {
@@ -462,7 +502,8 @@ const ZhixueAdapter = {
             const abort = () => finish(false);
             const checkNextTimer = setInterval(() => {
                 checkTimes++;
-                if (context.signal?.aborted || (context.taskId && this.getTaskIdentifier() !== context.taskId)) return finish(false);
+                const taskId = this.getGradingTaskIdentifier();
+                if (context.signal?.aborted || (context.taskId && taskId && taskId !== context.taskId)) return finish(false);
                 const snapshot = this._answerSnapshot();
                 const changed = snapshot.ready && snapshot.identity && !snapshot.keys.some(key => oldKeys.includes(key)) && (context.paperId
                     ? snapshot.identity !== context.paperId
@@ -495,7 +536,7 @@ const ZhixueAdapter = {
             subInputsOld.forEach((el, i) => {
                 const labelEl = el.closest('li')?.querySelector('.label');
                 const label = labelEl?.textContent?.trim() || `第${i + 1}题`;
-                const maxScore = parseInt(el.getAttribute('score')) || parseInt(el.placeholder?.match(/\d+/)?.[0]) || 0;
+                const maxScore = this._scoreMaximum(el);
                 inputs.push({ element: el, label, index: i, maxScore });
             });
             console.log(`📋 [诊断] 旧版小题输入框: ${inputs.length} 个 (在${iframeDoc ? 'iframe' : '主页面'})`);
@@ -507,7 +548,7 @@ const ZhixueAdapter = {
         const subInputsNew = searchDoc.querySelectorAll('input[name="topicTxt"]');
         if (subInputsNew.length > 0) {
             subInputsNew.forEach((el, i) => {
-                const maxScore = parseInt(el.getAttribute('score')) || parseInt(el.placeholder?.match(/\d+/)?.[0]) || 0;
+                const maxScore = this._scoreMaximum(el);
                 inputs.push({ element: el, label: `第${i + 1}题`, index: i, maxScore });
             });
             console.log(`📋 [诊断] 新版小题输入框: ${inputs.length} 个 (在${iframeDoc ? 'iframe' : '主页面'})`);
@@ -519,7 +560,7 @@ const ZhixueAdapter = {
         const scoreInputOld = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_PLACEHOLDER) ||
                            searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT);
         if (scoreInputOld) {
-            const maxScore = parseInt(scoreInputOld.getAttribute('score')) || parseInt(scoreInputOld.placeholder?.match(/\d+/)?.[0]) || 0;
+            const maxScore = this._scoreMaximum(scoreInputOld);
             inputs.push({ element: scoreInputOld, label: '总分', index: 0, maxScore });
             console.log(`📋 [诊断] 旧版总分输入框 (在${iframeDoc ? 'iframe' : '主页面'})`);
             return inputs;
@@ -528,7 +569,7 @@ const ZhixueAdapter = {
         // 新版总分输入框
         const scoreInputNew = searchDoc.querySelector(ZHIXUE_SELECTORS.SCORE_INPUT_ALL_NEW);
         if (scoreInputNew) {
-            const maxScore = parseInt(scoreInputNew.getAttribute('score')) || parseInt(scoreInputNew.placeholder?.match(/\d+/)?.[0]) || 0;
+            const maxScore = this._scoreMaximum(scoreInputNew);
             inputs.push({ element: scoreInputNew, label: '总分', index: 0, maxScore });
             console.log(`📋 [诊断] 新版总分输入框 (在${iframeDoc ? 'iframe' : '主页面'})`);
             return inputs;
@@ -574,7 +615,7 @@ const ZhixueAdapter = {
             if (!input) return;
             const labelEl = li.querySelector('.label');
             const label = labelEl?.textContent?.trim() || `第${i + 1}题`;
-            const maxScore = parseInt(input.getAttribute('score')) || parseInt(input.placeholder?.match(/\d+/)?.[0]) || 0;
+            const maxScore = this._scoreMaximum(input);
             subs.push({ label, element: input, index: i, maxScore });
         });
         // 只有一题时不启用分小题给分

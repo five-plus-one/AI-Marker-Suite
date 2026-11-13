@@ -46,6 +46,7 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         // 用户已停止/暂停则立即退出，避免长时间等待后误重启批改
         if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return true;
         if (runContext && !isGradingContextCurrent(runContext)) return true;
+        if (stopIfGradingTaskChanged(runContext)) return false;
         let hasNext = false;
         try {
             hasNext = await adapter.waitForNextPaper(oldImgUrl, runContext ? {
@@ -54,6 +55,7 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         } catch (e) {
             console.warn('⚠️ 等待下一份试卷异常，将重试:', e);
         }
+        if (stopIfGradingTaskChanged(runContext)) return false;
         if (hasNext && runContext?.paperId && readGradingPaperIdentity(adapter) === runContext.paperId) {
             hasNext = false;
             console.warn('[答卷校验] 平台报告已换卷，但答卷标识仍相同，继续等待');

@@ -3,6 +3,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
+const { isCancelledInterception } = require('./browser-interception.cjs');
 const root = path.resolve(__dirname, '..');
 const candidates = [process.env.CHROME_BIN, process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : '/usr/bin/google-chrome', '/usr/bin/chromium'];
 const browser = candidates.find(candidate => candidate && fs.existsSync(candidate));
@@ -62,7 +63,7 @@ async function connect(url) {
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         const zhixueHtml = fs.readFileSync(path.join(root, 'tests/fixtures/zhixue.html'), 'utf8');
         client.onEvent(event => {
-            if (event.method === 'Network.loadingFailed' && event.params.canceled) cancelledRequests.add(event.params.requestId);
+            if (event.method === 'Network.loadingFailed' && (event.params.canceled || event.params.errorText === 'net::ERR_ABORTED')) cancelledRequests.add(event.params.requestId);
             if (event.method === 'Runtime.exceptionThrown') {
                 consoleMessages.push(event.params.exceptionDetails.exception?.description || event.params.exceptionDetails.text);
             }
@@ -112,13 +113,12 @@ async function connect(url) {
                 await client.send('Fetch.fulfillRequest', { requestId: event.params.requestId, responseCode: status,
                     responseHeaders: [{ name: 'Content-Type', value: type }, { name: 'Cache-Control', value: 'no-store' }],
                     body: Buffer.from(body).toString('base64') });
-            })().catch(error => {
-                if (/^Invalid InterceptionId\.?$/.test(error.message)
-                    && (requestNavigation !== navigation || cancelledRequests.has(event.params.networkId))) {
+            })().catch(async error => {
+                if (await isCancelledInterception(error, () => requestNavigation !== navigation || cancelledRequests.has(event.params.networkId))) {
                     cancelledInterceptions++;
                     return;
                 }
-                interceptionError = error;
+                interceptionError = new Error(`${error.message} (${event.params.request.url}; request ${event.params.networkId}; navigation ${requestNavigation}/${navigation})`);
             });
         });
         for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) {
@@ -160,7 +160,7 @@ async function connect(url) {
             navigation++;
             await client.send('Page.navigate', { url });
             let result;
-            for (let count = 0; count < (ameqp ? 650 : startup ? 400 : 200); count++) {
+            for (let count = 0; count < (ameqp || zhixue ? 650 : startup ? 400 : 200); count++) {
                 if (interceptionError) throw interceptionError;
                 const reply = await client.send('Runtime.evaluate', { expression: "document.getElementById('result')?.textContent || ''", returnByValue: true });
                 if (reply.result?.value) {
