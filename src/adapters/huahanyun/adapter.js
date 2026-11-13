@@ -1,5 +1,5 @@
 // 华翰云云阅卷适配器（鹿城 yj.lcedu.net.cn、温州 yuejuan.wzedu.cn）
-// 平台特征：单题块单分框——一个阅卷任务=一个题块（如"书写 7(4分)"），一个 #compuinput 分数框
+// 支持鹿城单题块、温州单题及绑定批阅；绑定题块分别填分、整组确认保存。
 // 答卷图=OBS 题块裁剪图：obsyj.{域}/.../student/{考生号}/{hash}/{questionId}.png?X-Amz-签名
 //   → 考生号在 URL 路径里 = 强换卷信号（同卷签名抖动只在 query，路径不变）（#301）
 (function () {
@@ -24,8 +24,37 @@
         },
 
         scoreInput() {
-            return document.querySelector(HY_HELPERS.isWenzhou()
-                ? window.HUAHANYUN_SELECTORS.WENZHOU_SCORE_INPUT : window.HUAHANYUN_SELECTORS.SCORE_INPUT);
+            if (HY_HELPERS.isWenzhou()) return document.querySelector(window.HUAHANYUN_SELECTORS.WENZHOU_SCORE_INPUT)
+                || document.querySelector(window.HUAHANYUN_SELECTORS.WENZHOU_BOUND_INPUT);
+            return document.querySelector(window.HUAHANYUN_SELECTORS.SCORE_INPUT);
+        },
+
+        // 生产 Vue 组件公开 countScoreMultiple：只更新各题模型，不触发自动给分。
+        // 从当前应用的组件树定位，避免依赖生产页面未暴露的 DOM 调试属性。
+        wenzhouBoundPanel() {
+            const page = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
+            const root = page.document.querySelector('#app')?.__vue_app__?._container?._vnode;
+            const seen = new Set(), panels = [];
+            function walk(vnode, visit, depth = 0) {
+                if (!vnode || typeof vnode !== 'object' || seen.has(vnode) || depth > 80) return;
+                seen.add(vnode);
+                const component = vnode.component;
+                if (component) { visit(component); walk(component.subTree, visit, depth + 1); }
+                if (Array.isArray(vnode.children)) for (const child of vnode.children) walk(child, visit, depth + 1);
+            }
+            walk(root, component => {
+                if (typeof component.exposed?.countScoreMultiple === 'function') panels.push(component);
+            });
+            if (panels.length !== 1) return null;
+            const fields = [];
+            seen.clear();
+            walk(panels[0].subTree, component => {
+                const element = component.exposed?.input?.value;
+                if (element?.matches?.(window.HUAHANYUN_SELECTORS.WENZHOU_BOUND_INPUT)) {
+                    fields.push({ element, props: component.vnode.props });
+                }
+            });
+            return { component: panels[0], fields };
         },
 
         // 真可见答卷图（#306）：el-image 换卷过渡期常新旧图并存——隐藏残留/离屏预载
@@ -122,7 +151,9 @@
         getTaskIdentifier() {
             if (HY_HELPERS.isWenzhou()) {
                 const params = new URLSearchParams(location.hash.split('?')[1] || '');
-                return `huahanyun#wzedu#${params.get('questionId') || ''}#${params.get('choiceIndex') || '0'}`;
+                const state = HY_HELPERS.wenzhouStore()?.state?.mark;
+                const bound = state?.haveJoin ? '#join#' + (state.selectArea || []).map(q => q.questionId).join(',') : '';
+                return `huahanyun#wzedu#${params.get('questionId') || ''}#${params.get('choiceIndex') || '0'}${bound}`;
             }
             const m = location.hash.match(/questionId=(\d+)/);
             return m ? `huahanyun#${m[1]}` : `huahanyun#${location.hash.split('?')[0]}`;
@@ -147,8 +178,24 @@
             if (!el) return [];
             if (HY_HELPERS.isWenzhou()) {
                 const state = HY_HELPERS.wenzhouStore()?.state?.mark;
-                // 合批、分项、批量和批注给分需独立评分模型，单题适配仅接管键盘/一键给分。
-                if (state && (state.haveJoin || state.IsSubItemscoring || state.batchGrading
+                if (state?.haveJoin) {
+                    if (Number(state.markingType) !== 4 || state.multipleDraw || state.IsSubItemscoring
+                        || state.batchGrading || state.areaMark || state.feedBack
+                        || state.readOverInfo?.judged || state.readOverInfo?.checked) return [];
+                    const questions = state.selectArea, panel = HY_HELPERS.wenzhouBoundPanel();
+                    if (!Array.isArray(questions) || questions.length < 2 || !panel
+                        || panel.fields.length !== questions.length
+                        || new Set(questions.map(q => String(q.questionId))).size !== questions.length) return [];
+                    const fields = questions.map((question, index) => {
+                        const matches = panel.fields.filter(f => String(f.element.name) === String(index));
+                        if (matches.length !== 1 || !question.questionId || !Number.isFinite(Number(question.score))
+                            || Number(question.score) <= 0 || matches[0].element.disabled || matches[0].element.readOnly) return null;
+                        return { element: matches[0].element, label: question.questionName || `第${index + 1}题`,
+                            maxScore: Number(question.score), index, questionId: question.questionId };
+                    });
+                    return fields.every(Boolean) ? fields : [];
+                }
+                if (state && (state.IsSubItemscoring || state.batchGrading
                     || ![1, 2].includes(Number(state.markingType)))) return [];
                 const question = state?.readOverInfo?.question;
                 if (question) return [{ element: el, label: question.questionName || '本题',
@@ -166,6 +213,9 @@
         // 单分框全或无（#296 模板）：缺分/多分/空框写入失败 → 显式 false，不留半填状态
         fillScores(scores) {
             if (HY_HELPERS.isWenzhou() && (!this.isMarkingPage() || this.isRegradeMode())) return false;
+            if (HY_HELPERS.isWenzhou() && HY_HELPERS.wenzhouStore()?.state?.mark?.haveJoin) {
+                return this._fillWenzhouBound(scores);
+            }
             const inputs = this.getScoreInputs();
             if (inputs.length === 0) return false;
             if (!Array.isArray(scores) || scores.length === 0) return false;
@@ -207,6 +257,38 @@
             return true;
         },
 
+        _fillWenzhouBound(scores) {
+            if (this._wenzhouSubmitting) return false;
+            this._wenzhouFill = null;
+            const inputs = this.getScoreInputs(), panel = HY_HELPERS.wenzhouBoundPanel();
+            if (!panel || !inputs.length || !Array.isArray(scores) || scores.length !== inputs.length) return false;
+            const valid = scores.every((score, i) => (typeof score === 'number' || typeof score === 'string' && score.trim())
+                && Number.isFinite(Number(score)) && Number(score) >= 0 && Number(score) <= inputs[i].maxScore
+                && Math.abs(Number(score) * 100 - Math.round(Number(score) * 100)) < 1e-7
+                && (() => { const allowed = HY_HELPERS.wenzhouStore().state.mark.selectArea[i].markValues;
+                    return !allowed || String(allowed).split(',').map(Number).includes(Number(score)); })());
+            if (!valid || !this.getPaperIdentity()) return false;
+            const values = scores.map(Number), info = HY_HELPERS.wenzhouStore().state.mark.readOverInfo;
+            const old = inputs.map(input => ({ id: input.questionId,
+                score: panel.fields.find(f => f.element === input.element).props.modelValue }));
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            try {
+                panel.component.exposed.countScoreMultiple(inputs.map((input, i) => ({ id: input.questionId, score: values[i] })));
+                inputs.forEach((input, i) => setter.call(input.element, String(values[i])));
+                if (inputs.some((input, i) => input.element.value !== String(values[i]))) throw Error('评分框写入失败');
+                this._wenzhouFill = { studentId: info.studentId, sheetId: info.sheetId, questionId: info.questionId,
+                    task: this.getTaskIdentifier(), identity: this.getPaperIdentity(), panel: panel.component,
+                    questions: inputs.map((input, i) => ({ questionId: input.questionId, score: values[i] })) };
+                return true;
+            } catch (_) {
+                try {
+                    panel.component.exposed.countScoreMultiple(old);
+                    inputs.forEach((input, i) => setter.call(input.element, old[i].score == null ? '' : String(old[i].score)));
+                } catch (_) { /* 返回失败，核心暂停填分与提交 */ }
+                return false;
+            }
+        },
+
         // 旧接口兜底（core 优先 fillScores，此处仅兼容）
         fillScore(request) {
             if (!request || request.total === null || request.total === undefined) return false;
@@ -216,7 +298,7 @@
         // 给分提交：点击 submitscorebtn；按钮缺失/禁用 → 显式 false（#296 不静默续走）
         submitGrade(guard) {
             if (HY_HELPERS.isWenzhou() && (!this.isMarkingPage() || this.isRegradeMode()
-                || this.getScoreInputs().length !== 1)) return false;
+                || this.getScoreInputs().length === 0)) return false;
             const buttons = Array.from(document.querySelectorAll(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON));
             const btn = HY_HELPERS.isWenzhou() ? buttons.find(el => el.getClientRects().length > 0)
                 : document.querySelector(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON);
@@ -240,14 +322,24 @@
             this._wenzhouSubmitting = true;
             try {
                 if (guard.verify) await guard.verify();
+                if (this._wenzhouFill?.questions) await Promise.resolve(); // 等待绑定题块模型渲染。
                 const pending = this._wenzhouFill;
                 const state = HY_HELPERS.wenzhouStore()?.state?.mark;
                 const info = state?.readOverInfo;
                 if (!pending?.identity || !info || guard.signal?.aborted || guard.isCurrent?.() === false
                     || pending.task !== this.getTaskIdentifier() || pending.identity !== this.getPaperIdentity()
-                    || pending.score !== state.questionScore
+                    || (!pending.questions && pending.score !== state.questionScore)
                     || ['studentId', 'sheetId', 'questionId'].some(key => pending[key] == null
                         || String(pending[key]) !== String(info[key]))) return false;
+                if (pending.questions) {
+                    const panel = HY_HELPERS.wenzhouBoundPanel(), inputs = this.getScoreInputs();
+                    if (!panel || panel.component !== pending.panel || inputs.length !== pending.questions.length
+                        || inputs.some((input, i) => String(input.questionId) !== String(pending.questions[i].questionId)
+                            || input.element.value.trim() === '' || Number(input.element.value) !== pending.questions[i].score
+                            || panel.fields.find(f => f.element === input.element)?.props.modelValue == null
+                            || String(panel.fields.find(f => f.element === input.element)?.props.modelValue).trim() === ''
+                            || Number(panel.fields.find(f => f.element === input.element)?.props.modelValue) !== pending.questions[i].score)) return false;
+                }
                 const pageWindow = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
                 const proto = pageWindow.XMLHttpRequest?.prototype;
                 if (!proto) return false;
@@ -291,20 +383,27 @@
                         if (!settled && !observed && candidates.has(this)) {
                             try {
                                 const request = JSON.parse(body);
-                                if (['studentId', 'sheetId', 'questionId', 'score'].every(key =>
-                                    request[key] != null && String(request[key]) === String(pending[key]))) {
+                                const keys = pending.questions ? ['studentId', 'sheetId', 'questionId']
+                                    : ['studentId', 'sheetId', 'questionId', 'score'];
+                                const sameQuestions = !pending.questions || request.haveJoin === true
+                                    && Array.isArray(request.questionSubmitList) && request.questionSubmitList.length === pending.questions.length
+                                    && pending.questions.every(q => request.questionSubmitList.filter(item =>
+                                        String(item.questionId) === String(q.questionId) && item.score != null
+                                        && String(item.score).trim() !== '' && Number(item.score) === q.score).length === 1);
+                                if (sameQuestions && keys.every(key => request[key] != null && String(request[key]) === String(pending[key]))) {
                                     observed = this;
                                     for (const type of ['load', 'error', 'timeout', 'abort']) {
                                         this.addEventListener(type, type === 'load' ? loaded : cancelled);
                                     }
                                     restore();
-                                }
-                            } catch (_) { /* 只接受平台生成的同卷评分请求 */ }
+                                } else { finish(false); this.abort(); return; }
+                            } catch (_) { finish(false); this.abort(); return; }
                         }
                         return originalSend.call(this, body);
                     }
                     const timer = setTimeout(cancelled, 15000);
                     guard.signal?.addEventListener('abort', cancelled, { once: true });
+                    if (pending.questions) this._wenzhouFill = null;
                     try { proto.open = open; proto.send = send; btn.click(); }
                     catch (_) { finish(false); }
                 });
@@ -384,11 +483,7 @@
         detectSubQuestions() {
             const inputs = this.getScoreInputs();
             if (inputs.length === 0) return null;
-            return [{
-                id: 1,
-                label: inputs[0].label,
-                maxScore: inputs[0].maxScore,
-            }];
+            return inputs.map((input, index) => ({ id: index + 1, label: input.label, maxScore: input.maxScore }));
         },
     };
 
