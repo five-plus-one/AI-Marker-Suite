@@ -49,7 +49,7 @@ async function connect(url) {
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
             'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
             'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'zhixue', 'haofenshu',
-            'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa']
+            'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa', 'huixue-ready', 'huixue-late', 'huixue-spa']
             .filter(fixture => !selected || fixture === selected || fixture.startsWith(selected + '-'));
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -62,6 +62,7 @@ async function connect(url) {
         const haofenshuHtml = fs.readFileSync(path.join(root, 'tests/fixtures/haofenshu.html'), 'utf8');
         const wzeduHtml = fs.readFileSync(path.join(root, 'tests/fixtures/wzedu.html'), 'utf8');
         const zhixueHtml = fs.readFileSync(path.join(root, 'tests/fixtures/zhixue.html'), 'utf8');
+        const huixueHtml = fs.readFileSync(path.join(root, 'tests/fixtures/huixue.html'), 'utf8');
         const xiaoxianaiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xiaoxianai.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
@@ -78,7 +79,9 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.hostname === 'ls.xiaoxianai.cn' && ['/webPaper', '/webPaper/newMarkPaper'].includes(url.pathname)) {
+                if (url.hostname === 'hx-webscan.tyhuixue.com' && ['/web-reviewer/', '/study-exam/'].includes(url.pathname)) {
+                    body = huixueHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 'ls.xiaoxianai.cn' && ['/webPaper', '/webPaper/newMarkPaper'].includes(url.pathname)) {
                     body = xiaoxianaiHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'yue.haofenshu.com' && url.pathname.startsWith('/minions/subject/')) {
                     body = haofenshuHtml; type = 'text/html; charset=utf-8'; status = 200;
@@ -147,9 +150,10 @@ async function connect(url) {
             const haofenshu = fixture === 'haofenshu';
             const zhixue = fixture === 'zhixue';
             const wzedu = fixture.startsWith('wzedu-');
+            const huixue = fixture.startsWith('huixue-');
             const xiaoxianai = fixture.startsWith('xiaoxianai-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -173,6 +177,7 @@ async function connect(url) {
             if (zhixue) url = 'https://www.zhixue.com/webmarking/marking/personal/?run=' + runId;
             if (wzedu) url = 'https://yuejuan.wzedu.cn/static-v2/exam/index.html?run=' + runId + '&mode=' + fixture.slice(6)
                 + (fixture === 'wzedu-spa' ? '#/marking/gradingList/list' : '#/marking/grading?questionId=42&choiceIndex=0');
+            if (huixue) url = 'https://hx-webscan.tyhuixue.com/web-reviewer/?run=' + runId + '&mode=' + fixture.slice(7) + (fixture === 'huixue-spa' ? '#/home' : '#/generalReview');
             if (xiaoxianai) url = 'https://ls.xiaoxianai.cn/webPaper/newMarkPaper?run=' + runId + '&mode=' + fixture.slice(11);
             navigation++;
             await client.send('Page.navigate', { url });
