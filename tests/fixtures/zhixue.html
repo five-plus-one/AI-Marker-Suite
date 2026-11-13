@@ -21,6 +21,23 @@ window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());retur
   assert(a.getPaperIdentity()===old,'签名更新维持同卷标识');await wait(450);assert(!changed,'签名续期不换卷');
   image.src='/__fixture/answer.svg?paper=B';await loaded();await wait(500);await pending;
   assert(changed,'完整新作答资源稳定后继续');assert((await a.gatherAnswerImages()).length===1,'取图与身份来源相同');
+  const canvas=document.createElement('canvas');canvas.width=942;canvas.height=513;
+  const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,942,513);
+  ctx.fillStyle='black';ctx.fillText('30. answer A',20,30);const dataA=canvas.toDataURL('image/png');
+  ctx.fillText('answer B',20,70);const dataB=canvas.toDataURL('image/png');
+  image.src=dataA;await loaded();const inlineId=a.getPaperIdentity();assert(!!inlineId,'内嵌增强图拥有答卷身份');
+  assert(await a.fetchImageAsBase64(dataA)===dataA.split(',')[1],'增强图取图保留完整字节');
+  let inlineChanged=false;const inlinePending=a.waitForNextPaper(dataA,{paperId:inlineId}).then(v=>inlineChanged=v);
+  image.src=dataB;await loaded();await inlinePending;assert(inlineChanged,'内嵌增强图换卷完成');
+  const source=location.origin+'/__fixture/answer.svg?x-oss-process=image/crop,x_10,y_20,w_942,h_513';
+  const sourceKey=a._answerResourceKey(source),native={topicImageIds:[source],catchImage:{[sourceKey]:dataB}};
+  image.parentElement.__vue__={$data:native};
+  const nativeId=a.getPaperIdentity();assert(!!nativeId,'增强图绑定当前原生切图');
+  image.style.height='1600px';
+  assert((await a.gatherAnswerImages())[0]===dataB,'答卷超出窗口仍获取完整图片');
+  image.src=source;await loaded();assert(a.getPaperIdentity()===nativeId,'关闭增强维持同卷身份');
+  image.src=dataB;await loaded();native.topicImageIds=[source.replace('x_10','x_30')];
+  assert(a.getPaperIdentity()===null,'原生切图已更新且旧增强图未替换时等待');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:error.message}))));}
 })();
