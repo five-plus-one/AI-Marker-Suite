@@ -26,7 +26,7 @@ if(bound){
  panel.className='panel givescorebox isbind';
  panel.querySelector('span').textContent='绑定批阅：17（1）与17（2）';
  input.parentElement.remove();
- mark.haveJoin=true;mark.markingType=4;mark.selectArea=[
+ mark.haveJoin=true;mark.markingType=4;mark.MultipleAuto=true;mark.selectArea=[
   {questionId:42,questionName:'17（1）',score:7},{questionId:43,questionName:'17（2）',score:8}];
  boundModels=[null,null];
  boundInputs=mark.selectArea.map((q,i)=>{const row=document.createElement('div');row.className='bindinputs';
@@ -35,7 +35,8 @@ if(bound){
   el.addEventListener('input',()=>{nativeInputs++;submits++});return el});
  const props=boundInputs.map((el,i)=>({modelValue:null}));
  const component={exposed:{countScoreMultiple(values){values.forEach(v=>{const i=mark.selectArea.findIndex(q=>q.questionId===v.id);
-  boundModels[i]=v.score;queueMicrotask(()=>{props[i].modelValue=v.score;boundInputs[i].value=v.score==null?'':v.score})})}},
+  boundModels[i]=v.score;queueMicrotask(()=>{props[i].modelValue=v.score;boundInputs[i].value=v.score==null?'':v.score})});
+  setTimeout(()=>{if(mark.MultipleAuto&&boundModels.every(v=>v!==null))document.querySelector('button').click()},300)}},
   subTree:{children:boundInputs.map((el,i)=>({component:{exposed:{input:{value:el}},vnode:{props:props[i]}}}))}};
  app.__vue_app__._container={_vnode:{component}};
 }
@@ -67,7 +68,7 @@ if(mode==='late'||mode==='spa')panel.remove();
   if(bound){
    for(const scores of [[0,0],[2.5,8],[7,0]]){assert(a.fillScores(scores),'绑定题完整填入');await wait(0);
     assert(boundModels.every((v,i)=>v===scores[i]&&Number(boundInputs[i].value)===v),'模型与展示完整同步')}
-   assert(submits===0&&nativeInputs===0,'绑定题试改只填分');
+   await wait(450);assert(submits===0&&nativeInputs===0,'绑定题等待确认期间只填分');
    assert(!a.fillScores([1])&&!a.fillScores([1,9]),'绑定题完整范围校验');
    assert(a.fillScores([7,0]),'提交前重新填入完整分数');await wait(0);
   }else{

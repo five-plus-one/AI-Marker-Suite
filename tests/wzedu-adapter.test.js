@@ -241,6 +241,30 @@ test('温州绑定批阅：完整校验评分范围、个数与平台可用分�
     assert.deepEqual(f.models, [6, 7]);
 });
 
+test('温州绑定批阅：原站自动给分开启时等待教师确认后整组保存', async () => {
+    const f = setup({ bound: true }), a = f.adapter();
+    f.state.MultipleAuto = true;
+    const update = f.panel.exposed.countScoreMultiple;
+    f.panel.exposed.countScoreMultiple = values => {
+        update(values);
+        setTimeout(() => { if (f.state.MultipleAuto) f.button.click(); }, 300);
+    };
+    assert.equal(a.fillScores([3, 4]), true);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert.equal(f.clicks(), 0, '原站延迟给分不能抢先提交');
+    assert.deepEqual(f.models, [3, 4]);
+    assert.equal(await a.submitGrade(), true);
+    assert.equal(f.clicks(), 1);
+});
+
+test('温州绑定批阅：无法接管原站自动给分时保持原评分', () => {
+    const f = setup({ bound: true }), a = f.adapter();
+    Object.defineProperty(f.state, 'MultipleAuto', { get: () => true, set() {} });
+    assert.equal(a.fillScores([3, 4]), false);
+    assert.deepEqual(f.models, [null, null]);
+    assert.equal(f.clicks(), 0);
+});
+
 test('温州绑定批阅：模型、控件、题块、答卷及回评变化后停止提交', async () => {
     for (const change of [f => { f.models[1] = null; }, f => { f.fields[1]._v = ''; },
         f => { f.state.selectArea.reverse(); }, f => { f.images([image(NEXT)]); },
