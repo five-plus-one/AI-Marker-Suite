@@ -65,7 +65,7 @@ const XiangshangxueAdapter = {
                 const expected = { examsub: pending.route[0], examtea: pending.route[1], teaid: pending.route[2],
                     id: pending.paper, teapos: pending.position, gettype: '1', pjsign: pending.pjsign,
                     scores: String(pending.scores.reduce((n, v) => n + v, 0)), xt: pending.scores.join(',') };
-                const valid = !pending.request && action === pending.action && adapter._state()?.identity === pending.identity
+                const valid = !pending.request && action === pending.action && adapter._state(true)?.identity === pending.identity
                     && Object.entries(expected).every(([k, v]) => data.getAll(k).length === 1 && data.get(k) === v);
                 if (!valid) { pending.failed = true; return false; }
                 pending.request = true;
@@ -75,6 +75,12 @@ const XiangshangxueAdapter = {
             const success = options.success, error = options.error, complete = options.complete;
             return ajax.call(this, { ...options,
                 success(result, ...rest) {
+                    // 老版 jQuery 在连接中断时也可能进入 success(null)，交给原生错误路径恢复请求计数。
+                    if (pending && write && (!result || typeof result !== 'object' || result.id == null)) {
+                        pending.failed = true;
+                        if (adapter._epoch === epoch) adapter._loading = false;
+                        return error?.call(this, null, 'parsererror', new Error('保存响应不完整'));
+                    }
                     // 正常保存响应直接返回下一份或末卷；负数错误码、回收和同卷响应均不能证明已保存。
                     if (pending && write) {
                         const id = String(result?.id);
@@ -97,10 +103,11 @@ const XiangshangxueAdapter = {
             }, ...args);
         };
     },
-    _state() {
+    _state(allowNativeProgress = false) {
         this._observe();
         const w = this._page(), task = this._task();
-        if (!task || this._observedPage !== w || this._loading || Number(w.jQuery.active) > 0 || !/^[1-9]\d*$/.test(String(w.paperrowid))
+        // 原生提交先异步刷新进度；发送成绩时仍核对取卷状态与身份，允许该进度请求并行。
+        if (!task || this._observedPage !== w || this._loading || !allowNativeProgress && Number(w.jQuery.active) > 0 || !/^[1-9]\d*$/.test(String(w.paperrowid))
             || ![0, 1].includes(Number(w.pjsign)) || Number(w.xmode) !== 0
             || task.inputs.some(el => !this._visible(el) || el.disabled || el.readOnly)) return null;
         const d = w.document;

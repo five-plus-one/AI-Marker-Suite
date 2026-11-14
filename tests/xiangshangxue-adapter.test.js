@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const M = require('./_adapter-matrix.js');
 
-function setup({ multi = false, single = false } = {}) {
+function setup({ multi = false, single = false, nativeProgress = false } = {}) {
     const sb = M.makeStub({ host: 'xinluolk.fjjxhl.com', path: '/lypaper/Base/lyReadPaper.aspx' });
     sb.setTimeout = fn => setTimeout(fn, 0);
     const w = sb;
@@ -37,6 +37,7 @@ function setup({ multi = false, single = false } = {}) {
         if (!/action=putpaper/.test(options.url)) { reads++; return; }
         calls++;
         if (response === 'error') { options.error('offline'); options.complete(); return; }
+        if (response === 'null') { options.success(null); options.complete(); return; }
         if (response === 'defer') return;
         const id = response === 'ok' ? '2' : response === 'last' ? '-2' : response;
         options.success({ id }); options.complete();
@@ -47,8 +48,10 @@ function setup({ multi = false, single = false } = {}) {
             id: String(w.paperrowid), teapos: String(w.teapos), pjsign: String(w.pjsign), gettype: String(w.gettype),
             scores: String(inputs.reduce((n, el) => n + Number(el.value), 0)), xt: inputs.map(el => el.value).join(',') };
         changeData?.(data);
+        if (nativeProgress) w.jQuery.active++;
         w.jQuery.ajax({ url: 'lyGetData.aspx?action=' + (w.pjsign === 0 ? 'putpaper' : 'putpaper2'), data,
             success(result) { nativeCallbacks++; if (result.id === '-2' || /^[1-9]\d*$/.test(result.id)) next(result.id); } });
+        if (nativeProgress) w.jQuery.active--;
     } };
     sb.fetchImageAsBase64 = async () => 'fixture-image';
     assert.deepEqual(M.loadOne(sb, 'xiangshangxue').errors, []);
@@ -110,8 +113,15 @@ test('享尚学正常单评和双评保存确认，再等待不同答卷稳定�
         assert.equal(await h.a.submitGrade(), false); assert.equal(h.calls(), 1);
     }
 });
+test('享尚学原生进度刷新并行时核对成绩请求，取卷中仍拒绝提交', async () => {
+    const h = setup({ nativeProgress: true }); await fill(h);
+    assert.equal(await h.a.submitGrade(), true); assert.equal(h.calls(), 1);
+    const loading = setup({ nativeProgress: true }); await fill(loading);
+    loading.change(() => loading.w.jQuery.ajax({ url: 'lyGetData.aspx?action=GetPaperInfo' }));
+    assert.equal(await loading.a.submitGrade(), false); assert.equal(loading.calls(), 0);
+});
 test('享尚学拒收、会话过期、回收、同卷与网络错误均停止', async () => {
-    for (const response of ['-1000', '-2000', '-666', '-8', '当前科目不可阅卷', '1', 'error']) {
+    for (const response of ['-1000', '-2000', '-666', '-8', '当前科目不可阅卷', '1', 'error', 'null']) {
         const h = setup(); h.response(response); assert.equal(await fill(h), true);
         assert.equal(await h.a.submitGrade(), false, response); assert.equal(await h.a.waitForNextPaper(), false);
     }
