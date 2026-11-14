@@ -112,7 +112,57 @@ const YuandingbangAdapter = {
     getScoreInputs() { return this._state()?.inputs || []; },
     detectSubQuestions() { const inputs = this.getScoreInputs(); return inputs.length > 1 ? inputs : []; },
     async gatherAnswerImages() { return this._state()?.images.map(img => img.src) || []; },
-    async fetchImageAsBase64(url) { return fetchImageAsBase64(url); },
+    async fetchImageAsBase64(url, signal = window.aiGradingState?.abortController?.signal) {
+        // 主流程以独立函数调用下载器；通过适配器常量核对同一答卷及题块。
+        const adapter = YuandingbangAdapter, state = adapter._state();
+        const source = state?.images.find(img => img.src === url);
+        const width = source?.naturalWidth, height = source?.naturalHeight;
+        const current = () => !signal?.aborted && adapter._state()?.identity === state?.identity
+            && source?.src === url && source.complete && source.naturalWidth === width && source.naturalHeight === height;
+        if (!source || !current()) throw new Error('当前答卷已变化，请等待图片加载完成后重新批改');
+        if (!(width >= 15 && height >= 15) || width * height > 36000000) {
+            throw new Error('当前题目图片尺寸异常，请在平台核对答题区域后重试');
+        }
+        // 保留原生 URL 的全部参数，按浏览器解码后的题块像素生成 PNG。
+        const base64 = await fetchImageAsBase64(url, signal);
+        if (!current()) throw new Error('当前答卷已变化，请重新批改');
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+            let timer;
+            const finish = (error, data) => {
+                clearTimeout(timer);
+                signal?.removeEventListener('abort', cancelled);
+                image.onload = image.onerror = null;
+                error ? reject(error) : resolve(data);
+            };
+            const cancelled = () => finish(new Error('用户主动暂停'));
+            image.onerror = () => finish(new Error('题目图片读取失败，请刷新答卷后重试'));
+            image.onload = () => {
+                if (!current()) return finish(new Error('当前答卷已变化，请重新批改'));
+                if (image.naturalWidth !== width || image.naturalHeight !== height) {
+                    return finish(new Error('下载图片与当前答题区域不一致，请刷新答卷后重试'));
+                }
+                let canvas;
+                try {
+                    canvas = document.createElement('canvas');
+                    canvas.width = width; canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) throw new Error('图片处理暂不可用，请刷新页面后重试');
+                    ctx.drawImage(image, 0, 0);
+                    const data = canvas.toDataURL('image/png');
+                    if (!data.startsWith('data:image/png;base64,') || !current()) {
+                        throw new Error('题目图片处理失败，请重新批改');
+                    }
+                    finish(null, data.slice('data:image/png;base64,'.length));
+                } catch (error) { finish(error); }
+                finally { if (canvas) { canvas.width = 0; canvas.height = 0; } }
+            };
+            signal?.addEventListener('abort', cancelled, { once: true });
+            timer = setTimeout(() => finish(new Error('题目图片读取超时，请刷新答卷后重试')), 15000);
+            if (signal?.aborted) return cancelled();
+            image.src = 'data:image/jpeg;base64,' + base64;
+        });
+    },
     fillScores(scores) {
         this._filled = null; this.lastFillError = '';
         const fail = text => { this.lastFillError = text; return false; };

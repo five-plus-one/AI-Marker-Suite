@@ -106,6 +106,69 @@ test('园丁邦缓存刷新不改变答卷标识，原生换卷改变标识', ()
     h.images[0].src = h.images[0].src.replace('v=123', 'v=456'); assert.equal(h.adapter.getPaperIdentity(), old);
     h.next('paperB'); assert.notEqual(h.adapter.getPaperIdentity(), old);
 });
+
+function imageDownload(h, { width = 1140, height = 219, beforeDownload, beforeLoad, decodeError = false, canvasError = false } = {}) {
+    const requests = [], draws = [], canvases = [];
+    h.sb.fetchImageAsBase64 = async (url, signal) => {
+        requests.push({ url, signal }); beforeDownload?.(); return 'ORIGINAL_JPEG';
+    };
+    h.sb.Image = class {
+        naturalWidth = width; naturalHeight = height;
+        set src(value) {
+            this.source = value;
+            queueMicrotask(() => { beforeLoad?.(); (decodeError ? this.onerror : this.onload)?.(); });
+        }
+    };
+    h.sb.document.createElement = name => {
+        assert.equal(name, 'canvas');
+        const canvas = { getContext: () => ({ drawImage: (...args) => draws.push(args) }),
+            toDataURL: type => { assert.equal(type, 'image/png'); if (canvasError) throw Error('encode failed'); return 'data:image/png;base64,NORMALIZED_PNG'; } };
+        canvases.push(canvas); return canvas;
+    };
+    return { requests, draws, canvases };
+}
+
+test('园丁邦下载保留完整查询和裁切参数，以原始题块尺寸输出 PNG，支持独立调用', async () => {
+    const h = setup();
+    h.images[0].src += '&x-oss-process=image/crop,x_10,y_20,w_1140,h_219&signature=a%2Bb';
+    const { requests, draws, canvases } = imageDownload(h);
+    const download = h.adapter.fetchImageAsBase64, signal = new AbortController().signal;
+    assert.equal(await download(h.images[0].src, signal), 'NORMALIZED_PNG');
+    assert.equal(requests[0].url, h.images[0].src); assert.equal(requests[0].signal, signal);
+    assert.equal(draws.length, 1); assert.deepEqual(draws[0].slice(1), [0, 0]);
+    assert.equal(draws[0][0].source, 'data:image/jpeg;base64,ORIGINAL_JPEG');
+    assert.equal(canvases[0].width, 0); assert.equal(canvases[0].height, 0);
+});
+
+test('园丁邦下载期间换卷、切题、取消或尺寸不符均停止取图', async () => {
+    for (const options of [
+        h => ({ beforeDownload: () => h.next('paperB') }),
+        h => ({ beforeLoad: () => h.next('paperB') }),
+        h => ({ beforeLoad: () => { h.w.ksdm = '200'; } }),
+        () => ({ width: 61582, height: 64768 }),
+        () => ({ decodeError: true }), () => ({ canvasError: true }),
+    ]) {
+        const h = setup(); imageDownload(h, options(h));
+        await assert.rejects(h.adapter.fetchImageAsBase64(h.images[0].src));
+    }
+    for (const when of ['beforeDownload', 'beforeLoad']) {
+        const h = setup(), controller = new AbortController();
+        imageDownload(h, { [when]: () => controller.abort() });
+        await assert.rejects(h.adapter.fetchImageAsBase64(h.images[0].src, controller.signal));
+    }
+});
+
+test('园丁邦超限题块、整卷地址和已取消请求在下载前停止', async () => {
+    for (const change of [h => { h.images[0].naturalWidth = 61582; h.images[0].naturalHeight = 64768; },
+        h => { h.images[0].naturalWidth = 14; }]) {
+        const h = setup(); change(h); const { requests } = imageDownload(h);
+        await assert.rejects(h.adapter.fetchImageAsBase64(h.images[0].src)); assert.equal(requests.length, 0);
+    }
+    const h = setup(), { requests } = imageDownload(h), controller = new AbortController(); controller.abort();
+    await assert.rejects(h.adapter.fetchImageAsBase64(h.images[0].src, controller.signal));
+    await assert.rejects(h.adapter.fetchImageAsBase64(h.images[0].src.replace('_3.jpg', '_0.jpg')));
+    assert.equal(requests.length, 0);
+});
 test('园丁邦填分后切卷、改分或取消均禁止提交', async () => {
     for (const change of [h => h.next('paperB'), h => { h.fields[0].value = '4'; }, h => { h.w.dfms = '2'; }]) {
         const h = setup(); assert.equal(h.adapter.fillScores([3]), true); change(h);
