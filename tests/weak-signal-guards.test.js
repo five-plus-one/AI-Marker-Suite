@@ -82,7 +82,7 @@ test('检测器自检 W6：变形半成功语义（改名 return okCount > 0）�
 test('D.5-1 域名子串匹配只减不增：hostname.includes(/h.includes( 存量冻结（新代码禁用）', () => {
     // 冻结上限：2026-11 现存各适配器的 includes 判定计数（只允许下降，不允许新增）
     const FROZEN_MAX = {
-        'ameqp': 0, 'ajia': 1, 'c30': 1, 'dongni': 0, 'guangda': 1, 'guangda-2': 1,
+        'ameqp': 0, 'ajia': 1, 'c30': 1, 'dongni': 0, 'guangda': 1, 'guangda-2': 1, 'yuandingbang': 0,
         'haiyun': 1, 'hanhan': 1, 'haofenshu': 1, 'haofenshuyize': 1, 'haoyuejuan': 1,
         'huahanyun': 1, 'huixuexing': 1, 'huiyuejuan': 2, 'jingdouyun': 1, 'jiukexing': 1,
         'jiukexing-homework': 1, 'jiuwuyouping': 1, 'keewing': 1, 'kuyuu': 1, 'kzedu': 1,

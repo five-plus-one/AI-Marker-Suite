@@ -49,7 +49,7 @@ async function connect(url) {
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'zhixue', 'qiguang-zhenxue-deployment',
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
             'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
-            'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'haofenshu']
+            'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'haofenshu', 'yuandingbang']
             .filter(fixture => !selected || fixture === selected);
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -62,6 +62,8 @@ async function connect(url) {
         const haofenshuHtml = fs.readFileSync(path.join(root, 'tests/fixtures/haofenshu.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         const zhixueHtml = fs.readFileSync(path.join(root, 'tests/fixtures/zhixue.html'), 'utf8');
+        const yuandingbangHtml = fs.readFileSync(path.join(root, 'tests/fixtures/yuandingbang.html'), 'utf8');
+        const yuandingbangJpeg = fs.readFileSync(path.join(root, 'tests/fixtures/yuandingbang-answer.jpg'));
         client.onEvent(event => {
             if (event.method === 'Network.loadingFailed' && (event.params.canceled || event.params.errorText === 'net::ERR_ABORTED')) cancelledRequests.add(event.params.requestId);
             if (event.method === 'Runtime.exceptionThrown') {
@@ -76,7 +78,13 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.hostname === 'www.zhixue.com' && url.pathname === '/webmarking/marking/personal/') {
+                if (url.hostname === 'yuejuan.yuandingbang.cn' && url.pathname === '/web/mark/sjpy/sjpy_kspy.jsp') {
+                    body = yuandingbangHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 'yuejuan-img.yuandingbang.cn') {
+                    body = yuandingbangJpeg; type = 'image/jpeg'; status = 200;
+                } else if (url.hostname === 'yuejuan.yuandingbang.cn' && url.pathname === '/dist/ai_marker.user.js') {
+                    body = bundle; type = 'application/javascript'; status = 200;
+                } else if (url.hostname === 'www.zhixue.com' && url.pathname === '/webmarking/marking/personal/') {
                     body = zhixueHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'yue.haofenshu.com' && url.pathname.startsWith('/minions/subject/')) {
                     body = haofenshuHtml; type = 'text/html; charset=utf-8'; status = 200;
@@ -111,7 +119,8 @@ async function connect(url) {
                     type = 'image/svg+xml'; status = 200;
                 }
                 await client.send('Fetch.fulfillRequest', { requestId: event.params.requestId, responseCode: status,
-                    responseHeaders: [{ name: 'Content-Type', value: type }, { name: 'Cache-Control', value: 'no-store' }],
+                    responseHeaders: [{ name: 'Content-Type', value: type }, { name: 'Cache-Control', value: 'no-store' },
+                        ...(url.hostname === 'yuejuan-img.yuandingbang.cn' ? [{ name: 'Access-Control-Allow-Origin', value: 'https://yuejuan.yuandingbang.cn' }] : [])],
                     body: Buffer.from(body).toString('base64') });
             })().catch(async error => {
                 if (await isCancelledInterception(error, () => requestNavigation !== navigation || cancelledRequests.has(event.params.networkId))) {
@@ -134,8 +143,9 @@ async function connect(url) {
             const jiukexing = fixture.startsWith('jiukexing-');
             const haofenshu = fixture === 'haofenshu';
             const zhixue = fixture === 'zhixue';
+            const yuandingbang = fixture === 'yuandingbang';
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || haofenshu || zhixue) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || haofenshu || zhixue || yuandingbang) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -156,6 +166,7 @@ async function connect(url) {
                     + '?run=' + runId + '&mode=' + fixture.slice(10) + '&examId=exam&subjectId=subject&questionBlockId=block&isdp=1';
                 if (haofenshu) url = 'https://yue.haofenshu.com/minions/subject/10500001/mark/1/normal/0?run=' + runId;
                 if (zhixue) url = 'https://www.zhixue.com/webmarking/marking/personal/?run=' + runId;
+                if (yuandingbang) url = 'https://yuejuan.yuandingbang.cn/web/mark/sjpy/sjpy_kspy.jsp?ksdm=100&kmdm=B21&stbh=2&run=' + runId;
             }
             navigation++;
             await client.send('Page.navigate', { url });

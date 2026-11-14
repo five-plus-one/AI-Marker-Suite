@@ -1,0 +1,59 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>园丁邦阅卷练习</title>
+<style>body{margin:0;font:16px system-ui;color:#253d39;background:#f6faf8}header{background:#34404a;color:white;padding:18px}main{display:flex;padding:24px;gap:24px}#imgdiv{flex:1;background:white;padding:16px}img{width:100%}aside{width:240px}input{padding:10px;width:100px}#tjfsbtn{display:block;width:100%;margin-top:20px;border:0;background:#1ab394;color:white}.dfddiv{display:flex;align-items:center;gap:10px}.score{margin-top:20px}</style>
+<header>化学练习 ｜ 第22题 ｜ 单评</header><main><div id="imgdiv"><img id="mainimg_0"></div><aside><div id="dfdxx"><div class="dfddiv"><span class="dfdspan">22(1-2)</span><input id="dfd0" placeholder="满分6" oninput="countSum()"></div></div><div class="score">合计：0 分</div><input type="button" id="tjfsbtn" value="提交分数（回车）" onclick="tjfs()"><input hidden id="copyvalue"></aside></main>
+<script>
+var ksdm='100',kmdm='B21',stbh='2',loadok=true,err=false,sfhp=false,dfms='1',sfsp='0',tjfsFlag=true,dtkgs='1';
+var zgtxx={STBH:'2',KMDM:'B21',STMC:'22(1-2)',DFDMC:'22(1-2)',DFDFS:'6',DFDSL:1,STMF:6,DFBC:'0',DFBCMS:'1',PYCS:1,SFSP:'0',SFYGMS:'0',SFFP:'0',SFMP:'0',TXQY:'3',TXDZ:'https://yuejuan-img.yuandingbang.cn/Examimg/'};
+var dfdmc=['22(1-2)'],dfdfs=['6'],txqy=['3'],rwxx,sum=0,dfd='',fixtureRequests=[];
+function setPaper(id){rwxx={RWID:'task-'+id,DQPC:'1',BMH:id,STBH:'2',PYCS:1,SFYC:'0',SFZC:'0',ZJBZ:'0',PYCJ_1:null,PYSJ_1:null};document.querySelector('#copyvalue').value=id;document.querySelector('#mainimg_0').src=zgtxx.TXDZ+'1359/100/B21/'+id+'/'+id+'_3.jpg?v=123';document.querySelector('#dfd0').value='';countSum()}
+function countSum(){document.querySelector('.score').textContent='合计：'+(document.querySelector('#dfd0').value||0)+' 分'}
+function checkDfd(){var value=document.querySelector('#dfd0').value;if(!/^\d+(\.\d+)?$/.test(value)||Number(value)>6||Number(value)%1)return false;sum=Number(value);dfd=value;return true}
+class FixtureXHR extends EventTarget{open(method,url){this.url=url}send(body){fixtureRequests.push({url:this.url,body});this.status=200;this.responseText=JSON.stringify({res:true});setTimeout(()=>{this.dispatchEvent(new Event('load'));setPaper('fixture-B')},0)}}
+window.XMLHttpRequest=FixtureXHR;
+function tjfs(){if(!checkDfd())return;const xhr=new XMLHttpRequest();xhr.open('POST',location.origin+'/sjpy_tjfs.do');xhr.send(new URLSearchParams({ksdm,kmdm,stbh,rwid:rwxx.RWID,dqpc:rwxx.DQPC,pycs:1,sfmp:0,pycj:sum,pydfd:dfd}).toString())}
+document.querySelector('#mainimg_0').crossOrigin='anonymous';
+setPaper('fixture-A');
+</script>
+<script>
+const fixtureStore={},fixtureDownloads=[];
+window.GM_getValue=(key,fallback)=>fixtureStore[key]??fallback;
+window.GM_setValue=(key,value)=>fixtureStore[key]=value;
+window.GM_registerMenuCommand=()=>{};
+window.unsafeWindow=window;
+window.GM_xmlhttpRequest=options=>{
+    if(options.method==='GET'&&options.url.startsWith(zgtxx.TXDZ)){
+        fixtureDownloads.push(options.url);
+        const controller=new AbortController();
+        fetch(options.url,{signal:controller.signal}).then(r=>r.arrayBuffer()).then(response=>options.onload({status:200,response})).catch(()=>options.onerror?.());
+        return {abort(){controller.abort()}};
+    }
+    queueMicrotask(()=>options.onerror?.());return {abort(){}};
+};
+</script>
+<script src="/dist/ai_marker.user.js"></script>
+<pre id="result"></pre>
+<script>
+(async()=>{
+    const checks=[];const check=(ok,label)=>{checks.push({label,pass:!!ok});if(!ok)throw Error(label)};
+    const ready=async()=>{for(let i=0;i<150;i++){if(window.__AI_MARKER_ADAPTER__?.getPaperIdentity())return;await new Promise(r=>setTimeout(r,20))}throw Error('answer not ready')};
+    try{
+        await ready();const a=window.__AI_MARKER_ADAPTER__;
+        check(a.id==='yuandingbang','园丁邦适配器');
+        const source=await a.gatherAnswerImages();check(source.length===1,'当前题块完整取图');
+        const download=a.fetchImageAsBase64,encoded=await download(source[0]);
+        check(fixtureDownloads[0]===source[0],'原生图片地址完整传递');
+        const bytes=atob(encoded);check(bytes.startsWith('\x89PNG\r\n\x1a\n'),'输出标准 PNG');
+        const image=new Image();image.src='data:image/png;base64,'+encoded;await image.decode();
+        check(image.naturalWidth===1140&&image.naturalHeight===219,'保留题块原始尺寸');
+        const pixels=img=>{const c=document.createElement('canvas');c.width=1140;c.height=219;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);return ctx.getImageData(0,0,1140,219).data};
+        const expected=pixels(document.querySelector('#mainimg_0')),actual=pixels(image);
+        check(expected.every((byte,i)=>byte===actual[i]),'逐像素保留完整作答');
+        const overlay=document.createElement('div');overlay.className='layui-layer-page';overlay.textContent='整卷预览';document.body.appendChild(overlay);
+        check((await a.gatherAnswerImages()).length===0,'整卷弹层期间暂停取图');overlay.remove();
+        check(a.fillScores([3]),'原生给分栏');check(await a.submitGrade(),'保存响应关联');
+        check(fixtureRequests.length===1&&new URLSearchParams(fixtureRequests[0].body).get('pydfd')==='3','准确保存得分点');
+        check(await a.waitForNextPaper(),'完整换卷');
+    }catch(error){checks.push({pass:false,label:error.message})}
+    document.querySelector('#result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId:new URLSearchParams(location.search).get('run'),width:innerWidth,passed:checks.every(x=>x.pass),checks}))));
+})();
+</script></html>

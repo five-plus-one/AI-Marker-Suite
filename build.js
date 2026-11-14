@@ -163,6 +163,8 @@ const BUILD_CONFIGS = [
             'adapters/xfkj/adapter.js',
             'adapters/ruiya/selectors.js',
             'adapters/ruiya/adapter.js',
+            'adapters/yuandingbang/selectors.js',
+            'adapters/yuandingbang/adapter.js',
         ],
         header: {
             name: 'AI-Marker-Suite',
@@ -198,6 +200,7 @@ const BUILD_CONFIGS = [
                 '*://kaoshi.keewing.com/*',
                 '*://*/OraOnlineCheck/OraCheck/Review*',
                 'https://jzjx.jzsmartedu.cn/dnpc/*',
+                '*://yuejuan.yuandingbang.cn/web/*',
                 '*://wyna.onlyets.com/*',
                 '*://zy.iclass30.com/*',
                 '*://*/AMEQP/Webroot/mar/*',
@@ -233,9 +236,10 @@ const BUILD_CONFIGS = [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
-            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_registerMenuCommand'],
+            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_registerMenuCommand', 'unsafeWindow'],
             connect: [
                 'api.ai.five-plus-one.com',
+                'yuejuan-img.yuandingbang.cn',
                 'zhixue-sc.oss-cn-hangzhou.aliyuncs.com',
                 'yjimage.oss-cn-hangzhou.aliyuncs.com',
                 'static.7net.cc',
