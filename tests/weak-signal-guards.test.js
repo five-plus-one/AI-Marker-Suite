@@ -82,14 +82,15 @@ test('检测器自检 W6：变形半成功语义（改名 return okCount > 0）�
 test('D.5-1 域名子串匹配只减不增：hostname.includes(/h.includes( 存量冻结（新代码禁用）', () => {
     // 冻结上限：2026-11 现存各适配器的 includes 判定计数（只允许下降，不允许新增）
     const FROZEN_MAX = {
-        'ameqp': 0, 'ajia': 1, 'c30': 1, 'dongni': 0, 'guangda': 1, 'guangda-2': 1, 'yuandingbang': 0,
+        'xiangshangxue': 0,
+        'ameqp': 0, 'ajia': 1, 'c30': 1, 'dongni': 0, 'guangda': 1, 'guangda-2': 1,
         'haiyun': 1, 'hanhan': 1, 'haofenshu': 1, 'haofenshuyize': 1, 'haoyuejuan': 1,
         'huahanyun': 1, 'huixuexing': 1, 'huiyuejuan': 2, 'jingdouyun': 1, 'jiukexing': 1,
         'jiukexing-homework': 1, 'jiuwuyouping': 1, 'keewing': 1, 'kuyuu': 1, 'kzedu': 1,
         'lehua': 1, 'nhcisc': 1, 'qiguang': 0, 'jzsmartedu': 0, 'qitian': 4, 'qitian-new': 2, 'ruiya': 1, 'runjian': 3,
         'sipd': 1, 'wuyue': 1, 'wuyuetong': 1, 'xfkj': 1, 'xinjiaoyu': 2, 'xinkao': 0,
         'xinkao-2': 0, 'xinkao-campus': 0, 'xkw': 0, 'xueba54': 1, 'yuejiaoxiangyun': 1,
-        'yuejuan': 1, 'yunyuejuan': 0, 'zhixue': 1,
+        'yuejuan': 1, 'yunyuejuan': 0, 'zhixue': 1, 'wentongyun': 0, 'yuandingbang': 0, 'xiaoxianai': 0, 'youfen': 0, 'xiaoleyouyue': 0, 'leascent': 0, 'huixue': 0,
     };
     const offenders = [];
     for (const a of adapters) {

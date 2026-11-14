@@ -1,0 +1,61 @@
+<!doctype html><meta charset="utf-8"><title>Embedded UI browser acceptance</title>
+<style>
+/* LeaScent's global element defaults. */
+button{background:#009688;color:#fff;font-size:13px;text-transform:uppercase;letter-spacing:1px;border:none;padding:12px 60px;cursor:pointer;width:100%;border-radius:6px}
+body{margin:0;font:14px/1.5 sans-serif}
+#component-sample{margin:12px;max-width:95vw;--fp-surface:#fff;--fp-bg:#fff;--fp-ink:#172033;--fp-line:#dce1e8;--fp-primary:#13795b}
+#component-sample[data-theme=dark]{--fp-surface:#20252d;--fp-bg:#14181f;--fp-ink:#edf0f5;--fp-line:#4c5665;--fp-primary:#71dab5}
+.sample-bar{display:flex;gap:4px;padding:6px;width:100%;background:var(--fp-surface);color:var(--fp-ink)}
+.sample-bar button{font:13px/1.5 sans-serif;padding:6px 10px;border:1px solid #aaa;border-radius:6px;background:transparent;color:inherit;flex-shrink:0}
+</style>
+<script>
+const embeddedStorage={};window.GM_getValue=(k,d)=>embeddedStorage[k]??d;window.GM_setValue=(k,v)=>embeddedStorage[k]=v;window.GM_deleteValue=k=>delete embeddedStorage[k];
+window.GM_xmlhttpRequest=o=>{queueMicrotask(()=>o.onerror?.({message:'fixture'}));return{abort(){}}};window.GM_registerMenuCommand=()=>{};
+window.getChannelName=()=> 'dev';window.getBuildChannel=()=> 'dev';window.getBuildChannelLabel=()=> '开发版';
+</script>
+<script src="../../node_modules/@fiveplusone/embedded-ui/index.cjs"></script>
+<script src="../../node_modules/dompurify/dist/purify.min.js"></script><script src="../../node_modules/marked/lib/marked.umd.js"></script><script src="../../node_modules/katex/dist/katex.min.js"></script>
+<script src="../../src/core/config.js"></script><script src="../../src/core/state.js"></script><script src="../../src/core/runtime.js"></script><script src="../../src/core/preset.js"></script><script src="../../src/core/score.js"></script><script src="../../src/core/blank-detector.js"></script>
+<script src="../../src/core/ui-toast.js"></script><script src="../../src/core/ui-modal.js"></script><script src="../../src/core/ui-button.js"></script><script src="../../src/core/ai-engine.js"></script><script src="../../src/core/prompt.js"></script><script src="../../src/core/ui-markdown.js"></script><script src="../../src/core/ui-settings.js"></script>
+<body><button id="host-control">页面操作</button><section id="component-sample"><div class="sample-bar"></div></section><pre id="result"></pre>
+<script>
+(async()=>{
+ const runId=new URLSearchParams(location.search).get('run'),theme=runId?.includes('-dark-')?'dark':'light';let checks=0;
+ const assert=(ok,message)=>{checks++;if(!ok)throw Error(message)},tick=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),rect=el=>el.getBoundingClientRect();
+ const inside=(el,parent)=>{const a=rect(el),b=rect(parent);return a.width>0&&a.left>=b.left-1&&a.right<=b.right+1&&a.top>=b.top-1&&a.bottom<=b.bottom+1};
+ try{
+  if(document.readyState==='loading')await new Promise(r=>document.addEventListener('DOMContentLoaded',r,{once:true}));
+  AI_UI_ROOTS.push('#component-sample');ensureUIIsolation();
+  PresetManager.init();ProviderManager.init();WorkflowManager.init();initMarkdownRenderer();injectMarkdownStyles();
+  const sample=document.getElementById('component-sample'),bar=sample.firstElementChild;sample.dataset.theme=theme;
+  for(let i=0;i<9;i++){const b=document.createElement('button');b.textContent='操作'+i;b.title='第'+i+'项操作';bar.append(b)}
+  let chosen='';const controls=FivePlusOneEmbeddedUI.enhanceToolbar(bar,{onAction:e=>chosen=e.target.textContent});
+  for(const size of [Math.min(innerWidth-24,900),240,310,390,Math.min(innerWidth-24,900)]){
+   sample.style.width=size+'px';await tick();controls.layout();
+   for(const b of bar.querySelectorAll('button'))if(!b.hidden)assert(inside(b,bar),'按钮保持在实际容器内');
+   const all=[...bar.querySelectorAll('button:not(.fp-embedded-more)'),...document.querySelectorAll('.fp-embedded-toolbar-menu button')].map(b=>b.textContent);
+   assert(all.join('|')===Array.from({length:9},(_,i)=>'操作'+i).join('|'),'展开与收起保持原顺序');
+  }
+  sample.style.width='240px';await tick();controls.layout();const more=bar.querySelector('.fp-embedded-more');more.click();
+  const menu=document.querySelector('.fp-embedded-toolbar-menu');assert(!menu.hidden,'更多菜单展开');assert(rect(menu).right<=innerWidth&&rect(menu).left>=0,'菜单避让边缘');
+  const last=menu.querySelector('button:last-child');last.click();assert(chosen==='操作8'&&menu.hidden,'溢出操作保留委托事件');
+  more.focus();more.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));assert(menu.contains(document.activeElement),'方向键进入菜单');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}));assert(document.activeElement===last,'End 到达最后操作');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));assert(menu.hidden&&document.activeElement===more,'Esc 恢复焦点');
+  const first=bar.querySelector('button:not(.fp-embedded-more)');first.focus();await tick();const tip=document.getElementById('fp-embedded-tooltip');assert(!tip.hidden&&tip.textContent.includes('第'),'聚焦即时显示提示 '+JSON.stringify({hidden:tip.hidden,text:tip.textContent,focus:document.activeElement.textContent,label:first.getAttribute('data-fp-tooltip')}));assert(!first.hasAttribute('title'),'即时提示替代原生标题');
+  document.dispatchEvent(new Event('scroll'));assert(tip.hidden,'滚动关闭提示');
+  assert(parseFloat(getComputedStyle(document.getElementById('host-control')).paddingLeft)===60,'宿主按钮保持原内边距');assert(rect(document.getElementById('host-control')).width===innerWidth,'宿主按钮保持整行宽度');
+  controls.destroy();sample.remove();
+  let confirmed='';openMarkdownEditor({field:'answer',label:'参考答案',initialText:'Practice answer\n\n**清晰的说明**',onConfirm:t=>confirmed=t});await tick();
+  const editor=document.getElementById('ai-md-editor'),close=editor.querySelector('.md-editor-close');assert(rect(close).width<=44&&rect(close).height<=44,'关闭按钮保持组件尺寸');assert(rect(editor).left>=0&&rect(editor).right<=innerWidth&&rect(editor).top>=0&&rect(editor).bottom<=innerHeight,'编辑器保持在视口内');
+  for(const b of editor.querySelectorAll('.md-editor-footer button'))assert(inside(b,editor),'确认和取消完整可达');
+  const toolbar=editor.querySelector('.md-editor-toolbar');for(const b of toolbar.querySelectorAll('button'))if(!b.hidden)assert(inside(b,toolbar),'真实工具栏完整可见');
+  if(matchMedia('(pointer:coarse)').matches){for(const b of editor.querySelectorAll('button'))if(rect(b).width)assert(rect(b).width>=44&&rect(b).height>=44,'触屏目标至少44像素');assert(getComputedStyle(toolbar.querySelector('button:not(.fp-embedded-more)'),'::after').content.length>2,'触屏工具栏提供文字标签');}
+  const textarea=editor.querySelector('textarea');textarea.value='Answer';textarea.setSelectionRange(0,6);let bold=editor.querySelector('[data-cmd=bold]');if(!bold){toolbar.querySelector('.fp-embedded-more').click();bold=document.querySelector('.fp-embedded-toolbar-menu [data-cmd=bold]')}bold.click();assert(textarea.value==='**Answer**','真实工具栏保留文本编辑');
+  editor.querySelector('.md-btn-confirm').click();assert(confirmed==='**Answer**'&&!document.getElementById('ai-md-editor-overlay'),'确认保留结果并关闭窗口');assert(!document.querySelector('.fp-embedded-toolbar-menu'),'关闭释放菜单');
+  createSettingsPanel();const panel=document.getElementById('ai-grading-settings');panel.style.setProperty('transition','none','important');openSettingsPanel();await tick();for(const b of panel.querySelectorAll('.settings-nav-btn,#save-config-btn'))if(rect(b).width)assert(rect(b).right<=innerWidth+1,'设置操作保持在视口内');
+  const modal=showConfirmModal('请核对本次设置');await tick();const dialog=document.querySelector('.ai-modal-card');assert(dialog&&rect(dialog).right<=innerWidth+1,'通用弹窗保持在视口内');for(const b of dialog.querySelectorAll('button'))assert(inside(b,dialog),'通用弹窗操作完整可达');dialog.querySelector('.ai-modal-btn-confirm').click();assert(await modal,'通用弹窗确认正常');
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks,theme}))));
+ }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack,checks}))));}
+})();
+</script>

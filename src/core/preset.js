@@ -167,6 +167,13 @@ const PresetManager = {
                     cfg.paperGuard = { enabled: true };
                     changed = true;
                 }
+                if (!cfg.questionGuard || typeof cfg.questionGuard !== 'object' || Array.isArray(cfg.questionGuard)) {
+                    cfg.questionGuard = { enabled: false };
+                    changed = true;
+                } else if (cfg.questionGuard.enabled !== true && cfg.questionGuard.enabled !== false) {
+                    cfg.questionGuard.enabled = false;
+                    changed = true;
+                }
                 if (cfg.scoring && !cfg.scoring.diligence) {
                     cfg.scoring.diligence = { enabled: false, maxBonus: 3, decayPower: 2, criteria: '' };
                     changed = true;

@@ -1,3 +1,19 @@
+function gradingExperimentsEnabled() {
+    return typeof SCRIPT_CONFIG === 'undefined' || SCRIPT_CONFIG.CHANNEL !== 'stable';
+}
+
+function applyGradingChannelPolicy(config) {
+    const result = JSON.parse(JSON.stringify(config || {}));
+    if (!gradingExperimentsEnabled()) {
+        result.outputMode = 'detailed';
+        result.scoring = { ...result.scoring, outputMode: 'detailed' };
+        result.questionGuard = { enabled: false };
+        result.humanPacing = { ...result.humanPacing, enabled: false, rest: { ...result.humanPacing?.rest, enabled: false } };
+        result.paperGuard = { enabled: true };
+    }
+    return result;
+}
+
 // 异步批改上下文：每轮持有自己的取消信号和答卷基准。
 function isConfigurationRecord(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -122,25 +138,75 @@ function invalidateGradingRun() {
 }
 
 function isExplicitlyBlankGradingResult(result) {
-    // 只认整段明确声明整卷未作答；某小题空白、无法辨认、答案为“无”均不能判整卷空白。
-    const answer = String(result?._sections?.['答案复述'] ?? result?.studentAnswer ?? '')
-        .replace(/[\s。.!！]/g, '');
-    return /^(?:(?:学生|本卷|整张答卷|该答卷|答卷)(?:均|完全|全部)?)?(?:未作答|没有作答|无作答|未填写答案|空白卷|空白答卷)$/.test(answer);
+    return getGradingAnswerStatus(result) === 'blank';
+}
+
+function getGradingAnswerStatus(result) {
+    const statuses = { '可辨认': 'readable', '部分不清': 'partial', '无法辨认': 'unreadable', '未作答': 'blank' };
+    const declared = String(result?.answerStatus ?? result?._sections?.['作答状态'] ?? '').trim();
+    const status = Object.prototype.hasOwnProperty.call(statuses, declared) ? statuses[declared]
+        : (Object.values(statuses).includes(declared) ? declared : 'unknown');
+    // 不把解析器补的缺省“未能识别”当作原始识别结论，兼容旧模型和精简模式。
+    const raw = result?._sections?.['答案复述'] ?? result?.studentAnswer;
+    const answer = String(raw ?? '').replace(/\s/g, '').replace(/[。.!！]+$/, '');
+    const subject = '(?:(?:该学生|学生|本卷|整张答卷|该答卷|答卷)(?:均|完全|全部)?)?';
+    const blank = new RegExp('^' + subject + '(?:未作答|没有作答|无作答|未填写答案|空白卷|空白答卷)(?:[，,；;。](?:图中|卷面|答题卡上)?(?:只有|仅有)(?:印刷题干|印刷文字|预印电路图|预印图形|题号|空白|和|与|、)+)?$').test(answer);
+    const unreadable = /^(?:(?:整张答卷|该答卷|学生答案|学生作答|字迹)(?:均|完全|全部)?)?(?:未能识别|无法识别|无法辨认|看不清)$/.test(answer);
+    // 新解析结果保留原始段落；旧接口直接返回 studentAnswer 时仍可识别明确弃权。
+    const explicitAnswer = result?._answerProvided ?? (result?._sections?.['答案复述'] !== undefined || !result?._sections);
+    if (blank) return status !== 'unknown' && status !== 'blank' ? 'conflict' : 'blank';
+    if (unreadable && explicitAnswer) return status !== 'unknown' && status !== 'unreadable' ? 'conflict' : 'unreadable';
+    if (status === 'blank' && explicitAnswer && answer) return 'conflict';
+    return status;
+}
+
+function requireGradingEvidence(result, scores = [result?.score]) {
+    const status = getGradingAnswerStatus(result);
+    const positive = scores.some(score => Number.isFinite(score) && score > 0);
+    let message;
+    if (status === 'conflict') message = 'AI 对作答是否可辨认的说明相互矛盾，请核对本卷';
+    else if (status === 'unreadable') message = 'AI 无法辨认本卷作答，请核对原图后评分';
+    else if (status === 'blank' && positive) message = 'AI 将答卷识别为未作答，却给出了正分，请核对本卷后继续';
+    if (message) {
+        const error = new Error(message);
+        error.code = 'GRADING_EVIDENCE_REVIEW';
+        throw error;
+    }
+}
+
+function requireCompatibleGradingEvidence(resultA, resultB) {
+    for (const result of [resultA, resultB]) requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+    const a = getGradingAnswerStatus(resultA), b = getGradingAnswerStatus(resultB);
+    if ((a === 'blank' && b !== 'blank' && b !== 'unknown') || (b === 'blank' && a !== 'blank' && a !== 'unknown') ||
+        (a === 'blank' && resultB?.score > 0) || (b === 'blank' && resultA?.score > 0)) {
+        const error = new Error('两次识别对本卷是否作答存在分歧，请核对原图后评分');
+        error.code = 'GRADING_EVIDENCE_REVIEW';
+        throw error;
+    }
 }
 
 function createGradingContext(manual = false) {
     invalidateGradingRun();
     const state = window.aiGradingState;
     const adapter = window.__AI_MARKER_ADAPTER__;
-    const configuration = JSON.parse(JSON.stringify(PresetManager.getCurrentConfig?.() || {}));
+    const configuration = applyGradingChannelPolicy(PresetManager.getCurrentConfig?.() || {});
     configuration.scoring = { ...configuration.scoring,
         maxScore: PresetManager.getMaxScore?.() ?? configuration.scoring?.maxScore,
         units: JSON.parse(JSON.stringify(PresetManager.getScoringUnits?.() || configuration.scoring?.units || [])) };
+    const questionGuardEnabled = configuration.questionGuard?.enabled === true;
+    const observedQuestion = questionGuardEnabled ? readGradingQuestionContext(adapter) : null;
+    const sessionQuestion = state.questionGuardSession;
+    const questionBaseline = !manual && sessionQuestion?.adapter === adapter && sessionQuestion.presetName === PresetManager.data.active
+        ? sessionQuestion.snapshot : observedQuestion;
+    if (questionGuardEnabled && !manual && !sessionQuestion && observedQuestion) {
+        state.questionGuardSession = { adapter, presetName: PresetManager.data.active, snapshot: observedQuestion };
+    }
     const context = {
         controller: new AbortController(), adapter, manual, configuration,
+        questionGuardEnabled, questionBaseline,
         taskId: readGradingTaskIdentifier(), presetName: PresetManager.data.active,
         pageUrl: (window.location?.pathname || '') + (window.location?.hash || ''),
-        paperGuardEnabled: PresetManager.getCurrentConfig?.()?.paperGuard?.enabled !== false,
+        paperGuardEnabled: configuration.paperGuard?.enabled !== false,
         paperId: readGradingPaperIdentity(adapter),
         imageUrls: [], inputSnapshot: [], base64DataArray: []
     };
@@ -172,6 +238,32 @@ function gradingContextError(message) {
     return error;
 }
 
+// 只消费适配器确认过的题号来源；分数、份数与 DOM 下标不构成题号证据。
+function readGradingQuestionContext(adapter) {
+    try {
+        const value = adapter?.getQuestionContext?.();
+        if (!value || typeof value.question !== 'string' || !Array.isArray(value.units) || !value.units.length) return null;
+        const normalize = text => String(text ?? '').normalize('NFKC').replace(/\s+/g, '').trim();
+        const question = normalize(value.question);
+        const units = value.units.map(unit => ({ label: normalize(unit.label), maxScore: Number(unit.maxScore) }));
+        if (!question || units.some(unit => !unit.label || !Number.isFinite(unit.maxScore) || unit.maxScore <= 0)) return null;
+        return { question, units, key: JSON.stringify([question, units.map(unit => [unit.label, unit.maxScore])]) };
+    } catch (_) { return null; }
+}
+
+function requireGradingQuestionContext(context) {
+    if (context?.questionGuardEnabled !== true) return;
+    const current = readGradingQuestionContext(context.adapter);
+    if (!context.questionBaseline || !current) {
+        throw gradingContextError('暂未识别到完整题号，请等待页面加载后重试；检测不正确请联系作者适配');
+    }
+    if (context.questionBaseline.key !== current.key) {
+        const error = gradingContextError('题号或小题满分已变化，请核对当前题目和评分方案后继续');
+        error.code = 'GRADING_QUESTION_CHANGED';
+        throw error;
+    }
+}
+
 function readGradingTaskIdentifier() {
     const adapter = window.__AI_MARKER_ADAPTER__;
     try {
@@ -199,6 +291,7 @@ function stopIfGradingTaskChanged(context) {
 function requireGradingContextTarget(context) {
     requireCurrentGradingContext(context);
     if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后重新批改');
+    requireGradingQuestionContext(context);
     if (PresetManager.data.active !== context.presetName) throw gradingContextError('配置方案已切换，请重新批改');
     const taskId = readGradingTaskIdentifier();
     if (context.taskId && taskId && context.taskId !== taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
@@ -208,6 +301,7 @@ function requireGradingContextTarget(context) {
 
 async function verifyGradingContext(context) {
     requireCurrentGradingContext(context);
+    requireGradingQuestionContext(context);
     const taskId = readGradingTaskIdentifier();
     if (context.taskId && taskId && taskId !== context.taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
     if (await confirmLeftMarkingPage(context.adapter)) throw gradingContextError('已离开批改页面，请返回后继续');

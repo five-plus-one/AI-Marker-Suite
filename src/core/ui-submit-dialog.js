@@ -76,7 +76,7 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
 // 批改节奏：按「每 N 份」计数，到点则随机休息（均在「下一份已出现」之后调用）
 async function pacingRestIfNeeded() {
     const hpCfg = (typeof PresetManager !== 'undefined' && PresetManager.getCurrentConfig)
-        ? PresetManager.getCurrentConfig().humanPacing : null;
+        ? (gradingExperimentsEnabled() ? PresetManager.getCurrentConfig().humanPacing : null) : null;
     if (!hpCfg || !hpCfg.enabled || !hpCfg.rest || !hpCfg.rest.enabled) return;
 
     const hpState = window.aiGradingState.humanPacing = window.aiGradingState.humanPacing || {};
@@ -216,7 +216,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     // 关闭时零行为变化（普通 5s / 无人 1s）；开启后普通/无人模式在配置区间内随机延迟，试改不参与
     const humanPacingCfg = (typeof PresetManager !== 'undefined' && PresetManager.getCurrentConfig)
         ? (PresetManager.getCurrentConfig().humanPacing || {}) : {};
-    const pacingActive = humanPacingCfg.enabled === true && !isTrial;
+    const pacingActive = gradingExperimentsEnabled() && humanPacingCfg.enabled === true && !isTrial;
     let countdownSeconds = isUnattended ? 1 : 5;
     let pacingDelaySeconds = 0;
     if (pacingActive) {
@@ -910,6 +910,8 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     taskIdentifier: runContext.taskId, pageUrl: runContext.pageUrl,
                     gradingMode: mode,
                     outputMode: getGradingOutputMode(runContext.configuration),
+                    scriptVersion: SCRIPT_CONFIG.VERSION,
+                    answerStatus: rawExtraInfo?.answerStatus || 'unknown',
                     imageUrls, studentAnswer: rawStudentAnswer,
                     aiScore: rawExtraInfo?.correction?.aiScore ?? score, aiComment: rawExtraInfo?.correction?.aiComment ?? rawComment,
                     finalScore: score, isCorrected: !!rawExtraInfo?.correction?.isCorrected, correctionReason: rawExtraInfo?.correction?.correctionReason || '',
