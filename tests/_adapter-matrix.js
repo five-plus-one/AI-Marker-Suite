@@ -202,6 +202,10 @@ function loadOne(sb, dir, opts = {}) {
 // own: 自家平台最小形态（隔离加载必注册；bundle 下除已知竞争外必须唯一命中）
 // near: 近似域名/缺条件形态（必须不注册 → 空槽）
 const ADAPTERS = [
+    { dir: 'yuandingbang', id: 'yuandingbang', name: '园丁邦云阅卷',
+      own: { host: 'yuejuan.yuandingbang.cn', path: '/web/main.jsp' },
+      near: [{ label: '近似域名', form: { host: 'yuejuan.yuandingbang.cn.example.com', path: '/web/main.jsp' } },
+             { label: '登录页', form: { host: 'yuejuan.yuandingbang.cn', path: '/' } }] },
     { dir: 'jzsmartedu', id: 'jzsmartedu', name: '焦作精准教学',
       own: { host: 'jzjx.jzsmartedu.cn', path: '/dnpc/', hash: '#/v2/read-paper?examPaperId=exam&readBlockId=block&readPaperType=1',
         dom: { '#read-paper-score-board.page-read-paper-score-board': 1, '#tab-3': 1, '.body-center-main': 1 } },
