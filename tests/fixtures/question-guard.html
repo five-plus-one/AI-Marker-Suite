@@ -7,7 +7,8 @@ window.getUIRoot=()=>document.body;window.showToast=(...args)=>notices.push(args
 <script src="../../src/core/config.js"></script><script src="../../src/core/state.js"></script>
 <script src="../../src/core/runtime.js"></script><script src="../../src/core/score.js"></script>
 <script src="../../src/core/ai-engine.js"></script><script src="../../src/core/preset.js"></script>
-<script src="../../src/core/ui-modal.js"></script><script src="../../src/core/ui-settings.js"></script>
+<script src="../../node_modules/@fiveplusone/embedded-ui/index.cjs"></script>
+<script src="../../src/core/ui-modal.js"></script><script src="../../src/core/ui-button.js"></script><script src="../../src/core/ui-settings.js"></script>
 <script src="../../src/adapters/zhixue/selectors.js"></script><script src="../../src/adapters/zhixue/adapter.js"></script>
 <script src="../../src/adapters/haofenshu/selectors.js"></script><script src="../../src/adapters/haofenshu/adapter.js"></script>
 <body style="margin:0;font-family:system-ui;background:#eef0f3;">
@@ -49,7 +50,8 @@ try {
  loadSettings=()=>{};renderChangelog=()=>{};renderPresetDropdown=()=>{};fillFormFromActivePreset=()=>{};
  createSettingsPanel({deferOpen:true});
  const panel=document.getElementById('ai-grading-settings');
- panel.style.transform='translateX(0)';panel.classList.add('open');
+ panel.style.setProperty('transition','none','important');
+ openSettingsPanel();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
  panel.querySelector('.settings-nav-item[data-page=grading]').click();
  assert(!document.getElementById('question-guard-enabled').checked,'选项默认关闭');
  document.getElementById('question-guard-enabled').focus();assert(document.activeElement.id==='question-guard-enabled','选项可键盘聚焦');

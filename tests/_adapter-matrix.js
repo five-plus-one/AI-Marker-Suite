@@ -202,6 +202,12 @@ function loadOne(sb, dir, opts = {}) {
 // own: 自家平台最小形态（隔离加载必注册；bundle 下除已知竞争外必须唯一命中）
 // near: 近似域名/缺条件形态（必须不注册 → 空槽）
 const ADAPTERS = [
+    { dir: 'xiangshangxue', id: 'xiangshangxue', name: '享尚学阅卷',
+      own: { host: 'xinluolk.fjjxhl.com', path: '/lypaper/Base/lyReadPaper.aspx' },
+      near: [{ label: '近似域名', form: { host: 'xinluolk.fjjxhl.com.example.com', path: '/lypaper/Base/lyReadPaper.aspx' } },
+             { label: '登录页', form: { host: 'xinluolk.fjjxhl.com', path: '/lypaper/login.aspx' } },
+             { label: '复查页', form: { host: 'xinluolk.fjjxhl.com', path: '/lypaper/Base/lyPaperFuCha.aspx' } },
+             { label: '相似路径', form: { host: 'xinluolk.fjjxhl.com', path: '/lypaper/Base/lyReadPaper.aspx.other' } }] },
     { dir: 'leascent', id: 'leascent', name: '丽升阅卷',
       own: { host: '120.55.199.134', port: '9090', path: '/home/index', protocol: 'http:' },
       near: [{ label: '登录端口', form: { host: '120.55.199.134', port: '8088', path: '/home/index', protocol: 'http:' } },

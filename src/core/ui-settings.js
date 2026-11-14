@@ -16,6 +16,7 @@ function createSettingsPanel(options) {
 
     const panel = document.createElement('div');
     panel.id = 'ai-grading-settings';
+    panel.style.setProperty('display', 'none', 'important');
     panel.innerHTML = `
         <style>
             /* 样式隔离：重置可能被平台影响的属性 */
@@ -1697,7 +1698,7 @@ function openSettingsPanel() {
     const panel = document.getElementById('ai-grading-settings');
     const overlay = document.getElementById('ai-settings-overlay');
     if (panel) {
-        panel.style.display = 'flex';
+        panel.style.setProperty('display', 'flex', 'important');
         requestAnimationFrame(() => panel.classList.add('open'));
     }
     if (overlay) {
@@ -1716,7 +1717,7 @@ function closeSettingsPanel() {
     // 按钮簇归位
     undockFloatingButtons();
     // 等动画结束后隐藏
-    setTimeout(() => { if (panel && !panel.classList.contains('open')) panel.style.display = 'none'; }, 350);
+    setTimeout(() => { if (panel && !panel.classList.contains('open')) panel.style.setProperty('display', 'none', 'important'); }, 350);
 }
 
 // ========== 加载与切换方案 ==========
