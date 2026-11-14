@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><title>享尚学阅卷验收</title>
+<style>body{font:16px system-ui;margin:24px}input{font-size:20px;width:80px}#myimg img{max-width:95%}#submitbtn{width:auto;padding:12px}</style>
+<main><h1>享尚学阅卷</h1><div id="panel"></div><p id="status">正在核对答卷与给分流程</p></main><pre id="result" hidden></pre>
+<script>
+var runId=new URLSearchParams(location.search).get('run'),mode=new URLSearchParams(location.search).get('mode');
+var store={'ai-grading-show-onboarding':false};window.GM_getValue=(k,v)=>store[k]??v;window.GM_setValue=(k,v)=>store[k]=v;window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.(new Error("fixture offline")));return{abort(){}}};
+var gettype=1,xmod=0,jianfen=0,fbgf=0,xzbj=0,isSwitchPaper=false,paperrowid='1',teapos=1,pjsign=1,xmode=0,scopart='',teapics='fixture',leastViewTime=0;
+var saves=0,failSave=false,last=false,o;
+window.jQuery=Object.assign(el=>({get:()=>el}),{active:0,ajax(options){this.active++;setTimeout(()=>{this.active--;if(failSave){options.error?.('offline');options.complete?.();return}options.success?.({id:last?'-2':'2'});options.complete?.()},30)}});
+function sumscore(){document.getElementById('spandf').textContent=Array.from(document.querySelectorAll('.fenshu')).reduce((n,e)=>n+Number(e.value),0)}
+function next(id){paperrowid=id;document.querySelector('#myimg img').src=location.origin+'/lypaper/Base/lyImage.aspx?type=jpeg&p=paper'+id;document.querySelectorAll('.fenshu').forEach(e=>e.value='')}
+function submitpaper(){saves++;jQuery.ajax({url:'lyGetData.aspx?action=putpaper2',data:{examsub:'7000805',examtea:'001',teaid:'5006188',id:paperrowid,teapos,pjsign,gettype,scores:Array.from(document.querySelectorAll('.fenshu')).reduce((n,e)=>n+Number(e.value),0),xt:Array.from(document.querySelectorAll('.fenshu')).map(e=>e.value).join(',')},success(result){next(result.id)}})}
+function mount(){document.getElementById('panel').innerHTML='<p>评阅小题：<span id="pingyueti">29-1</span> 满分：<span id="pingyuefen">4</span> 得分：<span id="spandf">0</span></p><input type="hidden" id="examsub" value="7000805"><input type="hidden" id="examtea" value="001"><input type="hidden" id="teaid" value="5006188"><input type="hidden" id="xmid" value="7000234"><input type="hidden" id="scores" value="4"><input type="hidden" id="teaname_" value="29-1"><ol id="xtlist">'+(mode==='multi'?[1,3]:[4]).map((max,i)=>'<li><input class="fenshu" id="fenshu'+i+'" name="'+max+'" fen="'+max+'" aria-label="分数"><label id="btag'+i+'">00'+(i+1)+'</label></li>').join('')+'</ol><label><input type="checkbox" id="autohuiche" checked>自动提交分数</label><input type="button" id="submitbtn" value="提交分数"><ul id="myimg"><li><img class="teaimg" alt="示例答卷" src="/lypaper/Base/lyImage.aspx?type=jpeg&p=paper1&imgcut=fixture"></li></ul>';document.querySelectorAll('.fenshu').forEach(e=>e.addEventListener('focus',()=>o=jQuery(e)));document.getElementById('submitbtn').onclick=()=>{if(o?.get(0)===Array.from(document.querySelectorAll('.fenshu')).at(-1))submitpaper()}}
+if(mode==='late')setTimeout(mount,250);else mount();
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));let checks=0;const check=(ok,msg)=>{checks++;document.getElementById("status").textContent=msg;if(!ok)throw Error(msg)};try{
+for(let i=0;i<100&&!window.__AI_MARKER_ADAPTER__?.getPaperIdentity();i++)await wait(50);
+const a=window.__AI_MARKER_ADAPTER__;let old=a.getPaperIdentity();const task=a.getTaskIdentifier(),scores=mode==='multi'?[1,2.5]:[2.5];
+check(a?.id==='xiangshangxue'&&!!old,'识别真实域名和阅卷页');check(a.getQuestionContext().question==='29-1','题号核对');
+check((await a.gatherAnswerImages()).length===1,'裁切图读取');check(a.prepareGrading()&&!document.getElementById('autohuiche').checked,'关闭自动提交');
+check(!a.fillScores([9]),'越界分数拒绝');check(a.fillScores(scores),'小数和多评分点回填');check(Number(document.getElementById('spandf').textContent)===scores.reduce((n,s)=>n+s,0),'原生合计同步');
+leastViewTime=2;check(!await a.submitGrade()&&saves===0,'最少阅卷时间');leastViewTime=0;check(a.fillScores(scores),'重新准备');
+failSave=true;check(!await a.submitGrade(),'网络错误明确失败');failSave=false;await a.gatherAnswerImages();old=a.getPaperIdentity();check(a.fillScores(scores),'重试填写');
+check(await a.submitGrade(),'保存响应确认');check(await a.waitForNextPaper('',{paperId:old,taskId:task}),'下一份图片稳定就绪');
+check(!a.fillScores(scores),'换卷后停止旧结果');await a.gatherAnswerImages();check(a.fillScores(scores),'新卷重新读取');
+gettype=2;check(!await a.submitGrade(),'回评隔离');gettype=1;
+for(let i=0;i<130&&!document.querySelector('.ai-settings-btn');i++)await wait(50);
+check(document.querySelectorAll('.ai-grade-btn').length===1&&document.querySelectorAll('.ai-settings-btn').length===1,'完整脚本创建唯一入口');
+await wait(100);check(!document.querySelector('#ai-grading-settings button[title],.ai-grade-btn[title],.ai-settings-btn[title]'),'助手操作使用即时提示');
+document.querySelector('#ai-grading-settings .close-btn').click();await wait(450);check(getComputedStyle(document.getElementById('ai-grading-settings')).display==='none','关闭初始设置');
+document.querySelector('.ai-settings-btn').click();await wait(450);check(getComputedStyle(document.getElementById('ai-grading-settings')).display==='flex','打开设置');
+document.querySelector('#ai-grading-settings .close-btn').click();await wait(450);check(getComputedStyle(document.getElementById('ai-grading-settings')).display==='none','关闭设置后恢复阅卷区域');
+document.querySelector('.ai-settings-btn').click();await wait(450);check(getComputedStyle(document.getElementById('ai-grading-settings')).display==='flex','重新打开设置');
+document.querySelector('#ai-grading-settings .close-btn').click();await wait(450);check(getComputedStyle(document.getElementById('ai-grading-settings')).display==='none','设置再次关闭');
+document.getElementById('status').textContent='已完成：题目核对、给分、保存确认和下一份答卷。';document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
+}catch(error){document.getElementById('status').textContent=String(error);document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack,debug:{task:window.__AI_MARKER_ADAPTER__?._task(),loading:window.__AI_MARKER_ADAPTER__?._loading,image:document.querySelector('#myimg img')?.outerHTML,globals:{gettype,xmod,jianfen,fbgf,xzbj,isSwitchPaper,paperrowid,pjsign,xmode},images:Array.from(document.images).map(e=>({complete:e.complete,w:e.naturalWidth,h:e.naturalHeight,visible:e.getClientRects().length}))}}))));}})();
+</script>
