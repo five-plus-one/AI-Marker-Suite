@@ -84,6 +84,7 @@ const XiangshangxueAdapter = {
                     // 正常保存响应直接返回下一份或末卷；负数错误码、回收和同卷响应均不能证明已保存。
                     if (pending && write) {
                         const id = String(result?.id);
+                        pending.finalPaper = id === '-2';
                         pending.saved = (id === '-2' || /^[1-9]\d*$/.test(id) && id !== pending.paper)
                             && adapter._page() === w && adapter.getTaskIdentifier() === pending.key;
                         pending.failed = !pending.saved;
@@ -200,7 +201,7 @@ const XiangshangxueAdapter = {
             button.click();
             for (let i = 0; i < 150; i++) {
                 if (guard?.signal?.aborted || this.getTaskIdentifier() !== filled.key || this._saving.failed) return false;
-                if (this._saving.saved) { this._submitted = filled; return true; }
+                if (this._saving.saved) { this._submitted = { ...filled, finalPaper: this._saving.finalPaper }; return true; }
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
             this.lastFillError = '未确认保存结果，请在阅卷平台核对后继续'; return false;
@@ -208,7 +209,7 @@ const XiangshangxueAdapter = {
     },
     async waitForNextPaper(_oldImageUrl, guard = {}) {
         const old = this._submitted;
-        if (!old || guard.paperId && guard.paperId !== old.identity || guard.taskId && guard.taskId !== old.key) return false;
+        if (!old || old.finalPaper || guard.paperId && guard.paperId !== old.identity || guard.taskId && guard.taskId !== old.key) return false;
         let candidate = null;
         for (let i = 0; i < 150; i++) {
             if (guard.signal?.aborted || this.getTaskIdentifier() !== old.key || this._page() !== old.page) return false;

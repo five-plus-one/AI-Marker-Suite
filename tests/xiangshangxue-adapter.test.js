@@ -127,6 +127,7 @@ test('享尚学拒收、会话过期、回收、同卷与网络错误均停止',
     }
     const h = setup(); h.response('last'); await fill(h); assert.equal(await h.a.submitGrade(), true);
     assert.equal(await h.a.waitForNextPaper(), false);
+    h.next('3'); assert.equal(await h.a.waitForNextPaper(), false, '末卷后的原生刷新保持停止');
 });
 test('享尚学提交前再次核验成绩、时长、模式和取消状态', async () => {
     for (const change of [h => { h.inputs[0]._value = '3'; }, h => { h.w.leastViewTime = 3; }, h => { h.w.gettype = 2; },
