@@ -25,7 +25,7 @@ const AI_UI_ROOTS = [
     '#ai-tools-page',
     '.fp-embedded-toolbar-menu',
     '.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn',
-    '#ai-batch-progress',
+    '#ai-batch-progress', '#ai-grading-status',
 ];
 const AI_UI_ROOT_SELECTOR = AI_UI_ROOTS.join(', ');
 // 按钮防御规则的作用域：
@@ -163,7 +163,7 @@ function dockFloatingButtons() {
     const panelWidth = (panel && panel.offsetWidth) ? panel.offsetWidth : 440;
     const gap = 40;
     const offset = panelWidth + gap;
-    const btns = document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn');
+    const btns = document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn, #ai-grading-status');
     btns.forEach(b => {
         b.style.setProperty('right', offset + 'px', 'important');
         b.style.setProperty('transition', 'right 0.3s cubic-bezier(0.16,1,0.3,1)', 'important');
@@ -177,7 +177,7 @@ function dockFloatingButtons() {
 }
 
 function undockFloatingButtons() {
-    const btns = document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn');
+    const btns = document.querySelectorAll('.ai-grade-btn, .ai-history-btn, .ai-settings-btn, #ai-grading-status');
     btns.forEach(b => {
         b.style.removeProperty('right');
         b.style.removeProperty('transition');
@@ -216,7 +216,7 @@ function createMainButton() {
         }
 
         .ai-grade-btn {
-            bottom: 40px !important; right: 40px !important;
+            bottom: 138px !important; right: 40px !important;
             padding: 14px 32px !important;
             background: rgba(20, 20, 20, 0.88) !important;
             backdrop-filter: blur(16px) !important; -webkit-backdrop-filter: blur(16px) !important;
@@ -258,8 +258,19 @@ function createMainButton() {
             align-items: center !important; justify-content: center !important;
             transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
         }
-        .ai-history-btn { bottom: 95px !important; }
-        .ai-settings-btn { bottom: 150px !important; }
+        .ai-history-btn { bottom: 193px !important; }
+        .ai-settings-btn { bottom: 248px !important; }
+        #ai-grading-status {
+            all: initial; position: fixed !important; bottom: 12px !important; right: 40px !important;
+            z-index: 99999 !important; display: block !important; box-sizing: border-box !important;
+            width: 320px !important; max-width: calc(100vw - 24px) !important; height: 112px !important;
+            overflow-y: auto !important; padding: 8px 10px !important; border-radius: 10px !important;
+            background: rgba(20,20,20,0.9) !important; color: #fff !important;
+            font: 12px/1.6 -apple-system, BlinkMacSystemFont, sans-serif !important;
+            overflow-wrap: anywhere !important; pointer-events: auto !important;
+        }
+        #ai-grading-status > div { font: inherit !important; color: inherit !important; }
+        #ai-grading-status > div:first-child { color: #a9d4ff !important; }
         .ai-history-btn:hover, .ai-settings-btn:hover {
             transform: translateY(-2px) scale(1.05) !important;
             box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
@@ -269,6 +280,14 @@ function createMainButton() {
     `;
     document.head.appendChild(style);
     getUIRoot().appendChild(btn);
+    const status = document.createElement('div');
+    status.id = 'ai-grading-status';
+    status.setAttribute('role', 'log');
+    status.setAttribute('aria-label', '批改状态日志');
+    status.setAttribute('aria-live', 'polite');
+    getUIRoot().appendChild(status);
+    window.aiGradingState.onGradingStatus = updateGradingStatus;
+    updateGradingStatus('就绪，等待开始批改');
 
     const histBtn = document.createElement('button');
     histBtn.className = 'ai-history-btn';
@@ -291,6 +310,17 @@ function createMainButton() {
         }
     };
     getUIRoot().appendChild(settingsBtn);
+}
+
+function updateGradingStatus(message) {
+    const log = document.getElementById('ai-grading-status');
+    if (!log || log.firstElementChild?.dataset.message === message) return;
+    const entry = document.createElement('div');
+    entry.dataset.message = message;
+    entry.textContent = `${new Date().toLocaleTimeString('zh-CN', { hour12: false })}  ${message}`;
+    log.prepend(entry);
+    while (log.childElementCount > 8) log.lastElementChild.remove();
+    log.scrollTop = 0;
 }
 
 // ========== 仅历史按钮（非阅卷页面） ==========
@@ -647,6 +677,7 @@ function toggleAutoGrading() {
         sessionStorage.removeItem('ai-grading-auto-resume');
         sessionStorage.removeItem('ai-grading-retry-count');
 
+        window.aiGradingState.onGradingStatus?.('已暂停，等待继续批改');
         btn.textContent = '继续批改';
         btn.classList.remove('running', 'unattended');
         btn.classList.add('paused');
@@ -682,6 +713,7 @@ function toggleAutoGrading() {
 
 // ========== 停止打分 ==========
 function stopAutoGrading() {
+    window.aiGradingState.onGradingStatus?.('已停止批改');
     invalidateGradingRun();
     window.aiGradingState.gradingTaskId = null;
     window.aiGradingState.isRunning = false;

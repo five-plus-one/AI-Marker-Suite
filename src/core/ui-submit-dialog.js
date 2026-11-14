@@ -1,7 +1,7 @@
 // ========== 填充分数及弹窗 ==========
 async function fillScore(score, comment, subScores, runContext = window.aiGradingState.activeRun, extraInfo = {}) {
     try { await verifyGradingContext(runContext); requireGradingContextTarget(runContext); }
-    catch (error) { if (isGradingContextCurrent(runContext)) { stopAutoGrading(); showToast(error.message); } return; }
+    catch (error) { if (isGradingContextCurrent(runContext)) { stopAutoGrading(); window.aiGradingState.onGradingStatus?.(`批改失败，已停止：${error.message}`); showToast(error.message); } return; }
     const adapter = window.__AI_MARKER_ADAPTER__;
     // 数据安全闸门（#296）：小题缺分不得进入填分/提交链（空分进平台=事故），显式失败待人工
     if (Array.isArray(subScores) && subScores.some(sq => sq && (sq.score === null || sq.score === undefined))) {
@@ -66,6 +66,7 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return true;
         if (round < maxRounds) {
             console.warn(`⚠️ 第${round}次等待下一份试卷超时，自动重试中（${round}/${maxRounds - 1}）...`);
+            window.aiGradingState.onGradingStatus?.(`等待下一份答卷超时，2 秒后重试（${round}/${maxRounds - 1}）`);
             showToast(`⚠️ 平台加载下一份试卷缓慢，自动重试中（${round}/${maxRounds - 1}）…`);
             await new Promise(r => setTimeout(r, 2000));
         }
@@ -89,6 +90,7 @@ async function pacingRestIfNeeded() {
     const rMax = Math.max(rMin, Math.floor(hpCfg.rest.restMax) || 180);
     const restSec = rMin + Math.floor(Math.random() * (rMax - rMin + 1));
     console.log(`☕ [批改节奏] 拟人休息 ${restSec}s`);
+    window.aiGradingState.onGradingStatus?.(`按批改节奏休息 ${restSec} 秒，之后继续`);
     await showPacingRestBanner(restSec);
 }
 
@@ -645,7 +647,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 callConfig: PresetManager.getActiveCallConfig(),
                 subScores: rawSubScores,
                 async onAccept(finalScore, correctionInfo) {
-                    try { await verifyGradingContext(runContext); } catch (error) { if (isGradingContextCurrent(runContext)) { stopAutoGrading(); showToast(error.message); } return; }
+                    try { await verifyGradingContext(runContext); } catch (error) { if (isGradingContextCurrent(runContext)) { stopAutoGrading(); window.aiGradingState.onGradingStatus?.(`批改失败，已停止：${error.message}`); showToast(error.message); } return; }
                     const correctedSubScores = correctionInfo.correctedSubScores || rawSubScores;
                     if (correctionInfo.newAnswer || correctionInfo.newRubric) {
                         const activeName = PresetManager.data.active;
@@ -746,7 +748,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 const nextDialog = showAutoSubmitDialog(0, '空白答题卡，手动标记', zeros, { runContext, isBlankCard: true, manualBlank: true });
                 await nextDialog?.confirmSubmit();
             } catch (error) {
-                if (isGradingContextCurrent(runContext)) { stopAutoGrading(); showToast(error.message); }
+                if (isGradingContextCurrent(runContext)) { stopAutoGrading(); window.aiGradingState.onGradingStatus?.(`批改失败，已停止：${error.message}`); showToast(error.message); }
             }
         });
     }
@@ -886,6 +888,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         if (extraInfo?.fillFailed) throw new Error('请在阅卷平台手动给分并提交，然后继续批改');
         await verifyGradingContext(runContext);
         requireGradingContextTarget(runContext);
+        window.aiGradingState.onGradingStatus?.('正在提交分数，等待平台确认');
         const submitted = adapter?.submitGrade ? await adapter.submitGrade({
             signal: runContext.controller.signal, isCurrent: () => {
                 try { requireGradingContextTarget(runContext); return true; } catch (_) { return false; }
@@ -949,6 +952,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
         if (submitted) {
             if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+                window.aiGradingState.onGradingStatus?.('分数已保存，等待下一份答卷');
                 console.log('已点击提交，正在等待下一份试卷...');
                 const oldImgUrl = window.aiGradingState.currentImageUrls[0];
 
@@ -973,6 +977,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                                 btn.classList.remove('running', 'unattended', 'trial');
                                 btn.classList.add('paused');
                             }
+                            window.aiGradingState.onGradingStatus?.('下一份答卷加载超时，已暂停，请点击继续批改');
                             showToast('⚠️ 下一份试卷加载超时，已暂停。点击"继续批改"可重试');
                         }
                     });
@@ -1007,6 +1012,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 btn.classList.remove('running', 'unattended', 'trial');
                 btn.classList.add('paused');
             }
+            window.aiGradingState.onGradingStatus?.(`提交未完成，已暂停：${adapter?.lastSubmitError || '请核对分数和平台提示'}`);
             showToast(adapter?.lastSubmitError || '⚠️ 平台未完成提交，请核对分数和页面提示后继续');
         }
     };
@@ -1023,7 +1029,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         try {
             return await runConfirmSubmitOnce();
         } catch (error) {
-            if (isGradingContextCurrent(runContext)) { stopAutoGrading(); showToast(error.message); }
+            if (isGradingContextCurrent(runContext)) { stopAutoGrading(); window.aiGradingState.onGradingStatus?.(`批改失败，已停止：${error.message}`); showToast(error.message); }
         } finally {
             confirmSubmitting = false;
         }

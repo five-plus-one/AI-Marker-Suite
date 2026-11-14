@@ -677,10 +677,14 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         };
         if (maxTokens !== null) requestBody.max_tokens = maxTokens;
 
-        // 如果配置了思考链深度，添加 reasoning_effort 参数
-        if (config.reasoningEffort) {
+        // Ling 的 minimal 仍会思考；关闭思考需要独立的 thinking 参数。
+        if (config.reasoningEffort === 'disabled') {
+            if (!/^ling(?:-|$)/i.test(config.model || '')) return reject(new Error('关闭长思考选项目前仅支持 Ling 模型'));
+            requestBody.thinking = { type: 'disabled' };
+        } else if (config.reasoningEffort) {
             requestBody.reasoning_effort = config.reasoningEffort;
         }
+        config.onStatus?.(`等待模型返回：${config.model}${config.reasoningEffort === 'disabled' ? '（已关闭长思考）' : ''}`);
 
         console.log(`📤 发送请求到: ${config.endpoint} (模型: ${config.model}${config.reasoningEffort ? ', 思考深度: ' + config.reasoningEffort : ''})`);
 
@@ -694,6 +698,19 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         let streamError = null;
         let streamDone = false;
         let sawSSE = false;
+        let parsedResponseLength = 0;
+        let streamPhase = '';
+
+        function consumeResponse(responseText, final = false) {
+            parseSSEBuffer(responseText.slice(parsedResponseLength));
+            parsedResponseLength = responseText.length;
+            if (final && buffer.trim()) parseSSEBuffer('\n');
+            const phase = fullText ? '正在接收评分正文' : reasoningChars ? '模型正在思考，等待评分正文' : '';
+            if (phase && phase !== streamPhase) {
+                streamPhase = phase;
+                config.onStatus?.(`${phase}：${config.model}`);
+            }
+        }
 
         function parseSSEBuffer(chunk) {
             buffer += chunk;
@@ -737,9 +754,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     if (progressCallCount === 1) {
                         console.log('✅ [诊断] onprogress 已触发，当前环境支持流式输出');
                     }
-                    fullText = '';
-                    buffer = '';
-                    parseSSEBuffer(res.responseText);
+                    if (!settled && !signal?.aborted) consumeResponse(res.responseText);
                 }
             },
             onload: function(res) {
@@ -776,13 +791,8 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     return reject(error);
                 }
 
-                fullText = '';
-                buffer = '';
-                finishReason = null;
-                streamDone = false;
-                sawSSE = false;
-                reasoningChars = 0;
-                parseSSEBuffer(responseText);
+                consumeResponse(responseText, true);
+                config.onStatus?.(`模型响应完成，正在校验评分：${config.model}`);
 
                 if (!fullText && responseText) {
                     console.log('📝 [诊断] SSE解析无结果，尝试解析为普通JSON响应...');
@@ -913,6 +923,7 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
             if (!kind || i >= policy.maxRetries) throw error;
             const delay = policy.backoffBaseMs * (i + 1);
             console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
+            config.onStatus?.(`${kind}，${Math.round(delay / 1000)} 秒后重试（${i + 1}/${policy.maxRetries}）：${config.model}`);
             if (onStreamUpdate) onStreamUpdate(`⏳ ${kind}，${Math.round(delay / 1000)}s 后自动重试（第${i + 1}/${policy.maxRetries}次）…`);
             await abortableGradingDelay(delay, config.signal);
         }
@@ -941,6 +952,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
             if (error.code === 'OUTPUT_TRUNCATED' && maxTokens !== null && !upgraded && attempt < 2 && budget.remaining > 0) {
                 upgraded = true;
                 maxTokens = null;
+                config.onStatus?.(`回答达到 ${configuredLimit || 2048} token 上限，改用接口上限重新请求：${config.model}`);
                 if (onStreamUpdate) onStreamUpdate('回答较长，正在继续分析…');
                 continue;
             }
@@ -950,6 +962,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 serverRetried++;
                 const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
                 console.warn(`⚠️ [callAI] 服务端错误 ${error.status}，${delay}ms 后重试（第${serverRetried}次）`);
+                config.onStatus?.(`供应商返回 HTTP ${error.status}，${delay / 1000} 秒后重试（${serverRetried}/2）：${config.model}`);
                 await abortableGradingDelay(delay, config.signal);
                 continue;
             }

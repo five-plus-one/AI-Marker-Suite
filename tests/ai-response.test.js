@@ -15,7 +15,7 @@ const event = (choice, usage) => `data: ${JSON.stringify({ choices: [choice], us
 //  1. setTimeout 是同步桩：退避等待（callAIOnceWithTransientRetry / callAI 服务端重试）
 //     实际永不等待，延迟值与并发时序缺陷不可见 —— 只断言重试次数，不断言耗时。
 //  2. onprogress 按 Tampermonkey 语义传「累计全文 responseText」（callAIOnce 依赖
-//     累计重解析）；真实 GM_xmlhttpRequest 各版本行为差异需浏览器实测（审计 R5）。
+//     累计响应按偏移增量解析）；真实 GM_xmlhttpRequest 各版本行为差异需浏览器实测（审计 R5）。
 //  3. onload 只给 {status, responseText}，无 statusText —— `responseText || res.statusText`
 //     与 HTML 错误页清理分支未覆盖；abort/用户主动暂停路径亦未覆盖。
 function setup(responses, cfg) {
@@ -61,6 +61,52 @@ function setup(responses, cfg) {
         updates,
     };
 }
+
+test('Ling 关闭长思考发送 thinking.disabled 并保留输出上限', async () => {
+    const statuses = [];
+    const { call, requests } = setup([{ body: event({ delta: { content: '得分：8' }, finish_reason: 'stop' }) }],
+        { ...config, model: 'Ling-3.2-flash', reasoningEffort: 'disabled', onStatus: message => statuses.push(message) });
+    assert.equal(await call(), '得分：8');
+    assert.deepEqual(requests[0].thinking, { type: 'disabled' });
+    assert.equal(Object.hasOwn(requests[0], 'reasoning_effort'), false);
+    assert.equal(requests[0].max_tokens, 2048);
+    assert.ok(statuses.some(message => message.includes('已关闭长思考')));
+});
+
+test('非 Ling 模型不发送 Ling 思考参数，错误选择在请求前拒绝', async () => {
+    const body = event({ delta: { content: '得分：8' }, finish_reason: 'stop' });
+    const ordinary = setup([{ body }], { ...config, reasoningEffort: 'minimal' });
+    await ordinary.call();
+    assert.equal(ordinary.requests[0].reasoning_effort, 'minimal');
+    assert.equal(Object.hasOwn(ordinary.requests[0], 'thinking'), false);
+    const invalid = setup([], { ...config, reasoningEffort: 'disabled' });
+    await assert.rejects(invalid.call(), /仅支持 Ling/);
+    assert.equal(invalid.requests.length, 0);
+});
+
+test('累计流只处理新数据，拆分 SSE 行和尾行不重复回调', async () => {
+    const statuses = [];
+    const reasoning = event({ delta: { reasoning_content: '核对' }, finish_reason: null });
+    const content = event({ delta: { content: '得分：8' }, finish_reason: null });
+    const end = 'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] });
+    const { call, updates } = setup([{ chunks: [reasoning.slice(0, 12), reasoning.slice(12), content, end] }],
+        { ...config, onStatus: message => statuses.push(message) });
+    assert.equal(await call(), '得分：8');
+    assert.deepEqual(updates, ['得分：8']);
+    assert.ok(statuses.some(message => message.includes('模型正在思考')));
+    assert.ok(statuses.some(message => message.includes('接收评分正文')));
+});
+
+test('截断重试在状态日志明确提示重新请求且不使用部分评分', async () => {
+    const statuses = [];
+    const truncated = event({ delta: { reasoning_content: '核对中' }, finish_reason: 'length' });
+    const full = event({ delta: { content: '得分：8' }, finish_reason: 'stop' });
+    const { call, requests } = setup([{ body: truncated }, { body: full }],
+        { ...config, onStatus: message => statuses.push(message) });
+    assert.equal(await call(), '得分：8');
+    assert.equal(requests.length, 2);
+    assert.ok(statuses.some(message => message.includes('2048 token 上限') && message.includes('重新请求')));
+});
 
 test('默认请求携带输出上限并取得思考后的评分正文', async () => {
     const body = event({ delta: { reasoning_content: '思考'.repeat(6000) }, finish_reason: null }) +

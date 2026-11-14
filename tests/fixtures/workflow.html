@@ -13,6 +13,7 @@ window.addEventListener('error',event=>failures.push(event.message));
 <script src="../../src/core/preset.js"></script>
 <script src="../../src/core/ui-modal.js"></script>
 <script src="../../src/core/ui-settings.js"></script>
+<script src="../../src/core/ui-button.js"></script>
 <script src="../../src/core/correction.js"></script>
 <body><pre id="result"></pre><script>
 (async()=>{
@@ -70,8 +71,22 @@ window.addEventListener('error',event=>failures.push(event.message));
   const originalSet=window.GM_setValue;window.GM_setValue=(key,value)=>{if(key==='ai-grading-workflows')throw Error('quota');originalSet(key,value)};
   await el('save').onclick();assert(el('save').isConnected && notices.at(-1)[0].includes('暂时无法保存'),'保存失败保留编辑窗口');
   window.GM_setValue=originalSet;el('cancel').click();
+  ProviderManager.addModel('OpenAI兼容','Ling-3.2-flash','Ling Flash');
+  showWorkflowEditModal(WorkflowManager.getWorkflow('browser'));
+  el('provider').value='OpenAI兼容';el('provider').dispatchEvent(new Event('change'));
+  el('model').value='Ling-3.2-flash';el('reasoning').value='disabled';await el('save').onclick();
+  assert(WorkflowManager.getWorkflow('browser').model.reasoningEffort==='disabled','Ling关闭思考选项保存');
+  assert(WorkflowManager.getWorkflowModelConfig('browser').reasoningEffort==='disabled','Ling关闭思考传入调用配置');
+  createMainButton();
+  const log=document.getElementById('ai-grading-status');
+  assert(log && log.getAttribute('role')==='log','状态日志可访问');
+  updateGradingStatus('<img src=x onerror=alert(1)>');
+  assert(!log.querySelector('img') && log.textContent.includes('<img'),'状态日志使用纯文本');
+  for(let i=0;i<10;i++)updateGradingStatus('等待模型返回 '+i);
+  assert(log.childElementCount===8 && log.firstElementChild.textContent.includes('等待模型返回 9'),'日志保留最新八条');
+  assert(log.getBoundingClientRect().top>=document.querySelector('.ai-grade-btn').getBoundingClientRect().bottom,'日志在批改按钮下方');
   assert(failures.length===0,failures.join(';'));
-  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,dualModel:saved.dualEval.secondary.model,threshold:saved.dualEval.threshold,checks:13,notices}))));
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,dualModel:saved.dualEval.secondary.model,threshold:saved.dualEval.threshold,checks:19,notices}))));
  } catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack,failures}))));}
 })();
 </script>

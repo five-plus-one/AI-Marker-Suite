@@ -1684,7 +1684,7 @@ async function renderChangelog() {
             }
         }
     } catch (e) {
-        console.warn('[Changelog] 远端加载失败:', e.message);
+        console.warn('[Changelog] 远端加载失败:', e?.message || '网络请求失败或超时');
     }
 
     // 降级：使用本地 CHANGELOG
@@ -2563,7 +2563,7 @@ function renderWorkflowInfo() {
 
     if (infoEl && wf) {
         const modelInfo = wf.model;
-        const reasoningLabel = { minimal: '最低', low: '轻度', medium: '中度', high: '深度' };
+        const reasoningLabel = { disabled: '关闭长思考（Ling）', minimal: '最低', low: '轻度', medium: '中度', high: '深度' };
         const safe = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
         let html = `<div style="margin-bottom:4px;"><strong>主模型：</strong>${safe(modelInfo.provider)} / ${safe(modelInfo.model)}${modelInfo.reasoningEffort ? ' <span style="font-size:11px;color:#86868b;">(' + safe(reasoningLabel[modelInfo.reasoningEffort] || modelInfo.reasoningEffort) + ')</span>' : ''}</div>`;
         if (wf.dualEval && wf.dualEval.enabled) {
@@ -2660,7 +2660,7 @@ function showWorkflowEditModal(wf) {
     const isDual = wf.dualEval && wf.dualEval.enabled;
 
     const reasoningEffortOptions = `<datalist id="wf-reasoning-options">
-        <option value="minimal"><option value="low"><option value="medium"><option value="high">
+        <option value="disabled" label="关闭长思考（Ling）"><option value="minimal"><option value="low"><option value="medium"><option value="high">
     </datalist>`;
 
     const modal = document.createElement('div');
@@ -2678,7 +2678,7 @@ function showWorkflowEditModal(wf) {
                     <div style="font-size:13px;font-weight:600;margin-bottom:10px;">主模型</div>
                     <div class="form-group"><label>供应商</label><select id="wf-edit-provider">${providerOptions}</select></div>
                     <div class="form-group"><label>模型</label><select id="wf-edit-model"></select></div>
-                    <div class="form-group"><label>思考参数 <span style="font-size:11px;color:#86868b;">(按接口要求填写，留空则不发送)</span></label><input id="wf-edit-reasoning" list="wf-reasoning-options" placeholder="例如 minimal、low"></div>
+                    <div class="form-group"><label>思考参数 <span style="font-size:11px;color:#86868b;">(Ling 填 disabled 关闭长思考；minimal 仍会思考，留空使用接口默认值)</span></label><input id="wf-edit-reasoning" list="wf-reasoning-options" placeholder="例如 minimal、low"></div>
                 </div>
                 <div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;margin-top:8px;">
                     <div class="checkbox-group">
@@ -2800,6 +2800,11 @@ function showWorkflowEditModal(wf) {
         const selections = [[mainProvider, mainModel], ...(dualEnabled ? [[secProvider, secModel], [arbProvider, arbModel]] : [])];
         if (selections.some(([p, m]) => !m.value || !ProviderManager.getCallConfig(p.value, m.value))) {
             showToast('请为每个模型选择有效的供应商和模型');
+            return;
+        }
+        const thinkingSelections = [[mainModel, mainReasoning], ...(dualEnabled ? [[secModel, secReasoning], [arbModel, arbReasoning]] : [])];
+        if (thinkingSelections.some(([model, reasoning]) => reasoning.value.trim() === 'disabled' && !/^ling(?:-|$)/i.test(model.value))) {
+            showToast('关闭长思考选项目前仅支持 Ling 模型，请调整思考参数');
             return;
         }
         const threshold = Number(document.getElementById('wf-edit-threshold').value);
