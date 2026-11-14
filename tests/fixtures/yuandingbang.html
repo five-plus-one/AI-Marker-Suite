@@ -11,5 +11,49 @@ function checkDfd(){var value=document.querySelector('#dfd0').value;if(!/^\d+(\.
 class FixtureXHR extends EventTarget{open(method,url){this.url=url}send(body){fixtureRequests.push({url:this.url,body});this.status=200;this.responseText=JSON.stringify({res:true});setTimeout(()=>{this.dispatchEvent(new Event('load'));setPaper('fixture-B')},0)}}
 window.XMLHttpRequest=FixtureXHR;
 function tjfs(){if(!checkDfd())return;const xhr=new XMLHttpRequest();xhr.open('POST',location.origin+'/sjpy_tjfs.do');xhr.send(new URLSearchParams({ksdm,kmdm,stbh,rwid:rwxx.RWID,dqpc:rwxx.DQPC,pycs:1,sfmp:0,pycj:sum,pydfd:dfd}).toString())}
+document.querySelector('#mainimg_0').crossOrigin='anonymous';
 setPaper('fixture-A');
+</script>
+<script>
+const fixtureStore={},fixtureDownloads=[];
+window.GM_getValue=(key,fallback)=>fixtureStore[key]??fallback;
+window.GM_setValue=(key,value)=>fixtureStore[key]=value;
+window.GM_registerMenuCommand=()=>{};
+window.unsafeWindow=window;
+window.GM_xmlhttpRequest=options=>{
+    if(options.method==='GET'&&options.url.startsWith(zgtxx.TXDZ)){
+        fixtureDownloads.push(options.url);
+        const controller=new AbortController();
+        fetch(options.url,{signal:controller.signal}).then(r=>r.arrayBuffer()).then(response=>options.onload({status:200,response})).catch(()=>options.onerror?.());
+        return {abort(){controller.abort()}};
+    }
+    queueMicrotask(()=>options.onerror?.());return {abort(){}};
+};
+</script>
+<script src="/dist/ai_marker.user.js"></script>
+<pre id="result"></pre>
+<script>
+(async()=>{
+    const checks=[];const check=(ok,label)=>{checks.push({label,pass:!!ok});if(!ok)throw Error(label)};
+    const ready=async()=>{for(let i=0;i<150;i++){if(window.__AI_MARKER_ADAPTER__?.getPaperIdentity())return;await new Promise(r=>setTimeout(r,20))}throw Error('answer not ready')};
+    try{
+        await ready();const a=window.__AI_MARKER_ADAPTER__;
+        check(a.id==='yuandingbang','园丁邦适配器');
+        const source=await a.gatherAnswerImages();check(source.length===1,'当前题块完整取图');
+        const download=a.fetchImageAsBase64,encoded=await download(source[0]);
+        check(fixtureDownloads[0]===source[0],'原生图片地址完整传递');
+        const bytes=atob(encoded);check(bytes.startsWith('\x89PNG\r\n\x1a\n'),'输出标准 PNG');
+        const image=new Image();image.src='data:image/png;base64,'+encoded;await image.decode();
+        check(image.naturalWidth===1140&&image.naturalHeight===219,'保留题块原始尺寸');
+        const pixels=img=>{const c=document.createElement('canvas');c.width=1140;c.height=219;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);return ctx.getImageData(0,0,1140,219).data};
+        const expected=pixels(document.querySelector('#mainimg_0')),actual=pixels(image);
+        check(expected.every((byte,i)=>byte===actual[i]),'逐像素保留完整作答');
+        const overlay=document.createElement('div');overlay.className='layui-layer-page';overlay.textContent='整卷预览';document.body.appendChild(overlay);
+        check((await a.gatherAnswerImages()).length===0,'整卷弹层期间暂停取图');overlay.remove();
+        check(a.fillScores([3]),'原生给分栏');check(await a.submitGrade(),'保存响应关联');
+        check(fixtureRequests.length===1&&new URLSearchParams(fixtureRequests[0].body).get('pydfd')==='3','准确保存得分点');
+        check(await a.waitForNextPaper(),'完整换卷');
+    }catch(error){checks.push({pass:false,label:error.message})}
+    document.querySelector('#result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId:new URLSearchParams(location.search).get('run'),width:innerWidth,passed:checks.every(x=>x.pass),checks}))));
+})();
 </script></html>

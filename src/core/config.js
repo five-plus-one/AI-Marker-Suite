@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.24.1',
+    VERSION: '1.21.25.1',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.25.1': [
+            '【修复】园丁邦按当前题块原始尺寸处理答卷图片，核对图片与答卷后再批改',
+        ],
         '1.21.24.1': [
             '【新平台】支持享尚学正常阅卷，读取本题答卷与评分点，按允许分值填分并确认保存结果（#471）',
             '【修复】关闭批改配置后完整恢复阅卷区域，可再次打开配置（#471）',
