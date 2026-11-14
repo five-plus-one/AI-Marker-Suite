@@ -1731,14 +1731,6 @@ function closeSettingsPanel() {
 
 // ========== 加载与切换方案 ==========
 function loadSettings() {
-    if (!gradingExperimentsEnabled()) {
-        const saved = PresetManager.data.list[activeName];
-        for (const key of ['outputMode', 'humanPacing', 'questionGuard', 'paperGuard']) {
-            if (Object.prototype.hasOwnProperty.call(oldConfig, key)) saved[key] = oldConfig[key];
-            else delete saved[key];
-        }
-    }
-
     const currentUrlId = PresetManager.getTaskIdentifier();
 
     if (PresetManager.data.bindings[currentUrlId] && PresetManager.data.list[PresetManager.data.bindings[currentUrlId]]) {
@@ -1770,14 +1762,6 @@ function fillFormFromActivePreset() {
     // 设置面板可能未创建（如在非阅卷页面），直接返回
     if (!document.getElementById('ai-grading-settings')) return;
     const config = PresetManager.getCurrentConfig();
-    if (!gradingExperimentsEnabled()) {
-        const saved = PresetManager.data.list[activeName];
-        for (const key of ['outputMode', 'humanPacing', 'questionGuard', 'paperGuard']) {
-            if (Object.prototype.hasOwnProperty.call(oldConfig, key)) saved[key] = oldConfig[key];
-            else delete saved[key];
-        }
-    }
-
     const currentUrlId = PresetManager.getTaskIdentifier();
 
     // Markdown 预览渲染（兼容旧格式字符串和新格式对象）

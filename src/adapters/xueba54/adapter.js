@@ -302,17 +302,9 @@ const Xueba54Adapter = {
                     }
                 }
 
-                // 检查分数输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-                const firstInput = document.querySelector(XUEBA54_SELECTORS.SCORE_INPUT_BY_INDEX(0));
-                const inputCleared = firstInput && String(firstInput.value).trim() === '';
-
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);
                     console.log('[54学霸] 检测到图片变化');
-                    resolve(true);
-                } else if (inputCleared && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('[54学霸] 检测到输入框已清空');
                     resolve(true);
                 } else if (checkTimes > maxChecks) {
                     clearInterval(timer);
