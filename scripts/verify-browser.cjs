@@ -33,9 +33,19 @@ async function connect(url) {
     const results = []; let browserClient, client;
     try {
         const activePort = path.join(profile, 'DevToolsActivePort');
-        for (let count = 0; count < 200 && !fs.existsSync(activePort); count++) await pause(100);
-        if (!fs.existsSync(activePort)) throw Error('Chrome debugging endpoint unavailable');
-        const [port, browserPath] = fs.readFileSync(activePort, 'utf8').trim().split(/\r?\n/);
+        let endpoint;
+        for (let count = 0; count < 200; count++) {
+            if (fs.existsSync(activePort)) {
+                const fields = fs.readFileSync(activePort, 'utf8').trim().split(/\r?\n/);
+                if (/^[1-9]\d*$/.test(fields[0]) && fields[1]?.startsWith('/devtools/browser/')) {
+                    endpoint = fields;
+                    break;
+                }
+            }
+            await pause(100);
+        }
+        if (!endpoint) throw Error('Chrome debugging endpoint unavailable');
+        const [port, browserPath] = endpoint;
         browserClient = await connect('ws://127.0.0.1:' + port + browserPath);
         const pages = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
         client = await connect(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
