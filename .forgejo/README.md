@@ -1,6 +1,6 @@
 # 内部构建与发布
 
-内部 Issue #1 对应本次 CI 迁移。工作流使用 `linux-amd64` runner 和本地镜像 `aimarker-ci:20261115`，容器不挂载宿主 Docker socket。Actions 依赖固定到已验收的 Forgejo commit。
+工作流使用 `linux-amd64` runner 和本地镜像 `aimarker-ci:20261115`，容器不挂载宿主 Docker socket。Actions 依赖固定到已验收的 Forgejo commit。
 
 | 入口 | 验证与产物 | 发布 |
 | --- | --- | --- |
@@ -41,4 +41,4 @@ artifact 名为 `core-delivery`。下载并解开 artifact 后，根目录含 `d
 
 Forgejo Release 由 `scripts/ci/release.cjs` 调用本仓库 API 创建，附件为脚本、manifest 与 delivery 身份记录。发布说明按更新日志分类并处理脚本头关键字中的用户提及符号。stable tag 已有的发布与附件保持幂等；preview-latest 更新到最新预览提交。选定分支与 GitHub Release 由服务器私有同步程序处理。
 
-迁移到 preview / stable 时，只挑选本 Issue 的 CI 文件、旧工作流删除和开发流程文档，不把 dev 的产品代码一并合入。提交前运行 `node --test scripts/ci/policy.test.cjs`；完整门禁由 PR CI 验收。人工触发生产分支工作流与合并发布遵循本次授权或后续明确的发布授权。
+三个渠道通过各自的 PR 更新 CI 基础设施，业务功能按 dev → preview → stable 发布流程推进。提交前运行 `node --test scripts/ci/policy.test.cjs`；完整门禁由 PR CI 验收。人工触发生产分支工作流与合并发布遵循用户明确的发布授权。
