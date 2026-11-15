@@ -6,6 +6,7 @@ const os=require('node:os');
 const path=require('node:path');
 const {execFileSync}=require('node:child_process');
 const {publish,advanceTag,downloadAsset}=require('./release.cjs');
+const {digest}=require('./common.cjs');
 const sha='a'.repeat(40);
 const ctx={repository:'fiveplusone-dev/AI-Marker-Suite',name:'AI-Marker-Suite',sha,
   eventName:'workflow_dispatch',ref:'refs/heads/preview',server:'https://git.example.test'};
@@ -17,7 +18,7 @@ function fixture({existing=true,stable=false}={}) {
   let release=existing?{id:27,tag_name:stable?'v1.2.3.0':'preview-latest',draft:false,prerelease:!stable,name:'previous',body:'previous'}:null;
   const assets=new Map(),events=[],counts={move:0,current:0};
   const add=(name,body)=>{
-    const asset={id:nextId++,name,size:body.length,browser_download_url:'https://git.example.test/attachments/'+nextId};
+    const asset={id:nextId++,uuid:'00000000-0000-4000-8000-'+String(nextId).padStart(12,'0'),name,size:body.length,browser_download_url:'https://git.example.test/attachments/'+nextId};
     assets.set(asset.id,{asset,body:Buffer.from(body)});return {...asset};
   };
   const io={
@@ -77,7 +78,8 @@ test('unchanged attachments are downloaded and retain their asset IDs',async()=>
 
 test('a later build removes only reserved stale CI uploads before publication',async()=>{
   const f=fixture();
-  const old=f.add('ai_marker.user.js.upload-'+'c'.repeat(64),Buffer.from('interrupted older build'));
+  const stale=Buffer.from('interrupted older build');
+  const old=f.add('ai_marker.user.js.upload-'+digest(stale),stale);
   const user=f.add('release-notes.txt',Buffer.from('user attachment'));
   const other=f.add('ai_marker.user.js.upload-manual',Buffer.from('user attachment'));
   const receipt=await publish(ctx,metadata,files,'notes',f.io);
@@ -89,7 +91,8 @@ test('a later build removes only reserved stale CI uploads before publication',a
 
 test('concurrent stale upload edits stop cleanup while the release stays staged',async()=>{
   const f=fixture(),download=f.io.download;
-  const old=f.add('delivery.json.upload-'+'b'.repeat(64),Buffer.from('old upload'));
+  const stale=Buffer.from('old upload');
+  const old=f.add('delivery.json.upload-'+digest(stale),stale);
   f.io.download=async(c,a)=>{
     const bytes=await download(c,a);
     if(a.id===old.id) f.assets.get(a.id).asset.name='user-renamed.txt';
@@ -99,11 +102,28 @@ test('concurrent stale upload edits stop cleanup while the release stays staged'
   assert.equal(f.release.draft,true);assert.equal(f.assets.has(old.id),true);
 });
 
+test('a reserved name with a different content digest is preserved for inspection',async()=>{
+  const f=fixture();
+  const old=f.add('ai_marker.user.js.upload-'+'c'.repeat(64),Buffer.from('different content'));
+  await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/digest differs from its CI name/);
+  assert.equal(f.release.draft,true);assert.equal(f.assets.has(old.id),true);
+  assert.equal(f.events.some(event=>event.method==='DELETE'&&event.route.endsWith('/'+old.id)),false);
+});
+
 test('a first preview is created as draft only after its leased tag update',async()=>{
   const f=fixture({existing:false});
   f.io.move=async()=>{assert.equal(f.release,null);f.counts.move++;};
   await publish(ctx,metadata,files,'notes',f.io);
   assert.equal(f.events.find(x=>x.method==='POST'&&x.route.endsWith('/releases')).data.draft,true);
+  assert.equal(f.release.draft,false);
+});
+
+test('the tag-push hook is restaged before any attachment access',async()=>{
+  const f=fixture(),download=f.io.download,json=f.io.json;let finalized=false;
+  f.io.move=async()=>{f.release.draft=false;};
+  f.io.json=async(c,r,m,d)=>{if(d.draft===false) finalized=true;return json(c,r,m,d);};
+  f.io.download=async(c,a)=>{assert.ok(f.release.draft||finalized);return download(c,a);};
+  await publish(ctx,metadata,files,'notes',f.io);
   assert.equal(f.release.draft,false);
 });
 
@@ -171,20 +191,36 @@ test('attachment downloads require the same HTTPS origin before credentials are 
   }
 });
 
-test('attachment downloads read binary bytes and reject truncated data',async t=>{
-  const originalFetch=global.fetch,originalToken=process.env.FORGEJO_TOKEN;
-  t.after(()=>{global.fetch=originalFetch;if(originalToken===undefined) delete process.env.FORGEJO_TOKEN;else process.env.FORGEJO_TOKEN=originalToken;});
-  process.env.FORGEJO_TOKEN='fixture-token';
+test('the attachment reader is injected only into trusted publication steps',()=>{
+  for(const [file,step] of [['ci.yml','Publish preview release'],['release.yml','Publish Forgejo release']]) {
+    const text=fs.readFileSync(path.join(__dirname,'../../.forgejo/workflows',file),'utf8');
+    assert.equal((text.match(/MARKER_RELEASE_READ_TOKEN:/g)||[]).length,1);
+    const start=text.indexOf('      - name: '+step);assert.ok(start>0);
+    assert.equal(text.slice(0,start).includes('MARKER_RELEASE_READ_TOKEN'),false);
+    assert.match(text.slice(start),/MARKER_RELEASE_READ_TOKEN: \$\{\{ secrets\.MARKER_RELEASE_READ_TOKEN \}\}/);
+    if(file==='ci.yml') {
+      assert.match(text,/deploy:\s+needs: build\s+if:.*github\.event_name == 'push'.*github\.event_name == 'workflow_dispatch'/);
+      assert.match(text.slice(start),/if:.*github\.ref == 'refs\/heads\/preview'/);
+    } else assert.match(text,/tags: \['v\*'\]/);
+  }
+});
+
+test('attachment downloads use the dedicated reader, read binary bytes and reject truncated data',async t=>{
+  const originalFetch=global.fetch,originalToken=process.env.MARKER_RELEASE_READ_TOKEN;
+  t.after(()=>{global.fetch=originalFetch;if(originalToken===undefined) delete process.env.MARKER_RELEASE_READ_TOKEN;else process.env.MARKER_RELEASE_READ_TOKEN=originalToken;});
+  process.env.MARKER_RELEASE_READ_TOKEN='fixture-read-token';
   const body=Buffer.from([0,255,31,128]);
   global.fetch=async(url,options)=>{
     assert.equal(url.origin,ctx.server);assert.equal(options.redirect,'error');
-    assert.equal(options.headers.Authorization,'token fixture-token');
+    assert.equal(url.pathname,'/attachments/00000000-0000-4000-8000-000000000001');
+    assert.equal(options.headers.Authorization,'token fixture-read-token');
     return new Response(body);
   };
-  const asset={browser_download_url:ctx.server+'/attachments/1',size:body.length};
+  const asset={uuid:'00000000-0000-4000-8000-000000000001',browser_download_url:ctx.server+'/fiveplusone-dev/AI-Marker-Suite/releases/download/preview-latest/ai_marker.user.js',size:body.length};
   assert.deepEqual(await downloadAsset(ctx,asset),body);
   await assert.rejects(downloadAsset(ctx,{...asset,size:5}),/size differs/);
   await assert.rejects(downloadAsset(ctx,{...asset,size:3}),/exceeds/);
+  await assert.rejects(downloadAsset(ctx,{...asset,uuid:'../asset'}),/attachment UUID/);
 });
 
 function gitFixture(t) {

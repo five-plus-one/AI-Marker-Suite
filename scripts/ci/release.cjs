@@ -80,14 +80,17 @@ function movePreviewTag(ctx,commit) {
   } finally { C.fs.rmSync(temp,{recursive:true,force:true}); }
 }
 async function downloadAsset(ctx,asset) {
-  const url=new URL(asset.browser_download_url),server=new URL(ctx.server);
-  C.invariant(server.protocol==='https:' && url.origin===server.origin && !url.username && !url.password,
+  const advertised=new URL(asset.browser_download_url),server=new URL(ctx.server);
+  C.invariant(server.protocol==='https:' && advertised.origin===server.origin && !advertised.username && !advertised.password,
     'Release attachment must use its Forgejo HTTPS origin');
+  C.invariant(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(asset.uuid||''),'Expected a Forgejo attachment UUID');
+  // Read draft bytes with the dedicated Core reader; task tokens lack web attachment access.
+  const url=new URL('/attachments/'+asset.uuid,server.origin);
   C.invariant(Number.isSafeInteger(asset.size) && asset.size>=0 && asset.size<=20*1024*1024,'Unexpected attachment size');
-  const token=process.env.FORGEJO_TOKEN || process.env.GITHUB_TOKEN;
-  C.invariant(token,'Workflow API token is required');
+  const token=process.env.MARKER_RELEASE_READ_TOKEN;
+  C.invariant(token,'Core release attachment reader is required');
   const response=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(60000),headers:{Authorization:'token '+token}});
-  C.invariant(response.ok && response.body,'Release attachment download failed');
+  C.invariant(response.ok && response.body,'Release attachment download failed (HTTP '+response.status+')');
   const chunks=[];let size=0;
   for await(const chunk of response.body) {
     size+=chunk.length;
@@ -125,6 +128,12 @@ async function publish(ctx,metadata,files,notes,io={}) {
   if(!entry) entry=await json(ctx,prefix+'/releases','POST',{
     ...fields,tag_name:tag,target_commitish:metadata.commit,draft:true
   });
+  else {
+    // Forgejo's tag-push hook can publish the matching draft; stage it again first.
+    const id=entry.id;
+    entry=await json(ctx,prefix+'/releases/'+id,'PATCH',{...fields,draft:true});
+    C.invariant(entry.id===id && entry.draft,'Release identity or staging state changed');
+  }
   C.invariant(Number.isSafeInteger(entry.id) && entry.tag_name===tag,'Unexpected release identity');
   const route=prefix+'/releases/'+entry.id,assetRoute=route+'/assets';
   const list=()=>api(ctx,assetRoute);
@@ -167,6 +176,7 @@ async function publish(ctx,metadata,files,notes,io={}) {
   for(const asset of (await list()).filter(asset=>temporaryName(asset.name))) {
     C.invariant(Number.isSafeInteger(asset.id),'Unexpected temporary attachment identity');
     const body=await download(ctx,asset);
+    C.invariant(C.digest(body)===asset.name.slice(-64),'Temporary attachment digest differs from its CI name');
     const fresh=(await list()).find(item=>item.id===asset.id);
     C.invariant(fresh && fresh.name===asset.name && fresh.size===asset.size,'Temporary attachment changed during cleanup');
     await api(ctx,assetRoute+'/'+asset.id,{method:'DELETE'});
