@@ -1,0 +1,51 @@
+name: Core release
+on:
+  push:
+    tags: ['v*']
+concurrency:
+  group: marker-release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CI: 'true'
+  CHROME_BIN: /usr/bin/chromium
+jobs:
+  build:
+    runs-on: linux-amd64
+    container:
+      image: aimarker-ci:20261115
+    steps:
+      - name: Checkout tagged revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build and verify release
+        run: node scripts/ci/build.cjs --release
+      - name: Store release delivery
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: core-release
+          path: ci-output/
+          retention-days: 30
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: linux-amd64
+    container:
+      image: aimarker-ci:20261115
+    steps:
+      - name: Checkout release tools
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download verified release
+        uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with:
+          name: core-release
+          path: ci-output
+      - name: Publish Forgejo release
+        run: node scripts/ci/release.cjs
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
