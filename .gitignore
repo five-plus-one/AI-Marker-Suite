@@ -2,4 +2,4 @@
 .claude/
 node_modules/
 dist/
-.ci-output/
+ci-output/

@@ -31,7 +31,7 @@ jobs:
         uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
         with:
           name: core-delivery
-          path: .ci-output/
+          path: ci-output/
           retention-days: 7
           if-no-files-found: error
   deploy:
@@ -50,7 +50,7 @@ jobs:
         uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with:
           name: core-delivery
-          path: .ci-output
+          path: ci-output
       - name: Deliver to OTA
         run: node scripts/ci/deploy.cjs
         env:
@@ -67,6 +67,6 @@ jobs:
         uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
         with:
           name: core-deployment-receipt
-          path: .ci-output/deployment-receipt.json
+          path: ci-output/deployment-receipt.json
           retention-days: 30
           if-no-files-found: ignore
