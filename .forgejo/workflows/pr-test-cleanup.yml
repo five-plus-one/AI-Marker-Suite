@@ -1,0 +1,25 @@
+name: Retire PR temporary delivery
+on:
+  pull_request_target:
+    types: [closed, edited]
+concurrency:
+  group: marker-${{ github.event.pull_request.number || github.event.number }}
+  cancel-in-progress: false
+jobs:
+  retire:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: linux-amd64
+    container:
+      image: aimarker-ci:20261115
+    steps:
+      - name: Checkout trusted delivery tools
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Retire closed or retargeted PR delivery
+        run: node scripts/ci/deploy.cjs --delete-pr
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          MARKER_DEPLOY_URL: ${{ secrets.MARKER_DEPLOY_URL }}
+          MARKER_DEPLOY_TOKEN: ${{ secrets.MARKER_DEPLOY_TOKEN }}

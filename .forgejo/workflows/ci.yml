@@ -1,0 +1,72 @@
+name: Core CI and delivery
+on:
+  push:
+    branches: [dev, preview, stable]
+  pull_request:
+    branches: [dev, preview, stable]
+    types: [opened, synchronize, reopened, edited]
+  workflow_dispatch:
+concurrency:
+  group: marker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  CI: 'true'
+  CHROME_BIN: /usr/bin/chromium
+jobs:
+  build:
+    runs-on: linux-amd64
+    container:
+      image: aimarker-ci:20261115
+    steps:
+      - name: Checkout source revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build and verify
+        run: node scripts/ci/build.cjs
+      - name: Store verified delivery
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: core-delivery
+          path: ci-output/
+          retention-days: 7
+          if-no-files-found: error
+  deploy:
+    needs: build
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/preview' || github.ref == 'refs/heads/stable') }}
+    runs-on: linux-amd64
+    container:
+      image: aimarker-ci:20261115
+    steps:
+      - name: Checkout delivery tools
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download verified delivery
+        uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with:
+          name: core-delivery
+          path: ci-output
+      - name: Deliver to OTA
+        run: node scripts/ci/deploy.cjs
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          MARKER_DEPLOY_URL: ${{ secrets.MARKER_DEPLOY_URL }}
+          MARKER_DEPLOY_TOKEN: ${{ secrets.MARKER_DEPLOY_TOKEN }}
+      - name: Publish preview release
+        if: ${{ github.ref == 'refs/heads/preview' }}
+        run: node scripts/ci/release.cjs
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+      - name: Store deployment receipt
+        if: ${{ always() }}
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: core-deployment-receipt
+          path: ci-output/deployment-receipt.json
+          retention-days: 30
+          if-no-files-found: ignore
