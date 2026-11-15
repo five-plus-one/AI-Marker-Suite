@@ -27,19 +27,30 @@ function writeNotes(manifest,target) {
 }
 const FILES = ['ai_marker.user.js','manifest.json','delivery.json'];
 const ROLLING = 'refs/tags/preview-latest';
+const PREVIEW = 'refs/heads/preview';
 function advanceTag(run, remote, commit) {
   C.sha(commit);
   const read = () => {
-    const rows=run(['ls-remote','--refs',remote,ROLLING]).trim().split(/\r?\n/).filter(Boolean);
-    C.invariant(rows.length<=1,'Unexpected preview tag advertisement');
-    if(!rows.length) return '';
-    const [oid,ref]=rows[0].split(/\s+/);
-    C.invariant(ref===ROLLING,'Unexpected preview tag ref');
-    return C.sha(oid);
+    const rows=run(['ls-remote','--refs',remote,PREVIEW,ROLLING]).trim().split(/\r?\n/).filter(Boolean);
+    const refs=new Map();
+    for(const row of rows) {
+      const [oid,ref]=row.split(/\s+/);
+      C.invariant([PREVIEW,ROLLING].includes(ref) && !refs.has(ref),'Unexpected preview ref advertisement');
+      refs.set(ref,C.sha(oid));
+    }
+    C.invariant(refs.get(PREVIEW)===commit,'A newer preview branch revision is available');
+    return refs.get(ROLLING)||'';
   };
   const expected=read();
-  if(expected!==commit) run(['push','--porcelain','--force-with-lease='+ROLLING+':'+expected,
-    remote,commit+':'+ROLLING]);
+  if(expected!==commit) {
+    const specs=[PREVIEW+':refs/ci/preview'];
+    if(expected) specs.push(expected+':refs/ci/previous-tag');
+    run(['fetch','--no-tags','--atomic',remote,...specs]);
+    C.invariant(run(['rev-parse','refs/ci/preview']).trim()===commit,'Preview advanced during history fetch');
+    if(expected) run(['merge-base','--is-ancestor',expected+'^{commit}',commit]);
+    C.invariant(read()===expected,'Preview refs changed before their leased update');
+    run(['push','--porcelain','--force-with-lease='+ROLLING+':'+expected,remote,commit+':'+ROLLING]);
+  }
   C.invariant(read()===commit,'Preview tag changed after its leased update');
   return {old:expected||null,commit};
 }
@@ -63,11 +74,8 @@ function movePreviewTag(ctx,commit) {
     catch { throw Error('Preview tag Git operation failed; its expected ref may have changed'); }
   };
   try {
-    const objects=git(['rev-parse','--path-format=absolute','--git-path','objects'],process.cwd()).trim();
-    C.invariant(!/[\r\n]/.test(objects),'Unexpected Git object directory');
     git(['init','--bare','.']);
-    C.fs.writeFileSync(C.path.join(temp,'objects/info/alternates'),objects.replace(/\\/g,'/')+'\n');
-    C.invariant(git(['cat-file','-t',C.sha(commit)]).trim()==='commit','Release commit is unavailable');
+    // Fetch only the publication refs into this owned bare; checkout depth is irrelevant.
     return advanceTag(git,server.origin+'/'+ctx.repository+'.git',commit);
   } finally { C.fs.rmSync(temp,{recursive:true,force:true}); }
 }
@@ -154,6 +162,18 @@ async function publish(ctx,metadata,files,notes,io={}) {
     }
   };
   await verifyAssets();
+  const temporaryName=name=>FILES.some(file=>name.startsWith(file+'.upload-') && /^[a-f0-9]{64}$/.test(name.slice((file+'.upload-').length)));
+  const removedTemporaryAssets=[];
+  for(const asset of (await list()).filter(asset=>temporaryName(asset.name))) {
+    C.invariant(Number.isSafeInteger(asset.id),'Unexpected temporary attachment identity');
+    const body=await download(ctx,asset);
+    const fresh=(await list()).find(item=>item.id===asset.id);
+    C.invariant(fresh && fresh.name===asset.name && fresh.size===asset.size,'Temporary attachment changed during cleanup');
+    await api(ctx,assetRoute+'/'+asset.id,{method:'DELETE'});
+    C.invariant(!(await list()).some(item=>item.id===asset.id),'Temporary attachment cleanup failed');
+    removedTemporaryAssets.push({id:asset.id,name:asset.name,size:body.length,sha256:C.digest(body)});
+  }
+  C.invariant(!(await list()).some(asset=>temporaryName(asset.name)),'Concurrent temporary attachments remain staged');
   if(preview) await current(ctx,'preview',metadata.commit);
   await checkTag();
   const published=await json(ctx,route,'PATCH',{...fields,draft:false});
@@ -162,7 +182,7 @@ async function publish(ctx,metadata,files,notes,io={}) {
   C.invariant(readback.id===entry.id && readback.tag_name===tag && !readback.draft &&
     Object.entries(fields).every(([key,value])=>readback[key]===value),'Published release metadata differs');
   await verifyAssets();
-  return {releaseId:entry.id,tag,commit:metadata.commit,
+  return {releaseId:entry.id,tag,commit:metadata.commit,removedTemporaryAssets,
     assets:Object.fromEntries(FILES.map(name=>[name,{size:files[name].length,sha256:C.digest(files[name])}]))};
 }
 async function main() {

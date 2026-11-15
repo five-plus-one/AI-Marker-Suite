@@ -75,6 +75,30 @@ test('unchanged attachments are downloaded and retain their asset IDs',async()=>
   assert.equal(f.events.some(x=>x.method==='POST'||x.method==='DELETE'),false);
 });
 
+test('a later build removes only reserved stale CI uploads before publication',async()=>{
+  const f=fixture();
+  const old=f.add('ai_marker.user.js.upload-'+'c'.repeat(64),Buffer.from('interrupted older build'));
+  const user=f.add('release-notes.txt',Buffer.from('user attachment'));
+  const other=f.add('ai_marker.user.js.upload-manual',Buffer.from('user attachment'));
+  const receipt=await publish(ctx,metadata,files,'notes',f.io);
+  assert.equal(f.release.draft,false);assert.equal(f.assets.has(old.id),false);
+  assert.equal(f.assets.has(user.id),true);assert.equal(f.assets.has(other.id),true);
+  assert.deepEqual(receipt.removedTemporaryAssets.map(x=>x.id),[old.id]);
+  assert.match(receipt.removedTemporaryAssets[0].sha256,/^[a-f0-9]{64}$/);
+});
+
+test('concurrent stale upload edits stop cleanup while the release stays staged',async()=>{
+  const f=fixture(),download=f.io.download;
+  const old=f.add('delivery.json.upload-'+'b'.repeat(64),Buffer.from('old upload'));
+  f.io.download=async(c,a)=>{
+    const bytes=await download(c,a);
+    if(a.id===old.id) f.assets.get(a.id).asset.name='user-renamed.txt';
+    return bytes;
+  };
+  await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/changed during cleanup/);
+  assert.equal(f.release.draft,true);assert.equal(f.assets.has(old.id),true);
+});
+
 test('a first preview is created as draft only after its leased tag update',async()=>{
   const f=fixture({existing:false});
   f.io.move=async()=>{assert.equal(f.release,null);f.counts.move++;};
@@ -178,6 +202,7 @@ function gitFixture(t) {
 test('real Git uses the raw annotated ref SHA as the preview lease',t=>{
   const {git,remote,commits:[a,b]}=gitFixture(t);
   git(['tag','-a','preview-latest',a,'-m','initial']);git(['push',remote,'refs/tags/preview-latest']);
+  git(['push',remote,b+':refs/heads/preview']);
   const raw=git(['rev-parse','refs/tags/preview-latest']);assert.notEqual(raw,a);
   const result=advanceTag(git,remote,b);
   assert.equal(result.old,raw);assert.equal(git(['--git-dir='+remote,'rev-parse','refs/tags/preview-latest']),b);
@@ -186,6 +211,7 @@ test('real Git uses the raw annotated ref SHA as the preview lease',t=>{
 test('real Git refuses a concurrent preview change and preserves the competing SHA',t=>{
   const {git,remote,commits:[a,b,c]}=gitFixture(t);
   git(['push',remote,a+':refs/tags/preview-latest',c+':refs/heads/available']);
+  git(['push',remote,b+':refs/heads/preview']);
   const run=args=>{
     if(args[0]==='push') git(['--git-dir='+remote,'update-ref','refs/tags/preview-latest',c,a]);
     return git(args);
@@ -196,9 +222,31 @@ test('real Git refuses a concurrent preview change and preserves the competing S
 
 test('real Git leases an absent tag and an equal tag needs no write',t=>{
   const {git,remote,commits:[a]}=gitFixture(t);const calls=[];
+  git(['push',remote,a+':refs/heads/preview']);
   advanceTag(args=>{calls.push(args);return git(args);},remote,a);
   assert.ok(calls.some(args=>args.includes('--force-with-lease=refs/tags/preview-latest:')));
   calls.length=0;
   advanceTag(args=>{calls.push(args);return git(args);},remote,a);
   assert.equal(calls.some(args=>args[0]==='push'),false);
+});
+
+test('real Git refuses a tag rewind even if the requested branch was rolled back',t=>{
+  const {git,remote,commits:[a,b]}=gitFixture(t);
+  git(['push',remote,b+':refs/tags/preview-latest',a+':refs/heads/preview']);
+  assert.throws(()=>advanceTag(git,remote,a));
+  assert.equal(git(['--git-dir='+remote,'rev-parse','refs/tags/preview-latest']),b);
+});
+
+test('real Git rejects an obsolete source and a branch advance during fetch',t=>{
+  const {git,remote,commits:[a,b,c]}=gitFixture(t);
+  git(['push',remote,a+':refs/tags/preview-latest',c+':refs/heads/preview',b+':refs/heads/available']);
+  assert.throws(()=>advanceTag(git,remote,b),/newer preview branch/);
+  git(['--git-dir='+remote,'update-ref','refs/heads/preview',b,c]);
+  const run=args=>{
+    const result=git(args);
+    if(args[0]==='fetch') git(['--git-dir='+remote,'update-ref','refs/heads/preview',c,b]);
+    return result;
+  };
+  assert.throws(()=>advanceTag(run,remote,b),/newer preview branch/);
+  assert.equal(git(['--git-dir='+remote,'rev-parse','refs/tags/preview-latest']),a);
 });
