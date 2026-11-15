@@ -6,6 +6,7 @@ const os=require('node:os');
 const path=require('node:path');
 const {execFileSync}=require('node:child_process');
 const {publish,advanceTag,downloadAsset}=require('./release.cjs');
+const {digest}=require('./common.cjs');
 const sha='a'.repeat(40);
 const ctx={repository:'fiveplusone-dev/AI-Marker-Suite',name:'AI-Marker-Suite',sha,
   eventName:'workflow_dispatch',ref:'refs/heads/preview',server:'https://git.example.test'};
@@ -17,7 +18,7 @@ function fixture({existing=true,stable=false}={}) {
   let release=existing?{id:27,tag_name:stable?'v1.2.3.0':'preview-latest',draft:false,prerelease:!stable,name:'previous',body:'previous'}:null;
   const assets=new Map(),events=[],counts={move:0,current:0};
   const add=(name,body)=>{
-    const asset={id:nextId++,name,size:body.length,browser_download_url:'https://git.example.test/attachments/'+nextId};
+    const asset={id:nextId++,uuid:'00000000-0000-4000-8000-'+String(nextId).padStart(12,'0'),name,size:body.length,browser_download_url:'https://git.example.test/attachments/'+nextId};
     assets.set(asset.id,{asset,body:Buffer.from(body)});return {...asset};
   };
   const io={
@@ -75,12 +76,74 @@ test('unchanged attachments are downloaded and retain their asset IDs',async()=>
   assert.equal(f.events.some(x=>x.method==='POST'||x.method==='DELETE'),false);
 });
 
-test('a first preview is created as draft only after its leased tag update',async()=>{
+test('a later build removes only reserved stale CI uploads before publication',async()=>{
+  const f=fixture();
+  const stale=Buffer.from('interrupted older build');
+  const old=f.add('ai_marker.user.js.upload-'+digest(stale),stale);
+  const user=f.add('release-notes.txt',Buffer.from('user attachment'));
+  const other=f.add('ai_marker.user.js.upload-manual',Buffer.from('user attachment'));
+  const receipt=await publish(ctx,metadata,files,'notes',f.io);
+  assert.equal(f.release.draft,false);assert.equal(f.assets.has(old.id),false);
+  assert.equal(f.assets.has(user.id),true);assert.equal(f.assets.has(other.id),true);
+  assert.deepEqual(receipt.removedTemporaryAssets.map(x=>x.id),[old.id]);
+  assert.match(receipt.removedTemporaryAssets[0].sha256,/^[a-f0-9]{64}$/);
+});
+
+test('concurrent stale upload edits stop cleanup while the release stays staged',async()=>{
+  const f=fixture(),download=f.io.download;
+  const stale=Buffer.from('old upload');
+  const old=f.add('delivery.json.upload-'+digest(stale),stale);
+  f.io.download=async(c,a)=>{
+    const bytes=await download(c,a);
+    if(a.id===old.id) f.assets.get(a.id).asset.name='user-renamed.txt';
+    return bytes;
+  };
+  await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/changed during cleanup/);
+  assert.equal(f.release.draft,true);assert.equal(f.assets.has(old.id),true);
+});
+
+test('a reserved name with a different content digest is preserved for inspection',async()=>{
+  const f=fixture();
+  const old=f.add('ai_marker.user.js.upload-'+'c'.repeat(64),Buffer.from('different content'));
+  await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/digest differs from its CI name/);
+  assert.equal(f.release.draft,true);assert.equal(f.assets.has(old.id),true);
+  assert.equal(f.events.some(event=>event.method==='DELETE'&&event.route.endsWith('/'+old.id)),false);
+});
+
+test('a first preview verifies its draft assets before the leased tag update',async()=>{
   const f=fixture({existing:false});
-  f.io.move=async()=>{assert.equal(f.release,null);f.counts.move++;};
+  f.io.move=async()=>{
+    assert.equal(f.release.draft,true);assert.equal(f.assets.size,3);f.counts.move++;
+  };
   await publish(ctx,metadata,files,'notes',f.io);
   assert.equal(f.events.find(x=>x.method==='POST'&&x.route.endsWith('/releases')).data.draft,true);
   assert.equal(f.release.draft,false);
+});
+
+test('the tag hook sees only verified canonical assets after stale upload cleanup',async()=>{
+  const f=fixture(),download=f.io.download;let moved=false;
+  const stale=Buffer.from('old staged upload');f.add('delivery.json.upload-'+digest(stale),stale);
+  f.io.move=async()=>{
+    assert.equal(f.release.draft,true);assert.equal(f.assets.size,3);
+    for(const name of Object.keys(files)) assert.deepEqual([...f.assets.values()].find(x=>x.asset.name===name).body,files[name]);
+    moved=true;f.release.draft=false;
+  };
+  f.io.download=async(c,a)=>{assert.ok(f.release.draft||moved);return download(c,a);};
+  await publish(ctx,metadata,files,'notes',f.io);
+  assert.equal(f.release.draft,false);
+});
+
+test('a readback failure after the tag hook leaves complete verified assets',async()=>{
+  const f=fixture(),api=f.io.api;let moved=false;
+  const stale=Buffer.from('older staged upload');f.add('manifest.json.upload-'+digest(stale),stale);
+  f.io.move=async()=>{moved=true;f.release.draft=false;};
+  f.io.api=async(c,route,options)=>{
+    if(moved && route.endsWith('/tags/preview-latest')) throw Error('tag readback unavailable');
+    return api(c,route,options);
+  };
+  await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/tag readback unavailable/);
+  assert.equal(f.release.id,27);assert.equal(f.assets.size,3);
+  for(const name of Object.keys(files)) assert.deepEqual([...f.assets.values()].find(x=>x.asset.name===name).body,files[name]);
 });
 
 test('failed uploaded digest retains previous attachment and staged release',async()=>{
@@ -89,6 +152,7 @@ test('failed uploaded digest retains previous attachment and staged release',asy
   f.io.download=async(c,a)=>a.name.includes('.upload-')?Buffer.from('bad'):download(c,a);
   await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/Uploaded attachment digest/);
   assert.equal(f.assets.has(old.id),true);assert.equal(f.release.draft,true);
+  assert.equal(f.counts.move,0);
   assert.equal(f.events.some(x=>x.method==='DELETE'),false);
 });
 
@@ -125,7 +189,7 @@ test('a new source revision or rolling tag race prevents final publication',asyn
   for(const race of ['source','tag']) {
     const f=fixture();let reads=0;
     if(race==='source') f.io.current=async()=>{if(++reads===2) throw Error('new source revision');};
-    else f.io.current=async()=>{if(++reads===2) f.setTag('b'.repeat(40));};
+    else f.io.move=async()=>{f.setTag('b'.repeat(40));};
     await assert.rejects(publish(ctx,metadata,files,'notes',f.io),race==='source'?/new source/:/tag differs/);
     assert.equal(f.release.draft,true);
   }
@@ -147,20 +211,36 @@ test('attachment downloads require the same HTTPS origin before credentials are 
   }
 });
 
-test('attachment downloads read binary bytes and reject truncated data',async t=>{
-  const originalFetch=global.fetch,originalToken=process.env.FORGEJO_TOKEN;
-  t.after(()=>{global.fetch=originalFetch;if(originalToken===undefined) delete process.env.FORGEJO_TOKEN;else process.env.FORGEJO_TOKEN=originalToken;});
-  process.env.FORGEJO_TOKEN='fixture-token';
+test('the attachment reader is injected only into trusted publication steps',()=>{
+  for(const [file,step] of [['ci.yml','Publish preview release'],['release.yml','Publish Forgejo release']]) {
+    const text=fs.readFileSync(path.join(__dirname,'../../.forgejo/workflows',file),'utf8');
+    assert.equal((text.match(/MARKER_RELEASE_READ_TOKEN:/g)||[]).length,1);
+    const start=text.indexOf('      - name: '+step);assert.ok(start>0);
+    assert.equal(text.slice(0,start).includes('MARKER_RELEASE_READ_TOKEN'),false);
+    assert.match(text.slice(start),/MARKER_RELEASE_READ_TOKEN: \$\{\{ secrets\.MARKER_RELEASE_READ_TOKEN \}\}/);
+    if(file==='ci.yml') {
+      assert.match(text,/deploy:\s+needs: build\s+if:.*github\.event_name == 'push'.*github\.event_name == 'workflow_dispatch'/);
+      assert.match(text.slice(start),/if:.*github\.ref == 'refs\/heads\/preview'/);
+    } else assert.match(text,/tags: \['v\*'\]/);
+  }
+});
+
+test('attachment downloads use the dedicated reader, read binary bytes and reject truncated data',async t=>{
+  const originalFetch=global.fetch,originalToken=process.env.MARKER_RELEASE_READ_TOKEN;
+  t.after(()=>{global.fetch=originalFetch;if(originalToken===undefined) delete process.env.MARKER_RELEASE_READ_TOKEN;else process.env.MARKER_RELEASE_READ_TOKEN=originalToken;});
+  process.env.MARKER_RELEASE_READ_TOKEN='fixture-read-token';
   const body=Buffer.from([0,255,31,128]);
   global.fetch=async(url,options)=>{
     assert.equal(url.origin,ctx.server);assert.equal(options.redirect,'error');
-    assert.equal(options.headers.Authorization,'token fixture-token');
+    assert.equal(url.pathname,'/attachments/00000000-0000-4000-8000-000000000001');
+    assert.equal(options.headers.Authorization,'token fixture-read-token');
     return new Response(body);
   };
-  const asset={browser_download_url:ctx.server+'/attachments/1',size:body.length};
+  const asset={uuid:'00000000-0000-4000-8000-000000000001',browser_download_url:ctx.server+'/fiveplusone-dev/AI-Marker-Suite/releases/download/preview-latest/ai_marker.user.js',size:body.length};
   assert.deepEqual(await downloadAsset(ctx,asset),body);
   await assert.rejects(downloadAsset(ctx,{...asset,size:5}),/size differs/);
   await assert.rejects(downloadAsset(ctx,{...asset,size:3}),/exceeds/);
+  await assert.rejects(downloadAsset(ctx,{...asset,uuid:'../asset'}),/attachment UUID/);
 });
 
 function gitFixture(t) {
@@ -178,6 +258,7 @@ function gitFixture(t) {
 test('real Git uses the raw annotated ref SHA as the preview lease',t=>{
   const {git,remote,commits:[a,b]}=gitFixture(t);
   git(['tag','-a','preview-latest',a,'-m','initial']);git(['push',remote,'refs/tags/preview-latest']);
+  git(['push',remote,b+':refs/heads/preview']);
   const raw=git(['rev-parse','refs/tags/preview-latest']);assert.notEqual(raw,a);
   const result=advanceTag(git,remote,b);
   assert.equal(result.old,raw);assert.equal(git(['--git-dir='+remote,'rev-parse','refs/tags/preview-latest']),b);
@@ -186,6 +267,7 @@ test('real Git uses the raw annotated ref SHA as the preview lease',t=>{
 test('real Git refuses a concurrent preview change and preserves the competing SHA',t=>{
   const {git,remote,commits:[a,b,c]}=gitFixture(t);
   git(['push',remote,a+':refs/tags/preview-latest',c+':refs/heads/available']);
+  git(['push',remote,b+':refs/heads/preview']);
   const run=args=>{
     if(args[0]==='push') git(['--git-dir='+remote,'update-ref','refs/tags/preview-latest',c,a]);
     return git(args);
@@ -196,9 +278,31 @@ test('real Git refuses a concurrent preview change and preserves the competing S
 
 test('real Git leases an absent tag and an equal tag needs no write',t=>{
   const {git,remote,commits:[a]}=gitFixture(t);const calls=[];
+  git(['push',remote,a+':refs/heads/preview']);
   advanceTag(args=>{calls.push(args);return git(args);},remote,a);
   assert.ok(calls.some(args=>args.includes('--force-with-lease=refs/tags/preview-latest:')));
   calls.length=0;
   advanceTag(args=>{calls.push(args);return git(args);},remote,a);
   assert.equal(calls.some(args=>args[0]==='push'),false);
+});
+
+test('real Git refuses a tag rewind even if the requested branch was rolled back',t=>{
+  const {git,remote,commits:[a,b]}=gitFixture(t);
+  git(['push',remote,b+':refs/tags/preview-latest',a+':refs/heads/preview']);
+  assert.throws(()=>advanceTag(git,remote,a));
+  assert.equal(git(['--git-dir='+remote,'rev-parse','refs/tags/preview-latest']),b);
+});
+
+test('real Git rejects an obsolete source and a branch advance during fetch',t=>{
+  const {git,remote,commits:[a,b,c]}=gitFixture(t);
+  git(['push',remote,a+':refs/tags/preview-latest',c+':refs/heads/preview',b+':refs/heads/available']);
+  assert.throws(()=>advanceTag(git,remote,b),/newer preview branch/);
+  git(['--git-dir='+remote,'update-ref','refs/heads/preview',b,c]);
+  const run=args=>{
+    const result=git(args);
+    if(args[0]==='fetch') git(['--git-dir='+remote,'update-ref','refs/heads/preview',c,b]);
+    return result;
+  };
+  assert.throws(()=>advanceTag(run,remote,b),/newer preview branch/);
+  assert.equal(git(['--git-dir='+remote,'rev-parse','refs/tags/preview-latest']),a);
 });
