@@ -1,10 +1,10 @@
 # 贡献指南
 
-感谢你对 AI 批改助手的关注！欢迎通过以下方式参与贡献。
+AI 批改助手的开发在[内部 Forgejo 仓库](https://git.work.five-plus-one.com/fiveplusone-dev/AI-Marker-Suite)进行。先创建内部 Issue，再创建实施分支，PR 使用 `Closes #N` 关联同仓库问题，代码贡献以 dev 为目标分支。
 
 ## 报告问题
 
-发现 Bug 或有功能建议，请到 [GitHub Issues](https://github.com/five-plus-one/AI-Marker-Suite/issues) 提交，提交前请：
+发现 Bug 或有功能建议，请到[内部 Issues](https://git.work.five-plus-one.com/fiveplusone-dev/AI-Marker-Suite/issues) 提交，提交前请：
 
 1. 先搜索是否已有相同问题
 2. 尽量提供完整信息：
@@ -18,7 +18,7 @@
 
 如果你希望支持新的阅卷平台：
 
-1. 提交 [新平台适配请求](https://github.com/five-plus-one/AI-Marker-Suite/issues/new?template=new-platform.yml)
+1. 在内部仓库提交新平台适配 Issue，说明场景、平台入口与预期行为
 2. 如果你能提供测试账号，适配速度会快很多，欢迎[联系作者](https://r-l.ink/contact)
 3. 如果你有开发能力，也可以参考[开发新适配器](https://aimarking.five-plus-one.com/advanced/adapter-dev)文档自行开发后提交 PR
 
@@ -26,7 +26,7 @@
 
 ### 开发新适配器
 
-1. Fork [AI-Marker-Suite 仓库](https://github.com/five-plus-one/AI-Marker-Suite)
+1. 在内部仓库创建 Issue，并从 dev 创建 `fix/问题号-简述`、`feat/问题号-简述` 或任务约定的 `codex/` 分支
 2. 参考 [开发新适配器文档](https://aimarking.five-plus-one.com/advanced/adapter-dev)
 3. 建议参考 `src/adapters/wuyuetong/`（传统 jQuery 页面）或 `src/adapters/keewing/`（现代框架页面）作为实现模板
 4. 创建新分支，添加适配器代码
@@ -35,18 +35,18 @@
 
 ### 临时测试版
 
-向 `dev` 分支提交 Pull Request 后，自动检查会运行测试并构建临时脚本。构建及发布成功后，机器人会在 PR 下更新快速安装链接。
+向内部 `dev` 分支提交 PR 后，内部 CI 会运行依赖审计、单元测试、打包验证和 Chromium/CDP 验收。成功构建在 Actions 记录中保存 `core-delivery`，服务器受限发布程序独立核验 PR 与成功 run 的关联后提供在线临时测试版。
 
-1. 使用 Tampermonkey 打开机器人提供的链接安装。
-2. 测试期间暂停已安装的其他 AI 批改助手脚本，避免同时在阅卷页面运行。
+1. 从构建记录下载 artifact 中的 `ai_marker.user.js`，或使用服务器发布程序提供的链接，通过 Tampermonkey 安装。
+2. 临时测试版使用与正式版相同的名称和命名空间，安装后替换当前脚本。
 3. 按 PR 的改动场景验证，并在 PR 中记录结果。涉及批改时，建议使用脱敏答卷检查识别、评分和异常后的暂停行为。
-4. 后续提交会刷新同一链接；PR 关闭后临时脚本会撤下。
+4. 后续提交生成新产物，受限发布程序只接收当前 head SHA；PR 关闭或改目标分支后回收已有在线临时目标。
 
-临时测试版有独立名称和较低版本号，仅供该 PR 验证。正式使用请安装发布渠道的脚本。开发者可先运行 `npm test` 和 `npm run build` 检查本地改动。
+临时测试版版本为 `0.0.PR编号-prtest.构建号`，脚本内的自动更新检查暂停。验证结束后重装正式渠道脚本。PR 工作流只构建产物；服务器发布程序校验同仓库、开放状态、dev 目标、当前 head SHA 和成功 run 身份，且只处理静态产物。完整约定见 [.forgejo/README.md](.forgejo/README.md)。
 
 ### 修改核心功能
 
-1. Fork 仓库并创建新分支
+1. 创建内部 Issue，再从 dev 创建实施分支
 2. 修改代码后确保 `npm run build` 通过
 3. 提交 Pull Request，说明改动内容和动机
 
@@ -56,9 +56,9 @@
 
 ## 改进文档
 
-文档站源码在 [AI-Marker-Suite-Docs](https://github.com/five-plus-one/AI-Marker-Suite-Docs) 仓库，欢迎：
+文档站源码在[内部 AI-Marker-Suite-Docs](https://git.work.five-plus-one.com/fiveplusone-dev/AI-Marker-Suite-Docs) 仓库，以 docs-dev 为开发入口，欢迎：
 
-- 直接在文档页面点击「在 GitHub 上编辑此页」提交修正
+- 创建内部 Issue，并提交文档修正 PR
 - 补充截图、示例、常见问题
 - 翻译或优化表述
 
