@@ -18,15 +18,26 @@ jobs:
     container:
       image: aimarker-ci:20261115
     steps:
+      - name: Checkout trusted CI tools
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: tools
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted CI tools
+        run: node tools/scripts/ci/bootstrap.cjs prepare tools
       - name: Checkout source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: ${{ env.CI_SOURCE_REPOSITORY }}
+          ref: ${{ env.CI_SOURCE_COMMIT }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Prepare source checks
+        run: node "$CI_TOOLS/scripts/ci/bootstrap.cjs" hydrate
       - name: Build and verify
-        run: node scripts/ci/build.cjs
+        run: node "$CI_TOOLS/scripts/ci/build.cjs"
       - name: Store verified delivery
         uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
         with:

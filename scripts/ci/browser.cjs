@@ -2,22 +2,25 @@
 const fs = require('node:fs');
 const {spawn} = require('node:child_process');
 const assert = require('node:assert/strict');
+const C = require('./common.cjs');
+const {prepareBrowser} = require('./browser-ready.cjs');
 async function main() {
-  const source = fs.readFileSync('scripts/verify-browser.cjs','utf8');
+  const source = prepareBrowser('scripts/verify-browser.cjs');
   const literal = source.match(/const fixtures = (\[[\s\S]*?\])\s*\.filter/)?.[1];
   assert.ok(literal, 'Browser fixture matrix is required');
   assert.match(literal.replace(/'[a-z0-9-]+'/g,''), /^[\s,\[\]]+$/);
   const fixtures = [...literal.matchAll(/'([a-z0-9-]+)'/g)].map(match=>match[1]);
   assert.equal(new Set(fixtures).size, fixtures.length, 'Fixture names must be unique');
   // The existing acceptance command selects a fixture and its named descendants.
-  const groups = fixtures.filter(name=>!fixtures.some(parent=>name.startsWith(parent+'-')));
+  const groups = /fixture\.startsWith\(selected/.test(source)
+    ? fixtures.filter(name=>!fixtures.some(parent=>name.startsWith(parent+'-'))) : fixtures;
   const rows = []; let next=0, failure;
   async function worker() {
     while (next<groups.length && !failure) {
       const name=groups[next++];
       try {
         const result = await new Promise((resolve,reject)=>{
-          const child=spawn(process.execPath,['scripts/verify-browser.cjs','--fixture='+name],{env:process.env,stdio:['ignore','pipe','pipe']});
+          const child=spawn(process.execPath,['scripts/verify-browser.cjs','--fixture='+name],{env:C.projectEnv(),stdio:['ignore','pipe','pipe']});
           let stdout='',stderr='';
           child.stdout.on('data',data=>{stdout+=data});
           child.stderr.on('data',data=>{stderr+=data});
