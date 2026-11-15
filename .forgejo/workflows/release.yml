@@ -49,3 +49,4 @@ jobs:
         run: node scripts/ci/release.cjs
         env:
           FORGEJO_TOKEN: ${{ github.token }}
+          MARKER_RELEASE_READ_TOKEN: ${{ secrets.MARKER_RELEASE_READ_TOKEN }}

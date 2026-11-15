@@ -73,6 +73,7 @@ jobs:
         run: node scripts/ci/release.cjs
         env:
           FORGEJO_TOKEN: ${{ github.token }}
+          MARKER_RELEASE_READ_TOKEN: ${{ secrets.MARKER_RELEASE_READ_TOKEN }}
       - name: Store deployment receipt
         if: ${{ always() }}
         uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
