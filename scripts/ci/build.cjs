@@ -35,7 +35,7 @@ async function main() {
   if (!pr && !release && ctx.ref === 'refs/heads/stable') stableGuard();
   C.npm(['ci']);
   C.npm(['audit','--audit-level=low']);
-  C.run(process.execPath,['--test',C.path.join(__dirname,'policy.test.cjs'),C.path.join(__dirname,'compat.test.cjs')]);
+  C.run(process.execPath,['--test',C.path.join(__dirname,'policy.test.cjs'),C.path.join(__dirname,'compat.test.cjs'),C.path.join(__dirname,'release.test.cjs')]);
   C.npm(['test']);
   const build = String(Date.now());
   const channel = target.startsWith('pr-') ? 'prtest' : target;
