@@ -1,0 +1,80 @@
+name: Trusted PR source checks
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Internal pull request number
+        required: true
+        type: string
+      source_commit:
+        description: Full source commit to test
+        required: true
+        type: string
+concurrency:
+  group: trusted-pr-${{ inputs.pr_number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  statuses: write
+env:
+  CI: 'true'
+  CHROME_BIN: /usr/bin/chromium
+jobs:
+  check:
+    runs-on: linux-amd64
+    timeout-minutes: 45
+    container:
+      image: aimarker-ci:20261115
+    steps:
+      - name: Checkout trusted CI tools
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: tools
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted CI tools
+        run: node tools/scripts/ci/bootstrap.cjs prepare tools
+        env:
+          CI_DISPATCH_PR: 'true'
+          PR_NUMBER: ${{ inputs.pr_number }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          FORGEJO_TOKEN: ${{ github.token }}
+      - name: Checkout source revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: ${{ env.CI_SOURCE_REPOSITORY }}
+          ref: ${{ env.CI_SOURCE_COMMIT }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare source checks
+        run: node "$CI_TOOLS/scripts/ci/bootstrap.cjs" hydrate
+      - name: Build and verify source
+        run: node "$CI_TOOLS/scripts/ci/build.cjs"
+      - name: Store verified delivery
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: core-delivery
+          path: ci-output/
+          retention-days: 7
+          if-no-files-found: error
+  result:
+    needs: check
+    if: ${{ always() }}
+    runs-on: linux-amd64
+    container:
+      image: aimarker-ci:20261115
+    steps:
+      - name: Checkout trusted result tools
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Record source check result
+        run: node scripts/ci/bootstrap.cjs status
+        env:
+          CI_DISPATCH_PR: 'true'
+          PR_NUMBER: ${{ inputs.pr_number }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          FORGEJO_TOKEN: ${{ github.token }}
