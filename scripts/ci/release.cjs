@@ -1,5 +1,7 @@
 'use strict';
 const C = require('./common.cjs');
+const os = require('node:os');
+const {execFileSync} = require('node:child_process');
 const compare = (a,b) => {
   const x=a.split('.').map(Number),y=b.split('.').map(Number);
   for(let i=0;i<Math.max(x.length,y.length);i++) if((x[i]||0)!==(y[i]||0)) return (x[i]||0)-(y[i]||0);
@@ -23,36 +25,152 @@ function writeNotes(manifest,target) {
     '推荐浏览器：Microsoft Edge + Tampermonkey。',''].join('\n').replace(/@([A-Za-z][A-Za-z0-9_-]*)/g,'＠$1');
   C.fs.writeFileSync(C.path.join(C.OUTPUT,'RELEASE_NOTES.md'),body);
 }
-async function main() {
-  const ctx=C.context(),{metadata}=C.readDelivery();
+const FILES = ['ai_marker.user.js','manifest.json','delivery.json'];
+const ROLLING = 'refs/tags/preview-latest';
+function advanceTag(run, remote, commit) {
+  C.sha(commit);
+  const read = () => {
+    const rows=run(['ls-remote','--refs',remote,ROLLING]).trim().split(/\r?\n/).filter(Boolean);
+    C.invariant(rows.length<=1,'Unexpected preview tag advertisement');
+    if(!rows.length) return '';
+    const [oid,ref]=rows[0].split(/\s+/);
+    C.invariant(ref===ROLLING,'Unexpected preview tag ref');
+    return C.sha(oid);
+  };
+  const expected=read();
+  if(expected!==commit) run(['push','--porcelain','--force-with-lease='+ROLLING+':'+expected,
+    remote,commit+':'+ROLLING]);
+  C.invariant(read()===commit,'Preview tag changed after its leased update');
+  return {old:expected||null,commit};
+}
+function movePreviewTag(ctx,commit) {
+  const server=new URL(ctx.server);
+  C.invariant(server.protocol==='https:' && !server.username && !server.password,'Expected HTTPS Git origin');
+  C.invariant(/^[\w.-]+\/AI-Marker-Suite$/.test(ctx.repository),'Unexpected release repository');
+  const token=process.env.FORGEJO_TOKEN || process.env.GITHUB_TOKEN;
+  C.invariant(token,'Workflow API token is required');
+  const temp=C.fs.mkdtempSync(C.path.join(os.tmpdir(),'aimarker-release-'));
+  const env=Object.fromEntries(['PATH','Path','SystemRoot','SYSTEMROOT','COMSPEC','PATHEXT','TMP','TEMP','LANG']
+    .filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
+  Object.assign(env,{HOME:temp,XDG_CONFIG_HOME:temp,GIT_TERMINAL_PROMPT:'0',GIT_CONFIG_NOSYSTEM:'1',
+    GIT_CONFIG_GLOBAL:process.platform==='win32'?'NUL':'/dev/null',GIT_CONFIG_COUNT:'4',
+    GIT_CONFIG_KEY_0:'http.'+server.origin+'/.extraHeader',GIT_CONFIG_VALUE_0:'Authorization: token '+token,
+    GIT_CONFIG_KEY_1:'credential.helper',GIT_CONFIG_VALUE_1:'',
+    GIT_CONFIG_KEY_2:'http.followRedirects',GIT_CONFIG_VALUE_2:'false',
+    GIT_CONFIG_KEY_3:'core.hooksPath',GIT_CONFIG_VALUE_3:C.path.join(temp,'disabled-hooks')});
+  const git=(args,cwd=temp)=>{
+    try { return execFileSync('git',args,{cwd,env,encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:60000,maxBuffer:1024*1024}); }
+    catch { throw Error('Preview tag Git operation failed; its expected ref may have changed'); }
+  };
+  try {
+    const objects=git(['rev-parse','--path-format=absolute','--git-path','objects'],process.cwd()).trim();
+    C.invariant(!/[\r\n]/.test(objects),'Unexpected Git object directory');
+    git(['init','--bare','.']);
+    C.fs.writeFileSync(C.path.join(temp,'objects/info/alternates'),objects.replace(/\\/g,'/')+'\n');
+    C.invariant(git(['cat-file','-t',C.sha(commit)]).trim()==='commit','Release commit is unavailable');
+    return advanceTag(git,server.origin+'/'+ctx.repository+'.git',commit);
+  } finally { C.fs.rmSync(temp,{recursive:true,force:true}); }
+}
+async function downloadAsset(ctx,asset) {
+  const url=new URL(asset.browser_download_url),server=new URL(ctx.server);
+  C.invariant(server.protocol==='https:' && url.origin===server.origin && !url.username && !url.password,
+    'Release attachment must use its Forgejo HTTPS origin');
+  C.invariant(Number.isSafeInteger(asset.size) && asset.size>=0 && asset.size<=20*1024*1024,'Unexpected attachment size');
+  const token=process.env.FORGEJO_TOKEN || process.env.GITHUB_TOKEN;
+  C.invariant(token,'Workflow API token is required');
+  const response=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(60000),headers:{Authorization:'token '+token}});
+  C.invariant(response.ok && response.body,'Release attachment download failed');
+  const chunks=[];let size=0;
+  for await(const chunk of response.body) {
+    size+=chunk.length;
+    C.invariant(size<=asset.size,'Attachment exceeds its recorded size');
+    chunks.push(chunk);
+  }
+  C.invariant(size===asset.size,'Attachment size differs');
+  return Buffer.concat(chunks);
+}
+async function publish(ctx,metadata,files,notes,io={}) {
+  const api=io.api||C.api,json=io.json||C.apiJson,download=io.download||downloadAsset;
+  const current=io.current||C.currentBranch,move=io.move||movePreviewTag;
   C.invariant(metadata.repository===ctx.name && metadata.commit===C.sha(ctx.sha),'Release source differs');
   const preview=metadata.target==='preview';
-  if(preview) await C.currentBranch(ctx,'preview',metadata.commit);
+  if(preview) await current(ctx,'preview',metadata.commit);
   else C.invariant(ctx.eventName==='push' && ctx.ref==='refs/tags/v'+metadata.version &&
     metadata.target==='stable','Stable release requires its matching tag');
   const prefix='/repos/'+ctx.repository, tag=preview?'preview-latest':'v'+metadata.version;
-  let existing=await C.api(ctx,prefix+'/releases/tags/'+encodeURIComponent(tag),{allow404:true});
-  const currentTag=await C.api(ctx,prefix+'/tags/'+encodeURIComponent(tag),{allow404:true});
-  if(preview) {
-    if(existing) await C.api(ctx,prefix+'/releases/'+existing.id,{method:'DELETE'});
-    if(currentTag) await C.api(ctx,prefix+'/tags/'+encodeURIComponent(tag),{method:'DELETE'});
-    await C.apiJson(ctx,prefix+'/tags','POST',{tag_name:tag,target:metadata.commit});
-    existing=null;
-  } else {
-    C.invariant(currentTag && (currentTag.commit.sha||currentTag.commit.id)===metadata.commit,'Release tag differs from built commit');
+  const tagRoute=prefix+'/tags/'+encodeURIComponent(tag);
+  const checkTag=async()=>{
+    const value=await api(ctx,tagRoute,{allow404:true});
+    C.invariant(value && (value.commit.sha||value.commit.id)===metadata.commit,'Release tag differs from built commit');
+  };
+  if(!preview) await checkTag();
+  const existing=await api(ctx,prefix+'/releases/tags/'+encodeURIComponent(tag),{allow404:true});
+  const fields={name:preview?'Preview v'+metadata.version:tag,body:notes,prerelease:preview};
+  let entry;
+  if(existing) {
+    C.invariant(Number.isSafeInteger(existing.id) && existing.tag_name===tag,'Unexpected release identity');
+    entry=await json(ctx,prefix+'/releases/'+existing.id,'PATCH',{...fields,draft:true});
+    C.invariant(entry.id===existing.id,'Release identity changed while staging');
   }
-  const entry=existing || await C.apiJson(ctx,prefix+'/releases','POST',{
-    tag_name:tag,target_commitish:metadata.commit,name:preview?'Preview v'+metadata.version:tag,
-    body:C.fs.readFileSync(C.path.join(C.OUTPUT,'RELEASE_NOTES.md'),'utf8'),draft:false,prerelease:preview
+  if(preview) await move(ctx,metadata.commit);
+  await checkTag();
+  if(!entry) entry=await json(ctx,prefix+'/releases','POST',{
+    ...fields,tag_name:tag,target_commitish:metadata.commit,draft:true
   });
-  const assets=await C.api(ctx,prefix+'/releases/'+entry.id+'/assets');
-  for(const name of ['ai_marker.user.js','manifest.json','delivery.json']) {
-    if(assets.some(asset=>asset.name===name)) continue;
-    const form=new FormData();
-    form.set('attachment',new Blob([C.fs.readFileSync(C.path.join(C.OUTPUT,name))]),name);
-    await C.api(ctx,prefix+'/releases/'+entry.id+'/assets?name='+encodeURIComponent(name),{method:'POST',body:form});
+  C.invariant(Number.isSafeInteger(entry.id) && entry.tag_name===tag,'Unexpected release identity');
+  const route=prefix+'/releases/'+entry.id,assetRoute=route+'/assets';
+  const list=()=>api(ctx,assetRoute);
+  const same=async(asset,body)=>asset.size===body.length && C.digest(await download(ctx,asset))===C.digest(body);
+  const find=(assets,name)=>{
+    const matches=assets.filter(asset=>asset.name===name);
+    C.invariant(matches.length<=1,'Duplicate release attachment name');
+    return matches[0];
+  };
+  for(const name of FILES) {
+    const body=files[name];
+    C.invariant(Buffer.isBuffer(body),'Expected attachment bytes');
+    const assets=await list(),old=find(assets,name);
+    if(old && await same(old,body)) continue;
+    const temporary=name+'.upload-'+C.digest(body);
+    let staged=find(assets,temporary);
+    if(!staged) {
+      const form=new FormData();
+      form.set('attachment',new Blob([body]),temporary);
+      staged=await api(ctx,assetRoute+'?name='+encodeURIComponent(temporary),{method:'POST',body:form});
+    }
+    C.invariant(Number.isSafeInteger(staged.id) && staged.id!==old?.id && await same(staged,body),
+      'Uploaded attachment digest differs');
+    const fresh=await list(),target=find(fresh,name);
+    C.invariant(target?.id===old?.id,'Release attachment changed during replacement');
+    if(old) await api(ctx,assetRoute+'/'+old.id,{method:'DELETE'});
+    const renamed=await json(ctx,assetRoute+'/'+staged.id,'PATCH',{name});
+    C.invariant(renamed.id===staged.id && renamed.name===name && await same(renamed,body),'Attachment rename verification failed');
   }
-  console.log('Published Forgejo release '+tag);
+  const verifyAssets=async()=>{
+    const assets=await list();
+    for(const name of FILES) {
+      const asset=find(assets,name);
+      C.invariant(asset && await same(asset,files[name]),'Published attachment digest differs');
+    }
+  };
+  await verifyAssets();
+  if(preview) await current(ctx,'preview',metadata.commit);
+  await checkTag();
+  const published=await json(ctx,route,'PATCH',{...fields,draft:false});
+  C.invariant(published.id===entry.id,'Release identity changed while publishing');
+  const readback=await api(ctx,route);
+  C.invariant(readback.id===entry.id && readback.tag_name===tag && !readback.draft &&
+    Object.entries(fields).every(([key,value])=>readback[key]===value),'Published release metadata differs');
+  await verifyAssets();
+  return {releaseId:entry.id,tag,commit:metadata.commit,
+    assets:Object.fromEntries(FILES.map(name=>[name,{size:files[name].length,sha256:C.digest(files[name])}]))};
+}
+async function main() {
+  const ctx=C.context(),{metadata}=C.readDelivery();
+  const files=Object.fromEntries(FILES.map(name=>[name,C.fs.readFileSync(C.path.join(C.OUTPUT,name))]));
+  const receipt=await publish(ctx,metadata,files,C.fs.readFileSync(C.path.join(C.OUTPUT,'RELEASE_NOTES.md'),'utf8'));
+  C.writeJson(C.path.join(C.OUTPUT,'release-receipt.json'),receipt);
+  console.log('Published Forgejo release '+receipt.tag+' (ID '+receipt.releaseId+')');
 }
 if(require.main===module) C.cli(main);
-module.exports={writeNotes,compare};
+module.exports={writeNotes,compare,publish,advanceTag,movePreviewTag,downloadAsset};
