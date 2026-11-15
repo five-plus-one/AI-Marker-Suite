@@ -17,13 +17,18 @@ test('稳定版版本必须高于上一发布，包括四段版本与三段历�
 test('每个发布入口在构建和发布前运行回归与实际产物验证', () => {
     for (const file of ['ci.yml', 'release.yml']) {
         const source = fs.readFileSync(path.join(__dirname, '../.forgejo/workflows', file), 'utf8');
-        assert.match(source, /run: node scripts\/ci\/build\.cjs/);
+        assert.match(source, /run: node (?:scripts\/ci\/build\.cjs|"\$CI_TOOLS\/scripts\/ci\/build\.cjs")/);
+        if (file === 'ci.yml') {
+            assert.match(source, /github.event.pull_request.base.sha \|\| github.sha/);
+            assert.match(source, /bootstrap\.cjs prepare tools/);
+            assert.match(source, /ref: \$\{\{ env.CI_SOURCE_COMMIT \}\}/);
+        }
         assert.match(source, /needs: build/);
         assert.match(source, /image: aimarker-ci:/);
     }
     const build = fs.readFileSync(path.join(__dirname, '../scripts/ci/build.cjs'), 'utf8');
     const gates = ["C.npm(['audit','--audit-level=low'])", "C.npm(['test'])", 'C.npm(args)',
-        "C.npm(['run','verify:bundle'])", "C.run(process.execPath,['scripts/ci/browser.cjs'])", 'C.packageDelivery('];
+        "C.npm(['run','verify:bundle'])", "C.run(process.execPath,[C.path.join(__dirname,'browser.cjs')])", 'C.packageDelivery('];
     let position = -1;
     for (const gate of gates) {
         const next = build.indexOf(gate);
