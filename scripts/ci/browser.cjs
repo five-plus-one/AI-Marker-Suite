@@ -22,8 +22,8 @@ async function main() {
           child.stdout.on('data',data=>{stdout+=data});
           child.stderr.on('data',data=>{stderr+=data});
           child.on('error',reject);
-          child.on('close',code=>{
-            if(code!==0)return reject(Error('Browser group '+name+' failed: '+stderr.slice(-4000)));
+          child.on('close',(code,signal)=>{
+            if(code!==0)return reject(Error('Browser group '+name+' failed (exit '+code+', signal '+signal+'): '+stderr.slice(-4000)));
             try {resolve(JSON.parse(stdout))} catch {reject(Error('Invalid browser report: '+name))}
           });
         });
@@ -34,7 +34,7 @@ async function main() {
       } catch(error) {failure=error}
     }
   }
-  await Promise.all(Array.from({length:4},worker));
+  await Promise.all(Array.from({length:2},worker));
   if(failure)throw failure;
   assert.deepEqual([...new Set(rows.map(row=>row.fixture))].sort(),[...fixtures].sort(),'All original fixtures must be covered');
   const keys=rows.map(row=>JSON.stringify([row.fixture,row.width,row.theme,row.touch]));
