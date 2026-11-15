@@ -6,6 +6,7 @@ const {createHash} = require('node:crypto');
 const OUTPUT = path.resolve('ci-output');
 function invariant(value, message) { if (!value) throw new Error(message); }
 function context(env = process.env, event) {
+  if (env.CI_CONTEXT_PATH && event === undefined) return json(env.CI_CONTEXT_PATH);
   const value = key => env['FORGEJO_' + key] || env['GITHUB_' + key] || '';
   event ??= JSON.parse(fs.readFileSync(value('EVENT_PATH'), 'utf8'));
   const repository = value('REPOSITORY');
@@ -18,7 +19,7 @@ function sha(value) { invariant(/^[a-f0-9]{40}$/.test(value || ''), 'Expected a 
 function targetFor(ctx) {
   if (ctx.eventName === 'pull_request') {
     const pr = ctx.event.pull_request;
-    invariant(pr && ['dev','preview','stable','main'].includes(pr.base.ref), 'Unexpected PR base');
+    invariant(pr && ['dev','preview','stable','docs-dev','main'].includes(pr.base.ref), 'Unexpected PR base');
     if (ctx.name === 'AI-Marker-Suite-Docs') return 'docs';
     if (pr.base.ref === 'dev') {
       invariant(Number.isSafeInteger(Number(pr.number ?? ctx.event.number)) && Number(pr.number ?? ctx.event.number) > 0, 'Invalid PR number');
@@ -34,11 +35,14 @@ function trustedBranch(ctx, target) {
     ctx.ref === 'refs/heads/' + (target === 'docs' ? 'main' : target) &&
     ['dev','preview','stable','docs'].includes(target);
 }
+function projectEnv(input = process.env) {
+  return Object.fromEntries(Object.entries(input).filter(([key]) =>
+    !/(TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION|DEPLOY|PRIVATE_KEY)/i.test(key) &&
+    !/^(GIT_CONFIG|SSH_AUTH_SOCK|ACTIONS_|(?:GITHUB|FORGEJO)_(ENV|PATH|OUTPUT|STATE)$)/.test(key)));
+}
 function run(command, args, options = {}) {
-  const env = {...process.env};
-  // Project code does not need the workflow's API credentials.
-  for (const key of ['FORGEJO_TOKEN','GITHUB_TOKEN','MARKER_DEPLOY_TOKEN','MARKER_DEPLOY_URL']) delete env[key];
-  return execFileSync(command, args, {stdio:'inherit', env, ...options});
+  const {env, ...rest} = options;
+  return execFileSync(command, args, {stdio:'inherit', ...rest, env:projectEnv({...process.env,...env})});
 }
 function npm(args) {
   if (process.platform === 'win32') return run('cmd.exe', ['/d','/s','/c', 'npm ' + args.join(' ')]);
@@ -48,6 +52,8 @@ function json(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function writeJson(file, value) { fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n'); }
 function digest(buffer) { return createHash('sha256').update(buffer).digest('hex'); }
 function packageDelivery(source, metadata, extra = {}) {
+  metadata = {...metadata, testedSourceCommit:sha(metadata.commit),
+    infrastructureCommit:sha(process.env.CI_INFRASTRUCTURE_COMMIT || metadata.commit)};
   fs.mkdirSync(OUTPUT, {recursive:true});
   invariant(!fs.existsSync(path.join(source, '.delivery.json')), 'Delivery metadata already exists');
   const walk = dir => { for (const entry of fs.readdirSync(dir, {withFileTypes:true})) {
@@ -108,5 +114,5 @@ async function currentBranch(ctx, target, commit) {
 function cli(main) {
   main().catch(error => { console.error(error.message); process.exitCode = 1; });
 }
-module.exports = {fs,path,OUTPUT,invariant,context,sha,targetFor,trustedBranch,run,npm,json,writeJson,digest,
+module.exports = {fs,path,OUTPUT,invariant,context,sha,targetFor,trustedBranch,projectEnv,run,npm,json,writeJson,digest,
   packageDelivery,readDelivery,api,apiJson,currentBranch,cli};
