@@ -123,18 +123,10 @@ async function publish(ctx,metadata,files,notes,io={}) {
     entry=await json(ctx,prefix+'/releases/'+existing.id,'PATCH',{...fields,draft:true});
     C.invariant(entry.id===existing.id,'Release identity changed while staging');
   }
-  if(preview) await move(ctx,metadata.commit);
-  await checkTag();
   if(!entry) entry=await json(ctx,prefix+'/releases','POST',{
     ...fields,tag_name:tag,target_commitish:metadata.commit,draft:true
   });
-  else {
-    // Forgejo's tag-push hook can publish the matching draft; stage it again first.
-    const id=entry.id;
-    entry=await json(ctx,prefix+'/releases/'+id,'PATCH',{...fields,draft:true});
-    C.invariant(entry.id===id && entry.draft,'Release identity or staging state changed');
-  }
-  C.invariant(Number.isSafeInteger(entry.id) && entry.tag_name===tag,'Unexpected release identity');
+  C.invariant(Number.isSafeInteger(entry.id) && entry.tag_name===tag && entry.draft,'Unexpected staged release identity');
   const route=prefix+'/releases/'+entry.id,assetRoute=route+'/assets';
   const list=()=>api(ctx,assetRoute);
   const same=async(asset,body)=>asset.size===body.length && C.digest(await download(ctx,asset))===C.digest(body);
@@ -184,7 +176,11 @@ async function publish(ctx,metadata,files,notes,io={}) {
     removedTemporaryAssets.push({id:asset.id,name:asset.name,size:body.length,sha256:C.digest(body)});
   }
   C.invariant(!(await list()).some(asset=>temporaryName(asset.name)),'Concurrent temporary attachments remain staged');
-  if(preview) await current(ctx,'preview',metadata.commit);
+  if(preview) {
+    await current(ctx,'preview',metadata.commit);
+    // The tag hook can publish this draft, so canonical assets and cleanup are complete first.
+    await move(ctx,metadata.commit);
+  }
   await checkTag();
   const published=await json(ctx,route,'PATCH',{...fields,draft:false});
   C.invariant(published.id===entry.id,'Release identity changed while publishing');
