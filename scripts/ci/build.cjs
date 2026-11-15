@@ -5,7 +5,7 @@ const {verifyStableVersion,compareVersions} = require('../verify-stable-version.
 function infrastructureChange(status, file) {
   if (file.startsWith('.github/workflows/')) return status === 'D';
   return file.startsWith('.forgejo/') || file.startsWith('scripts/ci/') ||
-    ['.gitignore','CLAUDE.md','CONTRIBUTING.md','README.md','tests/release-gates.test.js'].includes(file);
+    ['.gitignore','CLAUDE.md','CONTRIBUTING.md','README.md','tests/release-gates.test.js','scripts/verify-browser.cjs'].includes(file);
 }
 function stableGuard() {
   const source = C.fs.readFileSync('src/core/config.js','utf8');
