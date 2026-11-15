@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
 const {createHash} = require('node:crypto');
-const OUTPUT = path.resolve('.ci-output');
+const OUTPUT = path.resolve('ci-output');
 function invariant(value, message) { if (!value) throw new Error(message); }
 function context(env = process.env, event) {
   const value = key => env['FORGEJO_' + key] || env['GITHUB_' + key] || '';
