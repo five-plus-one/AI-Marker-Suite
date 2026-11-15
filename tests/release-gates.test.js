@@ -36,3 +36,8 @@ test('每个发布入口在构建和发布前运行回归与实际产物验证',
         position = next;
     }
 });
+
+// Exercise the source publisher during trusted-base PR builds.
+require('../scripts/ci/release.test.cjs');
+
+require('../scripts/ci/install.test.cjs');
