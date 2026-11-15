@@ -35,7 +35,7 @@ async function main() {
   if (!pr && !release && ctx.ref === 'refs/heads/stable') stableGuard();
   C.npm(['ci']);
   C.npm(['audit','--audit-level=low']);
-  C.run(process.execPath,['--test','scripts/ci/policy.test.cjs']);
+  C.run(process.execPath,['--test',C.path.join(__dirname,'policy.test.cjs'),C.path.join(__dirname,'compat.test.cjs')]);
   C.npm(['test']);
   const build = String(Date.now());
   const channel = target.startsWith('pr-') ? 'prtest' : target;
@@ -48,7 +48,7 @@ async function main() {
   }
   C.npm(args);
   C.npm(['run','verify:bundle']);
-  C.run(process.execPath,['scripts/ci/browser.cjs']);
+  C.run(process.execPath,[C.path.join(__dirname,'browser.cjs')]);
   const manifest = C.json('dist/manifest.json');
   if (release) C.invariant(ctx.ref === 'refs/tags/v' + manifest.version, 'Tag differs from built version');
   const stage = C.path.join(C.OUTPUT,'payload');

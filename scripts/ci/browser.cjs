@@ -2,8 +2,10 @@
 const fs = require('node:fs');
 const {spawn} = require('node:child_process');
 const assert = require('node:assert/strict');
+const C = require('./common.cjs');
+const {prepareBrowser} = require('./browser-ready.cjs');
 async function main() {
-  const source = fs.readFileSync('scripts/verify-browser.cjs','utf8');
+  const source = prepareBrowser('scripts/verify-browser.cjs');
   const literal = source.match(/const fixtures = (\[[\s\S]*?\])\s*\.filter/)?.[1];
   assert.ok(literal, 'Browser fixture matrix is required');
   assert.match(literal.replace(/'[a-z0-9-]+'/g,''), /^[\s,\[\]]+$/);
@@ -20,7 +22,7 @@ async function main() {
       const name=groups[next++];
       try {
         const result = await new Promise((resolve,reject)=>{
-          const child=spawn(process.execPath,['scripts/verify-browser.cjs','--fixture='+name],{env:process.env,stdio:['ignore','pipe','pipe']});
+          const child=spawn(process.execPath,['scripts/verify-browser.cjs','--fixture='+name],{env:C.projectEnv(),stdio:['ignore','pipe','pipe']});
           let stdout='',stderr='';
           child.stdout.on('data',data=>{stdout+=data});
           child.stderr.on('data',data=>{stderr+=data});
