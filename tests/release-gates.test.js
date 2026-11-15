@@ -15,12 +15,19 @@ test('稳定版版本必须高于上一发布，包括四段版本与三段历�
 });
 
 test('每个发布入口在构建和发布前运行回归与实际产物验证', () => {
-    for (const file of ['build-dev.yml', 'build-preview.yml', 'build.yml', 'release.yml', 'pr-test-build.yml']) {
-        const source = fs.readFileSync(path.join(__dirname, '../.github/workflows', file), 'utf8');
-        assert.ok(source.indexOf('npm test') > 0, file);
-        assert.ok(source.indexOf('npm test') < source.indexOf('npm run build'), file);
-        assert.ok(source.indexOf('npm run verify:bundle') > source.indexOf('npm run build'), file);
-        assert.ok(source.includes('npm run verify:browser'), file);
-        assert.ok(source.includes('npm audit --audit-level=low'), file);
+    for (const file of ['ci.yml', 'release.yml']) {
+        const source = fs.readFileSync(path.join(__dirname, '../.forgejo/workflows', file), 'utf8');
+        assert.match(source, /run: node scripts\/ci\/build\.cjs/);
+        assert.match(source, /needs: build/);
+        assert.match(source, /image: aimarker-ci:/);
+    }
+    const build = fs.readFileSync(path.join(__dirname, '../scripts/ci/build.cjs'), 'utf8');
+    const gates = ["C.npm(['audit','--audit-level=low'])", "C.npm(['test'])", 'C.npm(args)',
+        "C.npm(['run','verify:bundle'])", "C.npm(['run','verify:browser'])", 'C.packageDelivery('];
+    let position = -1;
+    for (const gate of gates) {
+        const next = build.indexOf(gate);
+        assert.ok(next > position, gate);
+        position = next;
     }
 });
