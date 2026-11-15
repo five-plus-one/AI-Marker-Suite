@@ -10,7 +10,10 @@ async function main() {
   const fixtures = [...literal.matchAll(/'([a-z0-9-]+)'/g)].map(match=>match[1]);
   assert.equal(new Set(fixtures).size, fixtures.length, 'Fixture names must be unique');
   // The existing acceptance command selects a fixture and its named descendants.
-  const groups = fixtures.filter(name=>!fixtures.some(parent=>name.startsWith(parent+'-')));
+  const selectsDescendants = source.includes("fixture.startsWith(selected + '-')");
+  const groups = selectsDescendants
+    ? fixtures.filter(name=>!fixtures.some(parent=>name.startsWith(parent+'-')))
+    : fixtures;
   const rows = []; let next=0, failure;
   async function worker() {
     while (next<groups.length && !failure) {
