@@ -110,21 +110,40 @@ test('a reserved name with a different content digest is preserved for inspectio
   assert.equal(f.events.some(event=>event.method==='DELETE'&&event.route.endsWith('/'+old.id)),false);
 });
 
-test('a first preview is created as draft only after its leased tag update',async()=>{
+test('a first preview verifies its draft assets before the leased tag update',async()=>{
   const f=fixture({existing:false});
-  f.io.move=async()=>{assert.equal(f.release,null);f.counts.move++;};
+  f.io.move=async()=>{
+    assert.equal(f.release.draft,true);assert.equal(f.assets.size,3);f.counts.move++;
+  };
   await publish(ctx,metadata,files,'notes',f.io);
   assert.equal(f.events.find(x=>x.method==='POST'&&x.route.endsWith('/releases')).data.draft,true);
   assert.equal(f.release.draft,false);
 });
 
-test('the tag-push hook is restaged before any attachment access',async()=>{
-  const f=fixture(),download=f.io.download,json=f.io.json;let finalized=false;
-  f.io.move=async()=>{f.release.draft=false;};
-  f.io.json=async(c,r,m,d)=>{if(d.draft===false) finalized=true;return json(c,r,m,d);};
-  f.io.download=async(c,a)=>{assert.ok(f.release.draft||finalized);return download(c,a);};
+test('the tag hook sees only verified canonical assets after stale upload cleanup',async()=>{
+  const f=fixture(),download=f.io.download;let moved=false;
+  const stale=Buffer.from('old staged upload');f.add('delivery.json.upload-'+digest(stale),stale);
+  f.io.move=async()=>{
+    assert.equal(f.release.draft,true);assert.equal(f.assets.size,3);
+    for(const name of Object.keys(files)) assert.deepEqual([...f.assets.values()].find(x=>x.asset.name===name).body,files[name]);
+    moved=true;f.release.draft=false;
+  };
+  f.io.download=async(c,a)=>{assert.ok(f.release.draft||moved);return download(c,a);};
   await publish(ctx,metadata,files,'notes',f.io);
   assert.equal(f.release.draft,false);
+});
+
+test('a readback failure after the tag hook leaves complete verified assets',async()=>{
+  const f=fixture(),api=f.io.api;let moved=false;
+  const stale=Buffer.from('older staged upload');f.add('manifest.json.upload-'+digest(stale),stale);
+  f.io.move=async()=>{moved=true;f.release.draft=false;};
+  f.io.api=async(c,route,options)=>{
+    if(moved && route.endsWith('/tags/preview-latest')) throw Error('tag readback unavailable');
+    return api(c,route,options);
+  };
+  await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/tag readback unavailable/);
+  assert.equal(f.release.id,27);assert.equal(f.assets.size,3);
+  for(const name of Object.keys(files)) assert.deepEqual([...f.assets.values()].find(x=>x.asset.name===name).body,files[name]);
 });
 
 test('failed uploaded digest retains previous attachment and staged release',async()=>{
@@ -133,6 +152,7 @@ test('failed uploaded digest retains previous attachment and staged release',asy
   f.io.download=async(c,a)=>a.name.includes('.upload-')?Buffer.from('bad'):download(c,a);
   await assert.rejects(publish(ctx,metadata,files,'notes',f.io),/Uploaded attachment digest/);
   assert.equal(f.assets.has(old.id),true);assert.equal(f.release.draft,true);
+  assert.equal(f.counts.move,0);
   assert.equal(f.events.some(x=>x.method==='DELETE'),false);
 });
 
@@ -169,7 +189,7 @@ test('a new source revision or rolling tag race prevents final publication',asyn
   for(const race of ['source','tag']) {
     const f=fixture();let reads=0;
     if(race==='source') f.io.current=async()=>{if(++reads===2) throw Error('new source revision');};
-    else f.io.current=async()=>{if(++reads===2) f.setTag('b'.repeat(40));};
+    else f.io.move=async()=>{f.setTag('b'.repeat(40));};
     await assert.rejects(publish(ctx,metadata,files,'notes',f.io),race==='source'?/new source/:/tag differs/);
     assert.equal(f.release.draft,true);
   }
