@@ -48,7 +48,7 @@ async function main() {
   }
   C.npm(args);
   C.npm(['run','verify:bundle']);
-  C.npm(['run','verify:browser']);
+  C.run(process.execPath,['scripts/ci/browser.cjs']);
   const manifest = C.json('dist/manifest.json');
   if (release) C.invariant(ctx.ref === 'refs/tags/v' + manifest.version, 'Tag differs from built version');
   const stage = C.path.join(C.OUTPUT,'payload');

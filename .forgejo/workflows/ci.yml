@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 concurrency:
   group: marker-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   CI: 'true'
   CHROME_BIN: /usr/bin/chromium
