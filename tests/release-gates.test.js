@@ -23,7 +23,7 @@ test('每个发布入口在构建和发布前运行回归与实际产物验证',
     }
     const build = fs.readFileSync(path.join(__dirname, '../scripts/ci/build.cjs'), 'utf8');
     const gates = ["C.npm(['audit','--audit-level=low'])", "C.npm(['test'])", 'C.npm(args)',
-        "C.npm(['run','verify:bundle'])", "C.npm(['run','verify:browser'])", 'C.packageDelivery('];
+        "C.npm(['run','verify:bundle'])", "C.run(process.execPath,['scripts/ci/browser.cjs'])", 'C.packageDelivery('];
     let position = -1;
     for (const gate of gates) {
         const next = build.indexOf(gate);
