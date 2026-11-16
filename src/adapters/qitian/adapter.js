@@ -1,6 +1,37 @@
 // ========== 七天网络适配器 ==========
 // 实现 PlatformAdapter 接口，处理七天网络平台特定的 DOM 交互
 
+const QITIAN_SCORE_HELPERS = {
+    number(value) {
+        if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value.trim()))) return null;
+        const number = Number(value);
+        return Number.isFinite(number) && number >= 0 ? number : null;
+    },
+
+    bounds(element, row) {
+        const candidates = [];
+        const add = value => {
+            const number = this.number(value);
+            if (number > 0) candidates.push(number);
+        };
+        add(element.getAttribute('max'));
+        // 原站 inputByKey(event, 输入框序号, 输入框数量, 满分)。只读字面量，不执行页面代码。
+        const handler = element.getAttribute('onkeydown') || '';
+        const match = handler.match(/\binputByKey\s*\(\s*event\s*,\s*\d+\s*,\s*\d+\s*,\s*(\d+(?:\.\d+)?)\s*\)/);
+        if (match) add(match[1]);
+        if (row) {
+            row.querySelectorAll('[data-val]').forEach(button => {
+                if (button.textContent.trim() !== '满分') return;
+                const index = button.getAttribute('data-th');
+                if (index && index !== element.id.slice(3)) return;
+                add(button.getAttribute('data-val'));
+            });
+        }
+        const values = [...new Set(candidates)];
+        return { maxScore: values.length === 1 ? values[0] : undefined, maxScoreConflict: values.length > 1 };
+    }
+};
+
 const QitianAdapter = {
     name: '七天网络',
     id: 'qitian',
@@ -112,76 +143,98 @@ const QitianAdapter = {
 
     getScoreInputs() {
         const inputs = [];
-        // 平台每题一个输入框 #tbs1..N，位于 #dutailBot .timuArea 行内（#284）。
-        // 行序 = 题序，与评分单元顺序对齐；旧行为只认 #tbs1 导致仅第一题被填。
-        document.querySelectorAll('#dutailBot .timuArea').forEach((row, i) => {
-            const el = row.querySelector('input[id^="tbs"]');
-            if (!el) return;
-            const p = row.querySelector('p');
-            const label = p ? p.textContent.replace(/[|\s]/g, '').trim() : `分数${i + 1}`;
-            inputs.push({ element: el, label, index: inputs.length });
-        });
-        if (inputs.length > 0) return inputs;
-        // 回退：旧形态只有 #tbs1
-        const scoreInput = document.querySelector(QITIAN_SELECTORS.SCORE_INPUT);
-        if (scoreInput) {
-            inputs.push({ element: scoreInput, label: '总分', index: 0 });
+        const elements = Array.from(document.querySelectorAll('#dutailBot input[id^="tbs"]'));
+        if (!elements.length) {
+            const legacy = document.querySelector(QITIAN_SELECTORS.SCORE_INPUT);
+            if (legacy) elements.push(legacy);
+        }
+        // 作答图片中的空格不是原生评分单元；只按当前可见填分框建表。
+        for (const element of new Set(elements)) {
+            if (!/^tbs\d+$/.test(element.id) || !element.getClientRects().length || element.type === 'hidden') continue;
+            const row = element.closest('.timuArea');
+            const title = element.closest('tr')?.querySelector('td:first-child p') || row?.querySelector('.timuScore p');
+            const label = title?.textContent.replace(/[|\s]/g, '').trim() || (elements.length === 1 ? '总分' : `分数${inputs.length + 1}`);
+            inputs.push({ element, label, index: inputs.length, ...QITIAN_SCORE_HELPERS.bounds(element, row) });
         }
         return inputs;
     },
 
     fillScores(scores) {
+        this.lastFillError = '';
+        const fail = message => { this.lastFillError = message; return false; };
         const inputs = this.getScoreInputs();
-        if (inputs.length === 0) return false;
-
-        // 数据安全：全或无（#284）——任一题缺分即整体拒绝，不提交半份分
-        for (let i = 0; i < inputs.length; i++) {
-            if (scores[i] === null || scores[i] === undefined) {
-                console.warn(`⚠️ [诊断] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失），拒绝填分`);
-                return false;
-            }
+        if (!inputs.length) return fail('未找到当前题目的分数框，请等待答卷加载完成');
+        if (!Array.isArray(scores) || !scores.length || Array.from(scores).some(score => QITIAN_SCORE_HELPERS.number(score) === null)) {
+            return fail('评分结果不完整，请核对每个小题的分数');
+        }
+        let values = scores.map(Number);
+        // 一道大题包含多个作答空、平台只收一个总分时，汇总全部评分单元。
+        if (inputs.length === 1) values = [Math.round(values.reduce((sum, value) => sum + value, 0) * 1e8) / 1e8];
+        if (values.length !== inputs.length || new Set(inputs.map(input => input.element.id)).size !== inputs.length) {
+            return fail('评分单元与页面分数框不一致，请重新检测并核对评分方案');
         }
         for (let i = 0; i < inputs.length; i++) {
+            const { element, maxScore, maxScoreConflict } = inputs[i];
+            if (element.disabled || element.readOnly) return fail('当前分数框暂时不可填写，请检查答卷状态');
+            if (maxScoreConflict) return fail('页面满分信息不一致，请核对当前题目后继续');
+            if (!Number.isFinite(values[i]) || (maxScore > 0 && values[i] > maxScore)) {
+                return fail('评分结果超过当前题目满分，请核对评分方案');
+            }
+        }
+        const task = this.getTaskIdentifier();
+        const unchanged = () => {
+            const current = this.getScoreInputs();
+            return task === this.getTaskIdentifier() && current.length === inputs.length && current.every((input, i) => input.element === inputs[i].element
+                && input.label === inputs[i].label
+                && input.maxScore === inputs[i].maxScore && !input.maxScoreConflict
+                && !input.element.disabled && !input.element.readOnly);
+        };
+        for (let i = 0; i < inputs.length; i++) {
+            if (!unchanged()) return fail('题目或分数框已变化，请核对当前答卷后继续');
             const el = inputs[i].element;
-            const v = String(scores[i]);
+            const v = String(values[i]);
             el.value = v;
-            ['input', 'change', 'keyup', 'blur'].forEach(t => {
-                el.dispatchEvent(new Event(t, { bubbles: true }));
-            });
+            for (const type of ['input', 'change', 'keyup', 'blur']) {
+                if (!unchanged()) return fail('题目或分数框已变化，请核对当前答卷后继续');
+                el.dispatchEvent(new Event(type, { bubbles: true }));
+            }
             console.log(`✅ [诊断] ${inputs[i].label} 分数 ${v} 已填入`);
         }
-        // 登记校验：全部输入框必须落值，否则显式失败
+        if (!unchanged()) return fail('题目或分数框已变化，请核对当前答卷后继续');
         for (let i = 0; i < inputs.length; i++) {
-            if (String(inputs[i].element.value).trim() === '') {
-                console.error(`❌ [诊断] ${inputs[i].label} 填分校验失败（输入框为空），拒绝提交`);
-                return false;
-            }
+            if (QITIAN_SCORE_HELPERS.number(inputs[i].element.value) !== values[i]) return fail('平台未接受填写的分数，请核对后继续');
         }
         return true;
     },
 
     fillScore(request) {
-        // 旧接口兼容：统一走 fillScores 的全或无语义（#284）
         const { total, subScores } = request;
-        if (subScores && subScores.length > 0) {
+        if (Array.isArray(subScores) && subScores.length > 0) {
+            const normalize = label => String(label ?? '').replace(/[|\s]/g, '').replace(/^第(.+)题$/, '$1');
+            const labels = Array.from(subScores, score => normalize(score?.label));
+            if (new Set(labels).size !== labels.length || Array.from(subScores).some(score => !score)) {
+                this.lastFillError = '小题评分有重复或缺失，请核对评分方案';
+                return false;
+            }
+            const inputs = this.getScoreInputs();
+            if (inputs.length > 1) {
+                if (subScores.length !== inputs.length || inputs.some(input => !labels.includes(normalize(input.label)))) {
+                    this.lastFillError = '小题与页面题号不一致，请核对评分方案';
+                    return false;
+                }
+                return this.fillScores(inputs.map(input => subScores[labels.indexOf(normalize(input.label))].score));
+            }
             return this.fillScores(subScores.map(s => s.score));
+        }
+        if (subScores != null && !Array.isArray(subScores)) {
+            this.lastFillError = '评分结果不完整，请核对每个小题的分数';
+            return false;
         }
         return this.fillScores([total]);
     },
 
     detectSubQuestions() {
-        const subs = [];
-        document.querySelectorAll('.timuArea .timuScore').forEach((el, i) => {
-            const text = el.querySelector('td p')?.textContent?.trim() || '';
-            const match = text.match(/第(.+?)题/);
-            const label = match ? match[1] : `题${i + 1}`;
-            const input = el.querySelector('input[id^="tbs"]');
-            if (input) {
-                subs.push({ label, element: input, index: i });
-            }
-        });
-        // 单题任务也要返回（#284：旧行为 >1 才返回，单题页检测为空）
-        return subs.length > 0 ? subs : [];
+        return this.getScoreInputs();
     }
 };
 

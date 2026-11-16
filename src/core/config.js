@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.25.1',
+    VERSION: '1.21.25.2',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.25.2': [
+            '【修复】七天网络按当前评分框识别满分，支持多个小题汇总填写总分',
+        ],
         '1.21.25.1': [
             '【修复】园丁邦按当前题块原始尺寸处理答卷图片，核对图片与答卷后再批改',
         ],
