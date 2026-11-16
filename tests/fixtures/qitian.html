@@ -1,25 +1,39 @@
 <!doctype html><meta charset="utf-8"><title>七天评分流程验收</title>
 <style>body{font:16px system-ui;margin:24px}input{width:100px}.timuArea{margin-bottom:16px}</style>
-<main><h1>七天网络评分</h1><p>第15题，共14分，每空2分</p><div id="dutailBot"></div><p id="status">正在核对评分流程</p></main><pre id="result" hidden></pre>
+<main><h1>七天网络评分</h1><p>第15题，共14分，每空2分</p><div id="paperImage"><div class="reviewimg"><img width="300" height="80" src="/__fixture/answer.svg?paper=A" alt="合成答卷"></div></div><div id="dutailBot"></div><input type="button" id="subfen" value="提交分数"><p id="status">正在核对评分流程</p></main><pre id="result" hidden></pre>
 <script src="../../src/adapters/qitian/selectors.js"></script>
 <script src="../../src/adapters/qitian/adapter.js"></script>
 <script src="../../src/core/score.js"></script>
 <script src="../../src/core/prompt.js"></script>
 <script>
-(() => {
+(async () => {
     const runId = new URLSearchParams(location.search).get('run');
-    let checks = 0, submissions = 0;
+    let checks = 0, submissions = 0, nativeSaves = 0, saveCase = 'success';
+    let scoring = { maxScore: 14 };
+    window.PresetManager = { getCurrentConfig: () => ({ scoring }) };
     const check = (ok, message) => { checks++; if (!ok) throw Error(message); };
     const host = document.getElementById('dutailBot');
     const row = (index, label, max) => `<div class="timuArea"><div class="timuScore"><table><tbody><tr><td><p>${label} |</p></td><td><input type="text" id="tbs${index}" onkeydown="inputByKey(event,${index},1,${max})"></td></tr></tbody></table></div><div class="addScore"><p data-th="${index}" data-val="0">0分</p><p data-th="${index}" data-val="${max}">满分</p></div></div>`;
     window.inputByKey = event => { if (event.keyCode === 13) submissions++; };
+    const submit = document.getElementById('subfen');
+    submit.onclick = () => {
+        submissions++;
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/Review/guid?case=' + saveCase);
+        xhr.onload = () => { if (xhr.responseText.startsWith('+OK')) nativeSaves++; };
+        xhr.send(new URLSearchParams({ score: QitianAdapter.getScoreInputs().map(unit => unit.element.value).join(';') }).toString());
+    };
     try {
         host.innerHTML = row(1, '第15题', 14) + '<div hidden>' + row(2, '第16题', 99) + '</div>';
         const adapter = QitianAdapter;
         check(adapter.getScoreInputs().length === 1, '只识别可见评分框');
         check(adapter.getScoreInputs()[0].label === '第15题' && adapter.getScoreInputs()[0].maxScore === 14, '读取本题题号与14分满分');
         check(adapter.detectSubQuestions()[0].maxScore === 14, '评分检测使用同一满分');
+        check(window.__AI_MARKER_ADAPTER__ === adapter, '七天域名注册正确适配器');
+        scoring = { maxScore: 4 };
+        check(!adapter.prepareGrading(), '沿用旧方案满分时停止');
         const units = Array.from({ length: 7 }, (_, i) => ({ label: `（${i+1}）`, maxScore: 2 }));
+        scoring = { units, maxScore: 14 };
         const text = '【答案复述】合成作答\n【评分依据】按小题评分\n' + units.map(unit => `${unit.label}分数：2`).join('\n') + '\n【得分】14';
         const parsed = parseSubQuestionResponse(text, { subQuestions: units });
         check(parsed.score === 14 && parsed.subScores.length === 7, '七小题解析');
@@ -30,6 +44,7 @@
         check(adapter.fillScores([0,0,0,0,0,0,0]) && document.getElementById('tbs1').value === '0', '零分汇总');
         for (const scores of [[2,null,2], [8,8], [''], [NaN]]) check(!adapter.fillScores(scores) && document.getElementById('tbs1').value === '0', '无效分数保持原值');
         host.innerHTML = row(1, '第15题', 6) + row(2, '第16题', 8);
+        scoring = { units: [{ label: '第15题', maxScore: 6 }, { label: '第16题', maxScore: 8 }] };
         check(adapter.getScoreInputs().map(unit => unit.maxScore).join(',') === '6,8', '满分按题行读取');
         check(!adapter.fillScores([6]) && document.getElementById('tbs1').value === '', '多框缺分整体拒绝');
         check(!adapter.fillScores([6,9]) && document.getElementById('tbs1').value === '', '多框越界整体拒绝');
@@ -37,6 +52,18 @@
         document.getElementById('tbs2').addEventListener('input', event => { event.target.value = '7'; });
         check(!adapter.fillScores([6,8]), '页面改写后失败');
         check(submissions === 0, '检测与填分不触发快捷提交');
+        host.innerHTML = row(1, '第15题', 14); scoring = { maxScore: 14 };
+        check(adapter.fillScores([2,2,2,2,2,2,2]), '准备14分保存');
+        check(await adapter.submitGrade() && nativeSaves === 1, '匹配原生请求和成功回执');
+        check(!await adapter.submitGrade() && submissions === 1, '同卷重复点击不重复提交');
+        check(adapter.fillScores([0]), '准备零分保存');
+        saveCase = 'failure';
+        check(!await adapter.submitGrade() && nativeSaves === 1, '保存失败不登记成功');
+        check(adapter.fillScores([2]), '准备取消');
+        const cancelled = new AbortController(); cancelled.abort();
+        check(!await adapter.submitGrade({ signal: cancelled.signal }) && submissions === 2, '取消后不发起提交');
+        document.querySelector('#paperImage img').src = '/__fixture/answer.svg?paper=B';
+        check(!await adapter.submitGrade() && submissions === 2, '换卷后不提交旧分');
         document.getElementById('status').textContent = '已完成题号、满分和小题汇总核对';
         document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, passed:true, width:innerWidth, checks }))));
     } catch(error) {

@@ -2,6 +2,9 @@
 // 实现 PlatformAdapter 接口，处理七天网络平台特定的 DOM 交互
 
 const QITIAN_SCORE_HELPERS = {
+    label(value) {
+        return String(value ?? '').normalize('NFKC').replace(/[|\s]/g, '').replace(/^第(.+)题(.*)$/, '$1$2');
+    },
     number(value) {
         if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value.trim()))) return null;
         const number = Number(value);
@@ -95,19 +98,77 @@ const QitianAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    submitGrade() {
+    async submitGrade(guard = {}) {
+        if (this._submitting) return false;
+        this.lastSubmitError = '';
+        const pending = this._filled;
+        if (guard.signal?.aborted || guard.isCurrent?.() === false || !pending
+            || !this._scoreReceiptCurrent(pending) || !this.prepareGrading()) {
+            this._filled = null;
+            this.lastSubmitError = '当前答卷或分数已变化，请核对后重新评分';
+            return false;
+        }
         const submitBtn = document.querySelector(QITIAN_SELECTORS.SUBMIT_BUTTON);
-        if (submitBtn) {
-            console.log(`✅ [诊断] 七天网络 — 点击提交按钮`);
-            submitBtn.click();
-            return true;
+        if (submitBtn && !submitBtn.disabled && submitBtn.getClientRects().length) {
+            const pageWindow = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
+            const proto = pageWindow.XMLHttpRequest?.prototype;
+            if (!proto) { this._filled = null; this.lastSubmitError = '暂时无法确认保存结果，请人工核对本卷'; return false; }
+            this._submitting = true;
+            try {
+                return await new Promise(resolve => {
+                    const originalOpen = proto.open, originalSend = proto.send, candidates = new WeakSet();
+                    let finished = false, observed = null;
+                    const finish = ok => {
+                        if (finished) return;
+                        finished = true; clearTimeout(timer);
+                        if (proto.open === open) proto.open = originalOpen;
+                        if (proto.send === send) proto.send = originalSend;
+                        guard.signal?.removeEventListener('abort', cancelled);
+                        if (observed) for (const type of ['load', 'error', 'abort', 'timeout']) observed.removeEventListener(type, response);
+                        this._filled = null;
+                        if (!ok) this.lastSubmitError = '本卷保存结果尚未确认，请在七天页面核对后继续';
+                        resolve(ok);
+                    };
+                    const cancelled = () => finish(false);
+                    const response = event => {
+                        // 原站 URI 的成功协议为 +OK；HTTP 200 的错误页或 -ERR 不是保存成功。
+                        finish(event.type === 'load' && observed.status >= 200 && observed.status < 300
+                            && /^\+OK(?:\s|$)/.test(observed.responseText || '') && !guard.signal?.aborted
+                            && guard.isCurrent?.() !== false);
+                    };
+                    const open = function(method, url, ...rest) {
+                        candidates.delete(this);
+                        try {
+                            const parsed = new URL(url, window.location.href);
+                            if (String(method).toUpperCase() === 'POST' && parsed.origin === window.location.origin
+                                && /^\/review\/guid\/?$/i.test(parsed.pathname)) candidates.add(this);
+                        } catch (_) { /* 不接管其他请求 */ }
+                        return originalOpen.call(this, method, url, ...rest);
+                    };
+                    const adapter = this;
+                    const send = function(body) {
+                        if (!finished && candidates.has(this)) {
+                            const submitted = new URLSearchParams(typeof body === 'string' ? body : '').get('score');
+                            if (observed || submitted !== pending.values.join(';') || guard.signal?.aborted
+                                || guard.isCurrent?.() === false || !adapter._scoreReceiptCurrent(pending)) {
+                                finish(false); return;
+                            }
+                            observed = this;
+                            for (const type of ['load', 'error', 'abort', 'timeout']) this.addEventListener(type, response);
+                        }
+                        return originalSend.call(this, body);
+                    };
+                    const timer = setTimeout(() => finish(false), 25000);
+                    proto.open = open; proto.send = send;
+                    guard.signal?.addEventListener('abort', cancelled, { once: true });
+                    if (guard.signal?.aborted || guard.isCurrent?.() === false) { finish(false); return; }
+                    console.log('✅ [诊断] 七天网络 — 点击提交按钮并等待原生保存回执');
+                    try { submitBtn.click(); } catch (_) { finish(false); }
+                });
+            } finally { this._submitting = false; }
         }
-        // 兜底：直接调用平台函数
-        if (typeof yjsubmit === 'function') {
-            console.log(`✅ [诊断] 七天网络 — 调用 yjsubmit()`);
-            yjsubmit();
-            return true;
-        }
+        this.lastSubmitError = '提交按钮暂时不可用，请检查阅卷页面';
+        this._filled = null;
         console.warn('⚠️ [诊断] 未找到提交按钮 #subfen');
         return false;
     },
@@ -141,6 +202,51 @@ const QitianAdapter = {
         return reviewMode === '1' || !!window.aiGradingState?.isRegrading;
     },
 
+    _scoreImageKey() {
+        return JSON.stringify(Array.from(document.querySelectorAll(QITIAN_SELECTORS.ANSWER_IMAGE))
+            .filter(image => image.getClientRects().length).map(image => image.src));
+    },
+
+    _scoreReceiptCurrent(pending) {
+        const inputs = this.getScoreInputs();
+        return pending.task === this.getTaskIdentifier() && pending.review === this.isRegradeMode()
+            && pending.images === this._scoreImageKey() && inputs.length === pending.inputs.length
+            && inputs.every((input, i) => input.element === pending.inputs[i].element
+                && input.label === pending.inputs[i].label && input.maxScore === pending.inputs[i].maxScore
+                && !input.maxScoreConflict && !input.element.disabled && !input.element.readOnly
+                && QITIAN_SCORE_HELPERS.number(input.element.value) === pending.values[i]);
+    },
+
+    prepareGrading() {
+        this.lastFillError = '';
+        const fail = message => { this.lastFillError = message; return false; };
+        const inputs = this.getScoreInputs();
+        if (!inputs.length) return fail('未找到当前题目的分数框，请等待答卷加载完成');
+        if (inputs.some(input => input.maxScoreConflict)) return fail('页面满分信息不一致，请核对当前题目后继续');
+        // 人工配置的细分小题可以汇总至一个原生框；多框时必须按题号和满分对齐。
+        const scoring = typeof PresetManager === 'undefined' ? null : PresetManager.getCurrentConfig()?.scoring;
+        if (!scoring) return true;
+        const units = scoring.units || [];
+        const labels = Array.from(units, unit => QITIAN_SCORE_HELPERS.label(unit?.label));
+        if (units.length && (labels.some(label => !label) || new Set(labels).size !== labels.length)) {
+            return fail('评分方案的小题名称有重复或缺失，请核对后继续');
+        }
+        const maxima = units.length ? Array.from(units, unit => QITIAN_SCORE_HELPERS.number(unit?.maxScore))
+            : [QITIAN_SCORE_HELPERS.number(scoring.maxScore)];
+        if (maxima.some(max => !(max > 0))) return fail('请先填写每个评分单元的满分');
+        if (inputs.length === 1) {
+            const total = Math.round(maxima.reduce((sum, max) => sum + max, 0) * 1e8) / 1e8;
+            if (inputs[0].maxScore > 0 && Math.abs(total - inputs[0].maxScore) > 1e-8) {
+                return fail('评分方案总分与当前题目满分不一致，请重新检测并核对评分方案');
+            }
+        } else if (units.length !== inputs.length || inputs.some((input, i) =>
+            QITIAN_SCORE_HELPERS.label(input.label) !== labels[i]
+            || (input.maxScore > 0 && Math.abs(input.maxScore - maxima[i]) > 1e-8))) {
+            return fail('评分方案与页面题号或满分不一致，请重新检测并核对评分方案');
+        }
+        return true;
+    },
+
     getScoreInputs() {
         const inputs = [];
         const elements = Array.from(document.querySelectorAll('#dutailBot input[id^="tbs"]'));
@@ -160,8 +266,10 @@ const QitianAdapter = {
     },
 
     fillScores(scores) {
+        this._filled = null;
         this.lastFillError = '';
         const fail = message => { this.lastFillError = message; return false; };
+        if (!this.prepareGrading()) return false;
         const inputs = this.getScoreInputs();
         if (!inputs.length) return fail('未找到当前题目的分数框，请等待答卷加载完成');
         if (!Array.isArray(scores) || !scores.length || Array.from(scores).some(score => QITIAN_SCORE_HELPERS.number(score) === null)) {
@@ -181,10 +289,11 @@ const QitianAdapter = {
                 return fail('评分结果超过当前题目满分，请核对评分方案');
             }
         }
-        const task = this.getTaskIdentifier();
+        const task = this.getTaskIdentifier(), images = this._scoreImageKey(), review = this.isRegradeMode();
         const unchanged = () => {
             const current = this.getScoreInputs();
-            return task === this.getTaskIdentifier() && current.length === inputs.length && current.every((input, i) => input.element === inputs[i].element
+            return task === this.getTaskIdentifier() && images === this._scoreImageKey() && review === this.isRegradeMode()
+                && current.length === inputs.length && current.every((input, i) => input.element === inputs[i].element
                 && input.label === inputs[i].label
                 && input.maxScore === inputs[i].maxScore && !input.maxScoreConflict
                 && !input.element.disabled && !input.element.readOnly);
@@ -204,13 +313,15 @@ const QitianAdapter = {
         for (let i = 0; i < inputs.length; i++) {
             if (QITIAN_SCORE_HELPERS.number(inputs[i].element.value) !== values[i]) return fail('平台未接受填写的分数，请核对后继续');
         }
+        this._filled = { task, images, review, inputs, values };
         return true;
     },
 
     fillScore(request) {
+        this._filled = null;
         const { total, subScores } = request;
         if (Array.isArray(subScores) && subScores.length > 0) {
-            const normalize = label => String(label ?? '').replace(/[|\s]/g, '').replace(/^第(.+)题$/, '$1');
+            const normalize = QITIAN_SCORE_HELPERS.label;
             const labels = Array.from(subScores, score => normalize(score?.label));
             if (new Set(labels).size !== labels.length || Array.from(subScores).some(score => !score)) {
                 this.lastFillError = '小题评分有重复或缺失，请核对评分方案';

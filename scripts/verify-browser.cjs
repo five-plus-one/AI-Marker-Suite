@@ -80,6 +80,7 @@ async function connect(url) {
         const youfenHtml = fs.readFileSync(path.join(root, 'tests/fixtures/youfen.html'), 'utf8');
         const xiaoleyouyueHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xiaoleyouyue.html'), 'utf8');
         const xiaoxianaiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xiaoxianai.html'), 'utf8');
+        const qitianHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qitian.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
             if (event.method === 'Network.loadingFailed' && (event.params.canceled || event.params.errorText === 'net::ERR_ABORTED')) cancelledRequests.add(event.params.requestId);
@@ -95,7 +96,13 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.hostname === 'yuejuan.yuandingbang.cn' && url.pathname === '/web/mark/sjpy/sjpy_kspy.jsp') {
+                if (url.hostname === 'yj.7net.cc' && url.pathname === '/Review') {
+                    body = qitianHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 'yj.7net.cc' && /^\/src\/(?:adapters\/qitian\/(?:selectors|adapter)|core\/(?:score|prompt))\.js$/.test(url.pathname)) {
+                    body = fs.readFileSync(path.join(root, url.pathname.slice(1))); type = 'application/javascript'; status = 200;
+                } else if (url.hostname === 'yj.7net.cc' && url.pathname === '/Review/guid') {
+                    body = url.searchParams.get('case') === 'failure' ? '-ERR rejected' : '+OK saved'; status = 200;
+                } else if (url.hostname === 'yuejuan.yuandingbang.cn' && url.pathname === '/web/mark/sjpy/sjpy_kspy.jsp') {
                     body = yuandingbangHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'yuejuan-img.yuandingbang.cn') {
                     body = yuandingbangJpeg; type = 'image/jpeg'; status = 200;
@@ -183,6 +190,7 @@ async function connect(url) {
             const jiukexing = fixture.startsWith('jiukexing-');
             const haofenshu = fixture === 'haofenshu';
             const yuandingbang = fixture === 'yuandingbang';
+            const qitian = fixture === 'qitian';
             const zhixue = fixture === 'zhixue';
             const wzedu = fixture.startsWith('wzedu-');
             const huizhou = fixture.startsWith('huizhou-');
@@ -192,7 +200,7 @@ async function connect(url) {
             const youfen = fixture.startsWith('youfen-');
             const xiaoleyouyue = fixture.startsWith('xiaoleyouyue-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || qitian) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -214,6 +222,7 @@ async function connect(url) {
             }
             if (haofenshu) url = 'https://yue.haofenshu.com/minions/subject/10500001/mark/1/normal/0?run=' + runId;
             if (yuandingbang) url = 'https://yuejuan.yuandingbang.cn/web/mark/sjpy/sjpy_kspy.jsp?ksdm=100&kmdm=B21&stbh=2&run=' + runId;
+            if (qitian) url = 'https://yj.7net.cc/Review?th=15&km=chemistry&run=' + runId;
             if (zhixue) url = 'https://www.zhixue.com/webmarking/marking/personal/?run=' + runId;
             if (wzedu) url = 'https://yuejuan.wzedu.cn/static-v2/exam/index.html?run=' + runId + '&mode=' + fixture.slice(6)
                 + (fixture === 'wzedu-spa' ? '#/marking/gradingList/list' : '#/marking/grading?questionId=42&choiceIndex=0');
