@@ -94,6 +94,4 @@
  * @property {() => {question: string, units: {label: string, maxScore: number}[]} | null} [getQuestionContext]
  *   从已确认的原生评分栏读取题号与小题满分；未就绪返回 null。
  *   不使用答卷编号、评分值、阅卷份数或生成的输入框下标代替题号。
- * @property {() => void} [onPageLoad] - init() 完成后的平台特定页面设置
- * @property {() => void} [onGradingComplete] - 每次批改循环完成后的回调
  */

@@ -350,22 +350,6 @@ const RuiyaAdapter = {
     },
 
     // ---------- 生命周期钩子 ----------
-    onPageLoad() {
-        console.log('[睿芽] 页面加载完成');
-        // 「阅卷小提示」为 data-backdrop=static 弹窗会遮挡自动批改操作，
-        // 点「不再提示」关闭并记住偏好（信息性弹窗，无风险）
-        try {
-            if (this._visible(RUIYA_SELECTORS.TIPS_MODAL)) {
-                const dismiss = document.querySelector(RUIYA_SELECTORS.TIPS_MODAL_DISMISS);
-                if (dismiss) {
-                    dismiss.click();
-                    console.log('[睿芽] 已关闭「阅卷小提示」弹窗');
-                }
-            }
-        } catch (e) {
-            console.warn('[睿芽] 关闭提示弹窗失败', e);
-        }
-    },
 
     // ---------- 内部工具 ----------
     _writeScore(el, score, setter) {

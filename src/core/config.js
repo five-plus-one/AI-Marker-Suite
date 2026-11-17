@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.25.6',
+    VERSION: '1.21.25.7',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.25.7': [
+            '【优化】平台初始化由注册入口明确执行，保留现有阅卷设置',
+        ],
         '1.21.25.6': [
             '【修复】兼容相对答卷地址与裁切参数，按答卷变化确认下一份',
         ],

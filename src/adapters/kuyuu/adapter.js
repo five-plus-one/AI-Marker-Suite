@@ -329,10 +329,6 @@ const KuyuuAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    onPageLoad() {
-        this._ensureKeyboardMode();
-        console.log('[酷鱼网] 适配器已就绪');
-    },
 };
 
 // 注册适配器

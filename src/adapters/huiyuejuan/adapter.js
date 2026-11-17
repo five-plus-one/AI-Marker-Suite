@@ -616,13 +616,7 @@ const HuiyuejuanAdapter = {
         return false;
     },
 
-    onPageLoad() {
-        console.log('🚀 [慧阅卷] 页面加载完成，执行初始化...');
-    },
 
-    onGradingComplete() {
-        console.log('✅ [慧阅卷] 本轮批改完成');
-    },
 };
 
 // 注册适配器

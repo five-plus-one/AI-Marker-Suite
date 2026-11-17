@@ -362,13 +362,7 @@ const HuiXuexingAdapter = {
         return [];
     },
 
-    onPageLoad() {
-        console.log('[慧学星] 页面加载完成');
-    },
 
-    onGradingComplete() {
-        console.log('[慧学星] 本轮批改完成');
-    },
 };
 
 // 注册适配器

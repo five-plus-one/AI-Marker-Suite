@@ -329,22 +329,6 @@ const Xueba54Adapter = {
     },
 
     // 页面加载后设置 z-index，解决 layui-layer 遮挡问题
-    onPageLoad() {
-        const style = document.createElement('style');
-        style.id = 'xueba54-zindex-fix';
-        style.textContent = `
-            /* 提高脚本 UI 的 z-index，避免被 layui-layer 遮挡 */
-            .ai-grade-btn, .ai-history-btn, .ai-settings-btn,
-            .ai-toast, #ai-history-panel, #ai-grading-settings,
-            .ai-modal-overlay, #correction-panel,
-            #auto-submit-dialog, #asd-minimized-bar,
-            #ai-stream-container, #ai-history-overlay {
-                z-index: 19999999 !important;
-            }
-        `;
-        document.head.appendChild(style);
-        console.log('[54学霸] 已注入 z-index 修复样式');
-    },
 };
 
 // 注册适配器
