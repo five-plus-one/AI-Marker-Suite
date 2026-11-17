@@ -150,3 +150,14 @@ test('享尚学取消后的迟到响应不续改，读取失败仍保留原生�
     let errors = 0; h.w.jQuery.ajax({ url: 'lyGetData.aspx?action=GetPaperInfo', data: {}, error() { errors++; } });
     assert.equal(h.a.isMarkingPage(), false); h.pending().error(); assert.equal(errors, 1); assert.equal(h.a.isMarkingPage(), true);
 });
+
+test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
+    const e = setup(), a = e.a;
+    await a.prepareGrading?.();
+    await a.gatherAnswerImages();
+    const fields = a.getScoreInputs(), before = fields.map(unit => unit.element.value);
+    assert.ok(fields.length > 0);
+    assert.equal(a.fillScores(Array(fields.length)), false);
+    assert.deepEqual(fields.map(unit => unit.element.value), before);
+    assert.equal(await a.submitGrade(), false);
+});

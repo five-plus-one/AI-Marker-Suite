@@ -139,3 +139,14 @@ for (const host of ['hx-webscan.tyhuixue.com', 'hx-webscan.hzjy.edu.cn']) {
         assert.equal(await h.a.waitForNextPaper('', { taskId: 'other' }), false);
     });
 }
+
+test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
+    const e = setup(), a = e.a;
+    await a.prepareGrading?.();
+    await a.gatherAnswerImages();
+    const fields = a.getScoreInputs(), before = fields.map(unit => unit.element.value);
+    assert.ok(fields.length > 0);
+    assert.equal(a.fillScores(Array(fields.length)), false);
+    assert.deepEqual(fields.map(unit => unit.element.value), before);
+    assert.equal(await a.submitGrade(), false);
+});

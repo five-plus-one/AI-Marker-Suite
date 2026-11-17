@@ -140,7 +140,7 @@ const LeascentAdapter = {
         this._filled = null;
         const s = this._state();
         if (this._submitting || !s || !this._same(this._verified, s) || !Array.isArray(values)
-            || values.length !== s.inputs.length || values.some((v, i) => typeof v !== 'number' || !Number.isFinite(v)
+            || values.length !== s.inputs.length || Array.from(values).some((v, i) => typeof v !== 'number' || !Number.isFinite(v)
                 || v < 0 || v > s.inputs[i].maxScore || (s.inputs[i].flag === '2'
                     ? !s.inputs[i].options.includes(v) : !Number.isInteger(v / s.inputs[i].roundStep)))) return false;
         const setter = Object.getOwnPropertyDescriptor(s.w.HTMLInputElement.prototype, 'value').set;

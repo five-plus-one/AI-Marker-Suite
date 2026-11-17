@@ -66,3 +66,14 @@ test('read receipt must match native key, image, dimensions and task',()=>{const
 test('next paper requires saved response and stable changed key',async()=>{const s=setup();await fill(s);assert.equal(await s.a.waitForNextPaper(),false);assert.equal(await s.a.submitGrade(),true);assert.equal(await s.a.waitForNextPaper(),false);s.w.pageKey='fixture-2';assert.equal(await s.a.waitForNextPaper(),true);assert.equal(await s.a.waitForNextPaper(null,{paperId:'wrong'}),false);});
 test('multiple native images preserve order and must all finish loading',async()=>{const s=setup();s.images.push({...s.images[0],src:s.images[0].src.replace('fixture-1','fixture-2')});s.w.pagePaperBasicSize.push({width:300,height:80});const urls=await s.a.gatherAnswerImages();assert.equal(urls.length,2);assert.ok(urls[0].includes('fixture-1'));assert.ok(urls[1].includes('fixture-2'));s.images[1].complete=false;assert.equal(s.a.getPaperIdentity(),null);});
 test('detached download verifies paper before and after image transfer',async()=>{const s=setup();let urls=await s.a.gatherAnswerImages();assert.equal(await s.a.fetchImageAsBase64(urls[0]),'base64');const t=setup({onFetch:w=>{w.pageKey='other';}});urls=await t.a.gatherAnswerImages();const detached=t.a.fetchImageAsBase64;await assert.rejects(detached(urls[0]),/答卷已切换/);});
+
+test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
+    const e = setup(), a = e.a;
+    await a.prepareGrading?.();
+    await a.gatherAnswerImages();
+    const fields = a.getScoreInputs(), before = fields.map(unit => unit.element.value);
+    assert.ok(fields.length > 0);
+    assert.equal(a.fillScores(Array(fields.length)), false);
+    assert.deepEqual(fields.map(unit => unit.element.value), before);
+    assert.equal(await a.submitGrade(), false);
+});
