@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.25.7',
+    VERSION: '1.21.25.8',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.25.8': [
+            '【新功能】可保存无法辨认答卷的原图与评分方案，在历史中交由教师复核',
+        ],
         '1.21.25.7': [
             '【优化】平台初始化由注册入口明确执行，保留现有阅卷设置',
         ],

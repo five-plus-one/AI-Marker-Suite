@@ -154,6 +154,8 @@ function requireGradingEvidence(result, scores = [result?.score]) {
     if (message) {
         const error = new Error(message);
         error.code = 'GRADING_EVIDENCE_REVIEW';
+        error.answerStatus = status;
+        error.gradingResult = result;
         throw error;
     }
 }
@@ -166,6 +168,44 @@ function requireCompatibleGradingEvidence(resultA, resultB) {
         const error = new Error('两次识别对本卷是否作答存在分歧，请核对原图后评分');
         error.code = 'GRADING_EVIDENCE_REVIEW';
         throw error;
+    }
+}
+
+function isAnswerReviewEnabled(config) {
+    return config?.answerReview?.enabled === true;
+}
+
+function getPendingReviewLimit(config) {
+    const limit = config?.answerReview?.maxPending;
+    return Number.isInteger(limit) && limit >= 1 && limit <= 50 ? limit : 5;
+}
+
+async function requestGradingWithRecognitionRetry(context, request) {
+    const enabled = isAnswerReviewEnabled(context.configuration);
+    if (enabled && HistoryManager.getPendingReviewCount() >= getPendingReviewLimit(context.configuration)) {
+        throw new Error('待复核记录已达到允许数量，请先完成复核');
+    }
+    const retry = enabled && window.aiGradingState.gradingMode === 'unattended';
+    for (let attempt = 0; ; attempt++) {
+        requireCurrentGradingContext(context);
+        if (attempt) await verifyGradingContext(context);
+        try {
+            const result = await request();
+            requireCurrentGradingContext(context);
+            requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+            return result;
+        } catch (error) {
+            requireCurrentGradingContext(context);
+            if (error.code !== 'GRADING_EVIDENCE_REVIEW' || error.answerStatus !== 'unreadable') throw error;
+            window.aiGradingState.currentStudentAnswer = error.gradingResult?.studentAnswer || '无法辨认';
+            if (retry && attempt === 0) continue;
+            if (enabled) {
+                await HistoryManager.savePendingReview(context, error.gradingResult);
+                requireCurrentGradingContext(context);
+                error.message = '本卷需要教师评分，原图与评分方案已保存到评阅历史的待复核记录';
+            }
+            throw error;
+        }
     }
 }
 

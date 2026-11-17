@@ -516,13 +516,13 @@ async function startAutoGrading() {
         const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
             signal: runContext.controller.signal,
             imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
-        const result = isDualEval
+        const result = await requestGradingWithRecognitionRetry(runContext, async () => isDualEval
             ? await callDualEvaluation(base64DataArray, gradingConfig, (streamedText) => {
                 if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
             })
             : await callAIGrading(base64DataArray, gradingConfig, (streamedText) => {
                 if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
-            });
+            }));
 
         requireCurrentGradingContext(runContext);
         hideStreamPanel();

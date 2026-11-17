@@ -797,6 +797,11 @@ function createSettingsPanel(options) {
                         <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
                             <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
                         <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-review-enabled"><label for="answer-review-enabled">保存无法辨认答卷供复核 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">默认关闭。开启后，无人模式对无法辨认的答卷重试一次，仍无法辨认则保存原图与评分方案并暂停，由教师核对评分。普通与试改模式直接保存后暂停。</div>
+                        <div class="form-group" style="margin-top:12px;"><label for="unattended-review-limit">允许待复核数量</label>
+                            <input type="number" id="unattended-review-limit" min="1" max="50" step="1" value="5" disabled></div>
+                        <div class="mode-desc">达到允许数量后先完成复核，再开始下一份。原图保留到完成复核；单份答卷与总图片缓存空间不足时会提示处理。</div>
                         <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
                     </div>
                 </div>
@@ -1439,6 +1444,9 @@ function createSettingsPanel(options) {
         input.addEventListener('input', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
         input.addEventListener('change', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
     });
+    panel.querySelector('#answer-review-enabled').addEventListener('change', function () {
+        panel.querySelector('#unattended-review-limit').disabled = !this.checked;
+    });
 
     // API 密钥实时监听：输入变化时更新警告状态
     const apiKeyInput = panel.querySelector('#api-key');
@@ -1997,6 +2005,10 @@ function fillFormFromActivePreset() {
     if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
     const retryTimeoutInput = document.getElementById('retry-on-timeout');
     if (retryTimeoutInput) retryTimeoutInput.checked = retryPolicyCfg.retryOnTimeout !== false;
+    const reviewLimitInput = document.getElementById('unattended-review-limit');
+    const answerReviewInput = document.getElementById('answer-review-enabled');
+    if (answerReviewInput) answerReviewInput.checked = isAnswerReviewEnabled(config);
+    if (reviewLimitInput) { reviewLimitInput.value = getPendingReviewLimit(config); reviewLimitInput.disabled = !isAnswerReviewEnabled(config); }
 
     document.getElementById('bind-url-checkbox').checked = (PresetManager.data.bindings[currentUrlId] === PresetManager.data.active);
 
@@ -2938,6 +2950,9 @@ function saveAISettings() {
     // 保存自动重试配置
     const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
+    const reviewLimitText = document.getElementById('unattended-review-limit')?.value?.trim();
+    const reviewLimitValue = reviewLimitText ? Number(reviewLimitText) : NaN;
+    const reviewLimit = Number.isInteger(reviewLimitValue) && reviewLimitValue >= 1 && reviewLimitValue <= 50 ? reviewLimitValue : 5;
 
     // 保存空白答题卡检测配置
     const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
@@ -2990,6 +3005,7 @@ function saveAISettings() {
         },
         paperGuard: { enabled: paperGuardEnabled },
         questionGuard: { enabled: questionGuardEnabled },
+        answerReview: { enabled: document.getElementById('answer-review-enabled')?.checked === true, maxPending: reviewLimit },
         outputMode: outputMode,
         retryPolicy: {
             maxRetries: retryMaxRetries,
