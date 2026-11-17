@@ -52,6 +52,7 @@ const CORE_MODULES = [
     'config.js',
     'state.js',
     'runtime.js',
+    'marking-paper.js',
     'preset.js',
     'score.js',           // ScoreCalculator (需在 prompt.js 之前)
     'ui-toast.js',

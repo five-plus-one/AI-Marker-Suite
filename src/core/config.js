@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.26.0',
+    VERSION: '1.21.27.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.27': [
+            '【修复】鑫考云阅多小题给分后定位最后一题，通过原站确认提交',
+            '【修复】云阅卷与鑫考系列连续批改核对完整新答卷，支持停止等待',
+        ],
         '1.21.26': [
             "【新平台】支持文通云普通单题一键给分，核对当前答卷并确认保存结果",
             "【新平台】支持小闲 AI 普通单题键盘给分，按本题满分、分值和步进评分",
