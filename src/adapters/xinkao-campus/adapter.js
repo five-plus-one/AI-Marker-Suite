@@ -75,27 +75,16 @@ const XinkaoCampusAdapter = {
         return window.location.pathname;
     },
 
+    _paperSnapshot() {
+        return MarkingPaper.snapshot(XINKAO_CAMPUS_SELECTORS.ANSWER_IMAGE);
+    },
+
+    getPaperIdentity() {
+        return this._paperSnapshot().identity;
+    },
+
     async gatherAnswerImages() {
-        // 换卷时 src 的 examcode/picName/path token 变化，等 naturalWidth>0 避免抓到未加载图
-        for (let i = 0; i < 12; i++) {
-            const imgs = document.querySelectorAll(XINKAO_CAMPUS_SELECTORS.ANSWER_IMAGE);
-            const loaded = Array.from(imgs).filter(img => img.src && img.src.startsWith('http') && img.naturalWidth > 0);
-            if (loaded.length > 0) {
-                console.log(`[鑫考校园] 找到答题卡 ${loaded.length} 张`);
-                return [...new Set(loaded.map(img => img.src))];
-            }
-            await new Promise(r => setTimeout(r, 250));
-        }
-        // 兜底：不要求 naturalWidth
-        const fallback = Array.from(document.querySelectorAll(XINKAO_CAMPUS_SELECTORS.ANSWER_IMAGE))
-            .map(img => img.src)
-            .filter(src => src && src.startsWith('http'));
-        if (fallback.length > 0) {
-            console.log('[鑫考校园] 兜底取图');
-            return [...new Set(fallback)];
-        }
-        console.warn('[鑫考校园] 未找到答题卡图片');
-        return [];
+        return MarkingPaper.gather(this);
     },
 
     async fetchImageAsBase64(url) {
@@ -163,82 +152,13 @@ const XinkaoCampusAdapter = {
         return true;
     },
 
-    submitGrade() {
-        // 先 focus 最后一个分数输入框，触发 fenshuFocus 设置全局 o（inputkey 内部用 var obj=o 读当前输入）
-        const fenEls = document.querySelectorAll(XINKAO_CAMPUS_SELECTORS.SCORE_INPUTS);
-        const lastInput = fenEls[fenEls.length - 1];
-        if (lastInput) {
-            try { lastInput.focus(); } catch (e) { /* ignore */ }
-        }
-
-        // 调平台 inputkey(']')：校验分数 → 最后一个小题时内部调 submit() 交卷并自动换卷
-        try {
-            const pageWindow = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
-            if (typeof pageWindow.inputkey === 'function') {
-                console.log('[鑫考校园] 调用 inputkey("]") 提交');
-                pageWindow.inputkey(']');
-                return true;
-            }
-        } catch (e) {
-            console.warn('[鑫考校园] inputkey 调用失败:', e.message);
-        }
-
-        console.warn('[鑫考校园] 未找到 inputkey 函数');
-        return false;
+    submitGrade(options = {}) {
+        const submitButton = null;
+        return MarkingPaper.submit(this, submitButton, options);
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        // 换卷信号：img.teaimg 的 src 中 examcode/picName/path token 变化（submit() → get_paper() → getpic() 更新）
-        const oldToken = oldImageUrl ? this._imgToken(oldImageUrl) : (this._currentImgToken() || '');
-        let checkTimes = 0;
-
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                checkTimes++;
-
-                // 信号1：图片 token 变化（换卷）
-                const curToken = this._currentImgToken();
-                if (oldToken && curToken && curToken !== oldToken) {
-                    const img = document.querySelector(XINKAO_CAMPUS_SELECTORS.ANSWER_IMAGE);
-                    if (img && img.naturalWidth > 0) {
-                        clearInterval(timer);
-                        console.log('[鑫考校园] 新试卷已加载（图片 token 变化）');
-                        resolve(true);
-                        return;
-                    }
-                }
-
-                // 信号2：全局 examcode 变化（换学生卷）
-                if (window.examcode && this._oldExamcode && window.examcode !== this._oldExamcode && checkTimes > 2) {
-                    clearInterval(timer);
-                    console.log('[鑫考校园] 新试卷已加载（examcode 变化）');
-                    resolve(true);
-                    return;
-                }
-
-                if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
-                    clearInterval(timer);
-                    console.warn('[鑫考校园] 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 200);
-            this._oldExamcode = window.examcode || '';
-        });
-    },
-
-    _imgToken(url) {
-        try {
-            const u = new URL(url, location.href);
-            // path token 是换卷主信号，examcode/picName 也随换卷变化
-            return [u.searchParams.get('examcode'), u.searchParams.get('picName'), u.searchParams.get('path')].join('|');
-        } catch (e) {
-            return '';
-        }
-    },
-
-    _currentImgToken() {
-        const img = document.querySelector(XINKAO_CAMPUS_SELECTORS.ANSWER_IMAGE);
-        return img ? this._imgToken(img.src) : '';
+    async waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.wait(this, oldImageUrl, context);
     },
 
     isRegradeMode() {
