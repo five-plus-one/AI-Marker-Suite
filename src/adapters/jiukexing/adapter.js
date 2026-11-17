@@ -319,23 +319,6 @@ const JiukexingAdapter = {
     detectSubQuestions() { return []; },
 
     // 页面加载后设置 z-index，解决 Vue 组件遮挡问题
-    onPageLoad() {
-        if (document.getElementById('jiukexing-zindex-fix')) return;
-        const style = document.createElement('style');
-        style.id = 'jiukexing-zindex-fix';
-        style.textContent = `
-            /* 提高脚本 UI 的 z-index，避免被九科星平台元素遮挡 */
-            .ai-grade-btn, .ai-history-btn, .ai-settings-btn,
-            .ai-toast, #ai-history-panel, #ai-grading-settings,
-            .ai-modal-overlay, #correction-panel,
-            #auto-submit-dialog, #asd-minimized-bar,
-            #ai-stream-container, #ai-history-overlay {
-                z-index: 2147483640 !important;
-            }
-        `;
-        document.head.appendChild(style);
-        console.log('[九科星] 已注入 z-index 修复样式');
-    },
 };
 
 // 注册适配器

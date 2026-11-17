@@ -204,13 +204,7 @@ const XfkjAdapter = {
         return !!(el && el.getClientRects().length > 0);
     },
 
-    onPageLoad() {
-        console.log('🚀 [诊断] 小帆智能阅卷 — 页面加载完成');
-    },
 
-    onGradingComplete() {
-        console.log('✅ [诊断] 小帆智能阅卷 — 本轮批改完成');
-    },
 };
 
 // 注册适配器

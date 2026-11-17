@@ -269,13 +269,7 @@ const YuejuanAdapter = {
         return img ? img.src : '';
     },
 
-    onPageLoad() {
-        console.log('🚀 [诊断] 正确阅卷 — 页面加载完成');
-    },
 
-    onGradingComplete() {
-        console.log('✅ [诊断] 正确阅卷 — 本轮批改完成');
-    },
 };
 
 // 注册守卫（#324 教训 + strict-a 附 A.0）：自查 shouldInitialize → 先到先得（不覆盖）→

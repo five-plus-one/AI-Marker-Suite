@@ -678,7 +678,10 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         if (maxTokens !== null) requestBody.max_tokens = maxTokens;
 
         // 如果配置了思考链深度，添加 reasoning_effort 参数
-        if (config.reasoningEffort) {
+        if (config.reasoningEffort === 'disabled') {
+            if (!/^ling(?:-|$)/i.test(config.model || '')) return reject(new Error('关闭长思考选项目前仅支持 Ling 模型'));
+            requestBody.thinking = { type: 'disabled' };
+        } else if (config.reasoningEffort) {
             requestBody.reasoning_effort = config.reasoningEffort;
         }
 
@@ -694,6 +697,13 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         let streamError = null;
         let streamDone = false;
         let sawSSE = false;
+        let parsedResponseLength = 0;
+
+        function consumeResponse(responseText, final = false) {
+            parseSSEBuffer(responseText.slice(parsedResponseLength));
+            parsedResponseLength = responseText.length;
+            if (final && buffer.trim()) parseSSEBuffer('\n');
+        }
 
         function parseSSEBuffer(chunk) {
             buffer += chunk;
@@ -737,9 +747,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     if (progressCallCount === 1) {
                         console.log('✅ [诊断] onprogress 已触发，当前环境支持流式输出');
                     }
-                    fullText = '';
-                    buffer = '';
-                    parseSSEBuffer(res.responseText);
+                    if (!settled && !signal?.aborted) consumeResponse(res.responseText);
                 }
             },
             onload: function(res) {
@@ -776,13 +784,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     return reject(error);
                 }
 
-                fullText = '';
-                buffer = '';
-                finishReason = null;
-                streamDone = false;
-                sawSSE = false;
-                reasoningChars = 0;
-                parseSSEBuffer(responseText);
+                consumeResponse(responseText, true);
 
                 if (!fullText && responseText) {
                     console.log('📝 [诊断] SSE解析无结果，尝试解析为普通JSON响应...');

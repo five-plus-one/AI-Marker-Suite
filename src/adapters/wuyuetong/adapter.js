@@ -206,13 +206,6 @@ const WuyuetongAdapter = {
                 return true;
             }
 
-            // 检查分数输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-            const firstInput = document.querySelector(WUYUETONG_SELECTORS.SCORE_INPUT);
-            if (firstInput && String(firstInput.value).trim() === '') {
-                console.log('[威科姆] 检测到输入框已清空');
-                return true;
-            }
-
             await new Promise(r => setTimeout(r, interval));
         }
 
@@ -251,27 +244,6 @@ const WuyuetongAdapter = {
         }
     },
 
-    onPageLoad() {
-        // 确保键盘打分模式
-        this._ensureKeyboardMode();
-
-        // 注入 z-index 修复样式
-        const style = document.createElement('style');
-        style.id = 'wuyuetong-zindex-fix';
-        style.textContent = `
-            /* 提高脚本 UI 的 z-index，避免被威科姆平台元素遮挡 */
-            .ai-grade-btn, .ai-history-btn, .ai-settings-btn,
-            .ai-toast, #ai-history-panel, #ai-grading-settings,
-            .ai-modal-overlay, #correction-panel,
-            #auto-submit-dialog, #asd-minimized-bar,
-            #ai-stream-container, #ai-history-overlay,
-            #ai-stream-panel {
-                z-index: 2147483640 !important;
-            }
-        `;
-        document.head.appendChild(style);
-        console.log('[威科姆] 已注入 z-index 修复样式');
-    },
 };
 
 // 注册适配器

@@ -185,3 +185,14 @@ test('下一卷必须具备新业务身份与已就绪图像，任务变化和�
     s.image.complete = true; s.sb.CurrPaper.QuesID = 12; assert.equal(await s.a.waitForNextPaper(), false);
     assert.equal(await s.a.waitForNextPaper(null, { signal: { aborted: true } }), false);
 });
+
+test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
+    const e = setup(), a = e.a;
+    await a.prepareGrading?.();
+    await a.gatherAnswerImages();
+    const fields = a.getScoreInputs(), before = fields.map(unit => unit.element.value);
+    assert.ok(fields.length > 0);
+    assert.equal(a.fillScores(Array(fields.length)), false);
+    assert.deepEqual(fields.map(unit => unit.element.value), before);
+    assert.equal(await a.submitGrade(), false);
+});

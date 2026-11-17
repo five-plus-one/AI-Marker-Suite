@@ -302,17 +302,9 @@ const Xueba54Adapter = {
                     }
                 }
 
-                // 检查分数输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-                const firstInput = document.querySelector(XUEBA54_SELECTORS.SCORE_INPUT_BY_INDEX(0));
-                const inputCleared = firstInput && String(firstInput.value).trim() === '';
-
                 if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
                     clearInterval(timer);
                     console.log('[54学霸] 检测到图片变化');
-                    resolve(true);
-                } else if (inputCleared && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('[54学霸] 检测到输入框已清空');
                     resolve(true);
                 } else if (checkTimes > maxChecks) {
                     clearInterval(timer);
@@ -337,22 +329,6 @@ const Xueba54Adapter = {
     },
 
     // 页面加载后设置 z-index，解决 layui-layer 遮挡问题
-    onPageLoad() {
-        const style = document.createElement('style');
-        style.id = 'xueba54-zindex-fix';
-        style.textContent = `
-            /* 提高脚本 UI 的 z-index，避免被 layui-layer 遮挡 */
-            .ai-grade-btn, .ai-history-btn, .ai-settings-btn,
-            .ai-toast, #ai-history-panel, #ai-grading-settings,
-            .ai-modal-overlay, #correction-panel,
-            #auto-submit-dialog, #asd-minimized-bar,
-            #ai-stream-container, #ai-history-overlay {
-                z-index: 19999999 !important;
-            }
-        `;
-        document.head.appendChild(style);
-        console.log('[54学霸] 已注入 z-index 修复样式');
-    },
 };
 
 // 注册适配器

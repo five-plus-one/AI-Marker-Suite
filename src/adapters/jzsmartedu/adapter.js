@@ -116,9 +116,6 @@ const JzsmarteduAdapter = {
             || Math.abs(score / unit.step - Math.round(score / unit.step)) < 1e-7;
     },
     _notify(message) { if (typeof showToast === 'function') showToast(message); },
-    onPageLoad() {
-        if (this._state()?.vm.autoSubmit) this._notify('请先关闭阅卷平台的自动提交');
-    },
     _scoreButton(state, unit, score) {
         const selector = score === 0 || score === unit.maxScore ? '.score-0-full button' : '.score-collapse .score-btn button';
         const text = score === 0 ? '零分' : score === unit.maxScore ? '满分' : String(score);

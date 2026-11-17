@@ -62,3 +62,14 @@ test('next paper requires saved receipt, changed business identity and stable im
 test('step scoring preserves unit order and validates each maximum',async()=>{const s=setup();s.w.currentItem.stepSet='a:2,b:3';s.inputs.splice(0,1,new s.w.HTMLInputElement(2),new s.w.HTMLInputElement(3));await s.a.gatherAnswerImages();assert.equal(s.a.fillScores([3,2]),false);assert.equal(s.a.fillScores([2,3]),true);assert.equal(await s.a.submitGrade(),true);assert.equal(s.sent().stepScore,'2,3');assert.equal(s.sent().score,5);});
 test('multiple native crops preserve page order and validate layout',async()=>{const s=setup();s.w.currentItem.rect='0-0-0-50-30,1-0-0-50-20';s.img.naturalWidth=50;s.img.naturalHeight=50;const urls=await s.a.gatherAnswerImages();assert.equal(urls.length,2);assert.ok(urls[0].includes('/0.tif?'));assert.ok(urls[1].includes('/1.tif?'));s.img.naturalHeight=30;assert.equal(s.a.getPaperIdentity(),null);});
 
+
+test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
+    const e = setup(), a = e.a;
+    await a.prepareGrading?.();
+    await a.gatherAnswerImages();
+    const fields = a.getScoreInputs(), before = fields.map(unit => unit.element.value);
+    assert.ok(fields.length > 0);
+    assert.equal(a.fillScores(Array(fields.length)), false);
+    assert.deepEqual(fields.map(unit => unit.element.value), before);
+    assert.equal(await a.submitGrade(), false);
+});

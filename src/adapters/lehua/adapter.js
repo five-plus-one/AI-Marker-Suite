@@ -347,13 +347,7 @@ const LehuaAdapter = {
         return [];
     },
 
-    onPageLoad() {
-        console.log('🚀 [诊断] 乐华阅卷 — 页面加载完成');
-    },
 
-    onGradingComplete() {
-        console.log('✅ [诊断] 乐华阅卷 — 本轮批改完成');
-    },
 };
 
 // 注册适配器
