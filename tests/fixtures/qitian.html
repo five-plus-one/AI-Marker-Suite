@@ -52,6 +52,18 @@
         document.getElementById('tbs2').addEventListener('input', event => { event.target.value = '7'; });
         check(!adapter.fillScores([6,8]), '页面改写后失败');
         check(submissions === 0, '检测与填分不触发快捷提交');
+        host.innerHTML = row(1, '第15题', 14); scoring = { maxScore: 14 };
+        check(adapter.fillScores([2,2,2,2,2,2,2]), '准备14分保存');
+        check(await adapter.submitGrade() && nativeSaves === 1, '匹配原生请求和成功回执');
+        check(!await adapter.submitGrade() && submissions === 1, '同卷重复点击不重复提交');
+        check(adapter.fillScores([0]), '准备零分保存');
+        saveCase = 'failure';
+        check(!await adapter.submitGrade() && nativeSaves === 1, '保存失败不登记成功');
+        check(adapter.fillScores([2]), '准备取消');
+        const cancelled = new AbortController(); cancelled.abort();
+        check(!await adapter.submitGrade({ signal: cancelled.signal }) && submissions === 2, '取消后不发起提交');
+        document.querySelector('#paperImage img').src = '/__fixture/answer.svg?paper=B';
+        check(!await adapter.submitGrade() && submissions === 2, '换卷后不提交旧分');
         document.getElementById('status').textContent = '已完成题号、满分和小题汇总核对';
         document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, passed:true, width:innerWidth, checks }))));
     } catch(error) {

@@ -99,6 +99,7 @@ const QitianAdapter = {
     },
 
     async submitGrade(guard = {}) {
+        if (this._submitting) return false;
         this.lastSubmitError = '';
         const pending = this._filled;
         if (guard.signal?.aborted || guard.isCurrent?.() === false || !pending
@@ -108,13 +109,68 @@ const QitianAdapter = {
             return false;
         }
         const submitBtn = document.querySelector(QITIAN_SELECTORS.SUBMIT_BUTTON);
-        this._filled = null;
-        if (!submitBtn || submitBtn.disabled || !submitBtn.getClientRects().length) {
-            this.lastSubmitError = '提交按钮暂时不可用，请检查阅卷页面';
-            return false;
+        if (submitBtn && !submitBtn.disabled && submitBtn.getClientRects().length) {
+            const pageWindow = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
+            const proto = pageWindow.XMLHttpRequest?.prototype;
+            if (!proto) { this._filled = null; this.lastSubmitError = '暂时无法确认保存结果，请人工核对本卷'; return false; }
+            this._submitting = true;
+            try {
+                return await new Promise(resolve => {
+                    const originalOpen = proto.open, originalSend = proto.send, candidates = new WeakSet();
+                    let finished = false, observed = null;
+                    const finish = ok => {
+                        if (finished) return;
+                        finished = true; clearTimeout(timer);
+                        if (proto.open === open) proto.open = originalOpen;
+                        if (proto.send === send) proto.send = originalSend;
+                        guard.signal?.removeEventListener('abort', cancelled);
+                        if (observed) for (const type of ['load', 'error', 'abort', 'timeout']) observed.removeEventListener(type, response);
+                        this._filled = null;
+                        if (!ok) this.lastSubmitError = '本卷保存结果尚未确认，请在七天页面核对后继续';
+                        resolve(ok);
+                    };
+                    const cancelled = () => finish(false);
+                    const response = event => {
+                        // 原站 URI 的成功协议为 +OK；HTTP 200 的错误页或 -ERR 不是保存成功。
+                        finish(event.type === 'load' && observed.status >= 200 && observed.status < 300
+                            && /^\+OK(?:\s|$)/.test(observed.responseText || '') && !guard.signal?.aborted
+                            && guard.isCurrent?.() !== false);
+                    };
+                    const open = function(method, url, ...rest) {
+                        candidates.delete(this);
+                        try {
+                            const parsed = new URL(url, window.location.href);
+                            if (String(method).toUpperCase() === 'POST' && parsed.origin === window.location.origin
+                                && /^\/review\/guid\/?$/i.test(parsed.pathname)) candidates.add(this);
+                        } catch (_) { /* 不接管其他请求 */ }
+                        return originalOpen.call(this, method, url, ...rest);
+                    };
+                    const adapter = this;
+                    const send = function(body) {
+                        if (!finished && candidates.has(this)) {
+                            const submitted = new URLSearchParams(typeof body === 'string' ? body : '').get('score');
+                            if (observed || submitted !== pending.values.join(';') || guard.signal?.aborted
+                                || guard.isCurrent?.() === false || !adapter._scoreReceiptCurrent(pending)) {
+                                finish(false); return;
+                            }
+                            observed = this;
+                            for (const type of ['load', 'error', 'abort', 'timeout']) this.addEventListener(type, response);
+                        }
+                        return originalSend.call(this, body);
+                    };
+                    const timer = setTimeout(() => finish(false), 25000);
+                    proto.open = open; proto.send = send;
+                    guard.signal?.addEventListener('abort', cancelled, { once: true });
+                    if (guard.signal?.aborted || guard.isCurrent?.() === false) { finish(false); return; }
+                    console.log('✅ [诊断] 七天网络 — 点击提交按钮并等待原生保存回执');
+                    try { submitBtn.click(); } catch (_) { finish(false); }
+                });
+            } finally { this._submitting = false; }
         }
-        try { submitBtn.click(); return true; }
-        catch (_) { this.lastSubmitError = '提交操作未完成，请核对当前答卷'; return false; }
+        this.lastSubmitError = '提交按钮暂时不可用，请检查阅卷页面';
+        this._filled = null;
+        console.warn('⚠️ [诊断] 未找到提交按钮 #subfen');
+        return false;
     },
 
     async waitForNextPaper(oldImageUrl) {

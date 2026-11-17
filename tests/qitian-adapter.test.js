@@ -224,6 +224,49 @@ test('七天填分事件中换卷时立即停止后续事件和后续评分框',
     assert.equal(await e.adapter.submitGrade(), false);
 });
 
+test('七天保存核对原生请求分数与服务端成功回执并恢复请求方法', async () => {
+    for (const [body, code, event, expected] of [
+        ['+OK saved', 200, 'load', true], ['-ERR refused', 200, 'load', false],
+        ['<html>login</html>', 200, 'load', false], ['+OK saved', 500, 'load', false],
+        ['+OK saved', 200, 'error', false], ['+OK saved', 200, 'timeout', false]]) {
+        const e = scene(); e.reply(body, code, event); e.adapter.fillScores([2]);
+        assert.equal(await e.adapter.submitGrade(), expected);
+        assert.equal(e.restored(), true);
+        assert.equal(e.adapter._filled, null);
+    }
+    const mismatch = scene(); mismatch.adapter.fillScores([2]); mismatch.requestScores('3');
+    assert.equal(await mismatch.adapter.submitGrade(), false);
+    assert.equal(mismatch.transports.length, 0, '不发送与已确认分数不一致的请求');
+    assert.equal(mismatch.restored(), true);
+    const timeout = scene(); timeout.adapter.fillScores([2]); timeout.button.click = () => {};
+    timeout.sandbox.setTimeout = callback => setTimeout(callback, 5);
+    assert.equal(await timeout.adapter.submitGrade(), false);
+    assert.equal(timeout.restored(), true);
+    const unrelated = scene(); unrelated.adapter.fillScores([2]); unrelated.requestUrl('https://other.test/Review/guid');
+    unrelated.sandbox.setTimeout = callback => setTimeout(callback, 5);
+    assert.equal(await unrelated.adapter.submitGrade(), false);
+    assert.equal(unrelated.transports.length, 1, '其他来源的请求保持原生行为');
+    assert.equal(unrelated.restored(), true);
+});
+
+test('七天等待保存时取消或重复点击均不重复提交', async () => {
+    const e = scene(); e.reply('+OK saved', 200, null); e.adapter.fillScores([2]);
+    const controller = new AbortController();
+    const pending = e.adapter.submitGrade({ signal: controller.signal });
+    assert.equal(await e.adapter.submitGrade(), false);
+    controller.abort();
+    assert.equal(await pending, false);
+    e.respond();
+    assert.equal(e.submissions.length, 1);
+    assert.equal(e.restored(), true);
+    const stale = scene(); stale.reply('+OK saved', 200, null); stale.adapter.fillScores([2]);
+    let current = true;
+    const previous = stale.adapter.submitGrade({ isCurrent: () => current });
+    current = false; stale.respond();
+    assert.equal(await previous, false);
+    assert.equal(stale.restored(), true);
+});
+
 test('七天真实主流程在请求AI前拒绝重复小题与错误总分', async () => {
     const { env, load } = require('./_audit-harness');
     for (const scoring of [{ maxScore: 4 }, { units: [{ label: '3', maxScore: 7 }, { label: '3', maxScore: 7 }] }]) {
