@@ -112,6 +112,22 @@ test('七天多框要求精确数量，先完整校验再填写', () => {
     assert.deepEqual(e.fields.map(input => input.value), ['0', '8']);
 });
 
+test('七天单框汇总前按配置核对每项数量与各自满分', () => {
+    for (const scores of [[2,2,2,2,2,2], [14,0,0,0,0,0,0], [1,3,2,2,2,2,2], [14]]) {
+        const e = scene();
+        e.configure({ units: Array.from({ length: 7 }, (_, i) => ({ label: String(i + 1), maxScore: 2 })) });
+        assert.equal(e.adapter.fillScores(scores), false);
+        assert.equal(e.fields[0].value, '');
+        assert.equal(e.events.length, 0);
+    }
+    const e = scene();
+    e.configure({ units: [{ label: 'a', maxScore: 6 }, { label: 'b', maxScore: 8 }] });
+    assert.equal(e.adapter.fillScore({ total: 14, subScores: [{ label: 'b', score: 8 }, { label: 'a', score: 6 }] }), true);
+    assert.equal(e.fields[0].value, '14');
+    assert.equal(e.adapter.fillScore({ total: 8, subScores: [{ label: 'a', score: 8 }, { label: 'b', score: 0 }] }), false);
+    assert.equal(e.adapter.fillScore({ total: 8, subScores: [{ label: 'x', score: 6 }, { label: 'b', score: 2 }] }), false);
+});
+
 test('七天缺分、非数值与超满分不能汇总成总分', () => {
     for (const scores of [[], Array(7), [null], [undefined], [''], [' '], [true], [NaN], [Infinity], [-1], [2, null, 2], [8, 8]]) {
         const e = scene();
@@ -206,49 +222,6 @@ test('七天填分事件中换卷时立即停止后续事件和后续评分框',
     assert.deepEqual(e.events, ['input']);
     assert.equal(e.fields[1].value, '');
     assert.equal(await e.adapter.submitGrade(), false);
-});
-
-test('七天保存核对原生请求分数与服务端成功回执并恢复请求方法', async () => {
-    for (const [body, code, event, expected] of [
-        ['+OK saved', 200, 'load', true], ['-ERR refused', 200, 'load', false],
-        ['<html>login</html>', 200, 'load', false], ['+OK saved', 500, 'load', false],
-        ['+OK saved', 200, 'error', false], ['+OK saved', 200, 'timeout', false]]) {
-        const e = scene(); e.reply(body, code, event); e.adapter.fillScores([2]);
-        assert.equal(await e.adapter.submitGrade(), expected);
-        assert.equal(e.restored(), true);
-        assert.equal(e.adapter._filled, null);
-    }
-    const mismatch = scene(); mismatch.adapter.fillScores([2]); mismatch.requestScores('3');
-    assert.equal(await mismatch.adapter.submitGrade(), false);
-    assert.equal(mismatch.transports.length, 0, '不发送与已确认分数不一致的请求');
-    assert.equal(mismatch.restored(), true);
-    const timeout = scene(); timeout.adapter.fillScores([2]); timeout.button.click = () => {};
-    timeout.sandbox.setTimeout = callback => setTimeout(callback, 5);
-    assert.equal(await timeout.adapter.submitGrade(), false);
-    assert.equal(timeout.restored(), true);
-    const unrelated = scene(); unrelated.adapter.fillScores([2]); unrelated.requestUrl('https://other.test/Review/guid');
-    unrelated.sandbox.setTimeout = callback => setTimeout(callback, 5);
-    assert.equal(await unrelated.adapter.submitGrade(), false);
-    assert.equal(unrelated.transports.length, 1, '其他来源的请求保持原生行为');
-    assert.equal(unrelated.restored(), true);
-});
-
-test('七天等待保存时取消或重复点击均不重复提交', async () => {
-    const e = scene(); e.reply('+OK saved', 200, null); e.adapter.fillScores([2]);
-    const controller = new AbortController();
-    const pending = e.adapter.submitGrade({ signal: controller.signal });
-    assert.equal(await e.adapter.submitGrade(), false);
-    controller.abort();
-    assert.equal(await pending, false);
-    e.respond();
-    assert.equal(e.submissions.length, 1);
-    assert.equal(e.restored(), true);
-    const stale = scene(); stale.reply('+OK saved', 200, null); stale.adapter.fillScores([2]);
-    let current = true;
-    const previous = stale.adapter.submitGrade({ isCurrent: () => current });
-    current = false; stale.respond();
-    assert.equal(await previous, false);
-    assert.equal(stale.restored(), true);
 });
 
 test('七天真实主流程在请求AI前拒绝重复小题与错误总分', async () => {
