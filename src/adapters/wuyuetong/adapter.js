@@ -206,13 +206,6 @@ const WuyuetongAdapter = {
                 return true;
             }
 
-            // 检查分数输入框是否已清空（仅真清空算空：'0' 是合法分值，0 分卷不能误判翻卷，#285）
-            const firstInput = document.querySelector(WUYUETONG_SELECTORS.SCORE_INPUT);
-            if (firstInput && String(firstInput.value).trim() === '') {
-                console.log('[威科姆] 检测到输入框已清空');
-                return true;
-            }
-
             await new Promise(r => setTimeout(r, interval));
         }
 
