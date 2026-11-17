@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.25.3',
+    VERSION: '1.21.25.4',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.25.4': [
+            '【修复】空白答题卡显示当前作答状态，批改详情与历史保持一致',
+        ],
         '1.21.25.3': [
             '【修复】七天网络确认原生保存回执后记录完成，保存异常时提醒核对',
         ],

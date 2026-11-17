@@ -468,6 +468,7 @@ async function startAutoGrading() {
                         const zeroSubScores = (scoringConfig.units || []).map(u => ({
                             label: u.label, score: 0, maxScore: u.maxScore
                         }));
+                        window.aiGradingState.currentStudentAnswer = '空白答题卡';
                         showAutoSubmitDialog(0, '空白答题卡，自动判0分', zeroSubScores, {
                             runContext,
                             isBlankCard: true,
