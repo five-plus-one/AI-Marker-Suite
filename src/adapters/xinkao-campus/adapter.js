@@ -216,15 +216,6 @@ const XinkaoCampusAdapter = {
                     return;
                 }
 
-                // 信号3：输入框被清空（提交后平台会清空）
-                const input = document.querySelector(XINKAO_CAMPUS_SELECTORS.SCORE_INPUTS);
-                if (input && input.value === '' && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('[鑫考校园] 新试卷已加载（输入框清空）');
-                    resolve(true);
-                    return;
-                }
-
                 if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
                     clearInterval(timer);
                     console.warn('[鑫考校园] 等待下一份试卷超时');

@@ -97,7 +97,7 @@ const YoufenAdapter = {
         const s = this._state();
         const fail = message => { this.lastFillError = message; return false; };
         if (!s || this._imageSnapshot?.identity !== s.identity) return fail('答卷已切换，请重新批改');
-        if (!Array.isArray(scores) || scores.length !== s.units.length || scores.some((n, i) => {
+        if (!Array.isArray(scores) || scores.length !== s.units.length || Array.from(scores).some((n, i) => {
             const u = s.units[i], min = this._number(u.element.dataset.min);
             return typeof n !== 'number' || !Number.isFinite(n) || min === null || n < min || n > u.maxScore
                 || Math.abs(n / u.roundStep - Math.round(n / u.roundStep)) > 1e-7;

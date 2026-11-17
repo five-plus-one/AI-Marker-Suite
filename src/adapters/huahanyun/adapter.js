@@ -262,7 +262,7 @@
             this._wenzhouFill = null;
             const inputs = this.getScoreInputs(), panel = HY_HELPERS.wenzhouBoundPanel();
             if (!panel || !inputs.length || !Array.isArray(scores) || scores.length !== inputs.length) return false;
-            const valid = scores.every((score, i) => (typeof score === 'number' || typeof score === 'string' && score.trim())
+            const valid = Array.from(scores).every((score, i) => (typeof score === 'number' || typeof score === 'string' && score.trim())
                 && Number.isFinite(Number(score)) && Number(score) >= 0 && Number(score) <= inputs[i].maxScore
                 && Math.abs(Number(score) * 100 - Math.round(Number(score) * 100)) < 1e-7
                 && (() => { const allowed = HY_HELPERS.wenzhouStore().state.mark.selectArea[i].markValues;

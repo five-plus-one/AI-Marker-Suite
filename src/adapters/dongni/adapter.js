@@ -302,9 +302,8 @@ const DongniAdapter = {
         return !!document.querySelector('.edit-score-box');
     },
 
-    // 多设备弹窗处理（#329 迁出死钩子）：core 从不调用 onPageLoad（全仓死钩子），
-    // 挂在它上面生产上永不执行——安装主入口移到注册 IIFE，onPageLoad 保留幂等兜底
-    // （将来 core 补调用点也不重复执行）。弹窗可能在注册后才弹出：观察 DOM，出现即处理。
+    // 注册入口安装多设备弹窗处理；重复初始化复用现有观察器。
+    // 弹窗可能在注册后才弹出：观察 DOM，出现即处理。
     // 实测「JS 裸 click 无效」→ 派完整指针事件序列；超时未消失 toast 提示人工关闭。
     // ⚠️ 绝不点「退出其他设备」（会踢教师会话）
     _installMultiDeviceDismissal() {
@@ -376,16 +375,16 @@ const DongniAdapter = {
         } catch (e) { /* 观察失败不阻塞：dismissIfPresent 仍可被调用方触发 */ }
     },
 
-    onPageLoad() {
-        // 幂等兜底（#329）：安装主入口在注册 IIFE，此处仅保证将来 core 补调用点时可安全重入
+    initializePage() {
+        // 注册入口明确初始化，安装过程保持幂等。
         this._installMultiDeviceDismissal();
     },
 };
 
 // 注册守卫（#324 教训：无守卫注册会劫持全平台会话）：
 // shouldInitialize 域名+路径双闸，且不覆盖其他适配器已建立的注册；
-// 初始化副作用放注册处（#329：core 从不调用 onPageLoad，挂死钩子永不执行）
+// 注册时初始化平台并保留其他适配器的注册。
 if (DongniAdapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
-    DongniAdapter._installMultiDeviceDismissal();
+    DongniAdapter.initializePage();
     window.__AI_MARKER_ADAPTER__ = DongniAdapter;
 }

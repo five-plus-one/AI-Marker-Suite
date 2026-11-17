@@ -162,6 +162,13 @@ const PresetManager = {
                     cfg.retryPolicy = { maxRetries: 3, retryOnTimeout: true, retryOnEmpty: true };
                     changed = true;
                 }
+                if (!cfg.answerReview || typeof cfg.answerReview !== 'object' || Array.isArray(cfg.answerReview)) {
+                    cfg.answerReview = { enabled: false, maxPending: 5 };
+                    changed = true;
+                } else {
+                    if (typeof cfg.answerReview.enabled !== 'boolean') { cfg.answerReview.enabled = false; changed = true; }
+                    if (getPendingReviewLimit(cfg) !== cfg.answerReview.maxPending) { cfg.answerReview.maxPending = 5; changed = true; }
+                }
                 // 迁移：答卷校验缺失时补默认开启（不覆盖用户已有配置）
                 if (!cfg.paperGuard) {
                     cfg.paperGuard = { enabled: true };
@@ -406,5 +413,5 @@ const PresetManager = {
 // 更新后配置恢复检测（必须在 init 之前调用）
 if (typeof restoreConfigIfMissing === 'function') restoreConfigIfMissing();
 PresetManager.init();
-// 暴露到 window，供适配器在 onPageLoad 中访问（适配器代码先于核心模块加载）
+// 暴露到 window，供适配器读取当前方案（适配器代码先于核心模块加载）
 window.PresetManager = PresetManager;

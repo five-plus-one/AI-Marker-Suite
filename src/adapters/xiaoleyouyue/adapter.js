@@ -60,7 +60,7 @@ const XiaoleyouyueAdapter = {
                     || Object.entries(pending.route).some(([k, v]) => data.getAll(k).length !== 1 || data.get(k) !== v)
                     || data.getAll('key').length !== 1 || data.getAll('scores').length !== 1 || data.getAll('code').length !== 1
                     || !Array.isArray(scores) || scores.length !== pending.scores.length
-                    || scores.some((s, i) => String(s.id) !== pending.units[i].id || s.score !== pending.scores[i])) {
+                    || scores.some((s, i) => String(s?.id) !== pending.units[i].id || s.score !== pending.scores[i])) {
                     pending.failed = true; xhr.abort(); return;
                 }
                 pending.request = xhr;
@@ -156,7 +156,7 @@ const XiaoleyouyueAdapter = {
         const s = this._state(), w = this._page(), fail = message => { this.lastFillError = message; return false; };
         if (!s || this._imageSnapshot?.identity !== s.identity
             || s.inputs.some((el, i) => el !== this._imageSnapshot.inputs[i])) return fail('答卷已切换，请重新批改');
-        if (!Array.isArray(scores) || scores.length !== s.units.length || scores.some((score, i) => {
+        if (!Array.isArray(scores) || scores.length !== s.units.length || Array.from(scores).some((score, i) => {
             const u = s.units[i];
             return typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > u.max
                 || Math.abs(score * 100 - Math.round(score * 100)) > 1e-7

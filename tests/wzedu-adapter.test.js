@@ -232,7 +232,7 @@ test('温州绑定批阅：题块顺序、满分、零分与小数同步，整�
 test('温州绑定批阅：完整校验评分范围、个数与平台可用分数', () => {
     const f = setup({ bound: true }), a = f.adapter();
     assert.equal(a.fillScores([6, 7]), true);
-    for (const scores of [[], [1], [1, 2, 3], [1, 9], [8, 1], [1, -1], [1, NaN], [null, 1], ['', 1], [true, 1], [1.001, 1]]) {
+    for (const scores of [[], [1], Array(2), [1, ,], [1, 2, 3], [1, 9], [8, 1], [1, -1], [1, NaN], [null, 1], ['', 1], [true, 1], [1.001, 1]]) {
         assert.equal(a.fillScores(scores), false);
         assert.deepEqual(f.models, [6, 7]);
     }

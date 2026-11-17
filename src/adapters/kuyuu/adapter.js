@@ -299,14 +299,6 @@ const KuyuuAdapter = {
                 return true;
             }
 
-            // 兜底：分数输入框已清空（平台加载下一份时清空输入）
-            const firstInput = document.querySelector(KUYUU_SELECTORS.SCORE_INPUT);
-            if (firstInput && firstInput.value === '') {
-                await new Promise(r => setTimeout(r, 300));
-                console.log('[酷鱼网] 检测到输入框已清空');
-                return true;
-            }
-
             await new Promise(r => setTimeout(r, interval));
         }
 
@@ -337,10 +329,6 @@ const KuyuuAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    onPageLoad() {
-        this._ensureKeyboardMode();
-        console.log('[酷鱼网] 适配器已就绪');
-    },
 };
 
 // 注册适配器

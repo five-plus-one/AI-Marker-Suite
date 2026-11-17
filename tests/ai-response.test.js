@@ -62,6 +62,36 @@ function setup(responses, cfg) {
     };
 }
 
+test('Ling 关闭长思考发送 thinking.disabled 并保留输出上限', async () => {
+    const { call, requests } = setup([{ body: event({ delta: { content: '得分：8' }, finish_reason: 'stop' }) }],
+        { ...config, model: 'Ling-3.2-flash', reasoningEffort: 'disabled' });
+    assert.equal(await call(), '得分：8');
+    assert.deepEqual(requests[0].thinking, { type: 'disabled' });
+    assert.equal(Object.hasOwn(requests[0], 'reasoning_effort'), false);
+    assert.equal(requests[0].max_tokens, 2048);
+});
+
+test('非 Ling 模型不发送 Ling 思考参数，错误选择在请求前拒绝', async () => {
+    const body = event({ delta: { content: '得分：8' }, finish_reason: 'stop' });
+    const ordinary = setup([{ body }], { ...config, reasoningEffort: 'minimal' });
+    await ordinary.call();
+    assert.equal(ordinary.requests[0].reasoning_effort, 'minimal');
+    assert.equal(Object.hasOwn(ordinary.requests[0], 'thinking'), false);
+    const invalid = setup([], { ...config, reasoningEffort: 'disabled' });
+    await assert.rejects(invalid.call(), /仅支持 Ling/);
+    assert.equal(invalid.requests.length, 0);
+});
+
+test('累计流只处理新数据，拆分 SSE 行和尾行不重复回调', async () => {
+    const reasoning = event({ delta: { reasoning_content: '核对' }, finish_reason: null });
+    const content = event({ delta: { content: '得分：8' }, finish_reason: null });
+    const end = 'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] });
+    const { call, updates } = setup([{ chunks: [reasoning.slice(0, 12), reasoning.slice(12), content, end] }],
+        { ...config });
+    assert.equal(await call(), '得分：8');
+    assert.deepEqual(updates, ['得分：8']);
+});
+
 test('默认请求携带输出上限并取得思考后的评分正文', async () => {
     const body = event({ delta: { reasoning_content: '思考'.repeat(6000) }, finish_reason: null }) +
         event({ delta: { content: '得分：12' }, finish_reason: null }) +

@@ -106,7 +106,7 @@ const HuixueAdapter = {
         const s = this._state();
         if (!s) return fail('请在普通阅卷页面使用键盘给分，并关闭平台自动提交');
         if (this._imageSnapshot && this._imageSnapshot.identity !== s.identity) return fail('答卷已切换，请重新批改');
-        const values = Array.isArray(scores) ? scores.map(v => this._number(v)) : [];
+        const values = Array.isArray(scores) ? Array.from(scores, v => this._number(v)) : [];
         if (values.length !== s.inputs.length || values.some((v, i) => v === null || !s.task.units[i].allowed.includes(v))) {
             return fail('评分结果不符合本题有效分值，请核对评分方案');
         }

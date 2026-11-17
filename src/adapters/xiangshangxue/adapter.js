@@ -167,7 +167,7 @@ const XiangshangxueAdapter = {
         this._filled = null;
         const s = this._state(), fail = message => { this.lastFillError = message; return false; };
         if (!s || this._imageSnapshot?.identity !== s.identity || s.inputs.some((el, i) => el !== this._imageSnapshot.inputs[i])) return fail('答卷已切换，请重新批改');
-        if (!Array.isArray(scores) || scores.length !== s.units.length || scores.some((n, i) => typeof n !== 'number'
+        if (!Array.isArray(scores) || scores.length !== s.units.length || Array.from(scores).some((n, i) => typeof n !== 'number'
             || !Number.isFinite(n) || n < 0 || n > s.units[i].max || Math.abs(n * 100 - Math.round(n * 100)) > 1e-7
             || s.integer && !Number.isInteger(n) || s.allowed && !s.allowed.includes(n))) return fail('请核对各题的满分和允许分值');
         if (s.page.document.getElementById('autohuiche')?.checked !== false) return fail('请关闭平台自动提交后继续');

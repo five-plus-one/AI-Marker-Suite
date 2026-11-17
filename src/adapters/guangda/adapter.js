@@ -618,28 +618,7 @@ const GuangdaAdapter = {
         return subQuestions;
     },
 
-    onPageLoad() {
-        console.log('🚀 [诊断] 光大阅卷 — 页面加载完成，执行初始化...');
 
-        // 尝试设置一些优化选项
-        try {
-            const painterEl = document.querySelector('#painter');
-            const painterVm = painterEl?.closest('[data-v-]')?.__vue__;
-            if (painterVm) {
-                // 禁用自动提交（如果存在）
-                if ('autoSubmit' in painterVm.$data) {
-                    painterVm.autoSubmit = false;
-                    console.log('📝 [诊断] 已禁用自动提交');
-                }
-            }
-        } catch (e) {
-            // ignore
-        }
-    },
-
-    onGradingComplete() {
-        console.log('✅ [诊断] 光大阅卷 — 本轮批改完成');
-    },
 };
 
 // 注册适配器
