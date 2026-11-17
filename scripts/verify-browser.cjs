@@ -234,6 +234,10 @@ async function connect(url) {
             if (xiaoxianai) url = 'https://ls.xiaoxianai.cn/webPaper/newMarkPaper?run=' + runId + '&mode=' + fixture.slice(11);
             await client.send('Emulation.setFocusEmulationEnabled', { enabled: fixture === 'embedded-ui' });
             navigation++;
+            if (interceptionEnabled && url.startsWith('file:')) {
+                await client.send('Fetch.disable');
+                interceptionEnabled = false;
+            }
             await client.send('Page.navigate', { url });
             let result;
             for (let count = 0; count < (ameqp || zhixue ? 650 : startup ? 400 : 200); count++) {
