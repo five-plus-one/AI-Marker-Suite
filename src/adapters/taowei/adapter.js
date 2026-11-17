@@ -63,18 +63,10 @@ const TaoweiAdapter = {
         }
         return false;
     },
-    _state(allowConfirm = false) {
+    _question(w) {
         try {
-            const w = this._page(), z = w?.zgtxx, r = w?.rwxx, task = this._task(w);
-            if (!task || !r || !this.isMarkingPage() || this._blocked(w, allowConfirm)
-                || w.loadok !== true || w.err || w.sfhp || w.dfms !== '1' || w.tjfsFlag !== true
-                || w.inPyfk || w.inPybz || w.inZdypyPreview
-                || String(w.sfsp) !== '0' || String(z.SFSP) !== '0' || !['1', '2', '3'].includes(String(z.PYCS))
-                || String(z.SFYGMS) !== '0' || String(z.SFFP) !== '0'
-                || String(w.dtkgs) !== '1' || !['0', '1'].includes(String(z.DFBC))
-                || !r.RWID || /^(fp_|jcj_)/.test(String(r.RWID)) || !r.BMH || r.DQPC == null
-                || String(r.PYZT) !== '1' || String(r.ZJBZ) !== '0' || r.PYCJ != null || r.PYSJ != null || r.PYDFD != null || r.HPSJ != null
-                || w.document.querySelector(TAOWEI_SELECTORS.PAPER)?.value !== String(r.BMH)) return null;
+            const z = w?.zgtxx, task = this._task(w);
+            if (!task || !this.isMarkingPage()) return null;
             const labels = String(z.DFDMC).split('|'), maxima = String(z.DFDFS).split('|').map(v => this._number(v));
             if (!Array.isArray(w.dfdmc) || !Array.isArray(w.dfdfs) || labels.length !== Number(z.DFDSL)
                 || labels.some((v, i) => !v || v !== w.dfdmc[i]) || w.dfdmc.length !== labels.length
@@ -84,9 +76,26 @@ const TaoweiAdapter = {
             if (rows.length !== labels.length) return null;
             const inputs = rows.map((row, i) => ({ element: row.querySelector(TAOWEI_SELECTORS.INPUT),
                 label: labels[i], index: i, maxScore: maxima[i], roundStep: String(z.DFBC) === '0' ? this._number(z.DFBCMS) : undefined }));
-            if (inputs.some((u, i) => !this._visible(u.element) || u.element.disabled || u.element.readOnly
+            if (inputs.some((u, i) => !this._visible(u.element)
                 || u.element.id !== `dfd${i}` || rows[i].querySelector(TAOWEI_SELECTORS.LABEL)?.textContent.trim() !== u.label
                 || u.element.placeholder !== `满${w.dfdfs[i]}分`)) return null;
+            return { w, z, task, inputs };
+        } catch (_) { return null; }
+    },
+    _state(allowConfirm = false) {
+        try {
+            const w = this._page(), question = this._question(w), z = w?.zgtxx, r = w?.rwxx, task = question?.task;
+            if (!task || !r || !this.isMarkingPage() || this._blocked(w, allowConfirm)
+                || w.loadok !== true || w.err || w.sfhp || w.dfms !== '1' || w.tjfsFlag !== true
+                || w.inPyfk || w.inPybz || w.inZdypyPreview
+                || String(w.sfsp) !== '0' || String(z.SFSP) !== '0' || !['1', '2', '3'].includes(String(z.PYCS))
+                || String(z.SFYGMS) !== '0' || String(z.SFFP) !== '0'
+                || String(w.dtkgs) !== '1' || !['0', '1'].includes(String(z.DFBC))
+                || !r.RWID || /^(fp_|jcj_)/.test(String(r.RWID)) || !r.BMH || r.DQPC == null
+                || String(r.PYZT) !== '1' || String(r.ZJBZ) !== '0' || r.PYCJ != null || r.PYSJ != null || r.PYDFD != null || r.HPSJ != null
+                || w.document.querySelector(TAOWEI_SELECTORS.PAPER)?.value !== String(r.BMH)) return null;
+            const { inputs } = question;
+            if (inputs.some(u => u.element.disabled || u.element.readOnly)) return null;
             const images = Array.from(w.document.querySelectorAll(TAOWEI_SELECTORS.IMAGES));
             const regions = String(z.TXQY).split(',');
             if (!images.length || images.length !== regions.length || !Array.isArray(w.txqy)
@@ -107,9 +116,9 @@ const TaoweiAdapter = {
                 annotations: Array.from(w.pybz_arr || []).join('|'), identity: JSON.stringify([paper, keys]) };
         } catch (_) { return null; }
     },
-    getPaperIdentity() { return this._state()?.identity || null; },
+    getPaperIdentity() { return this._state(true)?.identity || null; },
     getQuestionContext() {
-        const s = this._state();
+        const s = this._question(this._page());
         return s ? { question: s.z.STMC, units: s.inputs.map(({ label, maxScore }) => ({ label, maxScore })) } : null;
     },
     getScoreInputs() { return this._state()?.inputs || []; },

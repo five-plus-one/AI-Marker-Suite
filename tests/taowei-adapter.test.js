@@ -1,6 +1,26 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fixture = require('./_taowei-fixture.js');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+async function coreGuard(f) {
+    const a = f.adapter;
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/core/runtime.js'), 'utf8'), f.sb);
+    const main = fs.readFileSync(path.join(__dirname, '../src/core/main.js'), 'utf8');
+    vm.runInContext(main.slice(main.indexOf('function normalizePaperImageUrl('), main.indexOf('// 回评图片就绪探测')), f.sb);
+    f.sb.PresetManager = { data: { active: '作文练习' } };
+    const context = { manual: true, adapter: a, controller: new AbortController(), presetName: '作文练习',
+        questionGuardEnabled: true, questionBaseline: f.sb.readGradingQuestionContext(a),
+        taskId: a.getTaskIdentifier(), paperId: a.getPaperIdentity(), paperGuardEnabled: true,
+        imageUrls: await a.gatherAnswerImages(), inputSnapshot: f.fields.map(e => e.value) };
+    f.sb.aiGradingState = { activeRun: context };
+    let verifications = 0;
+    return { context, count: () => verifications, guard: { signal: context.controller.signal,
+        isCurrent: () => { try { f.sb.requireGradingContextTarget(context); return true; } catch { return false; } },
+        verify: async () => { verifications++; await f.sb.verifyGradingContext(context); } } };
+}
 
 test('韬普按实际 iframe 文档识别 2+1 评阅，两页答卷对应一个给分点', async () => {
     const f = fixture(), a = f.adapter;
@@ -92,6 +112,23 @@ test('韬普匹配本卷零分确认按钮，确认后只发送一次原生请�
     const f = fixture(); f.w.tjqqr = true; f.adapter.fillScores([0]);
     assert.equal(await f.adapter.submitGrade(), true); assert.deepEqual(f.attempts, ['submit', 'confirm']);
     assert.equal(new URLSearchParams(f.sent[0]).get('pycj'), '0');
+});
+
+test('韬普原生确认与核心题目、答卷校验联合运行', async () => {
+    const f = fixture(), a = f.adapter, core = await coreGuard(f);
+    f.w.tjqqr = true; assert.equal(a.fillScores([0]), true);
+    assert.equal(await a.submitGrade(core.guard), true);
+    assert.equal(core.count(), 2); assert.deepEqual(f.attempts, ['submit', 'confirm']); assert.equal(f.sent.length, 1);
+});
+
+test('韬普保存回调先清空答卷时仍能确认本次回执，题目信息保持可读', async () => {
+    const f = fixture(), a = f.adapter, core = await coreGuard(f);
+    f.delay(); assert.equal(a.fillScores([30]), true); const pending = a.submitGrade(core.guard);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    f.w.rwxx = null; f.w.loadok = false;
+    assert.equal(a.getScoreInputs().length, 0); assert.equal(a.getQuestionContext().question, '作文');
+    f.last().respond({ res: true }); assert.equal(await pending, true);
+    f.next('paper-B'); assert.equal(await a.waitForNextPaper('', { paperId: core.context.paperId, taskId: core.context.taskId }), true);
 });
 
 test('韬普明确拒绝、错误页、HTTP 错误与不明回执均不登记成功或重试', async () => {
