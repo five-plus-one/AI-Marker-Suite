@@ -183,6 +183,7 @@ function vmRun(sb, code, filename) {
 // 同 bundle 语义：按 build.js 模块序列（selectors+adapter 分列交错）全量加载
 function loadAdapters(sb, opts = {}) {
     const errors = [];
+    runFile(sb, 'src/core/marking-paper.js', opts.mutations, errors);
     for (const mod of loadOrder()) {
         runFile(sb, 'src/' + mod, opts.mutations, errors);
     }
@@ -192,6 +193,7 @@ function loadAdapters(sb, opts = {}) {
 // 单适配器隔离加载（注册层语义）
 function loadOne(sb, dir, opts = {}) {
     const errors = [];
+    runFile(sb, 'src/core/marking-paper.js', opts.mutations, errors);
     const selRel = 'src/adapters/' + dir + '/selectors.js';
     if (fs.existsSync(path.join(ROOT, selRel))) runFile(sb, selRel, opts.mutations, errors);
     runFile(sb, 'src/adapters/' + dir + '/adapter.js', opts.mutations, errors);

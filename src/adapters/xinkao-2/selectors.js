@@ -5,7 +5,7 @@
 
 const XINKAO2_SELECTORS = {
     // 答题卡图片（相对路径 image?type=jpeg&p=TOKEN，需拼绝对 URL）
-    ANSWER_IMAGE: '#pic',
+    ANSWER_IMAGE: '#pic, img.teaimg',
     ANSWER_IMAGE_CLASS: 'img.teaimg',
 
     // 小题分数输入（多小题时多个，id 形如 fenshu0/fenshu1...）
