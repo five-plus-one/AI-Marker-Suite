@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><title>小闲 AI 阅卷验收</title>
+<style>body{font:16px system-ui;margin:24px;color:#253047;background:#f4f6fb}main{padding:20px;background:white;border-radius:12px;max-width:850px}canvas{width:100%;max-width:620px;height:auto;border:1px solid #ddd}input{font-size:20px;width:80px}#submitDiv{margin:16px 0}#submitDiv>div{display:inline-block;padding:10px 24px;background:#1677ff;color:white;cursor:pointer}#status{line-height:1.7}</style>
+<main><h1>小闲 AI 网上阅卷</h1><p>普通单题 · 键盘给分</p><div id="panel"></div><p id="status">正在核对答卷与给分流程</p></main><pre id="result" hidden></pre>
+<script>
+const runId=new URLSearchParams(location.search).get('run'),mode=new URLSearchParams(location.search).get('mode');
+const store={'ai-grading-show-onboarding':false};
+window.GM_getValue=(k,v)=>store[k]??v;window.GM_setValue=(k,v)=>store[k]=v;window.GM_deleteValue=k=>delete store[k];window.GM_registerMenuCommand=()=>{};
+const immutable=v=>({size:v.length,toJS:()=>structuredClone(v)}),historyRows=[];
+const page={submit(){},getQuestion(){},location:{ruleId:'rule',paperInfo:{paper_uuid:'exam'},questionsInfo:[{number:'2.5',score:6,question_config:{mode:1,valid_scores:Array.from({length:13},(_,i)=>i/2),valid_step:.5}}]},state:{questionNum:'2.5',questionIndex:-1,historyQuestionList:immutable([]),rotateDeg:0,handleClip:0,subjectiveQuestionAmount:1,scoreInterval:1}};
+let row,input,canvas,saves=0,failSave=false,downloads=0;
+const owner=(el,instance)=>el.__reactInternalInstance$fixture={_currentElement:{_owner:{_instance:instance}}};
+function sourceImage(){const c=document.createElement('canvas');c.width=1206;c.height=903;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle=row.uuid==='A'?'#fef3c7':'#d1fae5';ctx.fillRect(42,85,1079,733);ctx.fillStyle='#18243b';ctx.font='32px system-ui';ctx.fillText('Answer '+row.uuid+' — sample response',90,170);return c.toDataURL('image/jpeg')}
+window.GM_xmlhttpRequest=o=>{let aborted=false;downloads++;const data=Uint8Array.from(atob(sourceImage().split(',')[1]),c=>c.charCodeAt(0));setTimeout(()=>{if(!aborted)o.onload?.({status:200,response:data.buffer})},15);return{abort(){aborted=true}}};
+function next(id){row={id:'answer-'+id,uuid:id,image_uuid:'image-'+id,rule_id:'rule',number:'2.5',total_score:6,score:0,mark_status:0,abnormal:0,sub_scores_config:[],update_time:id,images:[{number:'2.5',urls:['https://i3rx-registry.oss-cn-shanghai.aliyuncs.com/papers/school/exam/answers/image-'+id+'/2.5_0_0.jpg?Signature=fixture'],effect_range:[42,85,1079,733],subject_range:[0,1,1421,1206,903]}]};page.state.currentQuestionList=immutable([row]);page.state.currentUuid=id;if(input)input.value='';if(canvas){owner(canvas,{initCanvas(){},props:{uuid:id,url:row.images[0].urls[0],index:0,questionNum:0,rotate:0,clipValue:0,handleClip:0}});const ctx=canvas.getContext('2d');ctx.fillStyle=id==='A'?'#fef3c7':'#d1fae5';ctx.fillRect(0,0,1079,733);ctx.fillStyle='#18243b';ctx.font='32px system-ui';ctx.fillText('Answer '+id,40,80)}}
+function mount(){document.getElementById('panel').innerHTML='<div class="canvasW"><canvas width="1079" height="733"></canvas></div><p id="dragDiv">2.5（6分）(可拖动)</p><input class="styles__scoreInput___fixture" aria-label="分数"><div id="submitDiv"><div class="styles__submit___fixture">提 交</div></div>';input=document.querySelector('input');canvas=document.querySelector('canvas');owner(input,page);input.addEventListener('input',()=>{row.score=input.value;row.revised=true;page.state.currentQuestionList=immutable([row])});document.querySelector('#submitDiv>div').onclick=()=>{saves++;if(failSave){page.state.showModal=true;return}historyRows.push(structuredClone(row));page.state.historyQuestionList=immutable(historyRows);page.state.showNext=true;document.querySelector('#panel').replaceChildren();setTimeout(()=>{page.state.questionIndex=historyRows.length-1;page.state.showNext=false;mount();next(row.uuid==='A'?'B':'C')},150)};next(row?.uuid||'A')}
+if(mode==='spa')history.replaceState(null,'','/webPaper'+location.search);
+if(mode==='late'||mode==='spa')setTimeout(()=>{if(mode==='spa')history.pushState(null,'','/webPaper/newMarkPaper'+location.search);mount()},200);else mount();
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));let checks=0;const check=(ok,message)=>{checks++;if(!ok)throw Error(message)};
+try{for(let i=0;i<100&&(!window.__AI_MARKER_ADAPTER__?.getPaperIdentity());i++)await wait(50);
+const a=window.__AI_MARKER_ADAPTER__;check(a?.id==='xiaoxianai','选择小闲平台');check(a.isMarkingPage(),'识别原生阅卷页');
+const first=a.getPaperIdentity();check(!!first&&a.getQuestionContext().question==='2.5','读取题号与答卷');
+const urls=await a.gatherAnswerImages(),fetchFn=a.fetchImageAsBase64,base64=await fetchFn(urls[0]);const img=new Image();img.src='data:image/png;base64,'+base64;await img.decode();check(img.naturalWidth===1079&&img.naturalHeight===733,'按答题区域裁切原图');
+check(!a.fillScores([2.25])&&input.value==='','拒绝不合法分数');check(a.fillScores([0])&&row.score==='0'&&row.revised,'原生事件登记零分');check(a.fillScores([2.5])&&row.score==='2.5','原生事件登记半分');
+page.state.quickGrading=true;check(!a.fillScores([3]),'自动提交开启时暂停');page.state.quickGrading=false;
+check(a.fillScores([2.5]),'准备本份评分');failSave=true;check(!await a.submitGrade()&&historyRows.length===0,'保存失败不继续');page.state.showModal=false;failSave=false;
+check(a.fillScores([2.5])&&await a.submitGrade({isCurrent:()=>a.getPaperIdentity()===first}),'原生保存成功后确认');check(historyRows[0].score==='2.5'&&saves===2,'保存相同答卷与分数');
+check(await a.waitForNextPaper(),'等待新答卷与新图');check(a.getPaperIdentity()!==first&&downloads>=2,'新答卷下载独立图片');
+const c=new AbortController();c.abort();check(!await a.submitGrade({signal:c.signal}),'取消后停止提交');
+document.getElementById('status').textContent='已完成：题号与图片核对、零分与半分给分、保存确认和下一份答卷。';
+document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
+}catch(error){document.getElementById('status').textContent=String(error);document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))))}})();
+</script>

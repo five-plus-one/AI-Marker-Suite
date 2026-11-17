@@ -1,0 +1,52 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>小乐优阅阅卷验收</title>
+<style>body{font:16px sans-serif;margin:24px;background:#f5f7fa;color:#202733}main{background:white;border-radius:12px;padding:20px}.review_body img{max-width:100%}ul{list-style:none;padding:0}.qlist li{display:flex;align-items:center;gap:12px;margin:12px 0}input{font:inherit;padding:8px;width:100px}input[type=checkbox],input[type=radio]{width:auto}button,a{font:inherit;padding:8px;cursor:pointer}#result{display:none}@media(prefers-color-scheme:dark){body{background:#171b23;color:#e5e9f0}main{background:#252c37}input{background:#171b23;color:#e5e9f0;border:1px solid #798597}}</style>
+<main><h1>小乐优阅 · 初评</h1><p>地理　题块 4</p><p>已评：<b class="review_total">0</b> 分</p>
+<div class="review_body"><ul><li><img></li></ul></div><div class="quickmenu">
+<label><input type="radio" name="scoremethod" value="0" checked>快捷打分</label><input type="radio" name="scoremethod" value="1"><button id="keyboard" type="button">打分键盘</button>
+<ul class="qlist"><li><div>17(3.4)</div><div><input class="score-input" placeholder="满分3分"></div></li></ul>
+<label><input type="checkbox" name="autosubmit" checked>自动提交</label><a data-action="14" href="javascript:">提交</a></div></main><pre id="result"></pre>
+<script>
+const params=new URLSearchParams(location.search),runId=params.get('run'),mode=params.get('mode'),checks=[];
+const storage={'ai-grading-show-onboarding':false};
+window.GM_getValue=(k,v)=>storage[k]??v;window.GM_setValue=(k,v)=>storage[k]=v;window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=opts=>{queueMicrotask(()=>opts.onload?.({status:200,response:new Uint8Array([137,80,78,71]).buffer}));return{abort(){}}};
+var pageQuestionList=[{id:40,title:'17(3.4)',score:3,step:{type:0,score:''},koufen:false}],pageKey='fixture-1',pageIndex={cur:8,max:8},pageIsNew=true,pageLocking=false;
+var pagePaperBasicSize=[{width:300,height:80}],prefilters=[],saves=0,fail=false;
+var jQuery={ajaxPrefilter:fn=>prefilters.push(fn)},layui={form:{render(){}}};
+if(mode==='multi'){pageQuestionList.push({id:41,title:'18(1)',score:5,step:{type:0,score:'1'},koufen:false});document.querySelector('.qlist').insertAdjacentHTML('beforeend','<li><div>18(1)</div><div><input class="score-input" placeholder="满分5分"></div></li>');}
+function changeReviewTotal(){document.querySelector('.review_total').textContent=[...document.querySelectorAll('.score-input')].reduce((s,i)=>s+Number(i.value),0);}
+document.getElementById('keyboard').onclick=()=>{document.querySelector('input[name=scoremethod][value="0"]').checked=false;document.querySelector('input[name=scoremethod][value="1"]').checked=true;};
+document.querySelector('.review_body img').src='https://yyaitantao.oss-cn-shenzhen.aliyuncs.com/fixture-1.png?x-oss-process=image%2Fcrop%2Cw_300%2Ch_80%2Cx_0%2Cy_0';
+function request(data,result){const xhr={done(fn){this.onDone=fn;return this},fail(fn){this.onFail=fn;return this},abort(){this.aborted=true}};for(const fn of prefilters)fn({url:'/pages/ReviewAction.ashx'},{data},xhr);if(result!==undefined)xhr.onDone?.(result);return xhr;}
+document.querySelector('a[data-action="14"]').onclick=()=>{
+ const inputs=[...document.querySelectorAll('.score-input')];
+ if(pageLocking||inputs.some((el,i)=>el.value===''||Number(el.value)<0||Number(el.value)>pageQuestionList[i].score))return;
+ const scores=pageQuestionList.map((q,i)=>({id:q.id,score:Number(inputs[i].value)}));
+ const xhr=request(new URLSearchParams({subjectid:'10',blockid:'20',taskid:'30',type:'0',key:pageKey,code:'11',scores:JSON.stringify(scores)}).toString());
+ if(xhr.aborted)return;saves++;
+ setTimeout(()=>{xhr.onDone?.({state:fail?0:1});if(!fail){pageKey='fixture-2';pageIndex={cur:9,max:9};inputs.forEach(el=>el.value='');}},30);
+};
+if(mode==='late'){var pendingQuestions=pageQuestionList;pageQuestionList=[];setTimeout(()=>pageQuestionList=pendingQuestions,800);}
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),check=(ok,message)=>{if(!ok)throw Error(message);checks.push(message)};
+try{
+ for(let i=0;i<160&&!document.querySelector('.ai-grade-btn');i++)await wait(50);
+ const a=window.__AI_MARKER_ADAPTER__;
+ check(a?.id==='xiaoleyouyue'&&document.querySelectorAll('.ai-grade-btn').length===1,'完整脚本识别平台并显示唯一入口');
+ check(await a.prepareGrading()&&!document.querySelector('[name=autosubmit]').checked&&document.querySelector('[name=scoremethod][value="1"]').checked,'关闭自动提交并使用打分键盘');
+ const urls=await a.gatherAnswerImages(),identity=a.getPaperIdentity();
+ check(urls.length===1&&identity&&a.getScoreInputs()[0].maxScore===3&&a.getScoreInputs()[0].label==='17(3.4)','原生题块与合并评分项对应');
+ const detached=a.fetchImageAsBase64;check((await detached(urls[0])).length>0,'独立下载入口可用');
+ const values=mode==='multi'?[2,4]:[2],zeros=values.map(()=>0);
+ check(a.getScoreInputs().length===values.length,'题组评分项数量正确');
+ check(!a.fillScores(values.map(()=>9)),'拒绝超出满分');
+ check(a.fillScores(zeros)&&saves===0&&[...document.querySelectorAll('.score-input')].every(el=>el.value==='0'),'零分填入且等待确认');
+ check(a.fillScores(values)&&Number(document.querySelector('.review_total').textContent)===values.reduce((s,n)=>s+n,0),'原生分数与合计一致');
+ fail=true;check(!await a.submitGrade(),'保存失败后暂停');fail=false;
+ check(a.fillScores(values)&&await a.submitGrade(),'确认保存响应成功');
+ check(await a.waitForNextPaper()&&saves===2&&a.getPaperIdentity()!==identity,'保存后核对下一份答卷');
+ check(!a.fillScores(values),'新答卷重新读取后评分');
+ const read=request('subjectid=10&blockid=20&taskid=30&type=0&code=21');check(!a.getPaperIdentity(),'切换历史时暂停');read.onDone({state:1});check(!a.getPaperIdentity(),'历史答卷等待平台核对');
+ document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,width:innerWidth,passed:true,checks}))));
+}catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,width:innerWidth,passed:false,error:String(error),stack:error.stack}))));}})();
+</script></html>
