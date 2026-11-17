@@ -1,0 +1,85 @@
+<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="img-src 'self' data:"><title>鑫考阅卷流程验收</title>
+<style>body{font:16px system-ui;margin:24px}img:not([hidden]){display:block}input{width:80px}</style>
+<div id="div-readPaper"><img class="teaimg" id="oldpic" hidden src="/__fixture/answer.svg?examcode=A&page=0">
+<img class="teaimg" id="pic0" src="/__fixture/answer.svg?examcode=A&page=0">
+<img class="teaimg" id="pic1" src="/__fixture/answer.svg?examcode=A&page=1"></div>
+<table><tbody class="xtlist" id="xtlist">
+<tr><td>19.(+4)</td><td><input class="fenshu" id="fenshu0" data-score="4" onfocus="fenshuFocus(this)"></td></tr>
+<tr><td>20(+3)</td><td><input class="fenshu" id="fenshu1" data-score="3" onfocus="fenshuFocus(this)"></td></tr>
+<tr><td>21(+3)</td><td><input class="fenshu" id="fenshu2" data-score="3" onfocus="fenshuFocus(this)"></td></tr>
+</tbody></table><pre id="result" hidden></pre>
+<script>
+const params = new URLSearchParams(location.search), mode = params.get('mode');
+const effects = { confirmations: 0, saves: 0 };
+window.subId = 'question'; window.teaCode = 'teacher';
+window.fenshuFocus = input => { window.o = { get: () => input }; };
+window.inputkey = function (key) {
+    effects.confirmations++;
+    if (key !== ']' || window.o?.get(0) !== document.getElementById('fenshu2')) {
+        document.getElementById('fenshu1').focus(); return false;
+    }
+    effects.saves++;
+    document.querySelectorAll('img.teaimg:not([hidden])').forEach(image => image.src = image.src.replace('examcode=A', 'examcode=B'));
+    return false;
+};
+if (mode === 'intranet') {
+    document.getElementById('pic0').id = 'pic';
+    document.querySelectorAll('input.fenshu').forEach(input => { input.setAttribute('fen', input.getAttribute('data-score')); input.removeAttribute('data-score'); });
+}
+if (mode === 'public') document.querySelectorAll('input.fenshu').forEach(input => { input.setAttribute('max', input.getAttribute('data-score')); input.removeAttribute('data-score'); });
+if (mode !== 'campus') {
+    const button = document.createElement('button'); button.id = 'submitbtn'; button.textContent = '提交分数';
+    if (mode === 'cloud') button.className = 'btn-standard-pri phr15';
+    button.onclick = () => {
+        if (mode !== 'public') return window.inputkey(']');
+        effects.confirmations++; effects.saves++;
+        document.querySelectorAll('img.teaimg:not([hidden])').forEach(image => image.src = image.src.replace('examcode=A', 'examcode=B'));
+        return false;
+    };
+    document.body.appendChild(button);
+}
+const storage = {
+    'ai-grading-show-onboarding': false,
+    'ai-grading-presets': JSON.stringify({ list: { Fixture: { answer: '参考答案', rubric: '按小题给分',
+        scoring: { maxScore: 10, roundStep: 1 }, blankDetection: { enabled: false } } }, active: 'Fixture', bindings: {} })
+};
+window.GM_getValue = (key, fallback) => storage[key] ?? fallback;
+window.GM_setValue = () => {}; window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()); return { abort() {} }; };
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async () => {
+    const checks = [], check = (value, name) => { if (!value) throw Error(name); checks.push(name); };
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+    try {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        const expected = { cloud: 'yunyuejuan', campus: 'xinkao-campus', intranet: 'xinkao-2', public: 'xinkao' }[mode];
+        check(adapter?.id === expected, '整包注册到对应平台');
+        const urls = await adapter.gatherAnswerImages(), old = adapter.getPaperIdentity();
+        check(urls.length === 2 && old, '仅取完整可见的两页答卷');
+        if (mode !== 'public') {
+            check(adapter.fillScores([0, 0, 0]), '三小题零分完整填写');
+            document.getElementById('fenshu0').focus();
+            check(adapter.submitGrade(), '从首题焦点完成原站交卷');
+        } else {
+            check(adapter.submitGrade(), '公网版原站按钮交卷');
+        }
+        check(effects.confirmations === 1 && effects.saves === 1, '原站确认与保存各一次 ' + JSON.stringify({ ...effects, focus: window.o?.id, active: document.activeElement?.id }));
+        check(await adapter.waitForNextPaper(urls[0], { paperId: old }), '完整新卷加载稳定后继续');
+        check(await adapter.waitForNextPaper(urls[0]), '等待重试保留原提交基线');
+        const current = adapter.getPaperIdentity(), controller = new AbortController();
+        document.querySelectorAll('img.teaimg:not([hidden])').forEach(image => image.src += '&timestamp=123');
+        const pending = adapter.waitForNextPaper(urls[0], { paperId: current, signal: controller.signal });
+        setTimeout(() => controller.abort(), 900);
+        check(await pending === false, '同卷缓存刷新等待至取消');
+        await pause(50);
+        check(effects.saves === 1, '等待与取消保持一次交卷');
+        document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({
+            runId: params.get('run'), passed: true, width: innerWidth, checks, saves: effects.saves
+        }))));
+    } catch (error) {
+        document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({
+            runId: params.get('run'), passed: false, width: innerWidth, checks, error: error.stack || String(error)
+        }))));
+    }
+})();
+</script>

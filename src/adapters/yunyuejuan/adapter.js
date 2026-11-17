@@ -60,12 +60,16 @@ const YunyuejuanAdapter = {
         return baseUrl + (imgId ? '___' + imgId : '');
     },
 
+    _paperSnapshot() {
+        return MarkingPaper.snapshot(YUNYUEJUAN_SELECTORS.ANSWER_IMAGE);
+    },
+
+    getPaperIdentity() {
+        return this._paperSnapshot().identity;
+    },
+
     async gatherAnswerImages() {
-        // 只取可见题块图（#297，对照 qitian #284）：隐藏/零尺寸残留图混入会让 AI 从旧图判分
-        const imgElements = Array.from(document.querySelectorAll(YUNYUEJUAN_SELECTORS.ANSWER_IMAGE))
-            .filter(img => img.getClientRects().length > 0 && img.src);
-        console.log(`🖼️ [诊断] 可见答题卡图片数量: ${imgElements.length}（已排除隐藏/零尺寸残留图）`);
-        return imgElements.map(img => img.src);
+        return MarkingPaper.gather(this);
     },
 
     async fetchImageAsBase64(url) {
@@ -148,56 +152,15 @@ const YunyuejuanAdapter = {
         }
     },
 
-    submitGrade() {
-        const allBtns = Array.from(document.querySelectorAll('button'));
-        console.log(`🔎 [诊断] submitGrade — 页面按钮总数: ${allBtns.length}`);
-        const submitBtn = allBtns.find(btn => btn.textContent.includes(YUNYUEJUAN_SELECTORS.SUBMIT_BUTTON_TEXT));
-        if (submitBtn) {
-            console.log(`✅ [诊断] 找到"提交分数"按钮，准备点击`);
-            // 调用平台的 inputkey 函数或直接点击按钮
-            if (typeof inputkey === 'function') {
-                inputkey(']');
-            } else {
-                submitBtn.click();
-            }
-            return true;
-        }
-        console.warn(`⚠️ [诊断] 未找到"提交分数"按钮`);
-        return false;
+    submitGrade(options = {}) {
+        const submitButton = [...document.querySelectorAll('button')].find(button =>
+            MarkingPaper.visible(button) && button.textContent.includes(YUNYUEJUAN_SELECTORS.SUBMIT_BUTTON_TEXT));
+        if (!submitButton) return false;
+        return MarkingPaper.submit(this, submitButton, options);
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        let checkTimes = 0;
-        return new Promise((resolve) => {
-            const checkNextTimer = setInterval(() => {
-                checkTimes++;
-
-                // 检测1：图片 src 变化
-                const currentImg = document.querySelector(YUNYUEJUAN_SELECTORS.ANSWER_IMAGE);
-                if (currentImg && currentImg.src !== oldImageUrl) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（图片变化）');
-                    resolve(true);
-                    return;
-                }
-
-                // 检测2：分数输入框被清空（新试卷加载时平台会重置输入框；仅真清空算空，'0' 是合法分值，#285）
-                const scoreInput = document.querySelector(YUNYUEJUAN_SELECTORS.SCORE_INPUT);
-                const inputCleared = scoreInput && String(scoreInput.value).trim() === '';
-                if (inputCleared && checkTimes > 3) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（输入框清空）');
-                    resolve(true);
-                    return;
-                }
-
-                if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
-                    clearInterval(checkNextTimer);
-                    console.warn('⚠️ 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 200);
-        });
+    async waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.wait(this, oldImageUrl, context);
     },
 
     isRegradeMode() {
