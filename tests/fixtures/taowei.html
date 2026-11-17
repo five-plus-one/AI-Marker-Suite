@@ -1,0 +1,42 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>韬普阅卷练习</title>
+<style>body{margin:0;font:16px system-ui}iframe{border:0;width:100%;height:650px}#result{white-space:pre-wrap}</style>
+<iframe id="main_frame" src="/web/mark/navi.jsp"></iframe>
+<script>
+const fixtureStore={},fixtureDownloads=[];
+window.GM_getValue=(key,fallback)=>fixtureStore[key]??fallback;
+window.GM_setValue=(key,value)=>fixtureStore[key]=value;
+window.GM_registerMenuCommand=()=>{};window.unsafeWindow=window;
+window.GM_xmlhttpRequest=options=>{
+    if(options.method==='GET'&&options.url.startsWith('https://img-oss.sdzdf.com/Examimg/')){
+        fixtureDownloads.push(options.url);const controller=new AbortController();
+        fetch(options.url,{signal:controller.signal}).then(r=>r.arrayBuffer()).then(response=>options.onload({status:200,response})).catch(()=>options.onerror?.());
+        return {abort(){controller.abort()}};
+    }
+    queueMicrotask(()=>options.onerror?.());return {abort(){}};
+};
+</script><script src="/dist/ai_marker.user.js"></script><pre id="result"></pre>
+<script>
+(async()=>{
+    const checks=[],check=(ok,label)=>{checks.push({label,pass:!!ok});if(!ok)throw Error(label)};
+    const ready=async()=>{for(let i=0;i<250;i++){if(window.__AI_MARKER_ADAPTER__?.getPaperIdentity())return;await new Promise(r=>setTimeout(r,20))}throw Error('answer not ready')};
+    try{
+        await ready();const a=window.__AI_MARKER_ADAPTER__,w=document.querySelector('#main_frame').contentWindow;
+        check(a.id==='taowei','韬普识别');check(document.querySelector('#main_frame').getAttribute('src').includes('navi.jsp'),'框架入口属性保持原样');
+        check(a.getQuestionContext().units.length===1&&a.getQuestionContext().units[0].maxScore===60,'原生作文满分');
+        const sources=await a.gatherAnswerImages();check(sources.length===2,'双页题块完整读取');
+        const download=a.fetchImageAsBase64;
+        for(const source of sources){const encoded=await download(source),image=new Image();image.src='data:image/svg+xml;base64,'+encoded;await image.decode();check(image.naturalWidth===1194&&image.naturalHeight===1428,'原始图片尺寸');}
+        check(fixtureDownloads.length===2,'两个题块均下载');
+        check(!a.fillScores([61])&&w.document.querySelector('#dfd0').value==='','超分不写入');
+        w.tjqqr=true;w.fixtureResponse={res:false};check(a.fillScores([0]),'零分填入');check(!await a.submitGrade(),'拒绝回执暂停');
+        check(w.fixtureRequests.length===1&&new URLSearchParams(w.fixtureRequests[0]).get('pycs')==='3','原生 2+1 评阅请求');
+        check(w.fixtureConfirmCount===1,'本卷零分确认一次');
+        w.fixtureResponse={res:true};const task=a.getTaskIdentifier(),paper=a.getPaperIdentity();
+        check(a.fillScores([30]),'普通分数填入');check(await a.submitGrade(),'明确保存回执');
+        check(await a.waitForNextPaper('',{taskId:task,paperId:paper}),'同题新卷完整就绪');
+        check(w.fixtureRequests.length===2,'保存各执行一次');
+        w.sfhp=true;check(!a.fillScores([20]),'回评交原平台核对');
+    }catch(error){checks.push({pass:false,label:error.message})}
+    document.querySelector('#result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId:new URLSearchParams(location.search).get('run'),width:innerWidth,passed:checks.every(x=>x.pass),checks}))));
+})();
+</script></html>

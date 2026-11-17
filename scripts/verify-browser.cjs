@@ -53,7 +53,7 @@ async function connect(url) {
         await client.send('Runtime.enable');
         await client.send('Network.enable');
         const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
-        const fixtures = ['embedded-ui', 'workflow', 'renderer', 'bundle', 'output-mode', 'subscore', 'qitian', 'review-evidence', 'question-guard', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
+        const fixtures = ['embedded-ui', 'workflow', 'renderer', 'bundle', 'output-mode', 'subscore', 'qitian', 'taowei', 'review-evidence', 'question-guard', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
@@ -80,9 +80,16 @@ async function connect(url) {
         const youfenHtml = fs.readFileSync(path.join(root, 'tests/fixtures/youfen.html'), 'utf8');
         const xiaoleyouyueHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xiaoleyouyue.html'), 'utf8');
         const xiaoxianaiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xiaoxianai.html'), 'utf8');
+        const taoweiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/taowei.html'), 'utf8');
+        const taoweiPageHtml = fs.readFileSync(path.join(root, 'tests/fixtures/taowei-page.html'), 'utf8');
         const qitianHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qitian.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
         client.onEvent(event => {
+            if (event.method === 'Network.loadingFailed' && !event.params.canceled) {
+                consoleMessages.push('Network: ' + JSON.stringify({ error: event.params.errorText,
+                    blocked: event.params.blockedReason, cors: event.params.corsErrorStatus }));
+                if (consoleMessages.length > 16) consoleMessages.shift();
+            }
             if (event.method === 'Network.loadingFailed' && (event.params.canceled || event.params.errorText === 'net::ERR_ABORTED')) cancelledRequests.add(event.params.requestId);
             if (event.method === 'Runtime.exceptionThrown') {
                 consoleMessages.push(event.params.exceptionDetails.exception?.description || event.params.exceptionDetails.text);
@@ -96,7 +103,15 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.hostname === 'yj.7net.cc' && url.pathname === '/Review') {
+                if (url.hostname === 's3.taoweiedu.com' && url.pathname === '/web/main.jsp') {
+                    body = taoweiHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 's3.taoweiedu.com' && url.pathname === '/web/mark/navi.jsp') {
+                    body = taoweiPageHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 's3.taoweiedu.com' && url.pathname === '/dist/ai_marker.user.js') {
+                    body = bundle; type = 'application/javascript'; status = 200;
+                } else if (url.hostname === 'img-oss.sdzdf.com') {
+                    body = '<svg xmlns="http://www.w3.org/2000/svg" width="1194" height="1428"><rect width="1194" height="1428" fill="white"/><text x="20" y="40">Composition practice</text></svg>'; type = 'image/svg+xml'; status = 200;
+                } else if (url.hostname === 'yj.7net.cc' && url.pathname === '/Review') {
                     body = qitianHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'yj.7net.cc' && /^\/src\/(?:adapters\/qitian\/(?:selectors|adapter)|core\/(?:score|prompt))\.js$/.test(url.pathname)) {
                     body = fs.readFileSync(path.join(root, url.pathname.slice(1))); type = 'application/javascript'; status = 200;
@@ -166,6 +181,7 @@ async function connect(url) {
                 }
                 await client.send('Fetch.fulfillRequest', { requestId: event.params.requestId, responseCode: status,
                     responseHeaders: [{ name: 'Content-Type', value: type }, { name: 'Cache-Control', value: 'no-store' },
+                        ...(url.hostname === 'img-oss.sdzdf.com' ? [{ name: 'Access-Control-Allow-Origin', value: '*' }] : []),
                         ...(url.hostname === 'yuejuan-img.yuandingbang.cn' ? [{ name: 'Access-Control-Allow-Origin', value: 'https://yuejuan.yuandingbang.cn' }] : [])],
                     body: Buffer.from(body).toString('base64') });
             })().catch(async error => {
@@ -191,6 +207,7 @@ async function connect(url) {
             const haofenshu = fixture === 'haofenshu';
             const yuandingbang = fixture === 'yuandingbang';
             const qitian = fixture === 'qitian';
+            const taowei = fixture === 'taowei';
             const zhixue = fixture === 'zhixue';
             const wzedu = fixture.startsWith('wzedu-');
             const huizhou = fixture.startsWith('huizhou-');
@@ -200,7 +217,7 @@ async function connect(url) {
             const youfen = fixture.startsWith('youfen-');
             const xiaoleyouyue = fixture.startsWith('xiaoleyouyue-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || qitian) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || qitian || taowei) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -222,6 +239,7 @@ async function connect(url) {
             }
             if (haofenshu) url = 'https://yue.haofenshu.com/minions/subject/10500001/mark/1/normal/0?run=' + runId;
             if (yuandingbang) url = 'https://yuejuan.yuandingbang.cn/web/mark/sjpy/sjpy_kspy.jsp?ksdm=100&kmdm=B21&stbh=2&run=' + runId;
+            if (taowei) url = 'http://s3.taoweiedu.com/web/main.jsp?run=' + runId;
             if (qitian) url = 'https://yj.7net.cc/Review?th=15&km=chemistry&run=' + runId;
             if (zhixue) url = 'https://www.zhixue.com/webmarking/marking/personal/?run=' + runId;
             if (wzedu) url = 'https://yuejuan.wzedu.cn/static-v2/exam/index.html?run=' + runId + '&mode=' + fixture.slice(6)
