@@ -233,8 +233,9 @@ function openMarkdownEditor(options) {
         '<span class="md-toolbar-sep"></span>' +
         '<button data-cmd="image" title="插入图片">🖼</button>' +
         '<span class="md-toolbar-sep"></span>' +
-        '<button data-cmd="aiPolish" title="AI润色：将自然语言转换为标准Markdown/LaTeX">🪄AI润色</button>' +
-        '<button data-cmd="aiRecognize" title="AI识别图片转Markdown">✨AI识别</button>';
+        '<button data-cmd="aiPolish" title="AI 润色">🪄AI润色</button>' +
+        '<button data-cmd="aiRecognize" title="识别图片文字">✨AI识别</button>';
+    toolbar.querySelectorAll('.md-toolbar-sep').forEach(el => el.setAttribute('role', 'separator'));
 
     // 内容区（左编辑 + 右预览）
     const body = document.createElement('div');
@@ -338,12 +339,14 @@ function openMarkdownEditor(options) {
     renderPreview();
 
     // 工具栏按钮
-    toolbar.addEventListener('click', function (e) {
+    function onToolbarAction(e) {
         const btn = e.target.closest('button[data-cmd]');
         if (!btn) return;
         const cmd = btn.getAttribute('data-cmd');
         handleToolbarCommand(cmd, textarea, images, fileInput, callConfig, schedulePreview, btn);
-    });
+    }
+    toolbar.addEventListener('click', onToolbarAction);
+    container._embeddedToolbar = FivePlusOneEmbeddedUI.enhanceToolbar(toolbar, { onAction: onToolbarAction });
 
     // 快捷键
     textarea.addEventListener('keydown', function (e) {
@@ -419,6 +422,7 @@ function openMarkdownEditor(options) {
  */
 function closeMarkdownEditor() {
     var overlay = document.getElementById('ai-md-editor-overlay');
+    overlay?.querySelector('#ai-md-editor')?._embeddedToolbar?.destroy();
     if (overlay) overlay.remove();
 }
 

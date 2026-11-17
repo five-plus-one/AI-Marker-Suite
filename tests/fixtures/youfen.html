@@ -1,0 +1,46 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>优分优学阅卷验收</title>
+<style>body{font:16px sans-serif;margin:20px}input,button{font:inherit;padding:8px}#imgPaper{max-width:100%}#result{display:none}</style>
+<main><h1>普通卷 - 16.2</h1><img id="imgPaper"><span id="score">得分：[未评]</span><span id="scoreOld"></span>
+<div id="scorePanel"><div class="row"><span>16.2.</span><div class="tscore"><input data-max="5" data-min="0" data-seg="1.0" readonly></div></div></div>
+<label><input id="chkAutoPost" type="checkbox" checked>自动提交分数</label><button id="btnSumScore">提交</button></main><pre id="result"></pre>
+<script>
+const runId=new URLSearchParams(location.search).get('run'),checks=[];
+const storage={'ai-grading-show-onboarding':false};
+window.GM_getValue=(k,v)=>storage[k]??v;window.GM_setValue=(k,v)=>storage[k]=v;window.GM_registerMenuCommand=()=>{};
+window.GM_xmlhttpRequest=opts=>{queueMicrotask(()=>opts.onload?.({status:200,response:new Uint8Array([137,80,78,71]).buffer}));return{abort(){}}};
+var project={dataBaseName:'testdb',proId:24,subId:11};
+var question={questionIndex:2,arb:'default',xzt:'0'};
+var currentItem={saveType:1,path:'https://xzb-onlinemarking.oss-cn-beijing.aliyuncs.com/liankao/testdb/24/DILI',mode:0,index:2,title:'16.2',maxScore:5,minScore:0,interval:1,optionalTitle:'0',stepSet:'',rect:'0-90-1243-1478-290'};
+function paper(id,examCode){return{id,examCode,url:'0.tif;1.tif',proId:24,subId:'11',questionIndex:'2',optionalTitle:'0',dataBaseName:'testdb',path:currentItem.path,mode:0,scoreMode:0,arb:'default',date:null,stepScore:null}}
+var currentPaper=paper(320,'24930011'),panelFlag=0,commitable=true,keyEnabled=true,drawTag='default',paperTag='default',direction=1;
+var prefilters=[],saves=0,fail=false;
+window.jQuery={ajaxPrefilter:fn=>prefilters.push(fn)};
+var ChangePanelFlag=function(){panelFlag=1;document.querySelector('#scorePanel input').value=''};
+const canvas=document.createElement('canvas');canvas.width=1478;canvas.height=290;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,1478,290);ctx.fillStyle='black';ctx.fillText('Fixture answer',20,40);document.querySelector('#imgPaper').src=canvas.toDataURL();
+document.querySelector('#btnSumScore').onclick=()=>{
+ const value=document.querySelector('#scorePanel input').value;
+ if(!commitable||value===''||Number(value)>5||Number(value)<0||Number(value)%1)return;
+ const payload={...currentPaper,score:Number(value),stepScore:value};
+ const xhr={done(fn){this.onDone=fn;return this},fail(fn){this.onFail=fn;return this}};
+ for(const fn of prefilters)fn({url:'/Service/MarkService.asmx/PostPaper'},{data:JSON.stringify(payload)},xhr);
+ saves++;setTimeout(()=>{xhr.onDone({result:fail?-1:1});if(!fail){currentPaper=paper(321,'24930012');document.querySelector('#scorePanel input').value='';}},30);
+};
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),check=(ok,message)=>{if(!ok)throw Error(message);checks.push(message)};
+try{
+ for(let i=0;i<150&&!document.querySelector('.ai-grade-btn');i++)await wait(50);
+ const a=window.__AI_MARKER_ADAPTER__;
+ check(a?.id==='youfen'&&document.querySelectorAll('.ai-grade-btn').length===1,'完整脚本识别平台并显示唯一入口');
+ check(await a.prepareGrading()&&!document.querySelector('#chkAutoPost').checked&&panelFlag===1,'切换键盘给分并关闭平台自动提交');
+ const urls=await a.gatherAnswerImages(),identity=a.getPaperIdentity();check(urls.length===1&&identity&&urls[0].includes('crop,x_90,y_1243,w_1478,h_290'),'原生题块与答卷绑定');
+ const detached=a.fetchImageAsBase64;check((await detached(urls[0])).length>0,'独立下载入口可用');
+ check(a.getScoreInputs()[0].maxScore===5&&a.getQuestionContext().question==='16.2','题号与满分正确');
+ check(!a.fillScores([1.5])&&!a.fillScores([6]),'拒绝超分和错误步长');
+ check(a.fillScores([0])&&document.querySelector('#scorePanel input').value==='0'&&saves===0,'零分填入且等待确认');
+ check(a.fillScores([4]),'合法分数填入');fail=true;check(!await a.submitGrade(),'保存失败不继续');fail=false;
+ check(a.fillScores([4])&&await a.submitGrade(),'核对保存响应成功');
+ check(saves===2&&await a.waitForNextPaper(),'保存后核对下一份答卷');
+ check(a.getPaperIdentity()!==identity&&!a.fillScores([4]),'新答卷重新取图后评分');
+ document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,checks}))));
+}catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))));}})();
+</script></html>
