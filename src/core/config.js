@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.26.1',
+    VERSION: '1.21.26.2',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.26.2': [
+            "【新平台】支持韬普教育云阅卷，按原生给分点读取完整题块、满分与步长，核对保存结果后继续批改",
+        ],
         '1.21.26.1': [
             "【修复】七天网络按原生满分与配置评分单元核对完整分项，再汇总填写总分",
             "【修复】七天网络确认当前答卷与分数的原生保存结果后继续批改",
