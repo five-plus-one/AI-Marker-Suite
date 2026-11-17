@@ -1,0 +1,450 @@
+{
+  "/v2/user/get-user-type": {
+    "code": 200,
+    "data": {
+      "userType": "R_U_U",
+      "aiAssistant": 0
+    }
+  },
+  "/v2/user/get-user-base": {
+    "code": 200,
+    "data": {
+      "realName": "验收教师",
+      "schoolName": "验收学校",
+      "schoolOldUIShow": false,
+      "unionOldUIShow": false,
+      "isKf": false,
+      "R_S_CUSTOMOR": false,
+      "dsUserID": 9001,
+      "ycj": true,
+      "stage": "初中",
+      "schoolType": 1,
+      "schoolId": 30,
+      "profileId": "",
+      "comparativeAnalysisFlag": false,
+      "openRateComposite": false,
+      "authoritys": [
+        "R_U_U"
+      ],
+      "contextPath": "/",
+      "fileType": "LOCAL",
+      "userId": 9001,
+      "schoolHideStudentAddAndImport": false,
+      "passwordSaveFlag": 1,
+      "needModifyPassword": false,
+      "needModifyPasswordByUnionImport": false,
+      "needModifyMailByUnionImport": false,
+      "userName": "acceptance",
+      "indexPosition": "温州市",
+      "isAuthorized": true,
+      "authorizedDate": "2030-01-01",
+      "showHelp": true,
+      "parentFlag": true,
+      "feedbackHelp": true,
+      "limitExamStuNum": "",
+      "limitClient": true,
+      "deleteHistoryData": false,
+      "authorizedDateDays": 9999,
+      "ycjUrl": "https://www.yunchengji.net/",
+      "pageTitle": "云阅卷服务平台欢迎您",
+      "footer": {
+        "contact": "",
+        "company": "阅卷验收",
+        "basic": true
+      },
+      "forum": {
+        "joinSubject": 1,
+        "markOffline": 0
+      },
+      "examIndex": {
+        "sheet": {
+          "state": false,
+          "url": "/sheet/list"
+        },
+        "mark": {
+          "state": true,
+          "url": "/marking/gradingList/list"
+        },
+        "manage": {
+          "state": false,
+          "url": "/union/manage/union-list"
+        },
+        "statistic": {
+          "state": false,
+          "yjUrl": "/static-v2/report/index.html"
+        }
+      },
+      "oldMark": false,
+      "smsFlag": false,
+      "isNotCollectYcj": false,
+      "aiMarkFlag": "false",
+      "aiPaperFlag": "false",
+      "homeworkFlag": "false",
+      "systemDataCockpitName": "应用监管驾驶舱",
+      "ssoUserAndStudentIsKf": false,
+      "showChangeStage": false,
+      "showHomeworkTip": false,
+      "notificationNotReadNumber": 0,
+      "padFlag": true
+    }
+  },
+  "/v2/user/get-head": {
+    "code": 200,
+    "data": {
+      "menus": [
+        {
+          "key": "manage",
+          "name": "考试管理",
+          "url": "/union/manage/union-list",
+          "type": 0,
+          "show": false
+        },
+        {
+          "key": "sheet",
+          "name": "答题卡管理",
+          "url": "/sheet/list",
+          "type": 0,
+          "show": false
+        },
+        {
+          "key": "mark",
+          "name": "教师阅卷",
+          "url": "/marking/gradingList/list",
+          "type": 0,
+          "show": true
+        },
+        {
+          "key": "mark",
+          "name": "教师阅卷",
+          "url": "/marking/gradingList/list",
+          "type": 0,
+          "show": false
+        },
+        {
+          "key": "tk",
+          "name": "题库组卷",
+          "url": "",
+          "type": 1,
+          "show": false
+        },
+        {
+          "key": "statistic",
+          "name": "质量分析",
+          "url": "",
+          "type": 1,
+          "show": false
+        },
+        {
+          "key": "quality",
+          "name": "质量提升",
+          "url": "static-v2/quality/index.html",
+          "type": 2,
+          "show": false
+        },
+        {
+          "key": "ns",
+          "name": "新高考",
+          "url": "/nstatistic/nstatistic-manage",
+          "type": 2,
+          "show": false
+        },
+        {
+          "key": "user",
+          "name": "人员信息",
+          "url": "/union/person/manage",
+          "type": 0,
+          "show": false
+        },
+        {
+          "key": "districtMonitor",
+          "name": "区域阅卷监控",
+          "url": "system/district-monitor",
+          "type": 2,
+          "show": false
+        },
+        {
+          "key": "other",
+          "name": "其他管理",
+          "url": "/union/otherManage",
+          "type": 0,
+          "show": false
+        }
+      ]
+    }
+  },
+  "/login/get-change-stage-data": {
+    "code": 200,
+    "data": {
+      "schools": [
+        {
+          "schoolId": 30,
+          "schoolName": "验收学校",
+          "stageName": "初中",
+          "userName": "acceptance",
+          "currentFlag": true
+        }
+      ]
+    }
+  },
+  "/v2/union/mark/list": {
+    "code": 200,
+    "data": {
+      "data": [
+        {
+          "disableAppList": false,
+          "disableAvg": false,
+          "disableMyQtn": false,
+          "disableQtn": false,
+          "markSubjects": [
+            {
+              "disableAvg": false,
+              "disableMyQtn": false,
+              "disableQtn": false,
+              "haveWordAnswer": false,
+              "isTestMark": false,
+              "markQuestions": [
+                {
+                  "aiMarkID": 0,
+                  "checkReviewNumber": 0,
+                  "choiceFlag": false,
+                  "choiceIndex": 0,
+                  "doneNumber": 290,
+                  "itemMark": 0,
+                  "joinMark": false,
+                  "joinQuestionId": 0,
+                  "judgeBtnNumber": 0,
+                  "level": "00030008",
+                  "markBtnColor": 0,
+                  "markBtnState": 1,
+                  "markBtnStr": "继续阅卷",
+                  "markNumber": 3726,
+                  "markType": 1,
+                  "numberShow": "31(1)",
+                  "personDoneRed": 1,
+                  "personLabel": "个人：已阅量/任务量",
+                  "personTaskShow": 1,
+                  "questionId": 42,
+                  "questionName": "三、综合题 31(1)",
+                  "samplesDoneNumber": 0,
+                  "samplesInputNumber": 0,
+                  "samplesNumber": 0,
+                  "schoolDoneNumber": 0,
+                  "schoolMarkNumber": 0,
+                  "score": 3,
+                  "teacherDoneNumber": 41,
+                  "teacherMarkNumber": 1863,
+                  "testMark": false,
+                  "title": "社会阅卷验收",
+                  "type": 2
+                }
+              ],
+              "markTaskType": 0,
+              "schoolNumberState": 0,
+              "showPersonAvg": false,
+              "showPersonTime": false,
+              "showValidRate": false,
+              "showWaterMark": false,
+              "subjectId": 20,
+              "subjectName": "社会_法治",
+              "type": 2,
+              "wordAnswerPath": ""
+            }
+          ],
+          "showPersonAvg": false,
+          "showPersonTime": false,
+          "showValidRate": false,
+          "showWaterMark": false,
+          "title": "社会阅卷验收",
+          "type": 1,
+          "unionId": 10
+        }
+      ]
+    }
+  },
+  "/v2/exam/mark/list": {
+    "code": 200,
+    "data": {
+      "data": []
+    }
+  },
+  "/v2/union/mark/mark-page-info": {
+    "code": 200,
+    "data": {
+      "exist": true,
+      "resultType": 0,
+      "msg": "",
+      "data": {
+        "aiMark": false,
+        "aiMarkInfo": {
+          "aiMarkId": 0,
+          "aiMarkType": 1,
+          "answerList": [],
+          "join": false,
+          "resultType": 0
+        },
+        "areaMark": false,
+        "autoSubmit": 1,
+        "batchMark": false,
+        "choiceFlag": false,
+        "cloudCut": false,
+        "comment": "",
+        "continueJudgeBtn": false,
+        "continueMarkBtn": false,
+        "continueThirdBtn": false,
+        "currentStudentScore": 0,
+        "disableAvg": false,
+        "disableMyQtn": false,
+        "disableQtn": false,
+        "doneNumber": 0,
+        "exampleExist": false,
+        "examplePathList": [],
+        "haveAiMarkResult": false,
+        "haveJoin": false,
+        "haveSign": false,
+        "inputFastSumbitFlag": true,
+        "isTestMark": false,
+        "itemMark": 0,
+        "joinList": [],
+        "markMonitorFlag": false,
+        "markPageTilteInfo": {
+          "examId": 10,
+          "questionId": 42,
+          "questionName": "三、综合题 31(1)",
+          "realName": "验收教师",
+          "subjectId": 20,
+          "subjectName": "社会_法治",
+          "title": "社会阅卷验收",
+          "unionId": 10,
+          "userId": 9001,
+          "userName": "acceptance"
+        },
+        "markTaskType": 0,
+        "markType": 0,
+        "markingTime": 0,
+        "multiple": false,
+        "paperAnswerPath": [],
+        "picAnswerPath": "",
+        "question": {
+          "joinMark": false,
+          "joinQuestionId": 0,
+          "markArea": "",
+          "markValues": "",
+          "markingType": 2,
+          "questionId": 42,
+          "questionItemStudents": [],
+          "questionItems": [],
+          "questionName": "31(1)",
+          "score": 3,
+          "step": 0,
+          "stepType": 1,
+          "testMark": false
+        },
+        "questionId": 42,
+        "questions": [
+          {
+            "joinMark": false,
+            "joinQuestionId": 0,
+            "markArea": "",
+            "markValues": "",
+            "markingType": 2,
+            "questionId": 42,
+            "questionItemStudents": [],
+            "questionItems": [],
+            "questionName": "31(1)",
+            "score": 3,
+            "step": 0,
+            "stepType": 1,
+            "testMark": false
+          }
+        ],
+        "sheetId": 101,
+        "showPersonAvg": false,
+        "showPersonTime": false,
+        "showValidRate": false,
+        "showWaterMark": false,
+        "signTypeId": 0,
+        "signTypeName": "",
+        "signTypes": [
+          {
+            "id": 1,
+            "signName": "优秀"
+          },
+          {
+            "id": 2,
+            "signName": "典型错误"
+          },
+          {
+            "id": 3,
+            "signName": "其他"
+          }
+        ],
+        "studentChoiceIndex": 0,
+        "studentId": 1001,
+        "teacherDoneNumber": 0,
+        "teacherMarkType": 1,
+        "teacherTotalNumber": 10,
+        "timeLimitOpenFlag": false,
+        "totalNumber": 10,
+        "unusual": false,
+        "unusualId": 0,
+        "unusualState": 0,
+        "unusuals": [
+          {
+            "id": 2,
+            "lockType": {
+              "id": 1,
+              "message": "该操作将锁定当前这道试题，其他教师将无法继续批阅这道题，是否确认？",
+              "name": "锁定试题",
+              "value": 1
+            },
+            "name": "答题内容显示不全"
+          },
+          {
+            "id": 3,
+            "lockType": {
+              "id": 1,
+              "message": "该操作将锁定当前这道试题，其他教师将无法继续批阅这道题，是否确认？",
+              "name": "锁定试题",
+              "value": 1
+            },
+            "name": "文字看不清楚"
+          },
+          {
+            "id": 4,
+            "lockType": {
+              "id": 1,
+              "message": "该操作将锁定当前这道试题，其他教师将无法继续批阅这道题，是否确认？",
+              "name": "锁定试题",
+              "value": 1
+            },
+            "name": "答错位置"
+          },
+          {
+            "id": 5,
+            "lockType": {
+              "id": 2,
+              "message": "该操作将锁定整张试卷，其他教师将无法继续批阅这张试卷，是否确认？",
+              "name": "锁定试卷",
+              "value": 2
+            },
+            "name": "非本科试卷"
+          },
+          {
+            "id": 6,
+            "lockType": {
+              "id": 3,
+              "message": "该操作不锁定试题或试卷，您需要继续给分，是否确认？",
+              "name": "不锁定",
+              "value": 3
+            },
+            "name": "雷同卷"
+          }
+        ],
+        "urls": [
+          "https://yuejuan.wzedu.cn/r/acceptance:/union_new/10/20/30/student/1001/hash/web/42.png"
+        ],
+        "validRate": 0
+      }
+    }
+  }
+}
