@@ -66,18 +66,16 @@ const XinkaoAdapter = {
         return window.location.href;
     },
 
+    _paperSnapshot() {
+        return MarkingPaper.snapshot(XINKAO_SELECTORS.ANSWER_IMAGE);
+    },
+
+    getPaperIdentity() {
+        return this._paperSnapshot().identity;
+    },
+
     async gatherAnswerImages() {
-        await new Promise(r => setTimeout(r, 1000));
-        const images = document.querySelectorAll(XINKAO_SELECTORS.ANSWER_IMAGE);
-        const urls = [];
-        images.forEach(img => {
-            const src = img.src;
-            if (src && (src.startsWith('http://') || src.startsWith('https://'))) {
-                urls.push(src);
-            }
-        });
-        console.log(`[鑫考] 找到答题卡图片: ${urls.length} 张`);
-        return urls;
+        return MarkingPaper.gather(this);
     },
 
     async fetchImageAsBase64(url) {
@@ -152,7 +150,12 @@ const XinkaoAdapter = {
         return false;
     },
 
-    submitGrade() {
+    submitGrade(options = {}) {
+        if (options.signal?.aborted || (options.isCurrent && !options.isCurrent())) return false;
+        const snapshot = this._paperSnapshot();
+        snapshot.taskId = this.getTaskIdentifier();
+        if (!snapshot.ready || (this._gatheredPaperSnapshot && this._gatheredPaperSnapshot.identity !== snapshot.identity)) return false;
+        this._submittedPaperSnapshot = snapshot;
         const submitBtn = document.querySelector(XINKAO_SELECTORS.SUBMIT_BUTTON);
         if (submitBtn) {
             submitBtn.click();
@@ -172,22 +175,8 @@ const XinkaoAdapter = {
         return false;
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        let checkTimes = 0;
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                checkTimes++;
-                const currentImg = document.querySelector(XINKAO_SELECTORS.ANSWER_IMAGE);
-                const currentUrl = currentImg ? currentImg.src : null;
-                if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
-                    clearInterval(timer);
-                    resolve(true);
-                } else if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
-                    clearInterval(timer);
-                    resolve(false);
-                }
-            }, 200);
-        });
+    async waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.wait(this, oldImageUrl, context);
     },
 
     isRegradeMode() {
