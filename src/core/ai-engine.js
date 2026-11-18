@@ -647,7 +647,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             allImages = imgGate.kept;
         }
         if ((studentImages.length > 0 && studentGate.kept.length === 0)
-            || (config.gradingRequest && !config.studentGradingEvidence && studentGate.kept.length === 0)
+            || (config.gradingRequest && !config[STUDENT_GRADING_EVIDENCE] && studentGate.kept.length === 0)
             || (allImages.length === 0 && rawImageCount > 0)) {
             // 剔除后无图 = 显式失败（宁可不取）：绝不让 AI 对空图评分
             return reject(new Error('答题卡图片均不可用（废图剔除后无有效图片），请人工核查后继续批改'));
@@ -1056,7 +1056,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     config = await readStudentGradingEvidence(base64DataArray, config, onStreamUpdate);
-    const evidence = config.studentGradingEvidence;
+    const evidence = config[STUDENT_GRADING_EVIDENCE];
     if (evidence?.status === '未作答') return makeBlankGradingResult(config);
 
     const dualConfig = workflow.dualEval;
@@ -1124,7 +1124,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     // 先检查原始两侧，再合并分数；不得用主模型的复述覆盖另一侧的空白或弃权结论。
-    requireCompatibleGradingEvidence(detailA, detailB);
+    if (isAnswerStatusCheckEnabled(config) || evidence) requireCompatibleGradingEvidence(detailA, detailB);
 
     const diff = Math.abs(scoreA - scoreB);
     console.log(`🔄 [双评] 结果 — 主模型: ${scoreA}, 副模型: ${scoreB}, 分差: ${diff}`);
@@ -1264,7 +1264,9 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     arbParsed = applyStudentGradingEvidence(arbParsed, evidence, arbResult, arbFinalScore);
-    requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
+    if (isAnswerStatusCheckEnabled(config) || evidence) {
+        requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
+    }
     return {
         ...arbParsed,
         score: arbFinalScore,
