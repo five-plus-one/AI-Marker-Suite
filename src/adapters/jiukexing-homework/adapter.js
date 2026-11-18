@@ -578,7 +578,7 @@ function OBS_REG_TEST(url) {
 }
 
 // 注册适配器
-if (JiukexingHomeworkAdapter.shouldInitialize()) {
+if (JiukexingHomeworkAdapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
     window.__AI_MARKER_ADAPTER__ = JiukexingHomeworkAdapter;
     JiukexingHomeworkAdapter.onPageLoad();
     console.log('🚀 [九科星作业] 适配器已注册');

@@ -75,6 +75,19 @@ for (const a of M.ADAPTERS) {
     });
 }
 
+test('九科星一体化入口只注册对应的阅卷或作业适配器', () => {
+    for (const [path, id] of [
+        ['/exam-marking/marking', 'jiukexing'],
+        ['/exam-marking/reviewMarking', 'jiukexing'],
+        ['/correct/', 'jiukexing-homework'],
+    ]) {
+        const result = run({ host: 'jxp.jkxjxw.com', path });
+        assert.deepStrictEqual(result.errors, []);
+        assert.strictEqual(result.writes.length, 1);
+        assert.strictEqual(result.winner.id, id);
+    }
+});
+
 test('竞争矩阵：ruiya 恒佳租户形态唯一命中且显示名切换', () => {
     const r = run({ host: 'www.yuejuan51.com', path: '/mark/v1/view/1' });
     assert.strictEqual(r.writes.length, 1, '必须唯一注册: ' + JSON.stringify(r.writes));
