@@ -1,5 +1,5 @@
-// ========== 睿芽考试服务云平台 DOM 选择器常量 ==========
-// ASP.NET WebForms + jQuery + Bootstrap + iCheck，域名: ruiya.onlyets.com
+// ========== 睿芽、恒佳与悦卷通的阅卷选择器 ==========
+// ASP.NET WebForms + jQuery + Bootstrap + iCheck
 // 阅卷页: /mark/v6/view/<32位GUID>
 //
 // 与威科姆（wyna.onlyets.com）同为厂商 CampusManage/MarkClient 代码，元素 ID 一致，
