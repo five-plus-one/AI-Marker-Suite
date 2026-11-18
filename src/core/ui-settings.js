@@ -797,8 +797,12 @@ function createSettingsPanel(options) {
                         <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
                             <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
                         <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="unattended-answer-recovery"><label for="unattended-answer-recovery">无人模式自动复查 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">遇到无法评分的答卷时自动复查。确认空白后按 0 分继续，发现作答痕迹时重评一次。</div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-review-enabled"><label for="answer-review-enabled">保存无法辨认答卷供复核 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
-                        <div class="mode-desc">默认关闭。开启后，无人模式对无法辨认的答卷重试一次，仍无法辨认则保存原图与评分方案并暂停，由教师核对评分。普通与试改模式直接保存后暂停。</div>
+                        <div class="mode-desc">默认关闭。开启后，需要人工核对无法辨认的答卷时，将原图和评分方案保存到评阅历史。</div>
                         <div class="form-group" style="margin-top:12px;"><label for="unattended-review-limit">允许待复核数量</label>
                             <input type="number" id="unattended-review-limit" min="1" max="50" step="1" value="5" disabled></div>
                         <div class="mode-desc">达到允许数量后，仍可批改可评分的答卷。遇到需要新增待复核记录的答卷时，请先完成已有复核。原图保留到完成复核，缓存空间不足时会提示处理。</div>
@@ -2005,6 +2009,10 @@ function fillFormFromActivePreset() {
     if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
     const retryTimeoutInput = document.getElementById('retry-on-timeout');
     if (retryTimeoutInput) retryTimeoutInput.checked = retryPolicyCfg.retryOnTimeout !== false;
+    const unattendedAnswerRecoveryInput = document.getElementById('unattended-answer-recovery');
+    if (unattendedAnswerRecoveryInput) unattendedAnswerRecoveryInput.checked = getUnattendedAnswerFailure(config) === 'recover';
+    const referenceImageEvidenceInput = document.getElementById('reference-image-evidence-check');
+    if (referenceImageEvidenceInput) referenceImageEvidenceInput.checked = config.referenceImageEvidenceCheck === true;
     const reviewLimitInput = document.getElementById('unattended-review-limit');
     const answerReviewInput = document.getElementById('answer-review-enabled');
     if (answerReviewInput) answerReviewInput.checked = isAnswerReviewEnabled(config);
@@ -2950,6 +2958,7 @@ function saveAISettings() {
     // 保存自动重试配置
     const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
+    const unattendedAnswerFailure = document.getElementById('unattended-answer-recovery')?.checked === true ? 'recover' : 'pause';
     const reviewLimitText = document.getElementById('unattended-review-limit')?.value?.trim();
     const reviewLimitValue = reviewLimitText ? Number(reviewLimitText) : NaN;
     const reviewLimit = Number.isInteger(reviewLimitValue) && reviewLimitValue >= 1 && reviewLimitValue <= 50 ? reviewLimitValue : 5;
@@ -3007,9 +3016,11 @@ function saveAISettings() {
         questionGuard: { enabled: questionGuardEnabled },
         answerReview: { enabled: document.getElementById('answer-review-enabled')?.checked === true, maxPending: reviewLimit },
         outputMode: outputMode,
+        referenceImageEvidenceCheck: document.getElementById('reference-image-evidence-check')?.checked === true,
         retryPolicy: {
             maxRetries: retryMaxRetries,
-            retryOnTimeout: retryOnTimeout
+            retryOnTimeout: retryOnTimeout,
+            unattendedAnswerFailure
         },
         blankDetection: {
             enabled: blankDetectionEnabled,

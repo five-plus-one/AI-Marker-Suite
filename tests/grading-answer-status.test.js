@@ -81,3 +81,27 @@ test('普通、精简和多小题评分要求状态，详细模式逐字转录�
         }
     }
 });
+
+test('按方案控制无人模式的复查，旧方案默认直接核对，手动模式直接核对', async () => {
+    for (const [policy, mode, expected] of [
+        [undefined, 'unattended', false],
+        ['recover', 'unattended', true],
+        ['pause', 'unattended', false],
+        ['recover', 'trial', false],
+        ['recover', 'normal', false]
+    ]) {
+        const e = env();
+        load(e, 'src/core/prompt.js');
+        load(e, 'src/core/main.js');
+        e.state.gradingMode = mode;
+        if (policy) e.cfg.retryPolicy = { unattendedAnswerFailure: policy };
+        e.sb.callAIGrading = async () => ({ score: 0, answerStatus: '无法辨认' });
+        let checks = 0;
+        e.sb.confirmStudentAnswerStatus = async () => { checks++; return 'blank'; };
+        e.sb.showAutoSubmitDialog = () => {};
+        await e.sb.startAutoGrading();
+        assert.equal(checks, expected ? 1 : 0);
+        assert.deepEqual(e.calls.fill.map(call => call.scores), expected ? [[0]] : []);
+        assert.equal(e.state.isPaused, !expected);
+    }
+});

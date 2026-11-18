@@ -5,6 +5,7 @@ const { env, load, vm } = require('./_audit-harness');
 function scene(enabled = true, mode = 'unattended') {
     const e = env(), store = {}, images = new Map();
     e.cfg.answerReview = { enabled, maxPending: 5 };
+    e.cfg.retryPolicy = { unattendedAnswerFailure: 'recover' };
     e.state.gradingMode = mode;
     e.sb.location.origin = 'https://x.test';
     e.sb.GM_getValue = (key, fallback) => store[key] ?? fallback;
@@ -140,4 +141,17 @@ test('无人模式待复核额度已满时，仍继续批改可辨认卷和已�
         assert.equal(e.records().length, 5);
         assert.equal(e.state.isPaused, false);
     }
+});
+
+test('立即暂停策略保留待复核记录并跳过无人复查和重评', async () => {
+    const e = scene();
+    e.cfg.retryPolicy = { unattendedAnswerFailure: 'pause' };
+    let recoveries = 0;
+    e.sb.confirmStudentAnswerStatus = async () => { recoveries++; return 'blank'; };
+    await e.sb.startAutoGrading();
+    assert.equal(e.requests(), 1);
+    assert.equal(recoveries, 0);
+    assert.equal(e.records()[0].reviewStatus, 'pending');
+    assert.equal(e.calls.fill.length, 0);
+    assert.equal(e.state.isPaused, true);
 });

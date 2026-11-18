@@ -1,3 +1,5 @@
+const STUDENT_GRADING_EVIDENCE = Symbol('student grading evidence');
+
 // ========== 提示词组装与解析 ==========
 
 // ---------- 字段数据工具函数 ----------
@@ -170,7 +172,7 @@ function buildStructuredPrompt(config) {
     var rubricText = extractFieldText(config.rubric);
     var imgAnnotation = buildImageAnnotation(config);
 
-    let prompt = `你是一位严格的阅卷老师。${config.studentGradingEvidence ? '请依据已识别的学生作答评分。' : '请查看图片中的学生答案并评分。'}
+    let prompt = `你是一位严格的阅卷老师。${config[STUDENT_GRADING_EVIDENCE] ? '请依据已识别的学生作答评分。' : '请查看图片中的学生答案并评分。'}
 
 ===== 输入信息 =====`;
     if (imgAnnotation) prompt += imgAnnotation;
@@ -472,7 +474,7 @@ function buildArbitrationPrompt(config, resultA, resultB, threshold) {
         : [];
     const hasSub = subQuestions.length > 0;
 
-    let prompt = `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅${config.studentGradingEvidence ? '已识别的学生作答' : '学生作答图片'}后裁定。
+    let prompt = `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅${config[STUDENT_GRADING_EVIDENCE] ? '已识别的学生作答' : '学生作答图片'}后裁定。
 
 ===== 评分分歧 =====
 老师A评分：${resultA.score}分
@@ -551,7 +553,7 @@ ${hasSub ? '（各小题分数之和，一个数字）' : '（一个整数，基
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
 2. 【最终得分】必须只有一行，只包含${hasSub ? '数字' : '一个整数'}
-3. 你必须独立审阅${config.studentGradingEvidence ? '已识别的学生作答' : '学生作答图片'}，不要被两位老师的分数左右
+3. 你必须独立审阅${config[STUDENT_GRADING_EVIDENCE] ? '已识别的学生作答' : '学生作答图片'}，不要被两位老师的分数左右
 4. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
 ${buildCommonConstraints(5)}`;
     return prompt;
@@ -599,7 +601,7 @@ function buildSubQuestionPrompt(config) {
     var imgAnnotation = buildImageAnnotation(config);
     var totalMaxScore = resolveMaxScore(config);
 
-    let prompt = `你是一位严格的阅卷老师。${config.studentGradingEvidence ? '请依据已识别的学生作答评分。' : '请查看图片中的学生答案并评分。'}
+    let prompt = `你是一位严格的阅卷老师。${config[STUDENT_GRADING_EVIDENCE] ? '请依据已识别的学生作答评分。' : '请查看图片中的学生答案并评分。'}
 
 ===== 输入信息 =====`;
     if (imgAnnotation) prompt += imgAnnotation;
@@ -757,7 +759,7 @@ function gradingEvidenceReview(message) {
 }
 
 async function readStudentGradingEvidence(images, config, onStreamUpdate) {
-    if (config.studentGradingEvidence || !collectFieldImages(config).length) return config;
+    if (config.referenceImageEvidenceCheck !== true || config[STUDENT_GRADING_EVIDENCE] || !collectFieldImages(config).length) return config;
     const prompt = `只识别本次学生答卷中的有效手写作答。逐空按位置转录，保留公式、标记和学生所画图形的可辨细节。留空标注[未作答]，看不清标注[无法辨认]。印刷体、答题线、划去内容均不计入。不推测、不解题、不评分。
 整卷空白：状态为未作答，原文为空字符串。有清楚和不清楚的作答：状态为部分不清。没有能辨认的作答但有笔迹：状态为无法辨认。
 只返回一个 JSON 对象：{"status":"可辨认","answer":"学生实际作答原文"}。status 只能是可辨认、部分不清、无法辨认或未作答。`;
@@ -781,7 +783,7 @@ async function readStudentGradingEvidence(images, config, onStreamUpdate) {
         throw gradingEvidenceReview('学生作答识别结果不完整，请核对答卷后继续');
     }
     requireGradingEvidence({ answerStatus: status, studentAnswer: answer || status });
-    return { ...config, studentGradingEvidence: { status, answer } };
+    return { ...config, [STUDENT_GRADING_EVIDENCE]: { status, answer } };
 }
 
 async function confirmStudentAnswerStatus(images, config) {
@@ -843,7 +845,7 @@ function applyStudentGradingEvidence(parsed, evidence, fullText, score = parsed.
 
 async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     config = await readStudentGradingEvidence(base64DataArray, config, onStreamUpdate);
-    const evidence = config.studentGradingEvidence;
+    const evidence = config[STUDENT_GRADING_EVIDENCE];
     if (evidence?.status === '未作答') return makeBlankGradingResult(config);
     // 从 scoring.units 派生 subQuestions（唯一数据源）
     const units = config.scoring?.units || [];
