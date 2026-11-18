@@ -180,32 +180,65 @@ function getPendingReviewLimit(config) {
     return Number.isInteger(limit) && limit >= 1 && limit <= 50 ? limit : 5;
 }
 
-async function requestGradingWithRecognitionRetry(context, request) {
-    const enabled = isAnswerReviewEnabled(context.configuration);
-    if (enabled && HistoryManager.getPendingReviewCount() >= getPendingReviewLimit(context.configuration)) {
-        throw new Error('待复核记录已达到允许数量，请先完成复核');
-    }
-    const retry = enabled && window.aiGradingState.gradingMode === 'unattended';
+function isAnswerStatusCheckEnabled(config) {
+    return config?.answerStatusCheck === true;
+}
+
+function getUnattendedAnswerFailure(config) {
+    return config?.retryPolicy?.unattendedAnswerFailure === 'recover' ? 'recover' : 'pause';
+}
+
+async function requestGradingWithAnswerRecovery(context, request, recoverAnswerStatus, retryUnreadable = false) {
+    const recover = window.aiGradingState.gradingMode === 'unattended'
+        && getUnattendedAnswerFailure(context.configuration) === 'recover';
     for (let attempt = 0; ; attempt++) {
         requireCurrentGradingContext(context);
         if (attempt) await verifyGradingContext(context);
         try {
             const result = await request();
             requireCurrentGradingContext(context);
-            requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+            if (isAnswerStatusCheckEnabled(context.configuration) || recover
+                || (retryUnreadable && getGradingAnswerStatus(result) === 'unreadable')) {
+                requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+            }
             return result;
         } catch (error) {
             requireCurrentGradingContext(context);
-            if (error.code !== 'GRADING_EVIDENCE_REVIEW' || error.answerStatus !== 'unreadable') throw error;
+            if (!recover || attempt || error.code !== 'GRADING_EVIDENCE_REVIEW') throw error;
+            let status;
+            if (recoverAnswerStatus) {
+                await verifyGradingContext(context);
+                requireGradingContextTarget(context);
+                try {
+                    status = await recoverAnswerStatus();
+                } catch (recoveryError) {
+                    console.warn('[答卷复查] 无法确认作答状态:', recoveryError);
+                }
+                requireCurrentGradingContext(context);
+                await verifyGradingContext(context);
+                requireGradingContextTarget(context);
+                if (status === 'blank') return makeBlankGradingResult(context.configuration);
+            }
+            if (status !== 'written' && !(retryUnreadable && error.answerStatus === 'unreadable')) throw error;
+        }
+    }
+}
+
+async function requestGradingWithRecognitionRetry(context, request, recoverAnswerStatus) {
+    const enabled = isAnswerReviewEnabled(context.configuration);
+    try {
+        return await requestGradingWithAnswerRecovery(context, request, recoverAnswerStatus, enabled);
+    } catch (error) {
+        requireCurrentGradingContext(context);
+        if (error.code === 'GRADING_EVIDENCE_REVIEW' && error.answerStatus === 'unreadable') {
             window.aiGradingState.currentStudentAnswer = error.gradingResult?.studentAnswer || '无法辨认';
-            if (retry && attempt === 0) continue;
             if (enabled) {
                 await HistoryManager.savePendingReview(context, error.gradingResult);
                 requireCurrentGradingContext(context);
                 error.message = '本卷需要教师评分，原图与评分方案已保存到评阅历史的待复核记录';
             }
-            throw error;
         }
+        throw error;
     }
 }
 
