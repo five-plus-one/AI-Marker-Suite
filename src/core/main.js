@@ -535,7 +535,7 @@ async function startAutoGrading() {
 
             // 字数 ≤ 15 或未作答时，强制无勤勉分
             let diligenceLevel = result.diligenceLevel || 0;
-            const answerLen = (result.studentAnswer || '').replace(/\s/g, '').length;
+            const answerLen = (result.studentAnswer || '').replace(/\[(?:未作答|无法辨认)\]|\s/g, '').length;
             const explicitlyBlank = isExplicitlyBlankGradingResult(result);
             if (answerLen <= 15 || explicitlyBlank) diligenceLevel = 0;
 
