@@ -124,3 +124,35 @@ test('智学网明确满分不匹配时停止准备，小数满分与未知满�
     assert.equal(a._scoreMaximum({getAttribute:()=>null,placeholder:'满分8.5'}),8.5);
     assert.equal(a._scoreMaximum({getAttribute:()=>'-1',placeholder:'请输入分数'}),0);
 });
+
+test('智学网含括号的题号在同题换卷时保持一致，切到另一个小题时停止', () => {
+    const e = fixture();
+    let heading = '第24(1)题';
+    let total = '24(1)';
+    const input = label => ({ getAttribute: name => name === 'disptitle' ? label : null });
+    Object.assign(e.sb.document, {
+        querySelector: selector => {
+            if (selector === '#currentTopicIndex') return { textContent: heading };
+            if (selector === '#containter_topicTxt #totalScore' && total) return input(total);
+            return null;
+        },
+        querySelectorAll: selector => selector === 'input[name="topicTxt"]' ? [input('1'), input('2')] : []
+    });
+    load(e, 'src/adapters/zhixue/selectors.js');
+    load(e, 'src/adapters/zhixue/adapter.js');
+    const adapter = vm.runInContext('ZhixueAdapter', e.sb);
+    e.adapter.getGradingTaskIdentifier = () => adapter.getGradingTaskIdentifier();
+    e.sb.PresetManager.getCurrentConfig = () => ({ paperGuard: { enabled: false } });
+    const run = e.sb.createGradingContext();
+
+    total = '';
+    assert.equal(e.sb.stopIfGradingTaskChanged(run), false, '换卷时总分栏暂未显示');
+    total = '２４（１）';
+    heading = '  ';
+    assert.equal(e.sb.stopIfGradingTaskChanged(run), false, '换卷时页头暂未显示');
+
+    heading = '第24(1)题';
+    total = '24(2)';
+    assert.equal(e.sb.stopIfGradingTaskChanged(run), true, '评分栏先更新仍能拦住实际换题');
+    assert.equal(run.controller.signal.aborted, true);
+});
