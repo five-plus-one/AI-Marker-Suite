@@ -1,14 +1,21 @@
 // 九科星考试阅卷：原生答卷、完整题块、Vue 评分登记及保存回执。
 const JiukexingAdapter = {
     name: '九科星', id: 'jiukexing',
-    urlPatterns: ['*://marking.jkxjxw.com/*'], iconUrl: '',
+    urlPatterns: ['*://marking.jkxjxw.com/*', '*://jxp.jkxjxw.com/exam-marking/*'], iconUrl: '',
     _pendingScores: null, _collectedPaper: null, _submittedPaper: null, _submitting: false,
 
     shouldInitialize() {
-        return window.location.hostname === 'marking.jkxjxw.com';
+        const { hostname, pathname } = window.location;
+        return hostname === 'marking.jkxjxw.com'
+            || (hostname === 'jxp.jkxjxw.com' && /^\/exam-marking\/(?:marking|reviewMarking)\/?$/.test(pathname));
+    },
+    _markingRoute() {
+        const { hostname, pathname } = window.location;
+        const route = hostname === 'jxp.jkxjxw.com' ? pathname.slice('/exam-marking'.length) : pathname;
+        return route.replace(/\/$/, '');
     },
     _page() {
-        if (!this.shouldInitialize() || !/^\/(?:marking|reviewMarking)\/?$/.test(window.location.pathname)) return null;
+        if (!this.shouldInitialize() || !['/marking', '/reviewMarking'].includes(this._markingRoute())) return null;
         const queue = [document.querySelector('#app')?.__vue__], seen = new Set();
         while (queue.length) {
             const page = queue.shift();
@@ -313,7 +320,7 @@ const JiukexingAdapter = {
     },
     isRegradeMode() {
         const page = this._page();
-        return window.location.pathname === '/reviewMarking' || page?.oldornew === 'old'
+        return this._markingRoute() === '/reviewMarking' || page?.oldornew === 'old'
             || !!window.aiGradingState?.isRegrading;
     },
     detectSubQuestions() { return []; },
