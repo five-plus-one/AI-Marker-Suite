@@ -647,7 +647,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             allImages = imgGate.kept;
         }
         if ((studentImages.length > 0 && studentGate.kept.length === 0)
-            || (config.gradingRequest && studentGate.kept.length === 0)
+            || (config.gradingRequest && !config.studentGradingEvidence && studentGate.kept.length === 0)
             || (allImages.length === 0 && rawImageCount > 0)) {
             // 剔除后无图 = 显式失败（宁可不取）：绝不让 AI 对空图评分
             return reject(new Error('答题卡图片均不可用（废图剔除后无有效图片），请人工核查后继续批改'));
@@ -1057,6 +1057,10 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         return callAIGrading(base64DataArray, config, onStreamUpdate);
     }
 
+    config = await readStudentGradingEvidence(base64DataArray, config, onStreamUpdate);
+    const evidence = config.studentGradingEvidence;
+    if (evidence?.status === '未作答') return makeBlankGradingResult(config);
+
     const dualConfig = workflow.dualEval;
     const arbitrationSnapshot = ProviderManager.getCallConfig(dualConfig.arbitration?.provider, dualConfig.arbitration?.model);
     const threshold = dualConfig.threshold != null ? dualConfig.threshold : 2;
@@ -1213,8 +1217,8 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         };
     }
 
-    const arbPrompt = buildArbitrationPrompt(config, detailA, detailB, threshold);
-    const arbResult = await callAIWithRetry(arbPrompt, base64DataArray, { ...config, ...arbConfig, gradingRequest: true },
+    const arbPrompt = appendStudentGradingEvidence(buildArbitrationPrompt(config, detailA, detailB, threshold), evidence);
+    const arbResult = await callAIWithRetry(arbPrompt, evidence ? [] : base64DataArray, { ...config, ...arbConfig, gradingRequest: true },
         onStreamUpdate, collectFieldImages(config));
 
     // 多小题模式下用小题解析器，单题模式用结构化解析器
@@ -1261,6 +1265,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         }
     }
 
+    arbParsed = applyStudentGradingEvidence(arbParsed, evidence, arbResult, arbFinalScore);
     requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
     return {
         ...arbParsed,

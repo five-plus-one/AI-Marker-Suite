@@ -178,32 +178,87 @@ test('评分请求逐图注明参考资料与学生答卷，过滤后仍保留�
     assert.match(content[indexes[1] - 1].text, /学生答卷/); assert.ok(content[indexes[1]].image_url.url.includes(student));
 });
 
-test('真实双评及第三模型仲裁均接收同一参考资料和学生答卷', async () => {
-    const { sandbox, requests } = loadEngineForRequest();
-    sandbox.__provider = (_provider, model) => ({ endpoint: 'https://e.test', apiKey: 'k', model });
-    sandbox.PresetManager = { getMaxScore: () => 10 };
+function respondWith(sandbox, requests, getResponse) {
     sandbox.GM_xmlhttpRequest = options => {
-        const request = JSON.parse(options.data); requests.push(request);
-        const score = request.model === 'secondary' ? 5 : 0;
-        const response = `【作答状态】\n可辨认\n【答案复述】\n${score ? 'I=3A' : 'I=2A'}\n【评分依据】\n依据实际书写\n【得分】\n${score}`;
+        const request = JSON.parse(options.data);
+        requests.push(request);
+        const response = getResponse(request);
         queueMicrotask(() => options.onload({ status: 200, responseText: 'data: ' + JSON.stringify({ choices: [{
             delta: { content: response }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n' }));
         return { abort() {} };
     };
+}
+
+test('双评和仲裁共用独立转录，只在评分请求中接收参考图', async () => {
+    const { sandbox, requests } = loadEngineForRequest();
+    sandbox.__provider = (_provider, model) => ({ endpoint: 'https://e.test', apiKey: 'k', model });
+    sandbox.PresetManager = { getMaxScore: () => 10 };
+    const student = png(900, 700), reference = png(700, 600);
+    respondWith(sandbox, requests, request => {
+        if (requests.length === 1) return JSON.stringify({ status: '可辨认', answer: 'I=3A' });
+        const score = request.model === 'secondary' ? 5 : 0;
+        const evidence = score ? '[{"quote":"I=3A","score":5}]' : '[]';
+        return `【作答状态】\n可辨认\n【答案复述】\nI=2A\n【得分】\n${score}\n【得分原文】\n${evidence}`;
+    });
     sandbox.__config = { question: { text: '已识别题目', images: [png(800, 600)], format: 'markdown' },
-        answer: { text: '![保留的配图](ai-img://1)', images: [png(500, 500), png(700, 600)], format: 'markdown' },
-        rubric: { text: '逐项给分', images: [png(600, 500)], format: 'markdown' }, scoring: { maxScore: 10, roundStep: 1 },
+        answer: { text: '![配图](ai-img://1)', images: [png(500, 500), reference], format: 'markdown' },
+        endpoint: 'https://e.test', apiKey: 'k', model: 'primary', scoring: { maxScore: 10, roundStep: 1 },
         workflowSnapshot: { model: { provider: 'p', model: 'primary' }, dualEval: { enabled: true, threshold: 2,
             secondary: { provider: 'p', model: 'secondary' }, arbitration: { provider: 'p', model: 'arbitration' } } } };
-    sandbox.__students = [png(900, 700)];
+    sandbox.__students = [student];
     vm.runInContext('ProviderManager.getCallConfig = __provider;', sandbox);
     const result = await vm.runInContext('callDualEvaluation(__students, __config)', sandbox);
-    assert.equal(result.score, 0); assert.equal(requests.length, 3);
-    for (const request of requests) {
-        const content = request.messages[0].content;
-        assert.equal(content.filter(item => item.type === 'image_url').length, 2);
-        assert.ok(content.some(item => item.type === 'text' && item.text.includes('教师提供的参考资料')));
-        assert.ok(content.some(item => item.type === 'text' && item.text.includes('本次待批改的学生答卷')));
+    assert.equal(result.dualEval.result, 'arbitration');
+    assert.equal(result.score, 0);
+    assert.equal(result.studentAnswer, 'I=3A');
+    assert.equal(requests.length, 4);
+    const contents = requests.map(request => request.messages[0].content);
+    assert.equal(contents[0].filter(item => item.type === 'image_url')[0].image_url.url, 'data:image/png;base64,' + student);
+    assert.ok(!JSON.stringify(contents[0]).includes(reference));
+    for (const content of contents.slice(1)) {
+        const images = content.filter(item => item.type === 'image_url');
+        assert.equal(images.length, 1);
+        assert.equal(images[0].image_url.url, 'data:image/png;base64,' + reference);
+        assert.ok(content[0].text.includes('"answer":"I=3A"'));
+    }
+});
+
+test('有批注的原题配图不会给整卷空白或部分空白的答卷加分', async () => {
+    const reference = png(2036, 822), student = png(1517, 246);
+    const partial = '电子\n[未作答]\n[未作答]\n[未作答]';
+    for (const [answer, score, quotes] of [
+        ['', 0, []],
+        [partial, 1, [{ quote: '电子', score: 1 }]],
+        [partial, 4, [
+            { quote: '电子', score: 1 }, { quote: '有大液泡 无中心体', score: 1 },
+            { quote: '中心体', score: 1 }, { quote: '叶绿体', score: 1 }
+        ]]
+    ]) {
+        const { sandbox, requests } = loadEngineForRequest();
+        sandbox.PresetManager = { getMaxScore: () => 5 };
+        sandbox.__students = [student];
+        sandbox.__config = { question: { text: '![原题](ai-img://0)', images: [reference], format: 'markdown' },
+            answer: '电子；有大液泡 无中心体；中心体；叶绿体', rubric: '逐空评分',
+            endpoint: 'https://e.test', apiKey: 'k', model: 'm', outputMode: 'score-only',
+            scoring: { maxScore: 5, units: [{ label: '19(1)', maxScore: 5 }] } };
+        respondWith(sandbox, requests, () => requests.length === 1
+            ? JSON.stringify({ status: answer ? '可辨认' : '未作答', answer })
+            : `【得分】\n${score}\n【得分原文】\n${JSON.stringify(quotes)}`);
+        const grade = () => vm.runInContext('callAIGrading(__students, __config)', sandbox);
+        if (score === 4) {
+            await assert.rejects(grade, { code: 'GRADING_EVIDENCE_REVIEW' });
+        } else {
+            const result = await grade();
+            assert.equal(result.score, score);
+            assert.equal(result.studentAnswer, answer || '未作答');
+        }
+        assert.equal(requests.length, answer ? 2 : 1);
+        const first = JSON.stringify(requests[0].messages);
+        assert.ok(first.includes(student) && !first.includes(reference) && !first.includes('中心体'));
+        if (answer) {
+            const second = JSON.stringify(requests[1].messages);
+            assert.ok(second.includes(reference) && !second.includes(student));
+        }
     }
 });
 
