@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.27.8',
+    VERSION: '1.21.27.9',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.27.9': [
+            '【实验性】按小问识别学生作答并核对得分依据，支持小问分别填分和汇总填分，按方案开启',
+            '【实验性】无人模式可选择复查原卷后重评或直接重试，并设置最多重试次数',
+        ],
         '1.21.27.8': [
             '【平台适配】支持湖北丽升阅卷，在正评打分板读取答卷、按题目分值给分并核对保存结果',
         ],

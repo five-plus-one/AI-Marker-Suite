@@ -431,7 +431,9 @@ async function startAutoGrading() {
         // ===== 空白答题卡检测 =====
         const blankConfig = presetConfig.blankDetection;
         let blankDetectionResult = null; // 缓存检测结果，避免重复计算
-        if (blankConfig && blankConfig.enabled && !window.aiGradingState.blankDetection.skipOnce) {
+        const incompleteScopedPaper = presetConfig.questionEvidence?.enabled === true
+            && window.aiGradingState.imageGateRemovedCount > 0;
+        if (blankConfig && blankConfig.enabled && !window.aiGradingState.blankDetection.skipOnce && !incompleteScopedPaper) {
             const refData = BlankDetector.loadReference();
             if (refData) {
                 try {
@@ -535,7 +537,7 @@ async function startAutoGrading() {
 
             // 字数 ≤ 15 或未作答时，强制无勤勉分
             let diligenceLevel = result.diligenceLevel || 0;
-            const answerLen = (result.studentAnswer || '').replace(/\[(?:未作答|无法辨认)\]|\s/g, '').length;
+            const answerLen = result.answerLength ?? (result.studentAnswer || '').replace(/\[(?:未作答|无法辨认)\]|\s/g, '').length;
             const explicitlyBlank = isExplicitlyBlankGradingResult(result);
             if (answerLen <= 15 || explicitlyBlank) diligenceLevel = 0;
 
@@ -545,7 +547,7 @@ async function startAutoGrading() {
             const aiUnitScores = result.subScores
                 ? result.subScores.map((sq, i) => ({
                     ...sq,
-                    roundStep: configUnits[i]?.roundStep || scoringConfig.roundStep
+                    roundStep: (result.scopedQuestionsTotalOnly ? sq.roundStep : configUnits[i]?.roundStep) || scoringConfig.roundStep
                 }))
                 : null;
 
@@ -554,10 +556,12 @@ async function startAutoGrading() {
                 diligenceLevel,
                 maxScore,
                 scoringConfig,
-                aiUnitScores
+                aiUnitScores,
+                totalOnly: result.scopedQuestionsTotalOnly
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
+            const platformUnitScores = result.scopedQuestionsTotalOnly ? null : finalUnitScores;
             if (isAnswerStatusCheckEnabled(presetConfig)) {
                 requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
             }
@@ -577,17 +581,17 @@ async function startAutoGrading() {
             const adapter = window.__AI_MARKER_ADAPTER__;
             let fillOk = false;
             if (adapter) {
-                if (adapter.fillScores && finalUnitScores) {
+                if (adapter.fillScores && platformUnitScores) {
                     // 新接口：按评分单元顺序填入（数值闸 N5 前置）
-                    fillOk = safeFillScores(adapter, finalUnitScores.map(u => u.score), '主流程填分');
+                    fillOk = safeFillScores(adapter, platformUnitScores.map(u => u.score), '主流程填分');
                 } else if (adapter.fillScores) {
                     // 单题模式
                     fillOk = safeFillScores(adapter, [finalScore], '主流程填分');
                 } else if (adapter.fillScore) {
                     // 旧接口兼容（request 内含 total/subScores，数值闸覆盖两者）
                     fillOk = validateScoresForFill(
-                        [finalScore].concat((finalUnitScores || []).map(u => u.score)), '主流程填分(旧接口)')
-                        ? adapter.fillScore({ total: finalScore, subScores: finalUnitScores })
+                        [finalScore].concat((platformUnitScores || []).map(u => u.score)), '主流程填分(旧接口)')
+                        ? adapter.fillScore({ total: finalScore, subScores: platformUnitScores })
                         : false;
                 } else {
                     fillOk = false;
@@ -624,9 +628,16 @@ async function startAutoGrading() {
                 } catch (e) { /* 静默失败，不影响主流程 */ }
             }
             requireCurrentGradingContext(runContext);
-            showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
+            const dialogUnitScores = result.scopedQuestionsTotalOnly ? null : (platformUnitScores || result.subScores);
+            const scoringDetails = result._sections ? { ...result._sections } : null;
+            if (scoringDetails && result.answerLength !== undefined && finalUnitScores?.length) {
+                const expression = finalUnitScores.map(unit => unit.score).join(' + ');
+                const sum = Math.round(finalUnitScores.reduce((total, unit) => total + unit.score, 0) * 1e8) / 1e8;
+                scoringDetails['分数计算'] = `${expression} = ${sum} 分${sum === finalScore ? '' : `，折合总分 ${finalScore} 分`}`;
+            }
+            showAutoSubmitDialog(finalScore, result.comment, dialogUnitScores, {
                 runContext,
-                scoringDetails: result._sections || null,
+                scoringDetails,
                 answerStatus: getGradingAnswerStatus(result),
                 dualEval: result.dualEval || null,
                 rawScore: result.rawScore || result.score,

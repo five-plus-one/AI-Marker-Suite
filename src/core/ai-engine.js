@@ -1129,10 +1129,13 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     if (isAnswerStatusCheckEnabled(config) || evidence) requireCompatibleGradingEvidence(detailA, detailB);
 
     const diff = Math.abs(scoreA - scoreB);
+    const questionDiff = evidence?.questions ? Math.max(...detailA.subScores.map((unit, index) =>
+        Math.abs(unit.score - detailB.subScores[index].score))) : 0;
+    const arbitrationDiff = Math.max(diff, questionDiff);
     console.log(`🔄 [双评] 结果 — 主模型: ${scoreA}, 副模型: ${scoreB}, 分差: ${diff}`);
 
     // 分差在阈值内
-    if (diff <= threshold) {
+    if (arbitrationDiff <= threshold) {
         // 总分合并同步走 mergeMode + roundStep 吸附 + 满分钳制（工单②；缺省 round 与原平均逐值一致）
         let finalScore = mergeDualValue(scoreA, scoreB, {
             roundStep: config.scoring?.roundStep || 1,
@@ -1185,8 +1188,9 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     // 分差超阈值，触发三评仲裁
-    console.log(`⚠️ [双评] 分差超阈值(${diff} > ${threshold})，启动三评仲裁...`);
-    if (onStreamUpdate) onStreamUpdate(`⚠️ 分差 ${diff} 分超阈值，正在进行三评仲裁...`);
+    console.log(`⚠️ [双评] 分差超阈值(${arbitrationDiff} > ${threshold})，启动三评仲裁...`);
+    if (onStreamUpdate) onStreamUpdate(questionDiff > diff
+        ? '小问评分有分歧，正在仲裁…' : `⚠️ 分差 ${diff} 分超阈值，正在进行三评仲裁...`);
 
     const arbConfig = arbitrationSnapshot;
     if (arbConfig && dualConfig.arbitration.reasoningEffort) {
@@ -1217,15 +1221,20 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         };
     }
 
-    const arbPrompt = appendStudentGradingEvidence(buildArbitrationPrompt(config, detailA, detailB, threshold), evidence);
+    const scoped = Boolean(evidence?.questions);
+    const arbPrompt = scoped ? buildScopedQuestionScorePrompt(config, evidence, [detailA, detailB].map(detail =>
+        detail.subScores.map(({ id, score }) => ({ id, score }))))
+        : appendStudentGradingEvidence(buildArbitrationPrompt(config, detailA, detailB, threshold), evidence);
     const arbResult = await callAIWithRetry(arbPrompt, evidence ? [] : base64DataArray, { ...config, ...arbConfig, gradingRequest: true },
-        onStreamUpdate, collectFieldImages(config));
+        scoped ? null : onStreamUpdate, collectFieldImages(config));
 
     // 多小题模式下用小题解析器，单题模式用结构化解析器
     const arbUnits = config.scoring?.units || [];
     const arbHasSub = arbUnits.length > 1 && detailA?.subScores && detailA.subScores.length > 0;
     let arbParsed;
-    if (arbHasSub) {
+    if (scoped) {
+        arbParsed = parseScopedQuestionScores(arbResult, evidence, config);
+    } else if (arbHasSub) {
         const arbSubQuestions = detailA.subScores.map(sq => ({ id: sq.id, label: sq.label, maxScore: sq.maxScore }));
         arbParsed = parseSubQuestionResponse(arbResult, { ...config, subQuestions: arbSubQuestions });
     } else {
@@ -1265,7 +1274,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         }
     }
 
-    arbParsed = applyStudentGradingEvidence(arbParsed, evidence, arbResult, arbFinalScore);
+    if (!scoped) arbParsed = applyStudentGradingEvidence(arbParsed, evidence, arbResult, arbFinalScore);
     if (isAnswerStatusCheckEnabled(config) || evidence) {
         requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
     }
