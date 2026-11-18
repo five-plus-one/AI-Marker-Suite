@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.27.6',
+    VERSION: '1.21.27.7',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.27.7': [
+            '【新平台】支持百师联盟单题评阅，读取答卷图片，按平台步长给分并核对提交结果',
+        ],
         '1.21.27.6': [
             '【新平台】支持悦卷通（www.yuejuantong.com），可按题识别答卷、核对小题分数并使用键盘方式给分',
         ],
