@@ -513,13 +513,13 @@ async function startAutoGrading() {
         const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
             signal: runContext.controller.signal,
             imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
-        const result = isDualEval
+        const result = await requestGradingWithAnswerRecovery(runContext, async () => isDualEval
             ? await callDualEvaluation(base64DataArray, gradingConfig, (streamedText) => {
                 if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
             })
             : await callAIGrading(base64DataArray, gradingConfig, (streamedText) => {
                 if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
-            });
+            }), () => confirmStudentAnswerStatus(base64DataArray, gradingConfig));
 
         requireCurrentGradingContext(runContext);
         hideStreamPanel();
@@ -555,7 +555,9 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
-            requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
+            if (isAnswerStatusCheckEnabled(presetConfig)) {
+                requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
+            }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;
