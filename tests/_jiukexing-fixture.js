@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const { makeStub } = require('./_adapter-matrix');
 
 module.exports = function fixture(options = {}) {
-    const sb = makeStub({ host: 'marking.jkxjxw.com', path: '/marking' });
+    const sb = makeStub(options.location || { host: 'marking.jkxjxw.com', path: '/marking' });
     const state = { clock: 0, events: [], notices: [], clicks: 0, requests: [], mode: 'success', polls: 0, timers: new Map() };
     class Input {
         constructor(index) { this.index = index; this._value = ''; this.disabled = false; this.readOnly = false; }

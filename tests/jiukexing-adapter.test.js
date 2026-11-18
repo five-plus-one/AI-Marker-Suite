@@ -2,6 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fixture = require('./_jiukexing-fixture');
 
+test('九科星一体化入口沿用考试题块取图、填分和保存校验', async () => {
+    const f = fixture({ location: { host: 'jxp.jkxjxw.com', path: '/exam-marking/marking' } });
+    assert.equal(f.adapter.id, 'jiukexing');
+    assert.ok(await f.adapter.detectMarkingPage());
+    assert.equal((await f.adapter.gatherAnswerImages()).length, 1);
+    assert.ok(f.adapter.fillScores([5]));
+    assert.equal(f.state.requests.length, 0);
+    assert.ok(await f.adapter.submitGrade());
+    assert.equal(f.state.requests.length, 1);
+});
+
 test('九科星连续三卷绑定原生 ID，原生保存成功后识别已换卷（包括同 URL）', async () => {
     const f = fixture({ images: 2, units: 2 });
     for (let index = 0; index < 3; index++) {
