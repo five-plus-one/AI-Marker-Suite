@@ -234,16 +234,16 @@ const ZhixueAdapter = {
         // 多小题的序号不是大题号；只有总分栏或唯一评分栏可补充顶部题号。
         const total = doc.querySelector('#containter_topicTxt #totalScore');
         const inputs = Array.from(doc.querySelectorAll('input[name="topicTxt"]')).filter(el => !el.getClientRects || el.getClientRects().length);
-        const scoringQuestion = label(total) || (inputs.length === 1 ? label(inputs[0]) : '');
-        const heading = doc.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX)?.textContent;
-        const title = doc.querySelector(ZHIXUE_SELECTORS.TOPIC_TITLE);
         const normalize = value => {
             value = String(value || '').normalize('NFKC').trim();
-            const number = value.match(/^(?:第\s*)?(\d+(?:\s*[-~～至、,，]\s*\d+)*)(?:\s*题)?$/);
+            // 页头「第24(1)题」与总分栏「24(1)」指向同一题块。
+            const number = value.match(/^(?:第\s*)?(\d+(?:\s*[-~～至、,，]\s*\d+)*(?:\s*\(\s*\d+\s*\))*)(?:\s*题)?$/);
             return number ? `第${number[1].replace(/\s/g, '')}题` : value;
         };
-        return { heading: normalize(heading), scoring: normalize(scoringQuestion),
-            question: normalize(heading || scoringQuestion || title?.getAttribute('title') || title?.textContent) };
+        const scoring = normalize(label(total)) || (inputs.length === 1 ? normalize(label(inputs[0])) : '');
+        const heading = normalize(doc.querySelector(ZHIXUE_SELECTORS.TOPIC_INDEX)?.textContent);
+        const title = doc.querySelector(ZHIXUE_SELECTORS.TOPIC_TITLE);
+        return { heading, scoring, question: heading || scoring || normalize(title?.getAttribute('title') || title?.textContent) };
     },
 
     getGradingTaskIdentifier() {
