@@ -3,8 +3,9 @@ const assert = require('node:assert/strict');
 const M = require('./_adapter-matrix.js');
 
 // 现场结构：CurrQuestion 持有 base64，主图使用 blob；提交动作先换卷，再收到 SetMark 响应。
-function setup({ maxima = [15], flag = '1', options } = {}) {
-    const sb = M.makeStub({ host: '120.55.199.134', port: '9090', path: '/home/index', protocol: 'http:' });
+function setup({ maxima = [15], flag = '1', options, host = '120.55.199.134', port = '9090',
+    path = '/home/index', protocol = 'http:' } = {}) {
+    const sb = M.makeStub({ host, port, path, protocol });
     sb.location = new URL(sb.location.href);
     sb.setTimeout = (fn, ms) => setTimeout(fn, ms === 100 ? 0 : ms);
     sb.clearTimeout = clearTimeout;
@@ -95,6 +96,32 @@ test('绑定当前原生裁切图，下载函数支持核心层的独立调用�
     assert.equal(images.length, 1);
     const fetchFn = a.fetchImageAsBase64;
     assert.equal(await fetchFn(images[0]), Buffer.from('answer-A').toString('base64'));
+});
+
+test('湖北丽升数学第 19 题绑定 17 分整数档，确认保存后换卷', async () => {
+    const s = setup({ host: 'hb.leascent.com', port: '84', maxima: [17] });
+    assert.deepEqual(Array.from(s.a.getScoreInputs(), ({ maxScore, roundStep }) => [maxScore, roundStep]), [[17, 1]]);
+    assert.equal((await s.a.gatherAnswerImages()).length, 1);
+    assert.equal(s.a.fillScores([16.5]), false);
+    assert.equal(s.a.fillScores([17]), true);
+    assert.equal(s.sent.length, 0);
+    assert.equal(await s.a.submitGrade(), true);
+    assert.equal(await s.a.waitForNextPaper(), true);
+});
+
+test('湖北丽升只在已核对的原生阅卷入口注册', () => {
+    for (const overrides of [
+        { port: '83', path: '/' },
+        { port: '83' },
+        { path: '/Home/MarkCheck' },
+        { path: '/home/index-review' },
+        { protocol: 'https:' },
+        { host: 'hb.leascent.com.example.org' },
+    ]) {
+        const { a } = setup({ host: 'hb.leascent.com', port: '84', ...overrides });
+        assert.equal(a, undefined);
+    }
+    assert.equal(setup({ host: 'hb.leascent.com', port: '84', path: '/home/index/' }).a?.id, 'leascent');
 });
 
 test('主图尚未切换、图片未就绪或读取中换卷时不返回图片', async () => {
