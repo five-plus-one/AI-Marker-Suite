@@ -180,12 +180,9 @@ function getPendingReviewLimit(config) {
     return Number.isInteger(limit) && limit >= 1 && limit <= 50 ? limit : 5;
 }
 
-async function requestGradingWithRecognitionRetry(context, request) {
+async function requestGradingWithRecognitionRetry(context, request, recoverAnswerStatus) {
     const enabled = isAnswerReviewEnabled(context.configuration);
-    if (enabled && HistoryManager.getPendingReviewCount() >= getPendingReviewLimit(context.configuration)) {
-        throw new Error('待复核记录已达到允许数量，请先完成复核');
-    }
-    const retry = enabled && window.aiGradingState.gradingMode === 'unattended';
+    const unattended = window.aiGradingState.gradingMode === 'unattended';
     for (let attempt = 0; ; attempt++) {
         requireCurrentGradingContext(context);
         if (attempt) await verifyGradingContext(context);
@@ -196,13 +193,31 @@ async function requestGradingWithRecognitionRetry(context, request) {
             return result;
         } catch (error) {
             requireCurrentGradingContext(context);
-            if (error.code !== 'GRADING_EVIDENCE_REVIEW' || error.answerStatus !== 'unreadable') throw error;
-            window.aiGradingState.currentStudentAnswer = error.gradingResult?.studentAnswer || '无法辨认';
-            if (retry && attempt === 0) continue;
-            if (enabled) {
-                await HistoryManager.savePendingReview(context, error.gradingResult);
-                requireCurrentGradingContext(context);
-                error.message = '本卷需要教师评分，原图与评分方案已保存到评阅历史的待复核记录';
+            if (error.code !== 'GRADING_EVIDENCE_REVIEW') throw error;
+            if (unattended && attempt === 0) {
+                let status;
+                if (recoverAnswerStatus) {
+                    await verifyGradingContext(context);
+                    requireGradingContextTarget(context);
+                    try {
+                        status = await recoverAnswerStatus();
+                    } catch (recoveryError) {
+                        console.warn('[答卷复查] 无法确认作答状态:', recoveryError);
+                    }
+                    requireCurrentGradingContext(context);
+                    await verifyGradingContext(context);
+                    requireGradingContextTarget(context);
+                    if (status === 'blank') return makeBlankGradingResult(context.configuration);
+                }
+                if (status === 'written' || (enabled && error.answerStatus === 'unreadable')) continue;
+            }
+            if (error.answerStatus === 'unreadable') {
+                window.aiGradingState.currentStudentAnswer = error.gradingResult?.studentAnswer || '无法辨认';
+                if (enabled) {
+                    await HistoryManager.savePendingReview(context, error.gradingResult);
+                    requireCurrentGradingContext(context);
+                    error.message = '本卷需要教师评分，原图与评分方案已保存到评阅历史的待复核记录';
+                }
             }
             throw error;
         }
