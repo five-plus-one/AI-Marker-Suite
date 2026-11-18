@@ -8,6 +8,10 @@ const bundle = fs.readFileSync(path.join(ROOT, 'dist/ai_marker.user.js'), 'utf8'
 const results = [];
 const cases = [...M.ADAPTERS, ...Q.deployments.map(form => ({ dir: 'qiguang', id: 'qiguang', label: form.label, own: form })),
     ...Q.rejections().map(form => ({ dir: 'unknown', label: form.label, own: form })),
+    { dir: 'leascent', id: 'leascent', label: '湖北丽升阅卷页',
+        own: { host: 'hb.leascent.com', port: '84', protocol: 'http:', path: '/home/index' } },
+    { dir: 'unknown', label: '湖北丽升登录页',
+        own: { host: 'hb.leascent.com', port: '83', protocol: 'http:', path: '/' } },
     { dir: 'unknown', own: { host: 'example.com', path: '/' } }];
 for (const item of cases) for (const storage of ['available', 'write-failure']) {
     const sb = M.makeStub(item.own), store = {};

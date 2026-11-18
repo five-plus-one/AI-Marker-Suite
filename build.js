@@ -221,6 +221,7 @@ const BUILD_CONFIGS = [
                 'https://ls.xiaoxianai.cn/webPaper*',
                 '*://liankao.1000cb.com/Home/Mark*',
                 'http://120.55.199.134/*',
+                'http://hb.leascent.com/home/index*',
                 '*://hx-webscan.tyhuixue.com/web-reviewer/*',
                 'https://xinluolk.fjjxhl.com/lypaper/Base/lyReadPaper.aspx*',
                 '*://hx-webscan.hzjy.edu.cn/web-reviewer/*',
