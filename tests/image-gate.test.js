@@ -200,7 +200,7 @@ test('双评和仲裁共用独立转录，只在评分请求中接收参考图',
         const evidence = score ? '[{"quote":"I=3A","score":5}]' : '[]';
         return `【作答状态】\n可辨认\n【答案复述】\nI=2A\n【得分】\n${score}\n【得分原文】\n${evidence}`;
     });
-    sandbox.__config = { question: { text: '已识别题目', images: [png(800, 600)], format: 'markdown' },
+    sandbox.__config = { referenceImageEvidenceCheck: true, question: { text: '已识别题目', images: [png(800, 600)], format: 'markdown' },
         answer: { text: '![配图](ai-img://1)', images: [png(500, 500), reference], format: 'markdown' },
         endpoint: 'https://e.test', apiKey: 'k', model: 'primary', scoring: { maxScore: 10, roundStep: 1 },
         workflowSnapshot: { model: { provider: 'p', model: 'primary' }, dualEval: { enabled: true, threshold: 2,
@@ -237,7 +237,7 @@ test('有批注的原题配图不会给整卷空白或部分空白的答卷加�
         const { sandbox, requests } = loadEngineForRequest();
         sandbox.PresetManager = { getMaxScore: () => 5 };
         sandbox.__students = [student];
-        sandbox.__config = { question: { text: '![原题](ai-img://0)', images: [reference], format: 'markdown' },
+        sandbox.__config = { referenceImageEvidenceCheck: true, question: { text: '![原题](ai-img://0)', images: [reference], format: 'markdown' },
             answer: '电子；有大液泡 无中心体；中心体；叶绿体', rubric: '逐空评分',
             endpoint: 'https://e.test', apiKey: 'k', model: 'm', outputMode: 'score-only',
             scoring: { maxScore: 5, units: [{ label: '19(1)', maxScore: 5 }] } };
@@ -431,4 +431,19 @@ test('行为：全部合法图 → 零影响（不误杀）', async () => {
     assert.strictEqual(calls.fill, 1);
     assert.ok(!calls.warns.some(w => w.includes('废图剔除')), '合法图不得触发剔除告警');
     assert.strictEqual(calls.gateCount, 0, '零剔除不得登记误报');
+});
+
+test('旧方案及关闭配图核对的方案使用一次评分请求', async () => {
+    for (const flag of [undefined, false, 'true']) {
+        const { sandbox, requests } = loadEngineForRequest();
+        sandbox.PresetManager = { getMaxScore: () => 5 };
+        sandbox.__students = [png(1517, 246)];
+        sandbox.__config = { referenceImageEvidenceCheck: flag, question: { text: '![原题](ai-img://0)', images: [png(2036, 822)], format: 'markdown' },
+            answer: '电子', rubric: '按实际作答', endpoint: 'https://e.test', apiKey: 'k', model: 'm', scoring: { maxScore: 5 } };
+        respondWith(sandbox, requests, () => '【作答状态】可辨认\n【答案复述】电子\n【得分】1');
+        const result = await vm.runInContext('callAIGrading(__students, __config)', sandbox);
+        assert.equal(result.score, 1);
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0].messages[0].content.filter(item => item.type === 'image_url').length, 2);
+    }
 });
