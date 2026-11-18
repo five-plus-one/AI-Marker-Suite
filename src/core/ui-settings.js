@@ -803,12 +803,23 @@ function createSettingsPanel(options) {
                             <label for="unattended-answer-recovery">无人模式遇到需核对的答卷</label>
                             <select id="unattended-answer-recovery">
                                 <option value="pause">暂停，人工核对</option>
-                                <option value="recover">自动复查一次（实验性）</option>
+                                <option value="recover">复查原卷后重评（实验性）</option>
+                                <option value="retry">直接重试评分（实验性）</option>
                             </select>
                         </div>
-                        <div class="mode-desc">自动复查确认空白后按 0 分继续，发现作答痕迹时重评一次。</div>
+                        <div class="form-group">
+                            <label for="unattended-answer-retries">最多重试次数</label>
+                            <input type="number" id="unattended-answer-retries" min="1" max="5" step="1" value="1" disabled>
+                        </div>
+                        <div class="mode-desc">复查确认空白后按 0 分继续，发现作答时重评。直接重试会重新评分。达到次数上限后请人工核对。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="scoped-question-evidence"><label for="scoped-question-evidence">分小问作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">先识别每个小问的作答，再逐问给分。平台有多个分数框时使用平台题号和满分。平台只有总分框时，在下方每行填写一个「题号=满分」。</div>
+                        <div class="form-group">
+                            <label for="scoped-question-points">总分题的小问与满分</label>
+                            <textarea id="scoped-question-points" rows="3" placeholder="（1）=4&#10;（2）=6&#10;（3）=7" disabled></textarea>
+                        </div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-review-enabled"><label for="answer-review-enabled">保存无法辨认答卷供复核 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">默认关闭。开启后，需要人工核对无法辨认的答卷时，将原图和评分方案保存到评阅历史。</div>
                         <div class="form-group" style="margin-top:12px;"><label for="unattended-review-limit">允许待复核数量</label>
@@ -1456,6 +1467,12 @@ function createSettingsPanel(options) {
         input.addEventListener('input', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
         input.addEventListener('change', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
     });
+    panel.querySelector('#unattended-answer-recovery').addEventListener('change', function () {
+        panel.querySelector('#unattended-answer-retries').disabled = this.value === 'pause';
+    });
+    panel.querySelector('#scoped-question-evidence').addEventListener('change', function () {
+        panel.querySelector('#scoped-question-points').disabled = !this.checked;
+    });
     panel.querySelector('#answer-review-enabled').addEventListener('change', function () {
         panel.querySelector('#unattended-review-limit').disabled = !this.checked;
     });
@@ -2021,6 +2038,19 @@ function fillFormFromActivePreset() {
     if (answerStatusCheckInput) answerStatusCheckInput.checked = isAnswerStatusCheckEnabled(config);
     const unattendedAnswerRecoveryInput = document.getElementById('unattended-answer-recovery');
     if (unattendedAnswerRecoveryInput) unattendedAnswerRecoveryInput.value = getUnattendedAnswerFailure(config);
+    const unattendedAnswerRetriesInput = document.getElementById('unattended-answer-retries');
+    if (unattendedAnswerRetriesInput) {
+        unattendedAnswerRetriesInput.value = getUnattendedAnswerRetries(config);
+        unattendedAnswerRetriesInput.disabled = getUnattendedAnswerFailure(config) === 'pause';
+    }
+    const scopedEvidenceInput = document.getElementById('scoped-question-evidence');
+    const scopedPointsInput = document.getElementById('scoped-question-points');
+    if (scopedEvidenceInput) scopedEvidenceInput.checked = config.questionEvidence?.enabled === true;
+    if (scopedPointsInput) {
+        const questions = Array.isArray(config.questionEvidence?.questions) ? config.questionEvidence.questions : [];
+        scopedPointsInput.value = questions.map(question => `${question?.label ?? ''}=${question?.maxScore ?? ''}`).join('\n');
+        scopedPointsInput.disabled = config.questionEvidence?.enabled !== true;
+    }
     const referenceImageEvidenceInput = document.getElementById('reference-image-evidence-check');
     if (referenceImageEvidenceInput) referenceImageEvidenceInput.checked = config.referenceImageEvidenceCheck === true;
     const reviewLimitInput = document.getElementById('unattended-review-limit');
@@ -2919,6 +2949,29 @@ function saveAISettings() {
         return;
     }
 
+    const questionEvidenceEnabled = document.getElementById('scoped-question-evidence')?.checked === true;
+    const oldQuestionEvidence = PresetManager.getCurrentConfig()?.questionEvidence;
+    const questionEvidence = { enabled: questionEvidenceEnabled, questions: oldQuestionEvidence?.questions || [] };
+    const questionPointsText = document.getElementById('scoped-question-points')?.value || '';
+    if (questionEvidenceEnabled && scoringUnits.length <= 1) {
+        questionEvidence.questions = questionPointsText.split(/\r?\n/).filter(line => line.trim()).map(line => {
+            const parts = line.split(/[=＝]/);
+            const value = parts[1]?.trim().normalize('NFKC');
+            return { label: parts[0].trim(), maxScore: parts.length === 2 && /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : NaN };
+        });
+    }
+    if (questionEvidenceEnabled) {
+        try {
+            getScopedQuestionPlan({ questionEvidence, scoring: {
+                units: scoringUnits, maxScore: Number(document.getElementById('scoring-max-score')?.value)
+            } });
+        } catch (error) {
+            switchSettingsPage('automation');
+            safeAlert(error.message);
+            return;
+        }
+    }
+
     // 保存供应商配置（仅保存当前编辑的供应商，不设置"活跃"供应商）
     const provider = ProviderManager.getProvider(providerName);
     if (provider) {
@@ -2968,7 +3021,12 @@ function saveAISettings() {
     // 保存自动重试配置
     const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
-    const unattendedAnswerFailure = document.getElementById('unattended-answer-recovery')?.value === 'recover' ? 'recover' : 'pause';
+    const unattendedAnswerFailure = getUnattendedAnswerFailure({
+        retryPolicy: { unattendedAnswerFailure: document.getElementById('unattended-answer-recovery')?.value }
+    });
+    const unattendedAnswerRetries = getUnattendedAnswerRetries({
+        retryPolicy: { unattendedAnswerRetries: Number(document.getElementById('unattended-answer-retries')?.value) }
+    });
     const reviewLimitText = document.getElementById('unattended-review-limit')?.value?.trim();
     const reviewLimitValue = reviewLimitText ? Number(reviewLimitText) : NaN;
     const reviewLimit = Number.isInteger(reviewLimitValue) && reviewLimitValue >= 1 && reviewLimitValue <= 50 ? reviewLimitValue : 5;
@@ -3028,10 +3086,12 @@ function saveAISettings() {
         outputMode: outputMode,
         answerStatusCheck: document.getElementById('answer-status-check')?.checked === true,
         referenceImageEvidenceCheck: document.getElementById('reference-image-evidence-check')?.checked === true,
+        questionEvidence,
         retryPolicy: {
             maxRetries: retryMaxRetries,
             retryOnTimeout: retryOnTimeout,
-            unattendedAnswerFailure
+            unattendedAnswerFailure,
+            unattendedAnswerRetries
         },
         blankDetection: {
             enabled: blankDetectionEnabled,

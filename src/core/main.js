@@ -545,7 +545,7 @@ async function startAutoGrading() {
             const aiUnitScores = result.subScores
                 ? result.subScores.map((sq, i) => ({
                     ...sq,
-                    roundStep: configUnits[i]?.roundStep || scoringConfig.roundStep
+                    roundStep: (result.scopedQuestionsTotalOnly ? sq.roundStep : configUnits[i]?.roundStep) || scoringConfig.roundStep
                 }))
                 : null;
 
@@ -558,6 +558,7 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
+            const platformUnitScores = result.scopedQuestionsTotalOnly ? null : finalUnitScores;
             if (isAnswerStatusCheckEnabled(presetConfig)) {
                 requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
             }
@@ -577,17 +578,17 @@ async function startAutoGrading() {
             const adapter = window.__AI_MARKER_ADAPTER__;
             let fillOk = false;
             if (adapter) {
-                if (adapter.fillScores && finalUnitScores) {
+                if (adapter.fillScores && platformUnitScores) {
                     // 新接口：按评分单元顺序填入（数值闸 N5 前置）
-                    fillOk = safeFillScores(adapter, finalUnitScores.map(u => u.score), '主流程填分');
+                    fillOk = safeFillScores(adapter, platformUnitScores.map(u => u.score), '主流程填分');
                 } else if (adapter.fillScores) {
                     // 单题模式
                     fillOk = safeFillScores(adapter, [finalScore], '主流程填分');
                 } else if (adapter.fillScore) {
                     // 旧接口兼容（request 内含 total/subScores，数值闸覆盖两者）
                     fillOk = validateScoresForFill(
-                        [finalScore].concat((finalUnitScores || []).map(u => u.score)), '主流程填分(旧接口)')
-                        ? adapter.fillScore({ total: finalScore, subScores: finalUnitScores })
+                        [finalScore].concat((platformUnitScores || []).map(u => u.score)), '主流程填分(旧接口)')
+                        ? adapter.fillScore({ total: finalScore, subScores: platformUnitScores })
                         : false;
                 } else {
                     fillOk = false;
@@ -624,7 +625,8 @@ async function startAutoGrading() {
                 } catch (e) { /* 静默失败，不影响主流程 */ }
             }
             requireCurrentGradingContext(runContext);
-            showAutoSubmitDialog(finalScore, result.comment, finalUnitScores || result.subScores, {
+            const dialogUnitScores = result.scopedQuestionsTotalOnly ? null : (platformUnitScores || result.subScores);
+            showAutoSubmitDialog(finalScore, result.comment, dialogUnitScores, {
                 runContext,
                 scoringDetails: result._sections || null,
                 answerStatus: getGradingAnswerStatus(result),

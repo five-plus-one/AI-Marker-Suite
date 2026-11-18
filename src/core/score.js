@@ -71,7 +71,7 @@ const ScoreCalculator = {
      */
     distributeBonus(unitScores, bonus, roundFn, scoringConfig) {
         if (!bonus || bonus <= 0 || !unitScores || unitScores.length === 0) return unitScores;
-        const totalMax = unitScores.reduce((s, u) => s + (u.maxScore || 1), 0);
+        const totalMax = unitScores.reduce((s, u) => s + (u.confirmedBlank ? 0 : (u.maxScore || 1)), 0);
         if (totalMax <= 0) return unitScores;
         const clean = n => Math.round(n * 1e8) / 1e8;
         const out = unitScores.map(u => ({ ...u }));
@@ -81,7 +81,7 @@ const ScoreCalculator = {
         for (let count = 0; count < 100000; count++) {
             let best = -1, bestDelta = 0, bestNeed = -Infinity;
             out.forEach((u, i) => {
-                if (u.score == null) return;
+                if (u.score == null || u.confirmedBlank) return;
                 const step = u.roundStep || scoringConfig?.roundStep || 0.01;
                 const max = u.maxScore ?? Infinity;
                 const next = Math.min(clean((Math.floor(u.score / step + 1e-9) + 1) * step), max);

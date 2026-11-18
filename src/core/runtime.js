@@ -185,26 +185,72 @@ function isAnswerStatusCheckEnabled(config) {
 }
 
 function getUnattendedAnswerFailure(config) {
-    return config?.retryPolicy?.unattendedAnswerFailure === 'recover' ? 'recover' : 'pause';
+    const policy = config?.retryPolicy?.unattendedAnswerFailure;
+    return policy === 'recover' || policy === 'retry' ? policy : 'pause';
+}
+
+function getUnattendedAnswerRetries(config) {
+    const value = config?.retryPolicy?.unattendedAnswerRetries;
+    return Number.isInteger(value) && value >= 1 && value <= 5 ? value : 1;
+}
+
+function getScopedQuestionPlan(config) {
+    if (config?.questionEvidence?.enabled !== true) return null;
+    const nativeUnits = config.scoring?.units || [];
+    const totalOnly = nativeUnits.length <= 1;
+    const units = totalOnly ? config.questionEvidence.questions : nativeUnits;
+    if (!Array.isArray(units) || units.length < 2 || units.length > 50) {
+        throw new Error('请在本方案中设置 2 至 50 个小问及其满分');
+    }
+
+    const questions = units.map((unit, index) => ({
+        id: 'q' + (index + 1),
+        label: typeof unit?.label === 'string' ? unit.label.trim() : '',
+        maxScore: unit?.maxScore,
+        roundStep: unit?.roundStep || config.scoring?.roundStep || 1
+    }));
+    const labels = new Set(questions.map(question => question.label.normalize('NFKC').replace(/\s/g, '')));
+    if (labels.size !== questions.length || questions.some(question =>
+        !question.label || !Number.isFinite(question.maxScore) || question.maxScore <= 0)) {
+        throw new Error('请为每个小问填写不同的题号和有效满分');
+    }
+    if (totalOnly) {
+        const maxScore = nativeUnits[0]?.maxScore ?? config.scoring?.maxScore ?? config.maxScore;
+        const sum = questions.reduce((total, question) => total + question.maxScore, 0);
+        if (!Number.isFinite(maxScore) || Math.abs(sum - maxScore) > 1e-8) {
+            throw new Error('各小问满分之和须等于本题满分');
+        }
+    }
+    return { questions, totalOnly };
 }
 
 async function requestGradingWithAnswerRecovery(context, request, recoverAnswerStatus, retryUnreadable = false) {
-    const recover = window.aiGradingState.gradingMode === 'unattended'
-        && getUnattendedAnswerFailure(context.configuration) === 'recover';
+    const policy = window.aiGradingState.gradingMode === 'unattended'
+        ? getUnattendedAnswerFailure(context.configuration) : 'pause';
+    const maxRetries = policy === 'pause' ? 0 : getUnattendedAnswerRetries(context.configuration);
     for (let attempt = 0; ; attempt++) {
         requireCurrentGradingContext(context);
-        if (attempt) await verifyGradingContext(context);
+        if (attempt) {
+            await verifyGradingContext(context);
+            requireGradingContextTarget(context);
+        }
         try {
             const result = await request();
             requireCurrentGradingContext(context);
-            if (isAnswerStatusCheckEnabled(context.configuration) || recover
+            if (isAnswerStatusCheckEnabled(context.configuration) || policy !== 'pause'
                 || (retryUnreadable && getGradingAnswerStatus(result) === 'unreadable')) {
                 requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+            }
+            if (policy !== 'pause' && !Number.isFinite(result?.score)) {
+                const error = new Error('AI 未返回可用分数，请核对答卷');
+                error.code = 'GRADING_EVIDENCE_REVIEW';
+                throw error;
             }
             return result;
         } catch (error) {
             requireCurrentGradingContext(context);
-            if (!recover || attempt || error.code !== 'GRADING_EVIDENCE_REVIEW') throw error;
+            if (attempt >= maxRetries || error.code !== 'GRADING_EVIDENCE_REVIEW') throw error;
+            if (policy === 'retry') continue;
             let status;
             if (recoverAnswerStatus) {
                 await verifyGradingContext(context);

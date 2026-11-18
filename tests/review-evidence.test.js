@@ -156,3 +156,53 @@ test('立即暂停策略保留待复核记录并跳过无人复查和重评', as
     assert.equal(e.calls.fill.length, 0);
     assert.equal(e.state.isPaused, true);
 });
+
+test('无人重试按方案次数执行，成功即停止，耗尽时暂停', async () => {
+    for (const [policy, succeeds, expectedChecks] of [['retry', true, 0], ['recover', false, 3]]) {
+        const e = scene();
+        e.cfg.retryPolicy = { unattendedAnswerFailure: policy, unattendedAnswerRetries: 3 };
+        let attempts = 0, checks = 0;
+        e.sb.callAIGrading = async () => (++attempts === 3 && succeeds)
+            ? { score: 5, answerStatus: '可辨认', studentAnswer: 'f(1)=0' }
+            : { score: null, answerStatus: '无法辨认' };
+        e.sb.confirmStudentAnswerStatus = async () => { checks++; return 'written'; };
+        e.sb.showAutoSubmitDialog = () => {};
+        await e.sb.startAutoGrading();
+        assert.equal(checks, expectedChecks);
+        assert.equal(attempts, succeeds ? 3 : 4);
+        assert.deepEqual(e.calls.fill.map(call => call.scores), succeeds ? [[5]] : []);
+        assert.equal(e.state.isPaused, !succeeds);
+    }
+});
+
+test('逐问评分填入平台原生小题，只有一个分数框时仅填合计', async () => {
+    for (const totalOnly of [false, true]) {
+        const e = scene(false);
+        const subScores = [4, 1, 0].map((score, i) => ({
+            id: 'q' + (i + 1), label: '第' + (i + 1) + '问', score, maxScore: [4, 6, 7][i], confirmedBlank: i === 2
+        }));
+        e.cfg.scoring = { maxScore: 17, roundStep: 1, units: totalOnly ? [{ label: '19', maxScore: 17 }] : subScores };
+        e.sb.PresetManager.getMaxScore = () => 17;
+        load(e, 'src/core/score.js');
+        e.sb.callAIGrading = async () => ({ score: 5, rawScore: 5, studentAnswer: 'f(1)=0',
+            subScores, scopedQuestionsTotalOnly: totalOnly, comment: '逐问结果' });
+        const dialogs = [];
+        e.sb.showAutoSubmitDialog = (...args) => dialogs.push(args);
+        await e.sb.startAutoGrading();
+        assert.deepEqual(e.calls.fill.map(call => call.scores), totalOnly ? [[5]] : [[4, 1, 0]]);
+        assert.equal(dialogs[0][2]?.length ?? 0, totalOnly ? 0 : 3);
+    }
+});
+
+test('逐问核对确认的空白小问不参与勤勉加分', () => {
+    const e = scene(false);
+    load(e, 'src/core/score.js');
+    const result = vm.runInContext(`ScoreCalculator.calculate({
+        aiScore: 5, diligenceLevel: 5, maxScore: 17,
+        scoringConfig: { roundStep: 1, diligence: { enabled: true, maxBonus: 3, decayPower: 1 } },
+        aiUnitScores: [{ score: 4, maxScore: 4 }, { score: 1, maxScore: 6 }, { score: 0, maxScore: 7, confirmedBlank: true }]
+    })`, e.sb);
+    assert.ok(result.bonus > 0);
+    assert.equal(result.finalUnitScores[2].score, 0);
+    assert.equal(result.finalUnitScores[1].score, 1 + result.bonus);
+});
