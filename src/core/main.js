@@ -555,7 +555,9 @@ async function startAutoGrading() {
             });
 
             const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
-            requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
+            if (isAnswerStatusCheckEnabled(presetConfig)) {
+                requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
+            }
 
             window.aiGradingState.currentStudentAnswer = result.studentAnswer || '未能识别';
             window.aiGradingState.errorRetryCount = 0;

@@ -797,8 +797,16 @@ function createSettingsPanel(options) {
                         <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
                             <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
                         <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
-                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="unattended-answer-recovery"><label for="unattended-answer-recovery">无人模式自动复查 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
-                        <div class="mode-desc">遇到无法评分的答卷时自动复查。确认空白后按 0 分继续，发现作答痕迹时重评一次。</div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-status-check"><label for="answer-status-check">作答状态核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">模型报告无法辨认、作答判断互相矛盾，或给空白卷正分时，要求核对。</div>
+                        <div class="form-group" style="margin-top:12px;">
+                            <label for="unattended-answer-recovery">无人模式遇到需核对的答卷</label>
+                            <select id="unattended-answer-recovery">
+                                <option value="pause">暂停，人工核对</option>
+                                <option value="recover">自动复查一次（实验性）</option>
+                            </select>
+                        </div>
+                        <div class="mode-desc">自动复查确认空白后按 0 分继续，发现作答痕迹时重评一次。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
                         <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
@@ -2004,8 +2012,10 @@ function fillFormFromActivePreset() {
     if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
     const retryTimeoutInput = document.getElementById('retry-on-timeout');
     if (retryTimeoutInput) retryTimeoutInput.checked = retryPolicyCfg.retryOnTimeout !== false;
+    const answerStatusCheckInput = document.getElementById('answer-status-check');
+    if (answerStatusCheckInput) answerStatusCheckInput.checked = isAnswerStatusCheckEnabled(config);
     const unattendedAnswerRecoveryInput = document.getElementById('unattended-answer-recovery');
-    if (unattendedAnswerRecoveryInput) unattendedAnswerRecoveryInput.checked = getUnattendedAnswerFailure(config) === 'recover';
+    if (unattendedAnswerRecoveryInput) unattendedAnswerRecoveryInput.value = getUnattendedAnswerFailure(config);
     const referenceImageEvidenceInput = document.getElementById('reference-image-evidence-check');
     if (referenceImageEvidenceInput) referenceImageEvidenceInput.checked = config.referenceImageEvidenceCheck === true;
 
@@ -2943,7 +2953,7 @@ function saveAISettings() {
     // 保存自动重试配置
     const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
-    const unattendedAnswerFailure = document.getElementById('unattended-answer-recovery')?.checked === true ? 'recover' : 'pause';
+    const unattendedAnswerFailure = document.getElementById('unattended-answer-recovery')?.value === 'recover' ? 'recover' : 'pause';
 
     // 保存空白答题卡检测配置
     const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
@@ -2996,6 +3006,7 @@ function saveAISettings() {
         },
         paperGuard: { enabled: paperGuardEnabled },
         outputMode: outputMode,
+        answerStatusCheck: document.getElementById('answer-status-check')?.checked === true,
         referenceImageEvidenceCheck: document.getElementById('reference-image-evidence-check')?.checked === true,
         retryPolicy: {
             maxRetries: retryMaxRetries,
