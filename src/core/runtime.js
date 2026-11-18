@@ -180,6 +180,10 @@ function getPendingReviewLimit(config) {
     return Number.isInteger(limit) && limit >= 1 && limit <= 50 ? limit : 5;
 }
 
+function isAnswerStatusCheckEnabled(config) {
+    return config?.answerStatusCheck === true;
+}
+
 function getUnattendedAnswerFailure(config) {
     return config?.retryPolicy?.unattendedAnswerFailure === 'recover' ? 'recover' : 'pause';
 }
@@ -193,7 +197,10 @@ async function requestGradingWithAnswerRecovery(context, request, recoverAnswerS
         try {
             const result = await request();
             requireCurrentGradingContext(context);
-            requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+            if (isAnswerStatusCheckEnabled(context.configuration) || recover
+                || (retryUnreadable && getGradingAnswerStatus(result) === 'unreadable')) {
+                requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+            }
             return result;
         } catch (error) {
             requireCurrentGradingContext(context);
