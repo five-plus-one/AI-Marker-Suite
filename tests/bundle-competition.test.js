@@ -95,6 +95,21 @@ test('竞争矩阵：ruiya 恒佳租户形态唯一命中且显示名切换', ()
     assert.strictEqual(r.winner.name, '恒佳阅卷', '租户显示名应为恒佳阅卷');
 });
 
+test('悦卷通域名只注册一个适配器，并使用阅卷站点名称', () => {
+    for (const host of ['www.yuejuantong.com', 'yuejuantong.com', 'school.yuejuantong.com']) {
+        const result = run({ host, path: '/mark/v6/view/1' });
+        assert.deepStrictEqual(result.errors, []);
+        assert.strictEqual(result.writes.length, 1);
+        assert.strictEqual(result.winner.id, 'ruiya');
+        assert.strictEqual(result.winner.name, '悦卷通阅卷');
+    }
+    for (const host of ['myyuejuantong.com', 'yuejuantong.com.example.org']) {
+        const result = run({ host, path: '/mark/v6/view/1' });
+        assert.deepStrictEqual(result.errors, []);
+        assert.strictEqual(result.writes.length, 0);
+    }
+});
+
 // ---------- 2. 空槽矩阵：无命中 = 注册槽为空 / 串台对正确分派 ----------
 const allLabels = new Set(M.ADAPTERS.flatMap(a => a.near.map(n => n.label)));
 for (const [label, owner] of Object.entries(NEAR_BUNDLE_OWNER)) {
