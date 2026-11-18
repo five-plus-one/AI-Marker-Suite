@@ -217,6 +217,9 @@ function getScopedQuestionPlan(config) {
     if (totalOnly) {
         const maxScore = nativeUnits[0]?.maxScore ?? config.scoring?.maxScore ?? config.maxScore;
         const sum = questions.reduce((total, question) => total + question.maxScore, 0);
+        if (questions.some(question => Math.abs(question.maxScore * 100 - Math.round(question.maxScore * 100)) > 1e-8)) {
+            throw new Error('小问满分最多保留两位小数');
+        }
         if (!Number.isFinite(maxScore) || Math.abs(sum - maxScore) > 1e-8) {
             throw new Error('各小问满分之和须等于本题满分');
         }
@@ -230,10 +233,7 @@ async function requestGradingWithAnswerRecovery(context, request, recoverAnswerS
     const maxRetries = policy === 'pause' ? 0 : getUnattendedAnswerRetries(context.configuration);
     for (let attempt = 0; ; attempt++) {
         requireCurrentGradingContext(context);
-        if (attempt) {
-            await verifyGradingContext(context);
-            requireGradingContextTarget(context);
-        }
+        if (attempt) await verifyGradingContext(context);
         try {
             const result = await request();
             requireCurrentGradingContext(context);

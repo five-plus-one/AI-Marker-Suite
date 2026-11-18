@@ -811,7 +811,7 @@ function createSettingsPanel(options) {
                             <label for="unattended-answer-retries">最多重试次数</label>
                             <input type="number" id="unattended-answer-retries" min="1" max="5" step="1" value="1" disabled>
                         </div>
-                        <div class="mode-desc">复查确认空白后按 0 分继续，发现作答时重评。直接重试会重新评分。达到次数上限后请人工核对。</div>
+                        <div class="mode-desc">复查确认空白后按 0 分继续，发现作答时重评。直接重试会重新评分。无法确认原卷或重试用尽时，请人工核对。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="scoped-question-evidence"><label for="scoped-question-evidence">分小问作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>

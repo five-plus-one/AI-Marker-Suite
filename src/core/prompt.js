@@ -767,10 +767,10 @@ function parseEvidenceJson(response, message) {
 }
 
 async function readScopedQuestionEvidence(images, config, plan, onStreamUpdate) {
-    if (config.imageGateRemovedCount > 0 || filterUsableImagesForAI(images).removed.length) {
+    if (!images.length || config.imageGateRemovedCount > 0 || filterUsableImagesForAI(images).removed.length) {
         throw gradingEvidenceReview('本卷图片不完整，请核对答卷后继续');
     }
-    const prompt = `按下列题号逐问查找学生答卷上的作答。只转录本问保留的笔迹，保留公式、图形和必要的位置。印刷题干、预印图形和划去的内容不属于作答。不要解题或补写。
+    const prompt = `按下列题号逐问查找学生答卷上的作答。只转录本问保留的笔迹，保留公式、图形和必要的位置。题号本身、印刷题干、预印图形和划去的内容不属于作答。不要解题或补写。
 按题号逐项返回 JSON 数组，每项格式 {"id":"q1","status":"可辨认","answer":"本问作答原文"}。状态只能是可辨认、部分不清、未作答、无法辨认、无法定位。仅当本问区域可确认且没有作答痕迹时标记未作答。未作答、无法辨认或无法定位时 answer 留空。部分不清时只录入可辨认部分。JSON 字符串内的换行和反斜杠按 JSON 规则转义。
 题号清单：${JSON.stringify(plan.questions.map(({ id, label }) => ({ id, label })))}`;
     if (onStreamUpdate) onStreamUpdate('正在逐问识别学生作答…');
@@ -795,8 +795,10 @@ async function readScopedQuestionEvidence(images, config, plan, onStreamUpdate) 
             || (status === '未作答' ? answer : !answer)) {
             throw gradingEvidenceReview(message);
         }
-        const lines = answer.split(/\r?\n/).map(line => line.trim()).filter(line =>
-            line && !/^\[(?:未作答|无法辨认)\]$/.test(line.normalize('NFKC')));
+        const lines = answer.split(/\r?\n/).map(line => line.trim()).filter(line => {
+            const text = line.normalize('NFKC').replace(/[\s\[\]【】()。.!！]/g, '');
+            return text && !['未作答', '空白', '无法辨认', '无法定位'].includes(text);
+        });
         if (status !== '未作答' && !lines.length) throw gradingEvidenceReview(message);
         return { ...question, status, lines: lines.map((text, index) => ({ id: `${question.id}:${index + 1}`, text })) };
     });
@@ -844,11 +846,13 @@ function parseScopedQuestionScores(response, evidence, config) {
     });
     const score = Math.round(subScores.reduce((total, unit) => total + unit.score, 0) * 1e8) / 1e8;
     const comment = scoreOnly ? '' : subScores.map(unit =>
-        `${unit.label}：${unit.score}/${unit.maxScore} 分${unit.comment ? ' · ' + unit.comment : ''}`).join('\n');
+        `${unit.label}建议 ${unit.score}/${unit.maxScore} 分${unit.comment ? ' · ' + unit.comment : ''}`).join('\n');
     const calculation = subScores.map(unit => unit.score).join(' + ') + ' = ' + score;
+    const answerLength = evidence.questions.reduce((total, question) => total + question.lines.reduce(
+        (length, line) => length + line.text.replace(/\s/g, '').length, 0), 0);
     return {
         score, rawScore: score, subScores, scopedQuestionsTotalOnly: evidence.totalOnly,
-        studentAnswer: evidence.answer, answerStatus: evidence.status, comment, scoringBasis: comment, calculation,
+        studentAnswer: evidence.answer, answerLength, answerStatus: evidence.status, comment, scoringBasis: comment, calculation,
         diligenceLevel: Number.isInteger(result.diligenceLevel) && result.diligenceLevel >= 1 && result.diligenceLevel <= 5 ? result.diligenceLevel : 0,
         diligenceReason: typeof result.diligenceReason === 'string' ? result.diligenceReason : '',
         _sections: { '作答状态': evidence.status, '答案复述': evidence.answer, '评分依据': comment, '分数计算': calculation }

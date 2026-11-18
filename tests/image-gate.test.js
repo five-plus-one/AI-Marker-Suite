@@ -479,6 +479,7 @@ test('逐问核对适用纯文字方案，按题号合计并拒绝给空白问�
         respondWith(sandbox, requests, () => requests.length === 1 ? JSON.stringify(recognized) : answer([4, 1, 0]));
         const result = await vm.runInContext('callAIGrading(__students, __config)', sandbox);
         assert.equal(result.score, 5);
+        assert.equal(result.answerLength, recognized[0].answer.length + recognized[1].answer.length);
         assert.deepEqual(Array.from(result.subScores, unit => unit.score), [4, 1, 0]);
         assert.equal(result.scopedQuestionsTotalOnly, totalOnly);
         const first = requests[0].messages[0].content;
@@ -495,11 +496,12 @@ test('逐问核对适用纯文字方案，按题号合计并拒绝给空白问�
         { code: 'GRADING_EVIDENCE_REVIEW', message: /（3）的评分/ });
 });
 
-test('逐问核对拒绝小问缺失、无法定位和超出上限', async () => {
-    for (const fault of ['missing', 'unlocated', 'over-max']) {
+test('逐问核对拒绝小问缺失、无法定位、仅有占位文字和超出上限', async () => {
+    for (const fault of ['missing', 'unlocated', 'placeholder', 'over-max']) {
         const { sandbox, requests, recognized, answer } = scopedScoringCase();
         if (fault === 'missing') recognized.pop();
         if (fault === 'unlocated') recognized[2].status = '无法定位';
+        if (fault === 'placeholder') recognized[1].answer = '【无法辨认】。';
         respondWith(sandbox, requests, () => requests.length === 1 ? JSON.stringify(recognized) : answer([4, 7, 0]));
         await assert.rejects(() => vm.runInContext('callAIGrading(__students, __config)', sandbox), { code: 'GRADING_EVIDENCE_REVIEW' });
         assert.equal(requests.length, fault === 'over-max' ? 2 : 1);
