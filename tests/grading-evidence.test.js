@@ -18,8 +18,9 @@ test('全部评分提示词在题目文字为空时仍说明参考图用途及�
     }
 });
 
-test('明确整卷未作答与正分冲突时，真实主流程暂停且不填分', async () => {
+test('启用作答状态核对后，整卷未作答与正分冲突时暂停且不填分', async () => {
     const e = env(); load(e, 'src/core/main.js'); e.state.isRunning = true;
+    e.cfg.answerStatusCheck = true;
     e.sb.callAIGrading = async () => ({ score: 5, rawScore: 5, studentAnswer: '未作答', _sections: { '答案复述': '未作答' } });
     await e.sb.startAutoGrading();
     assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0); assert.equal(e.state.isPaused, true);

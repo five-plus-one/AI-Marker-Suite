@@ -4,7 +4,7 @@ const { env, load, vm } = require('./_audit-harness');
 
 async function runResponse(text, outputMode = 'detailed') {
     const e = env(); load(e, 'src/core/prompt.js'); load(e, 'src/core/main.js'); load(e, 'src/core/ui-submit-dialog.js');
-    e.cfg.outputMode = outputMode; e.sb.response = text;
+    e.cfg.answerStatusCheck = true; e.cfg.outputMode = outputMode; e.sb.response = text;
     const parsed = vm.runInContext('parseStructuredResponse(response, 10)', e.sb);
     let calls = 0; e.sb.callAIGrading = async () => { calls++; return parsed; };
     await e.sb.startAutoGrading();
@@ -54,7 +54,7 @@ test('双评空白冲突对主副顺序与分差阈值均不敏感，停止前�
         if (reverse) e.sb.answers.reverse();
         e.sb.calls = 0;
         vm.runInContext('callAIGrading = async () => { calls++; return answers.shift(); }; ProviderManager.getCallConfig = () => ({model:"test",endpoint:"https://test",apiKey:"test"});', e.sb);
-        const cfg = { scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold, secondary: {}, arbitration: {} } } };
+        const cfg = { answerStatusCheck: true, scoring: { maxScore: 10 }, workflowSnapshot: { model: {}, dualEval: { enabled: true, threshold, secondary: {}, arbitration: {} } } };
         await assert.rejects(() => e.sb.callDualEvaluation(['IMAGE'], cfg), /分歧/);
         assert.equal(e.sb.calls, 2);
     }
@@ -82,7 +82,7 @@ test('普通、精简和多小题评分要求状态，详细模式逐字转录�
     }
 });
 
-test('按方案控制无人模式的复查，旧方案默认直接核对，手动模式直接核对', async () => {
+test('按方案控制无人模式的复查，试改和普通模式保持人工核对', async () => {
     for (const [policy, mode, expected] of [
         [undefined, 'unattended', false],
         ['recover', 'unattended', true],
@@ -94,6 +94,7 @@ test('按方案控制无人模式的复查，旧方案默认直接核对，手�
         load(e, 'src/core/prompt.js');
         load(e, 'src/core/main.js');
         e.state.gradingMode = mode;
+        e.cfg.answerStatusCheck = true;
         if (policy) e.cfg.retryPolicy = { unattendedAnswerFailure: policy };
         e.sb.callAIGrading = async () => ({ score: 0, answerStatus: '无法辨认' });
         let checks = 0;
@@ -104,4 +105,16 @@ test('按方案控制无人模式的复查，旧方案默认直接核对，手�
         assert.deepEqual(e.calls.fill.map(call => call.scores), expected ? [[0]] : []);
         assert.equal(e.state.isPaused, !expected);
     }
+});
+
+test('原有方案没有开启作答状态核对时，有效分数可以进入填分流程', async () => {
+    const e = env();
+    load(e, 'src/core/prompt.js');
+    load(e, 'src/core/main.js');
+    e.sb.callAIGrading = async () => ({ score: 3, answerStatus: '无法辨认' });
+    e.sb.confirmStudentAnswerStatus = async () => assert.fail('默认不应发起复查');
+    e.sb.showAutoSubmitDialog = () => {};
+    await e.sb.startAutoGrading();
+    assert.deepEqual(e.calls.fill.map(call => call.scores), [[3]]);
+    assert.equal(e.state.isPaused, false);
 });

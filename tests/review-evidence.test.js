@@ -5,6 +5,7 @@ const { env, load, vm } = require('./_audit-harness');
 function scene(enabled = true, mode = 'unattended') {
     const e = env(), store = {}, images = new Map();
     e.cfg.answerReview = { enabled, maxPending: 5 };
+    e.cfg.answerStatusCheck = true;
     e.cfg.retryPolicy = { unattendedAnswerFailure: 'recover' };
     e.state.gradingMode = mode;
     e.sb.location.origin = 'https://x.test';

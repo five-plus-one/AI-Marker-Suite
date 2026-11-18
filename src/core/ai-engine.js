@@ -1126,7 +1126,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     // 先检查原始两侧，再合并分数；不得用主模型的复述覆盖另一侧的空白或弃权结论。
-    requireCompatibleGradingEvidence(detailA, detailB);
+    if (isAnswerStatusCheckEnabled(config) || evidence) requireCompatibleGradingEvidence(detailA, detailB);
 
     const diff = Math.abs(scoreA - scoreB);
     console.log(`🔄 [双评] 结果 — 主模型: ${scoreA}, 副模型: ${scoreB}, 分差: ${diff}`);
@@ -1266,7 +1266,9 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     arbParsed = applyStudentGradingEvidence(arbParsed, evidence, arbResult, arbFinalScore);
-    requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
+    if (isAnswerStatusCheckEnabled(config) || evidence) {
+        requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
+    }
     return {
         ...arbParsed,
         score: arbFinalScore,
