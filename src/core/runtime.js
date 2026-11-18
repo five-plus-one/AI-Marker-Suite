@@ -169,6 +169,43 @@ function requireCompatibleGradingEvidence(resultA, resultB) {
     }
 }
 
+function getUnattendedAnswerFailure(config) {
+    return config?.retryPolicy?.unattendedAnswerFailure === 'recover' ? 'recover' : 'pause';
+}
+
+async function requestGradingWithAnswerRecovery(context, request, recoverAnswerStatus, retryUnreadable = false) {
+    const recover = window.aiGradingState.gradingMode === 'unattended'
+        && getUnattendedAnswerFailure(context.configuration) === 'recover';
+    for (let attempt = 0; ; attempt++) {
+        requireCurrentGradingContext(context);
+        if (attempt) await verifyGradingContext(context);
+        try {
+            const result = await request();
+            requireCurrentGradingContext(context);
+            requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
+            return result;
+        } catch (error) {
+            requireCurrentGradingContext(context);
+            if (!recover || attempt || error.code !== 'GRADING_EVIDENCE_REVIEW') throw error;
+            let status;
+            if (recoverAnswerStatus) {
+                await verifyGradingContext(context);
+                requireGradingContextTarget(context);
+                try {
+                    status = await recoverAnswerStatus();
+                } catch (recoveryError) {
+                    console.warn('[答卷复查] 无法确认作答状态:', recoveryError);
+                }
+                requireCurrentGradingContext(context);
+                await verifyGradingContext(context);
+                requireGradingContextTarget(context);
+                if (status === 'blank') return makeBlankGradingResult(context.configuration);
+            }
+            if (status !== 'written' && !(retryUnreadable && error.answerStatus === 'unreadable')) throw error;
+        }
+    }
+}
+
 function createGradingContext(manual = false) {
     invalidateGradingRun();
     const state = window.aiGradingState;
