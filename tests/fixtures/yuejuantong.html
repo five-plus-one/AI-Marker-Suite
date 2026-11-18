@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>悦卷通阅卷练习</title>
+<div id="reviewPanel" hidden>回评</div>
+<span id="span_mt_pwd">练习卷 A</span>
+<img id="imageFullScreen" data-stu="fixture-a" src="/__fixture/answer.svg" alt="练习答卷">
+<label><input type="radio" name="mode" id="rdKeyboard">键盘打分</label>
+<label><input type="radio" name="mode" id="rdMouse" checked>鼠标打分</label>
+<label><input type="radio" name="mode" id="rdSteps">分步打分</label>
+<label><input type="checkbox" id="autoSubmit" checked>自动提交</label>
+<div id="panelKey">
+    <div class="panel-item-input">
+        <label class="control-label" for="score1">第（1）问：</label>
+        <input class="ipt_score" id="score1"><font class="text-error"><span>6</span></font>
+    </div>
+    <div class="panel-item-input">
+        <label class="control-label" for="score2">第（2）问：</label>
+        <input class="ipt_score" id="score2"><font class="text-error"><span>7</span></font>
+    </div>
+</div>
+<button id="submitMark">提交</button>
+<div id="zeroCheckModal" hidden><button id="btn_0_ok">确认零分</button></div>
+<pre id="result"></pre>
+<script>
+    const store = {};
+    window.GM_getValue = (key, fallback) => store[key] ?? fallback;
+    window.GM_setValue = (key, value) => { store[key] = value; };
+    window.GM_registerMenuCommand = () => {};
+    window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()); return { abort() {} }; };
+    window.unsafeWindow = window;
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+    (async () => {
+        const checks = [];
+        const check = (pass, label) => {
+            if (!pass) throw new Error(label);
+            checks.push({ pass: true, label });
+        };
+        try {
+            const adapter = window.__AI_MARKER_ADAPTER__;
+            check(adapter?.id === 'ruiya' && adapter.name === '悦卷通阅卷', '悦卷通入口与名称');
+            check(await adapter.detectMarkingPage(), '识别阅卷页面');
+            const [image] = await adapter.gatherAnswerImages();
+            check(image === document.querySelector('#imageFullScreen').src, '读取当前答题图');
+            const inputs = adapter.getScoreInputs();
+            check(inputs.map(input => input.maxScore).join(',') === '6,7', '提取两问各自满分');
+            check(inputs.map(input => input.label).join(',') === '第（1）问,第（2）问', '按页面顺序识别小题');
+            check(adapter.fillScores([0, 7]), '按小题录入零分和满分');
+            check(inputs.map(input => input.element.value).join(',') === '0,7', '页面分值正确');
+            check(document.querySelector('#rdKeyboard').checked, '填分时切换键盘打分');
+            check(!document.querySelector('#autoSubmit').checked, '填分后等待明确提交');
+
+            const modal = document.querySelector('#zeroCheckModal');
+            let submitted = 0;
+            document.querySelector('#submitMark').onclick = () => { modal.hidden = false; };
+            document.querySelector('#btn_0_ok').onclick = () => {
+                modal.hidden = true;
+                submitted++;
+                document.querySelector('#span_mt_pwd').textContent = '练习卷 B';
+            };
+            const nextPaper = adapter.waitForNextPaper(image);
+            check(adapter.submitGrade(), '通过平台按钮提交');
+            check(await nextPaper && submitted === 1, '确认零分后识别新答卷');
+            document.querySelector('#reviewPanel').hidden = false;
+            check(adapter.isRegradeMode(), '识别回评面板');
+            document.querySelector('#rdSteps').click();
+            check(!await adapter.detectMarkingPage(), '分步模式交平台处理');
+        } catch (error) {
+            checks.push({ pass: false, label: error.message });
+        }
+        const result = { runId: new URLSearchParams(location.search).get('run'),
+            width: innerWidth, passed: checks.every(check => check.pass), checks };
+        document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
+    })();
+</script>
+</html>
