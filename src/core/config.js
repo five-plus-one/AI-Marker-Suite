@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.27.4',
+    VERSION: '1.21.27.5',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.27.5': [
+            '【优化】无人模式自动复查与配图作答核对可分别开启，均为默认关闭的实验功能',
+        ],
         '1.21.27.4': [
             '【修复】使用配图批改时先识别学生答卷，再按题目和评分标准给分，核对每项得分的作答依据',
         ],
