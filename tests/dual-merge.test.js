@@ -206,6 +206,7 @@ test('mergeDualValue 五模式 + 满分钳制（总分口径；各模式期望�
 // ---------- callDualEvaluation 接线（共识路径 + 仲裁降级路径走同一策略） ----------
 function setupDual({ mergeMode, threshold, scoring, scores }) {
     const { fx, sandbox } = loadEngine();
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/prompt.js'), 'utf8'), sandbox);
     sandbox.__stubGrading = (async () => {
         const s = scores.shift();
         return {
