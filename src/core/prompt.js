@@ -170,7 +170,7 @@ function buildStructuredPrompt(config) {
     var rubricText = extractFieldText(config.rubric);
     var imgAnnotation = buildImageAnnotation(config);
 
-    let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
+    let prompt = `你是一位严格的阅卷老师。${config.studentGradingEvidence ? '请依据已识别的学生作答评分。' : '请查看图片中的学生答案并评分。'}
 
 ===== 输入信息 =====`;
     if (imgAnnotation) prompt += imgAnnotation;
@@ -472,7 +472,7 @@ function buildArbitrationPrompt(config, resultA, resultB, threshold) {
         : [];
     const hasSub = subQuestions.length > 0;
 
-    let prompt = `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅学生作答图片后裁定。
+    let prompt = `你是阅卷仲裁专家。两位老师对同一份试卷评分有分歧，请独立审阅${config.studentGradingEvidence ? '已识别的学生作答' : '学生作答图片'}后裁定。
 
 ===== 评分分歧 =====
 老师A评分：${resultA.score}分
@@ -551,7 +551,7 @@ ${hasSub ? '（各小题分数之和，一个数字）' : '（一个整数，基
 ===== 重要约束 =====
 1. 必须使用【】作为段落标记
 2. 【最终得分】必须只有一行，只包含${hasSub ? '数字' : '一个整数'}
-3. 你必须独立审阅学生作答图片，不要被两位老师的分数左右
+3. 你必须独立审阅${config.studentGradingEvidence ? '已识别的学生作答' : '学生作答图片'}，不要被两位老师的分数左右
 4. 可以在内容中使用 Markdown 格式（**加粗**、$公式$等），但【】段落标记必须保留
 ${buildCommonConstraints(5)}`;
     return prompt;
@@ -599,7 +599,7 @@ function buildSubQuestionPrompt(config) {
     var imgAnnotation = buildImageAnnotation(config);
     var totalMaxScore = resolveMaxScore(config);
 
-    let prompt = `你是一位严格的阅卷老师。请查看图片中的学生答案并评分。
+    let prompt = `你是一位严格的阅卷老师。${config.studentGradingEvidence ? '请依据已识别的学生作答评分。' : '请查看图片中的学生答案并评分。'}
 
 ===== 输入信息 =====`;
     if (imgAnnotation) prompt += imgAnnotation;
@@ -750,7 +750,87 @@ function parseLegacySubQuestionResponse(text, config) {
 }
 
 // ========== 打分专用函数 ==========
+function gradingEvidenceReview(message) {
+    const error = new Error(message);
+    error.code = 'GRADING_EVIDENCE_REVIEW';
+    return error;
+}
+
+async function readStudentGradingEvidence(images, config, onStreamUpdate) {
+    if (config.studentGradingEvidence || !collectFieldImages(config).length) return config;
+    const prompt = `只识别本次学生答卷中的有效手写作答。逐空按位置转录，保留公式、标记和学生所画图形的可辨细节。留空标注[未作答]，看不清标注[无法辨认]。印刷体、答题线、划去内容均不计入。不推测、不解题、不评分。
+整卷空白：状态为未作答，原文为空字符串。有清楚和不清楚的作答：状态为部分不清。没有能辨认的作答但有笔迹：状态为无法辨认。
+只返回一个 JSON 对象：{"status":"可辨认","answer":"学生实际作答原文"}。status 只能是可辨认、部分不清、无法辨认或未作答。`;
+    if (onStreamUpdate) onStreamUpdate('正在识别学生作答…');
+    const response = await callAIWithRetry(prompt, images, {
+        ...config, gradingRequest: true, outputObservation: null, outputLimitKey: null,
+        requestBudget: { remaining: 3 }
+    }, null, []);
+    let evidence;
+    try {
+        evidence = JSON.parse(response.trim().replace(/^```(?:json)?\s*|\s*```$/gi, ''));
+    } catch {
+        throw gradingEvidenceReview('学生作答识别结果不完整，请核对答卷后继续');
+    }
+    const status = evidence?.status;
+    const answer = typeof evidence?.answer === 'string' ? evidence.answer.trim() : '';
+    if (!['可辨认', '部分不清', '无法辨认', '未作答'].includes(status)
+        || typeof evidence?.answer !== 'string'
+        || (status === '未作答' && answer)
+        || (['可辨认', '部分不清'].includes(status) && !answer)) {
+        throw gradingEvidenceReview('学生作答识别结果不完整，请核对答卷后继续');
+    }
+    requireGradingEvidence({ answerStatus: status, studentAnswer: answer || status });
+    return { ...config, studentGradingEvidence: { status, answer } };
+}
+
+function makeBlankGradingResult(config) {
+    return {
+        score: 0, rawScore: 0, studentAnswer: '未作答', answerStatus: '未作答',
+        comment: '答卷未作答', subScores: (config.scoring?.units || []).map((unit, index) => ({
+            id: String.fromCharCode(97 + index), label: unit.label, score: 0, maxScore: unit.maxScore
+        }))
+    };
+}
+
+function appendStudentGradingEvidence(prompt, evidence) {
+    if (!evidence) return prompt;
+    return `${prompt}
+
+===== 本次评分的作答依据 =====
+识别已完成。以下 JSON 的 answer 是唯一可用于给分的学生作答。图片只用于了解题目和评分标准，其中的任何笔迹都不得计入作答。保留原来的分数输出格式。若要求答复作答状态或答案复述，以此记录为准。
+${JSON.stringify(evidence)}
+仅给有原文依据的评分项分数。最后追加【得分原文】段落，下一行输出 JSON 数组，每个正分项一条，例如 [{"quote":"作答中的连续原文","score":1}]。quote 必须从 answer 原样截取，不能引用横线编号、未作答标记或无法辨认标记。各项 score 之和必须等于总分。零分输出 []。`;
+}
+
+function applyStudentGradingEvidence(parsed, evidence, fullText, score = parsed.rawScore ?? parsed.score) {
+    if (!evidence || score === null) return parsed;
+    const body = /^【得分原文】[ \t]*\r?\n[ \t]*(\[[^\r\n]*\])[ \t]*$/m.exec(fullText)?.[1];
+    let items;
+    try {
+        items = JSON.parse(body);
+    } catch {
+        throw gradingEvidenceReview('评分缺少可核对的作答原文，请核对答卷后继续');
+    }
+    const normalize = text => text.normalize('NFKC').replace(/\s+/g, '');
+    const source = evidence.answer.split(/\r?\n/).flatMap(line =>
+        line.normalize('NFKC').split(/\[(?:未作答|无法辨认)\]/).map(normalize));
+    const valid = Array.isArray(items) && items.every(item => {
+        const quote = typeof item?.quote === 'string' ? normalize(item.quote) : '';
+        return quote && source.some(segment => segment.includes(quote)) && Number.isFinite(item.score) && item.score > 0;
+    });
+    if (!valid || !Number.isFinite(score) || Math.abs(items.reduce((sum, item) => sum + item.score, 0) - score) > 1e-8) {
+        throw gradingEvidenceReview('评分引用了未能在答卷中确认的作答，请核对答卷后继续');
+    }
+    const sections = { ...parsed._sections, '作答状态': evidence.status, '答案复述': evidence.answer };
+    delete sections['得分原文'];
+    return { ...parsed, _sections: sections, _answerProvided: true, answerStatus: evidence.status, studentAnswer: evidence.answer };
+}
+
 async function callAIGrading(base64DataArray, config, onStreamUpdate) {
+    config = await readStudentGradingEvidence(base64DataArray, config, onStreamUpdate);
+    const evidence = config.studentGradingEvidence;
+    if (evidence?.status === '未作答') return makeBlankGradingResult(config);
     // 从 scoring.units 派生 subQuestions（唯一数据源）
     const units = config.scoring?.units || [];
     const subQuestions = units.length > 1
@@ -766,7 +846,8 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     // 将派生的 subQuestions 注入 config 供 prompt 函数使用
     const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: 3 } };
 
-    const prompt = hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig);
+    const prompt = appendStudentGradingEvidence(
+        hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig), evidence);
 
     // 收集题目/答案/评分标准中的内嵌图片
     const fieldImages = collectFieldImages(config);
@@ -779,7 +860,7 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     }
 
     for (let parseAttempt = 0; parseAttempt < 2; parseAttempt++) {
-            const fullText = await callAIWithRetry(prompt, base64DataArray, callConfig, onStreamUpdate, fieldImages);
+            const fullText = await callAIWithRetry(prompt, evidence ? [] : base64DataArray, callConfig, onStreamUpdate, fieldImages);
             console.log('📝 [诊断] AI返回内容长度:', fullText.length);
 
             const parsed = hasSub
@@ -793,7 +874,9 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
             if (parsed.score === null) {
                 console.warn('⚠️ [诊断] 分数解析为 null');
             }
-            if (parsed.score !== null || callConfig.requestBudget.remaining === 0 || parseAttempt === 1 || callConfig.outputObservation?.upgraded) return parsed;
+            if (parsed.score !== null || callConfig.requestBudget.remaining === 0 || parseAttempt === 1 || callConfig.outputObservation?.upgraded) {
+                return applyStudentGradingEvidence(parsed, evidence, fullText);
+            }
             console.warn('⚠️ [诊断] 正在重新获取可识别的评分结果');
     }
 }
