@@ -522,7 +522,7 @@ async function startAutoGrading() {
             })
             : await callAIGrading(base64DataArray, gradingConfig, (streamedText) => {
                 if (isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode !== 'unattended') updateStreamPanel(streamedText);
-            }));
+            }), () => confirmStudentAnswerStatus(base64DataArray, gradingConfig));
 
         requireCurrentGradingContext(runContext);
         hideStreamPanel();

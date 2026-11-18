@@ -784,6 +784,20 @@ async function readStudentGradingEvidence(images, config, onStreamUpdate) {
     return { ...config, studentGradingEvidence: { status, answer } };
 }
 
+async function confirmStudentAnswerStatus(images, config) {
+    if (!images.length || config.imageGateRemovedCount > 0 || filterUsableImagesForAI(images).removed.length) return 'uncertain';
+    const prompt = `检查本卷每张学生答卷图的答题区域有无作答痕迹。包含手写文字、数字、算式、勾选、连线、绘图、涂改或难以辨认的笔迹时，即使内容看不清，也属于有作答痕迹。题号、印刷文字、印刷线框和预印图形不属于作答痕迹。
+所有答题区域都完整清晰且没有任何作答痕迹，回复“空白”。能确认有作答痕迹，回复“有作答”。图片模糊、区域不完整或无法确定时，回复“不确定”。只回复一个词。`;
+    const response = await callAIWithRetry(prompt, images, {
+        ...config, gradingRequest: true, outputObservation: null, outputLimitKey: null,
+        requestBudget: { remaining: 1 }
+    }, null, []);
+    const status = response.trim();
+    if (status === '空白') return 'blank';
+    if (status === '有作答') return 'written';
+    return 'uncertain';
+}
+
 function makeBlankGradingResult(config) {
     return {
         score: 0, rawScore: 0, studentAnswer: '未作答', answerStatus: '未作答',

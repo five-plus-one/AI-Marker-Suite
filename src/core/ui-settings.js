@@ -801,7 +801,7 @@ function createSettingsPanel(options) {
                         <div class="mode-desc">默认关闭。开启后，无人模式对无法辨认的答卷重试一次，仍无法辨认则保存原图与评分方案并暂停，由教师核对评分。普通与试改模式直接保存后暂停。</div>
                         <div class="form-group" style="margin-top:12px;"><label for="unattended-review-limit">允许待复核数量</label>
                             <input type="number" id="unattended-review-limit" min="1" max="50" step="1" value="5" disabled></div>
-                        <div class="mode-desc">达到允许数量后先完成复核，再开始下一份。原图保留到完成复核；单份答卷与总图片缓存空间不足时会提示处理。</div>
+                        <div class="mode-desc">达到允许数量后，仍可批改可评分的答卷。遇到需要新增待复核记录的答卷时，请先完成已有复核。原图保留到完成复核，缓存空间不足时会提示处理。</div>
                         <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
                     </div>
                 </div>
