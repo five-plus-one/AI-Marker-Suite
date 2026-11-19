@@ -1104,6 +1104,13 @@ function createSettingsPanel(options) {
                     <div class="about-section">
                         <div class="about-section-title">帮助与支持</div>
                         <div class="about-links">
+                            <button type="button" id="btn-export-diagnostics" class="about-link" style="text-align:left;">
+                                <span class="about-link-icon" aria-hidden="true">📦</span>
+                                <span class="about-link-text">
+                                    <span>导出诊断包</span>
+                                    <span class="about-link-desc" style="display:block;">汇集运行日志、阅卷记录和配置摘要</span>
+                                </span>
+                            </button>
                             <a href="https://aimarking.five-plus-one.com/" target="_blank" class="about-link">
                                 <span class="about-link-icon">📖</span>
                                 <div class="about-link-text">
@@ -1309,6 +1316,8 @@ function createSettingsPanel(options) {
     panel.querySelector('#btn-edit-workflow').onclick = handleEditWorkflow;
     panel.querySelector('#btn-del-workflow').onclick = handleDeleteWorkflow;
     panel.querySelector('#btn-new-workflow').onclick = handleNewWorkflow;
+
+    panel.querySelector('#btn-export-diagnostics').onclick = () => showDiagnosticExport();
 
     // 配置导出
     panel.querySelector('#btn-export-config').onclick = () => {
