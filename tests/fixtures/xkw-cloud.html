@@ -86,9 +86,10 @@ window.GM_xmlhttpRequest = options => {
             return box;
         }));
     }
-    let requests = 0, inputEvents = 0, outcome = 'saved', wrongPaper = false;
+    const scorePanel = document.querySelector('.givescorebox');
+    let requests = 0, inputEvents = 0, outcome = 'saved', wrongPaper = false, deferredSave = false, minimumTime = false;
     input.addEventListener('input', () => { inputEvents++; });
-    document.querySelector('.submitscorebtn').addEventListener('click', () => {
+    const sendNativeScore = () => {
         const { questionId, sheetId, studentId, teacherMarkType } = state.readOverInfo;
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/v2/exam/mark/submit?outcome=' + outcome);
@@ -96,10 +97,23 @@ window.GM_xmlhttpRequest = options => {
             const next = JSON.parse(xhr.responseText).data;
             if (next.exist) setTimeout(() => setPaper('b'), 40);
         };
-        xhr.onloadend = () => { requests++; };
+        xhr.onloadend = () => { requests++; scorePanel.classList.remove('nooperate'); };
         xhr.send(JSON.stringify({ questionId, sheetId, studentId: wrongPaper ? 'other' : studentId,
             markCount: teacherMarkType, choiceIndex: state.choiceIndex, score: state.questionScore,
             markPageType: 'NORMAL_MARK', haveJoin: false, questionSubmitList: [] }));
+    };
+    document.querySelector('.submitscorebtn').addEventListener('click', () => {
+        if (minimumTime) {
+            const message = document.createElement('p');
+            message.className = 'el-message__content';
+            message.textContent = '批阅过快，请查阅至少5秒后再进行给分';
+            document.body.append(message);
+        } else if (deferredSave) {
+            scorePanel.classList.add('nooperate');
+            queueMicrotask(sendNativeScore);
+        } else {
+            sendNativeScore();
+        }
     });
     const adapter = window.__AI_MARKER_ADAPTER__;
     const ready = async () => {
@@ -139,8 +153,14 @@ window.GM_xmlhttpRequest = options => {
         wrongPaper = false;
         outcome = 'rejected';
         check(adapter.fillScores([0]) && !await adapter.submitGrade() && requests === 1, '平台拒绝时保持当前答卷');
+        minimumTime = true;
+        check(adapter.fillScores([3]) && !await adapter.submitGrade() && requests === 1
+            && adapter.lastSubmitError.includes('规定时间') && adapter.getPaperIdentity() === paperId,
+            '平台要求继续查阅时提示教师并保留当前答卷');
+        minimumTime = false;
         outcome = 'saved';
-        check(adapter.fillScores([3]) && await adapter.submitGrade(), '确认当前答卷保存');
+        deferredSave = true;
+        check(adapter.fillScores([3]) && await adapter.submitGrade(), '等待平台异步发出保存请求，核对当前答卷的保存回执');
         check(await adapter.waitForNextPaper(urls[0], { taskId, paperId }) && adapter.getTaskIdentifier() === taskId
             && adapter.getPaperIdentity() !== paperId, '下一份答卷与回执对应后才继续');
         check(!adapter.fillScores([3]), '翻卷后拒绝使用上份答卷的评分');
@@ -151,7 +171,8 @@ window.GM_xmlhttpRequest = options => {
         location.hash = route + '&review=true';
         check(adapter.isRegradeMode() && !await adapter.detectMarkingPage() && !await adapter.prepareGrading(), '回评入口不启用评分');
         location.hash = route;
-        setPaper('c');
+        setPaper('a');
+        outcome = 'saved';
         await ready();
         const waitFor = async (predicate) => {
             for (let i = 0; i < 150 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 20));
@@ -170,6 +191,12 @@ window.GM_xmlhttpRequest = options => {
         check(input.value === '3' && state.questionScore === 3 && !autoScore.checked
             && requests === submissionsBeforeStart && document.querySelector('#auto-submit-dialog'),
             '模型评分后填写练习分数，留在提交确认');
+        const gradedPaper = adapter.getPaperIdentity();
+        document.querySelector('#auto-submit-dialog #confirm-submit-btn').click();
+        await waitFor(() => requests > submissionsBeforeStart && adapter.getPaperIdentity() !== gradedPaper);
+        check(requests === submissionsBeforeStart + 1 && adapter.getPaperIdentity()
+            && adapter.getPaperIdentity() !== gradedPaper && !window.aiGradingState.isPaused,
+            '确认提交后仅保存一次，并进入平台回执对应的下一份练习卷');
         document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: true, checks }))));
     } catch (error) {
         document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: false, error: error.message, checks }))));
