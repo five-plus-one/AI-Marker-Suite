@@ -87,6 +87,37 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         files = await zipFiles();
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 3
             && files['运行日志.json'].length === 1 && files['运行日志.json'][0].at === earlier, '自选时间导出此前记录');
+        await nextFrame();
+        const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/z8pUbwAAAABJRU5ErkJggg==';
+        const signedURL = 'https://example.test/paper.png?signature=fixture-private-signature';
+        window.__AI_MARKER_ADAPTER__ = {
+            id: 'eiduo', isMarkingPage: () => true, getPaperIdentity: () => 'fixture-paper',
+            gatherAnswerImages: async () => [signedURL], fetchImageAsBase64: async url => url === signedURL ? pixel : null,
+        };
+        storage.set('aimarker-diagnostic-upload-session', { token: 'fixture-upload-lease', expiresAt: Date.now() / 1000 + 60 });
+        const attempts = [];
+        window.GM_xmlhttpRequest = request => {
+            check(request.url === 'https://api.aimarking.five-plus-one.com/v1/diagnostics'
+                && request.anonymous && request.headers.Authorization === 'Bearer fixture-upload-lease', '上传仅携带专用凭证');
+            const data = JSON.parse(request.data);
+            attempts.push(data);
+            request.onload({ status: attempts.length === 1 ? 503 : 201, finalUrl: request.url,
+                responseText: JSON.stringify({ receipt: data.id }) });
+        };
+        menus.get('上传诊断包')();
+        dialog = document.querySelector('#ai-diagnostic-export');
+        form = dialog.querySelector('form');
+        const attach = form.elements.namedItem('images');
+        check(!attach.checked && !attempts.length, '打开上传面板时不采集答卷或发送资料');
+        attach.checked = true;
+        form.requestSubmit();
+        await nextFrame();
+        check(dialog.open && attempts.length === 1 && attempts[0].images[0]?.bytes === pixel
+            && attempts[0].images[0]?.record === -1 && !JSON.stringify(attempts[0]).includes('fixture-private-signature')
+            && !JSON.stringify(attempts[0]).includes('private-provider-key'), '只上传当前答卷图片字节与脱敏信息');
+        form.requestSubmit();
+        await nextFrame();
+        check(attempts.length === 2 && attempts[0].id === attempts[1].id && !dialog.open, '重试复用同一上传编号并核对回执');
     } catch (error) {
         checks.push({ pass: false, label: error.message });
     }

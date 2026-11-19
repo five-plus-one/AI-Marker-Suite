@@ -950,7 +950,11 @@ function createSettingsPanel(options) {
                                 <button class="preset-btn" id="btn-new-provider">新建</button>
                                 <button class="preset-btn danger" id="btn-del-provider">删除</button>
                             </div>
-                            <div id="api-key-link-container" style="display:none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">获取访问凭证</a></div>
+                            <div id="api-key-link-container" style="display:none;">
+                                <button type="button" id="btn-connect-marker-account" class="btn-secondary">登录五加一账号</button>
+                                <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" class="api-key-link">手动获取访问密钥</a>
+                                <button type="button" id="btn-clear-official-key" class="btn-secondary" hidden>移除本机密钥</button>
+                            </div>
                         </div>
                         <div class="form-group" id="custom-endpoint-field"><label for="api-endpoint">服务网关 URL</label><input type="text" id="api-endpoint"></div>
                         <div class="form-group" id="official-endpoint-field" hidden>
@@ -1117,6 +1121,13 @@ function createSettingsPanel(options) {
                                 <span class="about-link-text">
                                     <span>导出诊断包</span>
                                     <span class="about-link-desc" style="display:block;">汇集运行日志、阅卷记录和配置摘要</span>
+                                </span>
+                            </button>
+                            <button type="button" id="btn-upload-diagnostics" class="about-link" style="text-align:left;">
+                                <span class="about-link-icon" aria-hidden="true">📤</span>
+                                <span class="about-link-text">
+                                    <span>上传诊断包</span>
+                                    <span class="about-link-desc" style="display:block;">将所选资料发送给管理员</span>
                                 </span>
                             </button>
                             <a href="https://aimarking.five-plus-one.com/" target="_blank" class="about-link">
@@ -1327,6 +1338,22 @@ function createSettingsPanel(options) {
     panel.querySelector('#btn-new-workflow').onclick = handleNewWorkflow;
 
     panel.querySelector('#btn-export-diagnostics').onclick = () => showDiagnosticExport();
+    panel.querySelector('#btn-upload-diagnostics').onclick = () => showDiagnosticExport(true);
+    panel.querySelector('#btn-connect-marker-account').onclick = event => {
+        void connectMarkerAccountButton(event.currentTarget, () => {
+            if (panel.querySelector('#ai-provider')?.value === '5plus1官方') {
+                displayProviderKey('5plus1官方');
+                updateUIVisibility();
+            }
+        });
+    };
+    panel.querySelector('#btn-clear-official-key').onclick = () => {
+        const provider = ProviderManager.getProvider('5plus1官方');
+        if (ProviderManager.saveOfficialConnection(getOfficialApiLine(provider), '')) {
+            displayProviderKey('5plus1官方');
+            updateUIVisibility();
+        }
+    };
 
     // 配置导出
     panel.querySelector('#btn-export-config').onclick = () => {
@@ -1482,7 +1509,7 @@ function createSettingsPanel(options) {
     const apiKeyInput = panel.querySelector('#api-key');
     if (apiKeyInput) {
         apiKeyInput.addEventListener('input', () => {
-            const hasKey = apiKeyInput.value.trim().length > 0;
+            const hasKey = Boolean(settingsApiKey());
             const warning = document.getElementById('api-key-warning');
             const badge = document.getElementById('api-key-badge');
             if (warning) warning.classList.toggle('hidden', hasKey);
@@ -1816,7 +1843,7 @@ function fillFormFromActivePreset() {
     const providerName = currentProviderSelect?.value || defaultProvider;
     const provider = ProviderManager.getProvider(providerName);
     document.getElementById('api-endpoint').value = provider?.endpoint || '';
-    document.getElementById('api-key').value = provider?.apiKey || '';
+    displayProviderKey(providerName);
 
     // 模型列表
     renderModelList();
@@ -2267,11 +2294,26 @@ function switchSettingsPage(pageId) {
     if (btn) btn.click();
 }
 
+function displayProviderKey(name) {
+    const input = document.getElementById('api-key');
+    if (!input) return;
+    const key = ProviderManager.getProvider(name)?.apiKey;
+    const official = name === '5plus1官方';
+    input.value = official ? '' : key || '';
+    input.placeholder = official && key ? '已配置访问密钥，可输入新密钥替换' : '必填，否则无法使用 AI 批改';
+    const clear = document.getElementById('btn-clear-official-key');
+    if (clear) clear.hidden = !official || !key;
+}
+
+function settingsApiKey() {
+    const entered = document.getElementById('api-key')?.value.trim() || '';
+    return entered || (document.getElementById('ai-provider')?.value === '5plus1官方'
+        ? ProviderManager.getProvider('5plus1官方')?.apiKey || '' : '');
+}
+
 function updateUIVisibility() {
     const provider = document.getElementById('ai-provider').value;
     const apiKeyLink = document.getElementById('api-key-link-container');
-    const endpointInput = document.getElementById('api-endpoint');
-    const apiKeyInput = document.getElementById('api-key');
     const apiKeyWarning = document.getElementById('api-key-warning');
     const apiKeyBadge = document.getElementById('api-key-badge');
 
@@ -2285,7 +2327,7 @@ function updateUIVisibility() {
     }
 
     // API 密钥未填写时显示警告
-    const hasKey = apiKeyInput.value.trim().length > 0;
+    const hasKey = Boolean(settingsApiKey());
     if (apiKeyWarning) {
         apiKeyWarning.classList.toggle('hidden', hasKey);
     }
@@ -2300,8 +2342,7 @@ function updateUIVisibility() {
 }
 
 function updateGroupHints() {
-    const apiKeyInput = document.getElementById('api-key');
-    const hasKey = apiKeyInput && apiKeyInput.value.trim().length > 0;
+    const hasKey = Boolean(settingsApiKey());
     const required = validateRequiredFields({ showErrors: false });
 
     const groupAI = document.getElementById('group-ai');
@@ -2358,7 +2399,6 @@ function updateSettingsNavBadges() {
     const nav = document.querySelector('#ai-grading-settings .settings-nav');
     if (!nav) return;
 
-    const apiKeyInput = document.getElementById('api-key');
     const endpointInput = document.getElementById('api-endpoint');
     const providerSelect = document.getElementById('ai-provider');
     const workflowSelect = document.getElementById('workflow-select');
@@ -2376,7 +2416,7 @@ function updateSettingsNavBadges() {
         plan: !document.getElementById('preset-select')?.value,
         grading: !_answerText || !_rubricText ||
             scoringUnits.some(u => !u.maxScore || u.maxScore <= 0),
-        ai: !apiKeyInput?.value.trim() || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
+        ai: !settingsApiKey() || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
         automation: !!batchEnabled && batchTarget <= 0,
         data: false,
         about: false,
@@ -2508,7 +2548,7 @@ function handleProviderChange() {
     const provider = ProviderManager.getProvider(name);
     if (provider) {
         document.getElementById('api-endpoint').value = provider.endpoint || '';
-        document.getElementById('api-key').value = provider.apiKey || '';
+        displayProviderKey(name);
     }
     renderModelList();
     renderWorkflowInfo();
@@ -2954,7 +2994,7 @@ function saveAISettings() {
     const provider = ProviderManager.getProvider(providerName);
     if (provider) {
         if (providerName !== '5plus1官方') provider.endpoint = document.getElementById('api-endpoint').value;
-        provider.apiKey = document.getElementById('api-key').value;
+        provider.apiKey = settingsApiKey();
         if (ProviderManager.save() === false) return;
     }
 
@@ -3250,13 +3290,14 @@ function showOnboardingDialog(forceShow, mode) {
     function renderApiStep() {
         return `
             <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
-                AI 批改助手可以帮助你自动批改试卷。首先，请配置你的 API 密钥。
+                登录五加一账号，即可为 AI 批改助手配置访问密钥。
             </p>
             <div class="form-group">
                 <label for="ob-apikey">API 密钥</label>
-                <input type="password" id="ob-apikey" placeholder="请输入 5plus1 API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}" style="width:100%;">
+                <input type="password" id="ob-apikey" placeholder="${ProviderManager.getProvider('5plus1官方')?.apiKey ? '已配置访问密钥' : '也可手动输入访问密钥'}" style="width:100%;">
                 <div style="margin-top:6px;">
-                    <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" style="font-size:12px;color:#0052FF;text-decoration:none;">点击获取访问凭证 →</a>
+                    <button type="button" class="ai-modal-btn-cancel" id="ob-connect-account">登录五加一账号</button>
+                    <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" class="api-key-link">手动获取访问密钥</a>
                 </div>
             </div>
             <div id="ob-status" role="status" aria-live="polite" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
@@ -3401,10 +3442,18 @@ function showOnboardingDialog(forceShow, mode) {
 
         if (s.apiStep) {
             overlay.querySelector('#ob-skip').onclick = hideOnboardingDialog;
+            overlay.querySelector('#ob-connect-account').onclick = event => {
+                void connectMarkerAccountButton(event.currentTarget, () => {
+                    const field = overlay.querySelector('#ob-apikey');
+                    if (!field) return;
+                    field.value = '';
+                    field.placeholder = '已配置访问密钥';
+                });
+            };
             overlay.querySelector('#ob-next').onclick = async () => {
                 if (_onboardingApiCheck) return;
                 const input = overlay.querySelector('#ob-apikey');
-                const key = input.value.trim();
+                const key = input.value.trim() || ProviderManager.getProvider('5plus1官方')?.apiKey;
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
 
                 // 清除之前的错误提示
