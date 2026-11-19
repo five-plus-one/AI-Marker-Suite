@@ -4,7 +4,8 @@
 <title>5plus1API 端点切换</title>
 <script>
 const storage = new Map(), checks = [], requests = [];
-let outcomes = [], failStorage = false;
+let outcomes = [], failStorage = false, cloudPolicy;
+const cloudRequests = [];
 window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
 window.GM_setValue = (key, value) => {
     if (failStorage && key === 'ai-grading-providers-v2') throw Error('storage unavailable');
@@ -13,6 +14,11 @@ window.GM_setValue = (key, value) => {
 window.getUIRoot = () => document.body;
 window.showToast = () => {};
 window.GM_xmlhttpRequest = request => {
+    if (request.method === 'GET') {
+        cloudRequests.push({ url: request.url, headers: request.headers, anonymous: request.anonymous });
+        queueMicrotask(() => cloudPolicy ? request.onload({ status: 200, finalUrl: request.url, responseText: JSON.stringify(cloudPolicy) }) : request.onerror());
+        return { abort() {} };
+    }
     const outcome = outcomes.shift();
     const observed = { url: request.url, data: JSON.parse(request.data), redirect: request.redirect, cancelled: false };
     requests.push(observed);
@@ -20,6 +26,10 @@ window.GM_xmlhttpRequest = request => {
         if (outcome === 'network') request.onerror();
         else if (outcome === 'timeout') request.ontimeout();
         else if (outcome === 'ok') request.onload({ status: 200, finalUrl: request.url, responseText: '{"choices":[{"message":{"content":"收到"}}]}' });
+        else if (outcome === 'stream') {
+            request.onprogress({ responseText: 'data: {"choices":[{"delta":{"content":"已开始"}}]}\n\n' });
+            request.onerror();
+        }
         else request.onload(outcome || {});
     }, outcome === 'delayed' ? 1000 : 0);
     return { abort() { clearTimeout(timer); observed.cancelled = true; request.onabort(); } };
@@ -31,6 +41,7 @@ window.GM_xmlhttpRequest = request => {
 <script src="../../src/core/score.js"></script>
 <script src="../../src/core/ai-engine.js"></script>
 <script src="../../src/core/preset.js"></script>
+<script src="../../src/core/prompt.js"></script>
 <script src="../../src/core/ui-modal.js"></script>
 <script src="../../src/core/ui-settings.js"></script>
 <body><pre id="result"></pre>
@@ -71,6 +82,7 @@ window.GM_xmlhttpRequest = request => {
         check((await verifyOfficialApiKey('fixture-key')).endpoint === shanghai && requests.every(r => r.redirect === 'error'), '验证限制在已配置的官方域名');
         reset('delayed');
         const pending = start();
+        await Promise.resolve();
         get('ob-skip').click();
         await pending;
         check(tried(main) && requests[0].cancelled && !get('ob-status') && !official().apiKey, '离开首次设置时取消验证且不保存');
@@ -97,20 +109,46 @@ window.GM_xmlhttpRequest = request => {
         get('ai-provider').value = '5plus1官方';
         handleProviderChange();
         const select = get('official-endpoint'), custom = get('custom-endpoint-field');
-        check(select.value === shanghai && custom.hidden && !get('official-endpoint-field').hidden
+        check(select.value === 'backup' && custom.hidden && !get('official-endpoint-field').hidden
             && get('official-endpoint-help').textContent.includes('国内部分地区'), '设置显示当前官方端点与使用提示');
         const change = endpoint => { select.value = endpoint; select.dispatchEvent(new Event('change')); };
-        change(main);
+        change('primary');
         check(official().endpoint === main && official().apiKey === 'fixture-key', '切换端点保留 API 密钥');
         failStorage = true;
-        change(shanghai);
-        check(select.value === main && official().endpoint === main, '保存失败恢复已保存的选择');
+        change('backup');
+        check(select.value === 'primary' && official().endpoint === main, '保存失败恢复已保存的选择');
         failStorage = false;
-        change(shanghai);
+        change('backup');
         check(JSON.parse(storage.get('ai-grading-providers-v2')).providers['5plus1官方'].endpoint === shanghai, '手动切换持久保存');
         get('ai-provider').value = 'OpenAI兼容';
         handleProviderChange();
         check(get('official-endpoint-field').hidden && !custom.hidden && get('api-endpoint').value.includes('api.openai.com'), '自定义服务保持网关配置');
+        check(cloudRequests.length === 1 && cloudRequests[0].url === SCRIPT_CONFIG.API_ROUTING_URL
+            && cloudRequests[0].anonymous && !cloudRequests[0].headers, '云控读取独立于密钥与答卷');
+        const cloudMain = 'https://regional-fixture.ai.five-plus-one.com/v1/chat/completions';
+        cloudPolicy = { revision: 2, official: { endpoint: cloudMain, backupEndpoint: shanghai } };
+        officialApiRoutingChecked = 0;
+        await refreshOfficialApiRoutes();
+        check(getOfficialApiEndpoint('primary') === cloudMain && official().endpointLine === 'backup', '新版云控覆盖默认地址并保留用户端点选择');
+        cloudPolicy = { revision: 3, official: { endpoint: 'https://api.ai.five-plus-one.com.other.example/v1/chat/completions', backupEndpoint: shanghai } };
+        officialApiRoutingChecked = 0;
+        await refreshOfficialApiRoutes();
+        check(getOfficialApiEndpoint('primary') === cloudMain && officialApiRoutes.revision === 2, '拒绝不受信任的云控地址');
+        const grading = { endpoint: main, officialApiLine: 'primary', apiKey: 'fixture-key', model: 'aimarker-fast', gradingRequest: true,
+            [STUDENT_GRADING_EVIDENCE]: { status: 'readable', answer: '模拟答案' } };
+        reset('network', 'ok');
+        check(await callAI('评分练习', [], grading) === '收到' && tried(cloudMain, shanghai), '批改遇到连接错误时切换备用端点');
+        reset('ok');
+        check(await callAI('评分练习', [], grading) === '收到' && tried(shanghai), '后续批改沿用已验证的端点');
+        officialApiFallback = null;
+        reset('stream');
+        await callAI('评分练习', [], grading).then(() => { throw Error('未识别流中断'); }, () => {});
+        check(tried(cloudMain), '已开始输出的评分请求不跨端点重放');
+        reset('network');
+        const customUrl = 'https://custom.example/v1/chat/completions';
+        await callAI('评分练习', [], { ...grading, officialApiLine: undefined, endpoint: customUrl })
+            .then(() => { throw Error('未识别自定义线路错误'); }, () => {});
+        check(tried(customUrl), '第三方服务仍走自己的端点');
     } catch (error) { checks.push({ pass: false, label: String(error.message) }); }
     get('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: checks.every(item => item.pass), checks }))));
 })();
