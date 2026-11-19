@@ -28,8 +28,10 @@ async function connect(url) {
 }
 (async () => {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'aimarker-browser-'));
+    // Linux CI containers may run without an init process to reap orphaned Chromium helpers.
+    const linuxFlags = process.platform === 'linux' ? ['--disable-crashpad-for-testing', '--no-zygote'] : [];
     const child = spawn(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--disable-background-networking',
-        '--allow-file-access-from-files', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+        ...linuxFlags, '--allow-file-access-from-files', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
     const results = []; let browserClient, client;
     try {
         const activePort = path.join(profile, 'DevToolsActivePort');
