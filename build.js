@@ -278,6 +278,7 @@ const BUILD_CONFIGS = [
                 'api-sh.ai.five-plus-one.com',
                 'api.aimarking.five-plus-one.com',
                 'zhixue-sc.oss-cn-hangzhou.aliyuncs.com',
+                'eiduo-online.oss-cn-hangzhou.aliyuncs.com',
                 'yjimage.oss-cn-hangzhou.aliyuncs.com',
                 'static.7net.cc',
                 'raw.githubusercontent.com',

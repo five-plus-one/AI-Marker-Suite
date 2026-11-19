@@ -50,9 +50,11 @@ const EiduoAdapter = {
         const element = row.querySelector('input[type="number"]');
         const scoreLabel = row.querySelector('.num')?.title.trim();
         const button = panel.querySelector('form button[type="submit"]');
-        const maxScore = Number(element?.max);
+        const fullScore = /^满分\s*(\d+(?:\.\d+)?)$/.exec(element?.placeholder.trim() || '');
+        const maxScore = Number(fullScore?.[1]);
         if (!this._visible(element) || element.disabled || element.readOnly || scoreLabel !== question.label + '(' + question.indexLabel + ')'
             || !Number.isFinite(maxScore) || maxScore <= 0 || maxScore > 60 || !this._visible(button)
+            || (element.max && Number(element.max) !== maxScore)
             || button.textContent.trim() !== '提交分数' || panel.querySelector('.submit-mult, .submit-dashboard.multi')) return null;
         const dashboard = panel.querySelector('.submit-dashboard.show');
         const options = [...(dashboard?.querySelectorAll('.hd .radiobox') || [])];
