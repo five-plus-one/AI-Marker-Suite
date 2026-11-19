@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>作文评阅</title>
+<style>body{margin:0;font:16px system-ui;color:#253d39;background:#f6faf8}header{background:#34404a;color:white;padding:12px}main{display:flex;gap:16px;padding:16px}#imgdiv{flex:1;min-width:0;height:500px;overflow:auto}img{width:100%}aside{width:160px}input{padding:12px;width:100px}button{padding:10px}.layui-layer-page{position:fixed;background:white;padding:20px;border:1px solid #888;top:20%;left:20%}</style>
+<header>语文练习 ｜ 作文 ｜ 2+1评</header><main><div id="imgdiv"><img id="mainimg_0"><img id="mainimg_1"></div><aside><div id="dfdxx"><div class="dfddiv"><span class="dfdspan">作文</span><input id="dfd0" class="dfdinput" placeholder="满60分" oninput="countSum()"></div></div><input type="button" id="tjfsbtn" value="提交分数（回车）" onclick="tjfs()"><input hidden id="copyvalue"></aside></main>
+<div id="dfqr_div" style="display:none"><label id="qrfs"></label><button class="btn-primary" onclick="tjajax()">确定</button></div>
+<script>
+history.replaceState(null,'','/web/mark/sjpy/sjpy_kspy.jsp?ksdm=100&kmdm=C1&stbh=12');
+var ksdm='100',kmdm='C1',stbh='12',loadok=true,err=false,sfhp=false,dfms='1',sfsp='0',tjfsFlag=true,dtkgs='1',pybz_arr=[],qropen=false,tjqqr=false;
+var zgtxx={STBH:'12',KMDM:'C1',STMC:'作文',DFDMC:'作文',DFDFS:'60',DFDSL:1,STMF:60,DFBC:'0',DFBCMS:'1',PYCS:3,SFSP:'0',SFYGMS:'0',SFFP:'0',SFMP:'0',TXQY:'12,13',TXDZ:'https://img-oss.sdzdf.com/Examimg/'};
+var dfdmc=['作文'],dfdfs=['60'],txqy=['12','13'],rwxx,sum=0,dfd='',fixtureRequests=[],fixtureConfirmCount=0,fixtureResponse={res:true};
+function setPaper(id){rwxx={RWID:'task-'+id,DQPC:1,BMH:id,PYZT:'1',ZJBZ:'0',PYCJ:null,PYSJ:null,PYDFD:null,HPSJ:null};document.querySelector('#copyvalue').value=id;for(let i=0;i<2;i++)document.querySelector('#mainimg_'+i).src=zgtxx.TXDZ+'1318/100/C1/'+id+'/'+id+'_'+txqy[i]+'.jpg?v=123';document.querySelector('#dfd0').value='';loadok=true;tjfsFlag=true;}
+function countSum(){}
+function checkDfd(){const v=document.querySelector('#dfd0').value;if(!/^\d+(\.\d+)?$/.test(v)||Number(v)>60||Number(v)%1)return false;sum=Number(v);dfd=String(sum);return true}
+function tjfs(){if(!loadok||!checkDfd())return;if(tjqqr&&!qropen){qropen=true;document.querySelector('#qrfs').textContent='确定为该学生打 '+sum+' 分吗？';const e=document.querySelector('#dfqr_div');e.className='layui-layer layui-layer-page';e.style.display='block'}else tjajax()}
+class FixtureXHR extends EventTarget{open(method,url){this.url=url}send(body){fixtureRequests.push(body);this.status=200;this.responseText=JSON.stringify(fixtureResponse);setTimeout(()=>{tjfsFlag=true;this.dispatchEvent(new Event('load'));if(fixtureResponse.res)setPaper('paper-B')},0)}abort(){this.dispatchEvent(new Event('abort'))}}
+window.XMLHttpRequest=FixtureXHR;
+function tjajax(){if(qropen)fixtureConfirmCount++;qropen=false;document.querySelector('#dfqr_div').style.display='none';tjfsFlag=false;const xhr=new XMLHttpRequest();xhr.open('POST',location.origin+'/sjpy_tjfs.do');xhr.send(new URLSearchParams({ksdm,kmdm,stbh,rwid:rwxx.RWID,dqpc:rwxx.DQPC,pycs:zgtxx.PYCS,pycj:sum,pydfd:dfd,pybz:'',sfmp:zgtxx.SFMP,pyhs:20}).toString())}
+setPaper('paper-A');
+</script></html>

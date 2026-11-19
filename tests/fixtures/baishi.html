@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>百师联盟单题评阅练习</title>
+<style>body{font:16px system-ui}img{max-width:100%}input,button{margin:.4rem}</style>
+<main class="markgingBox" hidden>
+    <h1>练习考试 / 语文 - 7</h1>
+    <div class="watchMap"><div class="imgBox"></div></div>
+    <div class="stepbcbox"><button type="button" class="el-switch" role="switch" aria-checked="true">自动提交</button></div>
+    <input placeholder="打分框" disabled>
+    <div class="submitskipbox"><button type="button" class="submitbuttonBlue" disabled>提交并继续</button></div>
+</main>
+<pre id="result"></pre>
+<script>
+const settings = new Map();
+window.unsafeWindow = window;
+window.GM_getValue = (key, fallback) => settings.get(key) ?? fallback;
+window.GM_setValue = (key, value) => settings.set(key, value);
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => {
+    const controller = new AbortController();
+    fetch(options.url, { signal: controller.signal }).then(async response => {
+        options.onload({ status: response.status, response: await response.arrayBuffer() });
+    }).catch(() => options.onerror?.());
+    return { abort() { controller.abort(); } };
+};
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+(async () => {
+    const root = document.querySelector('.markgingBox');
+    const input = root.querySelector('input');
+    const toggle = root.querySelector('[role="switch"]');
+    const submit = root.querySelector('.submitbuttonBlue');
+    const requests = [];
+    let wrongAssignment = false;
+    const checks = [];
+    const check = (pass, label) => {
+        checks.push({ pass: Boolean(pass), label });
+        if (!pass) throw new Error(label);
+    };
+    const runId = new URLSearchParams(location.search).get('run');
+    const page = {
+        $el: root, $refs: { fullscreenElement: root }, $route: { query: { projectId: 'exercise' } },
+        $nextTick: async () => {},
+        taskcontent: { examId: 'exam-practice', assignmentConfigId: 'exercise-question', questionNumbers: '7' },
+        taskIndex: 0, allscore: 3, stepvalue: '0.5', keydownActive: 0, buttondisabled1: 1, autoSubmit: true,
+        scoreSet1() {
+            const { id, teacherId } = this.taskcardObject;
+            this.submitList[0].score = this.inputvalue;
+            const payload = { id, teacherId, score: Number(this.inputvalue), taskTeacherAssignmentStepScoreVOS: this.submitList };
+            requests.push(payload);
+            this.buttondisabled1 = 2;
+            const request = new XMLHttpRequest();
+            request.open('PUT', '/stage-api/task/teacher/assignment');
+            request.onload = () => {
+                this.buttondisabled1 = 1;
+                if (JSON.parse(request.responseText).code === 200) setPaper('paper-b');
+            };
+            request.onabort = () => { this.buttondisabled1 = 1; };
+            const wire = wrongAssignment ? { ...payload, taskTeacherAssignmentStepScoreVOS:
+                [{ ...this.submitList[0], assignmentConfigId: 'other-question' }] } : payload;
+            request.send(JSON.stringify(wire));
+        },
+    };
+    function setPaper(id) {
+        const unit = { questionNumber: '7', assignmentConfigId: 'exercise-question', fullScore: 3, score: '' };
+        const prefix = 'https://bs-exam-bucket.oss-cn-beijing.aliyuncs.com/__fixture/';
+        page.taskcardObject = { ...unit, id, teacherId: 'teacher-practice',
+            questionUrls: [prefix + id + '-first.svg', prefix + id + '-second.svg'] };
+        page.taskCardcontent = [page.taskcardObject];
+        page.submitList = [unit];
+        page.getCardTime = Date.now();
+        page.inputvalue = input.value = '';
+        root.querySelector('.imgBox').replaceChildren(...page.taskcardObject.questionUrls.map(url => {
+            const img = new Image();
+            img.src = url;
+            return img;
+        }));
+    }
+    root.__vue__ = page;
+    toggle.addEventListener('click', () => {
+        page.autoSubmit = !page.autoSubmit;
+        toggle.setAttribute('aria-checked', String(page.autoSubmit));
+        input.disabled = submit.disabled = page.autoSubmit;
+    });
+    input.addEventListener('input', () => { page.inputvalue = input.value; });
+    input.addEventListener('keyup', event => { if (event.key === 'Enter') page.scoreSet1(); });
+    submit.addEventListener('click', () => page.scoreSet1());
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    const ready = async () => {
+        for (let i = 0; i < 100; i++) {
+            if (adapter.getPaperIdentity()) return;
+            await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        throw new Error('答卷图片未就绪');
+    };
+    try {
+        check(adapter.id === 'baishi' && !adapter.isMarkingPage(), '从任务列表启动');
+        history.pushState(null, '', '/mark?projectId=exercise');
+        root.hidden = false;
+        setPaper('paper-a');
+        await ready();
+        check(adapter.getQuestionContext().question === '7' && adapter.getScoreInputs()[0].maxScore === 3,
+            '读取题号和满分');
+        check(await adapter.prepareGrading() && !page.autoSubmit && requests.length === 0, '关闭自动提交后才给分');
+        const taskId = adapter.getTaskIdentifier(), paperId = adapter.getPaperIdentity();
+        const urls = await adapter.gatherAnswerImages();
+        check(urls.length === 2, '读取同题的两张题块图片');
+        for (const url of urls) {
+            const bytes = await adapter.fetchImageAsBase64(url);
+            check(atob(bytes).startsWith('<svg'), '下载完整的练习图片');
+        }
+        check(!adapter.fillScores([3.5]) && !adapter.fillScores([1.25]) && input.value === '', '拒绝超分和不合步长的分数');
+        check(adapter.fillScores([0]) && input.value === '0' && requests.length === 0, '零分只填写到给分框');
+        check(!await adapter.submitGrade() && requests.length === 1 && adapter.getPaperIdentity() === paperId, '失败回执保留原答卷');
+        check(adapter.fillScores([1.5]), '填写半分');
+        input.value = '2';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        check(!await adapter.submitGrade() && requests.length === 1, '人工修改分数后停止提交');
+        wrongAssignment = true;
+        check(adapter.fillScores([1.5]) && !await adapter.submitGrade() && adapter.getPaperIdentity() === paperId,
+            '请求所属题目不符时保留原答卷');
+        wrongAssignment = false;
+        page.buttondisabled1 = 1;
+        check(adapter.fillScores([1.5]), '重新填写经核对的分数');
+        check(await adapter.submitGrade() && requests.length === 3, '确认同一答卷同一分值的成功回执');
+        check(await adapter.waitForNextPaper('', { taskId, paperId }) && adapter.getPaperIdentity() !== paperId, '等待同题新卷完整加载');
+        check(!adapter.fillScores([1.5]), '上一份答卷的结果不能填到下一份');
+        await adapter.gatherAnswerImages();
+        page.submitList.push({ ...page.submitList[0], questionNumber: '8' });
+        check(!await adapter.prepareGrading() && !adapter.fillScores([1.5]), '组合评阅任务交由平台原生评分');
+        history.pushState(null, '', '/reviewlist/index?projectId=exercise');
+        check(adapter.isRegradeMode() && !adapter.isMarkingPage(), '回评页面交由平台原生评分');
+    } catch (error) {
+        checks.push({ pass: false, label: error.message });
+    }
+    const result = { runId, width: innerWidth, passed: checks.every(item => item.pass), checks };
+    document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
+})();
+</script>
+</html>

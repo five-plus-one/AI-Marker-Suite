@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>悦卷通阅卷练习</title>
+<div id="reviewPanel" hidden>回评</div>
+<span id="span_mt_pwd">练习卷 A</span>
+<input type="hidden" name="input-rpe-title" value="练习卷 A">
+<input type="hidden" id="hdMarkPic" value="fixture-a">
+<img id="imageFullScreen" data-stu="fixture-a" src="/__fixture/answer.svg" alt="练习答卷">
+<label><input type="radio" name="mode" id="rdKeyboard">键盘打分</label>
+<label><input type="radio" name="mode" id="rdMouse" checked>鼠标打分</label>
+<label><input type="radio" name="mode" id="rdSteps">分步打分</label>
+<label><input type="checkbox" id="autoSubmit" checked>自动提交</label>
+<div id="panelKey">
+    <div class="panel-item-input">
+        <label class="control-label" for="score1">第（1）问：</label>
+        <input class="ipt_score" id="score1"><font class="text-error"><span>6</span></font>
+    </div>
+    <div class="panel-item-input">
+        <label class="control-label" for="score2">第（2）问：</label>
+        <input class="ipt_score" id="score2"><font class="text-error"><span>7</span></font>
+    </div>
+</div>
+<button id="submitMark">提交</button>
+<div id="zeroCheckModal" hidden><button id="btn_0_ok">确认零分</button></div>
+<pre id="result"></pre>
+<script>
+    const store = {};
+    window.GM_getValue = (key, fallback) => store[key] ?? fallback;
+    window.GM_setValue = (key, value) => { store[key] = value; };
+    window.GM_registerMenuCommand = () => {};
+    window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()); return { abort() {} }; };
+    window.unsafeWindow = window;
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+    (async () => {
+        const checks = [];
+        const check = (pass, label) => {
+            if (!pass) throw new Error(label);
+            checks.push({ pass: true, label });
+        };
+        try {
+            const adapter = window.__AI_MARKER_ADAPTER__;
+            check(adapter?.id === 'ruiya' && adapter.name === '悦卷通阅卷', '悦卷通入口与名称');
+            check(await adapter.detectMarkingPage(), '识别阅卷页面');
+            const [image] = await adapter.gatherAnswerImages();
+            check(image === document.querySelector('#imageFullScreen').src, '读取当前答题图');
+            const inputs = adapter.getScoreInputs();
+            check(inputs.map(input => input.maxScore).join(',') === '6,7', '提取两问各自满分');
+            check(inputs.map(input => input.label).join(',') === '第（1）问,第（2）问', '按页面顺序识别小题');
+            check(!adapter.fillScores([1]) && !adapter.fillScores([6.5, 7]) && !adapter.fillScores([0, null]), '缺项和越界分数拒绝写入');
+            check(adapter.fillScores([0, 7]), '按小题录入零分和满分');
+            check(inputs.map(input => input.element.value).join(',') === '0,7', '页面分值正确');
+            check(document.querySelector('#rdKeyboard').checked, '填分时切换键盘打分');
+            check(!document.querySelector('#autoSubmit').checked, '填分后等待明确提交');
+
+            const modal = document.querySelector('#zeroCheckModal');
+            const button = document.querySelector('#submitMark');
+            let sent = 0, confirmed = 0, response = '2拒绝', wrongPaper = false;
+            class NativeSave extends EventTarget {
+                open() {}
+                abort() {}
+                send() {
+                    sent++;
+                    this.status = 200;
+                    this.responseText = JSON.stringify({ result: response });
+                    this.dispatchEvent(new Event('loadend'));
+                    if (!response.startsWith('0')) return;
+                    document.querySelector('#span_mt_pwd').textContent = '练习卷 B';
+                    document.querySelector('[name="input-rpe-title"]').value = '练习卷 B';
+                    document.querySelector('#hdMarkPic').value = 'fixture-b';
+                    const image = document.querySelector('#imageFullScreen');
+                    image.dataset.stu = 'fixture-b';
+                    image.src = '/__fixture/answer.svg?paper=b';
+                }
+            }
+            window.XMLHttpRequest = NativeSave;
+            const save = () => {
+                const scores = inputs.map(({ element }) => Number(element.value));
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/markview/mark/');
+                xhr.send(JSON.stringify({
+                    mtid: '练习卷 A', inum: 2,
+                    mark: { key: 'practice', stu: wrongPaper ? 'not-the-current-paper' : 'fixture-a',
+                        score: scores[0] + scores[1],
+                        items: inputs.map(({ element }, index) => ({ key: element.id.slice(3), score: scores[index] })) }
+                }));
+            };
+            button.onclick = () => {
+                if (inputs.every(({ element }) => Number(element.value) === 0)) modal.hidden = false;
+                else save();
+            };
+            document.querySelector('#btn_0_ok').onclick = () => { confirmed++; modal.hidden = true; save(); };
+            const paperId = adapter.getPaperIdentity(), taskId = adapter.getGradingTaskIdentifier();
+            check(!await adapter.submitGrade() && sent === 1, '保存被拒绝后暂停');
+            check(!await adapter.waitForNextPaper(image), '拒绝回执不开始换卷');
+            wrongPaper = true;
+            check(adapter.fillScores([0, 7]) && !await adapter.submitGrade() && sent === 1, '身份不符的保存请求被拒绝');
+            wrongPaper = false;
+            response = '0';
+            check(adapter.fillScores([0, 0]) && await adapter.submitGrade(), '核对全零分确认和成功回执');
+            check(await adapter.waitForNextPaper(image, { paperId, taskId }) && sent === 2 && confirmed === 1, '保存成功后识别同题新答卷');
+            document.querySelector('#reviewPanel').hidden = false;
+            check(adapter.isRegradeMode(), '识别回评面板');
+            document.querySelector('#rdSteps').click();
+            check(!await adapter.detectMarkingPage(), '分步模式交平台处理');
+        } catch (error) {
+            checks.push({ pass: false, label: error.message });
+        }
+        const result = { runId: new URLSearchParams(location.search).get('run'),
+            width: innerWidth, passed: checks.every(check => check.pass), checks };
+        document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
+    })();
+</script>
+</html>
