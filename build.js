@@ -107,6 +107,7 @@ const BUILD_CONFIGS = [
             'adapters/dongni/adapter.js',
             'adapters/xkw/selectors.js',
             'adapters/xkw/adapter.js',
+            'adapters/xkw-cloud/adapter.js',
             'adapters/xinjiaoyu/selectors.js',
             'adapters/xinjiaoyu/adapter.js',
             'adapters/xinkao/selectors.js',
@@ -186,7 +187,7 @@ const BUILD_CONFIGS = [
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'https://aimarking.five-plus-one.com/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊、酷鱼、A佳教育、云阅卷(开州)、正确阅卷、精斗云、小帆智能阅卷、睿芽、恒佳、悦卷通、云阅卷(华翰云)、懂你系统、学科网 e卷通、启光优测、诊学网、焦作精准教学、文通云、园丁邦云阅卷、小闲 AI 网上阅卷、丽升阅卷、天喻慧学（含惠州）、优分优学、小乐优阅、享尚学、韬普教育云阅卷、百师联盟等54个平台。识别手写答案、按标准评分，支持双评仲裁、分小题评分与评阅历史导出。',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊、酷鱼、A佳教育、云阅卷(开州)、正确阅卷、精斗云、小帆智能阅卷、睿芽、恒佳、悦卷通、云阅卷(华翰云)、懂你系统、学科网 e卷通、学科网云阅卷、启光优测、诊学网、焦作精准教学、文通云、园丁邦云阅卷、小闲 AI 网上阅卷、丽升阅卷、天喻慧学（含惠州）、优分优学、小乐优阅、享尚学、韬普教育云阅卷、百师联盟等55个平台。识别手写答案、按标准评分，支持双评仲裁、分小题评分与评阅历史导出。',
             author: '5plus1',
             match: [
                 '*://www.zhixue.com/*',
@@ -263,6 +264,7 @@ const BUILD_CONFIGS = [
                 'https://yy.eduer.co/pages/exam/review/review.aspx*',
                 '*://yuejuan.xkw.com/*',
                 '*://*.yuejuan.xkw.com/*',
+                'https://xycp.xkw.com/static-v2/exam/index.html*',
             ],
             include: [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
@@ -278,6 +280,7 @@ const BUILD_CONFIGS = [
                 'yj-oss.yunxiao.com',
                 'obs-yyj-sd.obs.cn-north-4.myhuaweicloud.com',
                 'rescenter-1301246127.cos.ap-guangzhou.myqcloud.com',
+                'yyj-xkw-1357989693.cos.ap-beijing.myqcloud.com',
                 '10.6.0.214',
                 'www.xinjiaoyu.com',
                 'exam.xinjiaoyu.com',

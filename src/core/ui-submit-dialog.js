@@ -948,7 +948,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
 
         if (submitted) {
-            if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
+            if (adapter?.isGradingTaskComplete?.()) {
+                stopAutoGrading();
+                showToast('当前题块阅卷已完成');
+            } else if (window.aiGradingState.isRunning && !window.aiGradingState.isPaused) {
                 console.log('已点击提交，正在等待下一份试卷...');
                 const oldImgUrl = window.aiGradingState.currentImageUrls[0];
 

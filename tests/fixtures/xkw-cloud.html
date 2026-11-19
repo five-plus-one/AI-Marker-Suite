@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>学科网云阅卷数学练习</title>
+<div id="app">
+    <div class="svgall"></div>
+    <div class="givescorebox pb12">
+        <div class="questiontitle">填空题 11-15(15分)</div>
+        <input placeholder="请给分" readonly>
+        <label class="stepmine">步长 <input type="number" value="1"></label>
+        <label><input type="checkbox" value="自动给分" checked> 自动给分</label>
+        <button type="button" class="submitscorebtn">给分</button>
+    </div>
+</div>
+<pre id="result"></pre>
+<script>
+const settings = new Map();
+window.unsafeWindow = window;
+window.GM_getValue = (key, fallback) => settings.get(key) ?? fallback;
+window.GM_setValue = (key, value) => settings.set(key, value);
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => {
+    const controller = new AbortController();
+    fetch(options.url, { signal: controller.signal }).then(async response => {
+        options.onload({ status: response.status, response: await response.arrayBuffer() });
+    }).catch(() => options.onerror?.());
+    return { abort() { controller.abort(); } };
+};
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const route = '#/marking/grading?questionId=12&thisType=2&isSchool=0&choiceIndex=0';
+    const checks = [];
+    const check = (pass, label) => {
+        checks.push({ pass: Boolean(pass), label });
+        if (!pass) throw new Error(label);
+    };
+    const input = document.querySelector('input[placeholder="请给分"]');
+    const autoScore = document.querySelector('input[type="checkbox"]');
+    const images = document.querySelector('.svgall');
+    const state = { dataType: 2, choiceIndex: 0, SchoolMark: true, markingType: 2, autoSubmit: true };
+    const store = { state: { mark: state }, commit(name, score) {
+        if (name !== 'mark/SET_SCOREING') throw new Error('Unexpected mutation');
+        state.questionScore = score;
+    } };
+    document.querySelector('#app').__vue_app__ = { config: { globalProperties: { $store: store } } };
+    const host = 'https://yyj-xkw-1357989693.cos.ap-beijing.myqcloud.com/__fixture/';
+    function setPaper(suffix, signature = 'first', count = 2) {
+        const urls = Array.from({ length: count }, (_, i) => `${host}${suffix}-${i}.svg?q-signature=${signature}&imageMogr2/cut/300x80x0x0`);
+        state.readOverInfo = { questionId: 12, sheetId: 'sheet-' + suffix, studentId: 'student-' + suffix,
+            teacherMarkType: 1, questions: [{ questionId: 12, score: 15, step: 0, markValues: '' }],
+            markPageTilteInfo: { questionName: '填空题 11-15' }, urls };
+        state.urls = urls.map(url => ({ url, done: true }));
+        state.questionScore = null;
+        input.value = '';
+        images.replaceChildren(...urls.map(src => {
+            const box = document.createElement('div');
+            box.className = 'svg-container';
+            const photo = document.createElement('div');
+            photo.className = 'photo_bg';
+            const img = new Image();
+            img.src = src;
+            box.append(photo);
+            photo.append(img);
+            return box;
+        }));
+    }
+    let requests = 0, inputEvents = 0, outcome = 'saved', wrongPaper = false;
+    input.addEventListener('input', () => { inputEvents++; });
+    document.querySelector('.submitscorebtn').addEventListener('click', () => {
+        const { questionId, sheetId, studentId, teacherMarkType } = state.readOverInfo;
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/v2/exam/mark/submit?outcome=' + outcome);
+        xhr.onload = () => {
+            const next = JSON.parse(xhr.responseText).data;
+            if (next.exist) setTimeout(() => setPaper('b'), 40);
+        };
+        xhr.onloadend = () => { requests++; };
+        xhr.send(JSON.stringify({ questionId, sheetId, studentId: wrongPaper ? 'other' : studentId,
+            markCount: teacherMarkType, choiceIndex: state.choiceIndex, score: state.questionScore,
+            markPageType: 'NORMAL_MARK', haveJoin: false, questionSubmitList: [] }));
+    });
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    const ready = async () => {
+        for (let i = 0; i < 100; i++) {
+            if (adapter.getPaperIdentity()) return;
+            await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        throw new Error('答卷图片未就绪');
+    };
+    try {
+        check(adapter.id === 'xkw-cloud' && !await adapter.detectMarkingPage(), '考试列表不启动阅卷');
+        location.hash = route;
+        setPaper('a');
+        await ready();
+        check(await adapter.detectMarkingPage() && adapter.getQuestionContext().question === '填空题 11-15'
+            && adapter.getScoreInputs()[0].maxScore === 15, '进入普通阅卷并识别题块与满分');
+        const taskId = adapter.getTaskIdentifier(), paperId = adapter.getPaperIdentity();
+        setPaper('a', 'renewed');
+        await ready();
+        check(adapter.getPaperIdentity() === paperId, '同卷的签名更新不当成换卷');
+        check(await adapter.prepareGrading() && !autoScore.checked && requests === 0, '关闭自动给分后才开始批改');
+        const urls = await adapter.gatherAnswerImages();
+        check(urls.length === 2 && urls.every(url => url.includes('imageMogr2/cut/')), '完整读取两张切题图');
+        for (const url of urls) check(atob(await adapter.fetchImageAsBase64(url)).startsWith('<svg'), '读取练习图片内容');
+        state.readOverInfo.questions[0].markValues = '0,3,6,9,12,15';
+        autoScore.checked = true;
+        check(!adapter.fillScores([3]) && input.value === '' && requests === 0, '自动给分重新开启时停止填分');
+        check(await adapter.prepareGrading() && !autoScore.checked, '重新批改时关闭自动给分');
+        check(!adapter.fillScores([16]) && !adapter.fillScores([1]) && !adapter.fillScores([3, 3])
+            && !adapter.fillScores([null]) && input.value === '', '拒绝越界、非法档位或不完整的分数');
+        check(adapter.fillScores([3]) && state.questionScore === 3 && input.value === '3' && requests === 0 && inputEvents === 0,
+            '填分只更新分数，不触发平台自动给分');
+        input.value = '6';
+        check(!await adapter.submitGrade() && requests === 0, '分数修改后需重新核对');
+        wrongPaper = true;
+        check(adapter.fillScores([0]) && !await adapter.submitGrade() && requests === 0, '校验提交对应的答卷与零分');
+        wrongPaper = false;
+        outcome = 'rejected';
+        check(adapter.fillScores([0]) && !await adapter.submitGrade() && requests === 1, '平台拒绝时保持当前答卷');
+        outcome = 'saved';
+        check(adapter.fillScores([3]) && await adapter.submitGrade(), '确认当前答卷保存');
+        check(await adapter.waitForNextPaper(urls[0], { taskId, paperId }) && adapter.getTaskIdentifier() === taskId
+            && adapter.getPaperIdentity() !== paperId, '下一份答卷与回执对应后才继续');
+        check(!adapter.fillScores([3]), '翻卷后拒绝使用上份答卷的评分');
+        await adapter.gatherAnswerImages();
+        outcome = 'last';
+        check(adapter.fillScores([15]) && await adapter.submitGrade()
+            && adapter.isGradingTaskComplete() && !await adapter.waitForNextPaper(), '最后一份保存完成');
+        location.hash = route + '&review=true';
+        check(adapter.isRegradeMode() && !await adapter.detectMarkingPage() && !await adapter.prepareGrading(), '回评入口不启用评分');
+        document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: true, checks }))));
+    } catch (error) {
+        document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: false, error: error.message, checks }))));
+    }
+})();
+</script>
