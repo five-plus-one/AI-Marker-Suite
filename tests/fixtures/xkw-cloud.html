@@ -14,12 +14,31 @@
 </div>
 <pre id="result"></pre>
 <script>
-const settings = new Map();
+const fixtureEndpoint = 'https://ai.fixture.invalid/v1/chat/completions';
+const settings = new Map(Object.entries({
+    'ai-grading-show-onboarding': false,
+    'ai-grading-presets': JSON.stringify({ list: { Fixture: { question: '填空题 11-15', answer: '参考答案', rubric: '按小题给分',
+        workflowId: 'fixture', gradingMode: 'normal', scoring: { maxScore: 15, roundStep: 1, roundMethod: 'round' },
+        blankDetection: { enabled: false } } }, active: 'Fixture', bindings: {} }),
+    'ai-grading-providers-v2': JSON.stringify({ providers: { '5plus1官方': { apiKey: 'fixture' },
+        Fixture: { endpoint: fixtureEndpoint, apiKey: 'fixture', models: { fixture: {} } } },
+        activeProvider: 'Fixture', activeModel: 'fixture' }),
+    'ai-grading-workflows': JSON.stringify({ workflows: { Fixture: { id: 'fixture',
+        model: { provider: 'Fixture', model: 'fixture' }, dualEval: null } }, activeWorkflow: 'fixture' }),
+}));
+let gradingRequest;
 window.unsafeWindow = window;
 window.GM_getValue = (key, fallback) => settings.get(key) ?? fallback;
 window.GM_setValue = (key, value) => settings.set(key, value);
 window.GM_registerMenuCommand = () => {};
 window.GM_xmlhttpRequest = options => {
+    if (options.method === 'POST' && options.url === fixtureEndpoint) {
+        gradingRequest = JSON.parse(options.data);
+        queueMicrotask(() => options.onload({ status: 200, responseText: JSON.stringify({
+            choices: [{ message: { content: '【答案复述】\n第一题作答正确\n【得分】\n3' }, finish_reason: 'stop' }],
+        }) }));
+        return { abort() {} };
+    }
     const controller = new AbortController();
     fetch(options.url, { signal: controller.signal }).then(async response => {
         options.onload({ status: response.status, response: await response.arrayBuffer() });
@@ -131,6 +150,26 @@ window.GM_xmlhttpRequest = options => {
             && adapter.isGradingTaskComplete() && !await adapter.waitForNextPaper(), '最后一份保存完成');
         location.hash = route + '&review=true';
         check(adapter.isRegradeMode() && !await adapter.detectMarkingPage() && !await adapter.prepareGrading(), '回评入口不启用评分');
+        location.hash = route;
+        setPaper('c');
+        await ready();
+        const waitFor = async (predicate) => {
+            for (let i = 0; i < 150 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 20));
+        };
+        await waitFor(() => document.querySelector('.ai-grade-btn'));
+        const start = document.querySelector('.ai-grade-btn');
+        check(start && !start.disabled, '进入数学阅卷后显示可用的开始批改按钮');
+        autoScore.checked = true;
+        const submissionsBeforeStart = requests;
+        start.click();
+        await waitFor(() => gradingRequest || window.aiGradingState.isPaused);
+        check(gradingRequest?.messages.some(message => Array.isArray(message.content)
+            && message.content.filter(item => item.type === 'image_url').length === 2),
+            '点击开始批改后将当前两张答卷图送入评分');
+        await waitFor(() => document.querySelector('#auto-submit-dialog') || window.aiGradingState.isPaused);
+        check(input.value === '3' && state.questionScore === 3 && !autoScore.checked
+            && requests === submissionsBeforeStart && document.querySelector('#auto-submit-dialog'),
+            '模型评分后填写练习分数，留在提交确认');
         document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: true, checks }))));
     } catch (error) {
         document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: false, error: error.message, checks }))));
