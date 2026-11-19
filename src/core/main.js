@@ -395,7 +395,7 @@ async function startAutoGrading() {
             }
 
             console.log(`📥 [诊断] 开始下载 ${imageUrls.length} 张图片...`);
-            const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
+            const fetchFn = adapter?.fetchImageAsBase64?.bind(adapter) ?? fetchImageAsBase64;
             base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, runContext.controller.signal)));
             requireCurrentGradingContext(runContext);
             // 废图闸（工单①）：942×4 裁剪残片类废图不得进 API/空白检测（进 API 会 400 整单暂停）
@@ -927,7 +927,7 @@ async function runInitBody() {
                         });
                         return;
                     }
-                    const fetchFn = adapter && adapter.fetchImageAsBase64 ? adapter.fetchImageAsBase64 : fetchImageAsBase64;
+                    const fetchFn = adapter?.fetchImageAsBase64?.bind(adapter) ?? fetchImageAsBase64;
                     let base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, regradeContext.controller.signal)));
                     requireCurrentGradingContext(regradeContext);
                     // 废图闸（工单①）：回评链路同样不得把尺寸异常残片送进 API
