@@ -1,5 +1,5 @@
 /**
- * build.js — 零依赖 Node.js 构建脚本
+ * build.js — Node.js 构建脚本
  * 将 src/core/ 和 src/adapters/ 下的模块合并，输出到 dist/
  *
  * 版本号唯一来源：src/core/config.js 中的 SCRIPT_CONFIG.VERSION
@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { minify } = require('terser');
+const { instrumentDiagnosticLogs } = require('./scripts/instrument-diagnostic-logs.cjs');
 
 // ========== 解析命令行参数 ==========
 const args = process.argv.slice(2);
@@ -69,6 +70,7 @@ const CORE_MODULES = [
     'correction.js',
     'zip.js',              // 极简 ZIP 打包（导出材料包用，需在 history.js 之前）
     'history.js',
+    'diagnostic-export.js',
     'ui-tools.js',  // 工具页面UI（/tools）
     'updater.js',
     'main.js',
@@ -266,7 +268,7 @@ const BUILD_CONFIGS = [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
-            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_registerMenuCommand', 'unsafeWindow'],
+            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_listValues', 'GM_deleteValue', 'GM_registerMenuCommand', 'unsafeWindow'],
             connect: [
                 'api.ai.five-plus-one.com',
                 'zhixue-sc.oss-cn-hangzhou.aliyuncs.com',
@@ -425,7 +427,8 @@ function readModule(filePath, moduleName) {
     }
     const content = fs.readFileSync(filePath, 'utf8');
     const divider = `\n// ========== [Module: ${moduleName}] ==========\n`;
-    return divider + content + '\n';
+    return divider + (moduleName === 'core/diagnostic-log.js'
+        ? content : instrumentDiagnosticLogs(content, moduleName)) + '\n';
 }
 
 /**
@@ -513,7 +516,8 @@ async function build() {
         console.log(`\n📦 构建平台: ${buildConfig.name}`);
 
         // 构建外部库代码（marked.js + KaTeX）
-        let modulesContent = buildVendorCode();
+        let modulesContent = buildVendorCode() + `\nconst DIAGNOSTIC_SCRIPT_VERSION = ${JSON.stringify(VERSION)};\n`
+            + readModule(path.join(CORE_DIR, 'diagnostic-log.js'), 'core/diagnostic-log.js');
 
         // 读取适配器模块（需在核心模块之前加载，以便 window.__AI_MARKER_ADAPTER__ 可用）
         if (buildConfig.adapterModules) {

@@ -1,0 +1,96 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>诊断包验收</title>
+<body><pre id="result"></pre>
+<script>
+const storage = new Map(), menus = new Map(), now = Date.now();
+const recent = now - 3600000, earlier = now - 10800000;
+storage.set('ai-grading-history', JSON.stringify([
+    { timestamp: recent, finalScore: 2, aiScore: 1.5, studentAnswer: 'private-student-answer',
+        aiComment: 'private-comment', imageUrls: ['private-image-url'], subScores: [{ label: 'private-label', score: 2 }] },
+    { timestamp: earlier, finalScore: 3, studentAnswer: 'older-student-answer' },
+]));
+storage.set('ai-grading-presets', JSON.stringify({
+    active: 'default', list: { default: { apiKey: 'private-preset-secret', answer: 'private-reference-answer',
+        endpoint: 'https://host.example/private-path?secret=private-token', scoring: { maxScore: 3, roundStep: 1 } } }, bindings: {},
+}));
+storage.set('ai-grading-providers-v2', JSON.stringify({
+    providers: { 'private-provider-name': { apiKey: 'private-provider-key',
+        endpoint: 'https://host.example/private-provider-path', models: { 'private-model-name': {} } } },
+}));
+for (const at of [recent, earlier]) {
+    storage.set('ai-marker-diagnostic-log-v1-' + at + '-fixture-0', [{ at, level: 'warn', message: '练习日志' }]);
+}
+window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
+window.GM_setValue = (key, value) => storage.set(key, structuredClone(value));
+window.GM_listValues = () => Array.from(storage.keys());
+window.GM_deleteValue = key => storage.delete(key);
+window.GM_registerMenuCommand = (name, handler) => menus.set(name, handler);
+window.GM_xmlhttpRequest = () => ({ abort() {} });
+</script>
+<script src="../../dist/ai_marker.user.js"></script>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run'), checks = [];
+    const check = (pass, label) => {
+        checks.push({ pass: Boolean(pass), label });
+        if (!pass) throw new Error(label);
+    };
+    let captured, filename;
+    URL.createObjectURL = blob => { captured = blob; return 'blob:diagnostic-fixture'; };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function () { filename = this.download; };
+    async function zipFiles() {
+        const bytes = new Uint8Array(await captured.arrayBuffer());
+        const view = new DataView(bytes.buffer), decoder = new TextDecoder(), files = {};
+        for (let offset = 0; view.getUint32(offset, true) === 0x04034b50;) {
+            const length = view.getUint32(offset + 18, true);
+            const filenameLength = view.getUint16(offset + 26, true);
+            const data = offset + 30 + filenameLength + view.getUint16(offset + 28, true);
+            const name = decoder.decode(bytes.slice(offset + 30, offset + 30 + filenameLength));
+            files[name] = JSON.parse(decoder.decode(bytes.slice(data, data + length)));
+            offset = data + length;
+        }
+        return files;
+    }
+    const open = () => {
+        menus.get('导出诊断包')();
+        return document.querySelector('#ai-diagnostic-export');
+    };
+    const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    try {
+        let dialog = open(), form = dialog.querySelector('form');
+        check(dialog.open && dialog.getBoundingClientRect().width < innerWidth, '油猴菜单打开日期选择');
+        let start = form.elements.namedItem('start'), end = form.elements.namedItem('end');
+        check(Date.parse(end.value) - Date.parse(start.value) === 7200000, '默认最近两小时');
+        end.value = start.value;
+        const validStart = start.value;
+        start.value = '2099-01-01T00:00:00';
+        form.requestSubmit();
+        check(dialog.open && !captured && dialog.querySelector('[role=status]').textContent, '结束时间早于开始时间时提示');
+        start.value = validStart;
+        end.value = new Date(Date.parse(validStart) + 7200000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+        form.requestSubmit();
+        check(captured?.type === 'application/zip' && filename.endsWith('.zip'), '下载 ZIP 文件');
+        let files = await zipFiles();
+        check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 2, '筛选两小时内阅卷记录');
+        check(files['运行日志.json'].some(row => row.at === recent) && !files['运行日志.json'].some(row => row.at === earlier),
+            '按同一时间筛选日志');
+        check(files['运行日志.json'].some(row => row.message.includes('脚本版本')), '包含本次运行日志');
+        check(files['配置摘要.json'].presets[0].scoring.maxScore === 3
+            && files['配置摘要.json'].providers.some(provider => provider.keyConfigured) && !JSON.stringify(files).includes('private-'),
+            '评分设置与结果可用于排查');
+        await nextFrame();
+        dialog = open();
+        form = dialog.querySelector('form');
+        form.elements.namedItem('start').value = new Date(earlier - 60000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+        form.elements.namedItem('end').value = new Date(earlier + 60000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+        form.requestSubmit();
+        files = await zipFiles();
+        check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 3
+            && files['运行日志.json'].length === 1 && files['运行日志.json'][0].at === earlier, '自选时间导出此前记录');
+    } catch (error) {
+        checks.push({ pass: false, label: error.message });
+    }
+    const result = { runId, width: innerWidth, passed: checks.every(item => item.pass), checks };
+    document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
+})();
+</script></html>
