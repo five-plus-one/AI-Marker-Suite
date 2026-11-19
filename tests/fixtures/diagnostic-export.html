@@ -23,7 +23,6 @@ window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
 window.GM_setValue = (key, value) => storage.set(key, structuredClone(value));
 window.GM_listValues = () => Array.from(storage.keys());
 window.GM_deleteValue = key => storage.delete(key);
-window.GM_setClipboard = value => { window.copiedReceipt = value; };
 window.GM_registerMenuCommand = (name, handler) => menus.set(name, handler);
 window.GM_xmlhttpRequest = () => ({ abort() {} });
 </script>
@@ -59,9 +58,7 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
     const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
     try {
         let dialog = open(), form = dialog.querySelector('form');
-        const box = dialog.getBoundingClientRect();
-        check(dialog.open && Math.abs(box.left + box.right - innerWidth) < 3, '诊断弹窗居中');
-        check(!dialog.querySelector('[data-diagnostic-range]').open, '默认收起自选时间');
+        check(dialog.open && dialog.getBoundingClientRect().width < innerWidth, '油猴菜单打开日期选择');
         let start = form.elements.namedItem('start'), end = form.elements.namedItem('end');
         check(Date.parse(end.value) - Date.parse(start.value) === 7200000, '默认最近两小时');
         end.value = start.value;
@@ -90,55 +87,6 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         files = await zipFiles();
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 3
             && files['运行日志.json'].length === 1 && files['运行日志.json'][0].at === earlier, '自选时间导出此前记录');
-        await nextFrame();
-        const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/z8pUbwAAAABJRU5ErkJggg==';
-        const signedURL = 'https://example.test/paper.png?signature=fixture-private-signature';
-        window.__AI_MARKER_ADAPTER__ = {
-            id: 'eiduo', isMarkingPage: () => true, getPaperIdentity: () => 'fixture-paper',
-            gatherAnswerImages: async () => [signedURL], fetchImageAsBase64: async url => url === signedURL ? pixel : null,
-        };
-        menus.get('上传诊断包')();
-        dialog = document.querySelector('#ai-diagnostic-export');
-        form = dialog.querySelector('form');
-        form.requestSubmit();
-        check(dialog.querySelector('[data-export-status]').textContent.includes('连接五加一账号'), '未登录即禁止上传');
-        dialog.close();
-        await nextFrame();
-        storage.set('aimarker-diagnostic-upload-session', { token: 'fixture-upload-lease', expiresAt: Date.now() / 1000 + 60 });
-        const attempts = [], attachments = [];
-        const code = 'a'.repeat(40), url = 'https://tools.aimarking.five-plus-one.com/#diagnostic=' + code;
-        window.GM_xmlhttpRequest = request => {
-            check(request.url.startsWith('https://api.aimarking.five-plus-one.com/v1/diagnostics')
-                && request.anonymous && request.headers.Authorization === 'Bearer fixture-upload-lease', '上传仅携带专用凭证');
-            const data = JSON.parse(request.data);
-            if (request.url.endsWith('/images')) {
-                attachments.push(data);
-                request.onload({ status: 201, finalUrl: request.url,
-                    responseText: JSON.stringify({ record: data.record, position: data.position }) });
-                return;
-            }
-            attempts.push(data);
-            request.onload({ status: attempts.length === 1 ? 503 : 201, finalUrl: request.url,
-                responseText: JSON.stringify({ receipt: data.id, code, url }) });
-        };
-        menus.get('上传诊断包')();
-        dialog = document.querySelector('#ai-diagnostic-export');
-        form = dialog.querySelector('form');
-        check(!attachments.length && !attempts.length, '打开上传面板时不采集答卷或发送资料');
-        form.elements.namedItem('description').value = '爱多分开始批改后暂停';
-        form.requestSubmit();
-        await nextFrame();
-        check(dialog.open && attempts.length === 1 && attachments[0]?.bytes === pixel
-            && attempts[0].attachments[0]?.record === -1 && attachments[0].id === attempts[0].id
-            && attempts[0].description === '爱多分开始批改后暂停'
-            && !JSON.stringify([attempts, attachments]).includes('fixture-private-signature')
-            && !JSON.stringify(attempts[0]).includes('private-provider-key'), '默认上传答卷图片、描述与脱敏信息');
-        form.requestSubmit();
-        await nextFrame();
-        check(attempts.length === 2 && attachments.length === 1 && attempts[0].id === attempts[1].id
-            && !dialog.querySelector('[data-diagnostic-receipt]').hidden, '重试复用同一上传编号及已上传图片');
-        dialog.querySelector('[data-diagnostic-copy]').click();
-        check(window.copiedReceipt === '问题编号 ' + code + '\n' + url, '用户可复制完整编号与管理员查看网址');
     } catch (error) {
         checks.push({ pass: false, label: error.message });
     }
