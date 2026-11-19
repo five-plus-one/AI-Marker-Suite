@@ -1,10 +1,11 @@
 const MARKER_ACCOUNT_ORIGIN = 'https://api.ai.five-plus-one.com';
+const MARKER_TOOLS_ORIGIN = 'https://tools.aimarking.five-plus-one.com';
 const MARKER_ACCOUNT_GATEWAY = 'https://oauth.five-plus-one.com';
 const MARKER_SERVICE_ORIGIN = 'https://api.aimarking.five-plus-one.com';
 const MARKER_ACCOUNT_FLOW = 'aimarker-account-flow-';
+const MARKER_ACCOUNT_RESULT = 'aimarker-account-result-';
 const MARKER_UPLOAD_SESSION = 'aimarker-diagnostic-upload-session';
 const MARKER_ACCOUNT_WINDOW = 'aimarker-active-connection';
-const MARKER_ACCOUNT_KEY_NAME = 'AI 批改助手浏览器脚本';
 const MARKER_OAUTH_PATH = '/oauth/5plus1-account';
 const MARKER_FLOW_DURATION = 10 * 60 * 1000;
 
@@ -16,18 +17,17 @@ function markerServiceRequest(path, method, token, body) {
     return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
             method, url: MARKER_SERVICE_ORIGIN + path, anonymous: true, redirect: 'error', timeout: 30000,
-            headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
             data: body,
             onload(response) {
                 try {
                     if (response.finalUrl && new URL(response.finalUrl).origin !== MARKER_SERVICE_ORIGIN) throw Error();
-                    const data = JSON.parse(response.responseText);
                     if (response.status < 200 || response.status >= 300) {
                         const error = Error('服务暂未完成，请稍后重试。');
                         error.status = response.status;
                         throw error;
                     }
-                    resolve(data);
+                    resolve(response.status === 204 ? null : JSON.parse(response.responseText));
                 } catch (error) { reject(error); }
             },
             onerror: () => reject(Error('暂时无法连接服务，请稍后重试。')),
@@ -62,35 +62,54 @@ function markerUploadSession() {
 }
 
 let markerAccountInProgress = false;
-async function connectMarkerAccount({ provision = true } = {}) {
+async function connectMarkerAccount() {
     if (markerAccountInProgress) throw Error('请在打开的五加一账号页面完成连接。');
-    const id = markerRandomID();
-    const storageKey = MARKER_ACCOUNT_FLOW + id;
+    const claim = markerRandomID() + markerRandomID(), approval = markerRandomID() + markerRandomID();
     markerAccountInProgress = true;
+    let id, received = false;
     try {
         if (typeof GM_listValues === 'function') {
-            for (const key of GM_listValues().filter(key => key.startsWith(MARKER_ACCOUNT_FLOW))) {
-                if (!markerFlow(key.slice(MARKER_ACCOUNT_FLOW.length))) GM_deleteValue(key);
+            for (const key of GM_listValues()) {
+                if ((key.startsWith(MARKER_ACCOUNT_FLOW) || key.startsWith(MARKER_ACCOUNT_RESULT))
+                    && !(GM_getValue(key)?.expires > Date.now())) GM_deleteValue(key);
             }
         }
-        const expires = Date.now() + MARKER_FLOW_DURATION;
-        GM_setValue(storageKey, { expires, provision, status: 'pending' });
-        window.open(MARKER_ACCOUNT_ORIGIN + '/about#aimarker-connect=' + id, '_blank', 'noopener,noreferrer');
+        const start = await markerServiceRequest('/v1/account/flows', 'POST', null, JSON.stringify({ claim, approval }));
+        if (!/^[a-f0-9]{32}$/.test(start?.id || '') || !Number.isInteger(start.expiresAt)) throw Error('连接暂未开始，请重试。');
+        id = start.id;
+        const expires = Math.min(start.expiresAt * 1000, Date.now() + MARKER_FLOW_DURATION);
+        GM_setValue(MARKER_ACCOUNT_FLOW + id, { expires, approval, status: 'pending' });
+        const url = MARKER_TOOLS_ORIGIN + '/#aimarker-connect=' + id;
+        const tab = typeof GM_openInTab === 'function' ? GM_openInTab(url, { active: true, setParent: true })
+            : window.open(url, '_blank', 'noopener,noreferrer');
+        let pollAfter = start.pollAfter;
         for (; Date.now() < expires;) {
-            await new Promise(resolve => setTimeout(resolve, 550));
-            const outcome = markerFlow(id);
-            if (outcome?.status === 'cancelled') throw Error('本次连接已取消。');
-            if (outcome?.status !== 'complete') continue;
-            // The bridge can issue an upload-only session independently of model credentials.
-            if (outcome.uploadSession) GM_setValue(MARKER_UPLOAD_SESSION, outcome.uploadSession);
-            if (provision && (!outcome.apiKey || !ProviderManager.saveOfficialConnection(
-                getOfficialApiLine(ProviderManager.getProvider('5plus1官方')), outcome.apiKey
-            ))) throw Error('访问密钥未能保存，请检查脚本存储后重试。');
-            return { uploadReady: Boolean(outcome.uploadSession) };
+            await new Promise(resolve => setTimeout(resolve, Math.max(2, Math.min(15, Number(pollAfter) || 2)) * 1000));
+            if (markerFlow(id)?.status === 'cancelled' || tab?.closed === true) throw Error('本次连接已取消。');
+            let outcome;
+            try { outcome = await markerServiceRequest('/v1/account/flows/claim', 'POST', null, JSON.stringify({ id, proof: claim })); }
+            catch (error) {
+                if (error?.status === 404) throw Error('连接已失效，请重新连接。');
+                if (!error?.status || error.status >= 500 || error.status === 429) { pollAfter = 4; continue; }
+                throw error;
+            }
+            pollAfter = outcome?.pollAfter;
+            if (pollAfter) continue;
+            received = true;
+            if (!/^sk-[a-zA-Z0-9_-]{16,256}$/.test(outcome?.apiKey || '') ||
+                typeof outcome.uploadToken !== 'string' || !Number.isInteger(outcome.expiresAt) || outcome.expiresAt * 1000 <= Date.now() ||
+                !ProviderManager.saveOfficialConnection(getOfficialApiLine(ProviderManager.getProvider('5plus1官方')), outcome.apiKey)) {
+                throw Error('API Key 未能保存，请检查脚本存储后重试。');
+            }
+            GM_setValue(MARKER_UPLOAD_SESSION, { token: outcome.uploadToken, expiresAt: outcome.expiresAt });
+            return { uploadReady: true };
         }
         throw Error('连接已超时，请重新打开五加一账号页面。');
     } finally {
-        try { GM_deleteValue(storageKey); } finally { markerAccountInProgress = false; }
+        try {
+            if (id) GM_deleteValue(MARKER_ACCOUNT_FLOW + id);
+            if (id && !received) void markerServiceRequest('/v1/account/flows/cancel', 'POST', null, JSON.stringify({ id, proof: claim })).catch(() => {});
+        } finally { markerAccountInProgress = false; }
     }
 }
 
@@ -125,52 +144,32 @@ async function markerBeginOAuth() {
     window.location.assign(target.href);
 }
 
-async function markerProvisionKey(accessToken) {
-    const route = '/api/token/search?keyword=' + encodeURIComponent(MARKER_ACCOUNT_KEY_NAME) + '&p=1&page_size=100';
-    const find = async () => (await markerOfficialRequest(route, 'GET', undefined, accessToken))?.items?.find(
-        token => token.name === MARKER_ACCOUNT_KEY_NAME && token.status === 1 && token.group === 'default' &&
-            (token.expired_time === -1 || token.expired_time * 1000 > Date.now()) && !token.model_limits_enabled
-    );
-    let token = await find();
-    if (!token) {
-        await markerOfficialRequest('/api/token/', 'POST', {
-            name: MARKER_ACCOUNT_KEY_NAME, expired_time: -1, unlimited_quota: true, remain_quota: 0,
-            group: 'default', model_limits_enabled: false, allow_user_quota_query: false,
-        }, accessToken);
-        token = await find();
-    }
-    if (!Number.isInteger(token?.id) || token.id <= 0) throw Error('AI 服务访问密钥暂未准备好。');
-    const result = await markerOfficialRequest('/api/token/' + token.id + '/key', 'POST', undefined, accessToken);
-    if (typeof result?.key !== 'string' || !/^(?:sk-)?[a-zA-Z0-9_-]{16,256}$/.test(result.key)) throw Error('AI 服务未返回有效密钥。');
-    return result.key.startsWith('sk-') ? result.key : 'sk-' + result.key;
-}
-
-function markerBridgeDialog(id, returning) {
+function markerBridgeDialog(id, returning, reportCode = '', adminList = false) {
     const flow = markerFlow(id);
-    if (flow?.status !== 'pending' || document.getElementById('ai-marker-account-connection')) return;
+    const administrative = adminList || Boolean(reportCode);
+    if ((!administrative && (flow?.status !== 'pending' || flow.approved !== true)) || document.getElementById('ai-marker-account-connection')) return;
     ensureModalStyles();
     const dialog = document.createElement('dialog');
     dialog.id = 'ai-marker-account-connection';
-    dialog.className = 'ai-modal-card';
+    styleNativeModal(dialog);
     dialog.setAttribute('aria-labelledby', 'ai-marker-account-title');
-    dialog.style.cssText = 'padding:0;min-width:0;width:min(92vw,460px);max-height:90vh;overflow:auto;';
     dialog.innerHTML = `
-        <div class="ai-modal-header" id="ai-marker-account-title">连接 AI 批改助手</div>
+        <div class="ai-modal-header" id="ai-marker-account-title">${administrative ? '查看诊断报告' : '连接五加一账号'}</div>
         <div class="ai-modal-body">
-            <p>使用五加一账号授权当前浏览器中的 AI 批改助手。</p>
+            <p>${administrative ? '使用管理员的五加一账号查看诊断资料。' : '请稍候，正在连接当前浏览器中的 AI 批改助手。'}</p>
             <p data-account-status role="status"></p>
             <section data-admin-diagnostics hidden aria-label="已上传的诊断包"></section>
         </div>
         <div class="ai-modal-footer">
             <button type="button" class="ai-modal-btn-cancel">取消</button>
-            <button type="button" class="ai-modal-btn-cancel" data-view-diagnostics hidden>查看诊断包</button>
-            <button type="button" class="ai-modal-btn-confirm">继续</button>
+            <button type="button" class="ai-modal-btn-confirm" data-account-continue>继续</button>
         </div>`;
     const status = dialog.querySelector('[data-account-status]');
     const confirm = dialog.querySelector('.ai-modal-btn-confirm');
+    const finish = () => window.location.replace(MARKER_TOOLS_ORIGIN + '/#aimarker-connected=' + id);
     let complete = false;
     async function connect() {
-        if (confirm.disabled || complete || markerFlow(id)?.status !== 'pending') return;
+        if (confirm.disabled || complete || (!administrative && markerFlow(id)?.status !== 'pending')) return;
         confirm.disabled = true;
         status.textContent = '正在核对账号…';
         try {
@@ -187,48 +186,97 @@ function markerBridgeDialog(id, returning) {
                 await markerBeginOAuth();
                 return;
             }
-            const provisionKey = () => markerProvisionKey(bundle.access_token);
-            const apiKey = flow.provision
-                ? await (navigator.locks ? navigator.locks.request('ai-marker-provision-api-key', provisionKey) : provisionKey())
-                : undefined;
-            let session;
-            try { session = await markerServiceRequest('/v1/diagnostics/session', 'POST', bundle.access_token); }
-            catch (error) { if (!flow.provision) throw error; }
-            const uploadSession = typeof session?.uploadToken === 'string' && Number(session.expiresAt) * 1000 > Date.now()
-                ? { token: session.uploadToken, expiresAt: session.expiresAt } : undefined;
-            if (!flow.provision && !uploadSession) throw Error('诊断上传暂未连接，请重试。');
-            if (markerFlow(id)?.status !== 'pending') return;
-            GM_setValue(MARKER_ACCOUNT_FLOW + id, {
-                expires: flow.expires, status: 'complete', apiKey, uploadSession,
-            });
+            let approval;
+            if (reportCode) {
+                await markerViewDiagnostic(dialog, bundle.access_token, reportCode);
+            } else if (adminList) {
+                await markerViewDiagnostics(dialog, bundle.access_token);
+            } else {
+                approval = await markerServiceRequest('/v1/account/flows/approve', 'POST', bundle.access_token, JSON.stringify({ id, proof: flow.approval }));
+                if (approval?.approved !== true) throw Error('Missing authorization receipt');
+                GM_setValue(MARKER_ACCOUNT_RESULT + id, { expires: Date.now() + MARKER_FLOW_DURATION, administrator: approval.administrator === true });
+            }
             sessionStorage.removeItem(MARKER_ACCOUNT_WINDOW);
             complete = true;
             status.textContent = '连接成功，可以返回阅卷页面。';
             confirm.textContent = '完成';
             dialog.querySelector('.ai-modal-btn-cancel').hidden = true;
-            if (session?.administrator) {
-                const view = dialog.querySelector('[data-view-diagnostics]');
-                view.hidden = false;
-                view.onclick = () => void markerViewDiagnostics(dialog, bundle.access_token);
-            }
-        } catch (_) {
-            status.textContent = '连接暂未完成，请重试。';
+            if (administrative) {
+                status.textContent = '';
+            } else finish();
+        } catch (error) {
+            status.textContent = administrative && error?.status === 403 ? '请使用管理员账号查看。'
+                : reportCode && error?.status === 404 ? '没有找到这份诊断。' : '连接暂未完成，请重试。';
         } finally {
             confirm.disabled = false;
         }
     }
-    confirm.onclick = () => complete ? dialog.close() : void connect();
+    confirm.onclick = () => complete ? (administrative ? dialog.close() : finish()) : void connect();
     dialog.querySelector('.ai-modal-btn-cancel').onclick = () => dialog.close();
     dialog.addEventListener('close', () => {
         if (!complete && markerFlow(id)?.status === 'pending') {
             GM_setValue(MARKER_ACCOUNT_FLOW + id, { expires: flow.expires, status: 'cancelled' });
+            void markerServiceRequest('/v1/account/flows/cancel', 'POST', null, JSON.stringify({ id, proof: flow.approval })).catch(() => {});
         }
         sessionStorage.removeItem(MARKER_ACCOUNT_WINDOW);
         dialog.remove();
     }, { once: true });
     getUIRoot().appendChild(dialog);
     dialog.showModal();
-    if (returning) void connect();
+    void connect();
+}
+
+function markerDownloadDiagnostic(code, token) {
+    const url = MARKER_SERVICE_ORIGIN + '/v1/admin/diagnostics/archive?id=' + encodeURIComponent(code);
+    return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+            method: 'GET', url, anonymous: true, redirect: 'error', timeout: 180000,
+            headers: { Authorization: 'Bearer ' + token }, responseType: 'blob',
+            onload(response) {
+                if (response.status !== 200 || (response.finalUrl && response.finalUrl !== url) || !response.response) {
+                    reject(Error('无法下载诊断包。'));
+                    return;
+                }
+                const objectURL = URL.createObjectURL(response.response);
+                const link = document.createElement('a');
+                link.href = objectURL;
+                link.download = 'AI批改助手诊断-' + code + '.zip';
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(objectURL), 1000);
+                resolve();
+            },
+            onerror: () => reject(Error('暂时无法连接服务。')),
+            ontimeout: () => reject(Error('下载超时，请重试。')),
+        });
+    });
+}
+
+async function markerViewDiagnostic(dialog, token, code) {
+    const path = '/v1/admin/diagnostics/download?id=' + encodeURIComponent('reports/' + code + '.json');
+    const { report } = await markerServiceRequest(path, 'GET', token);
+    if (!report) throw Error('Missing diagnostic report');
+    const section = dialog.querySelector('[data-admin-diagnostics]');
+    const heading = document.createElement('h3');
+    heading.textContent = '问题编号 ' + code;
+    heading.style.overflowWrap = 'anywhere';
+    const description = document.createElement('p');
+    description.style.whiteSpace = 'pre-wrap';
+    description.textContent = report.description || '用户未填写问题描述。';
+    const details = document.createElement('p');
+    details.textContent = [report.platform, report.version, new Date(report.start).toLocaleString() + ' 至 ' +
+        new Date(report.end).toLocaleString()].filter(Boolean).join(' · ');
+    const download = document.createElement('button');
+    download.type = 'button';
+    download.className = 'ai-modal-btn-confirm';
+    download.textContent = '下载完整诊断包';
+    download.onclick = async () => {
+        download.disabled = true;
+        try { await markerDownloadDiagnostic(code, token); }
+        catch (_) { dialog.querySelector('[data-account-status]').textContent = '下载暂未完成，请重试。'; }
+        finally { download.disabled = false; }
+    };
+    section.replaceChildren(heading, description, details, download);
+    section.hidden = false;
 }
 
 async function markerViewDiagnostics(dialog, token, cursor = '') {
@@ -253,14 +301,9 @@ async function markerViewDiagnostics(dialog, token, cursor = '') {
             button.onclick = async () => {
                 button.disabled = true;
                 try {
-                    const data = await markerServiceRequest('/v1/admin/diagnostics/download?id=' + encodeURIComponent(report.id), 'GET', token);
-                    const file = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(file);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = 'AI批改助手诊断包.json';
-                    link.click();
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    const code = /^reports\/([a-f0-9]{40})\.json$/.exec(report.id)?.[1];
+                    if (!code) throw Error('Invalid diagnostic number');
+                    await markerDownloadDiagnostic(code, token);
                 } catch (_) {
                     dialog.querySelector('[data-account-status]').textContent = '下载暂未完成。请重新连接账号后重试。';
                 } finally { button.disabled = false; }
@@ -282,24 +325,72 @@ async function markerViewDiagnostics(dialog, token, cursor = '') {
     }
 }
 
+function markerToolsBridge() {
+    if (window.location.pathname !== '/') return;
+    const match = /^#aimarker-connect(ed)?=([a-f0-9]{32})$/.exec(window.location.hash);
+    if (!match) return;
+    const [, completed, id] = match;
+    const root = document.documentElement;
+    if (completed) {
+        const key = MARKER_ACCOUNT_RESULT + id;
+        const result = GM_getValue(key);
+        if (result?.expires > Date.now()) {
+            GM_deleteValue(key);
+            root.dataset.markerAccount = result.administrator ? 'complete-admin' : 'complete';
+        }
+        history.replaceState(history.state, '', '/');
+        return;
+    }
+    if (markerFlow(id)?.status !== 'pending') {
+        root.dataset.markerAccount = 'expired';
+        return;
+    }
+    root.dataset.markerAccount = 'ready';
+    document.addEventListener('click', event => {
+        if (!event.target.closest?.('[data-marker-connect]')) return;
+        event.preventDefault();
+        const flow = markerFlow(id);
+        if (flow?.status !== 'pending') {
+            root.dataset.markerAccount = 'expired';
+            return;
+        }
+        GM_setValue(MARKER_ACCOUNT_FLOW + id, { ...flow, approved: true });
+        window.location.assign(MARKER_ACCOUNT_ORIGIN + '/about#aimarker-connect=' + id);
+    });
+}
+
 function markerAccountBridge() {
-    if (window !== window.top || window.location.origin !== MARKER_ACCOUNT_ORIGIN) return;
+    if (window !== window.top) return;
+    if (window.location.origin === MARKER_TOOLS_ORIGIN) {
+        markerToolsBridge();
+        return;
+    }
+    if (window.location.origin !== MARKER_ACCOUNT_ORIGIN) return;
     const { pathname, hash } = window.location;
     if (pathname === '/about') {
+        const report = /^#aimarker-report=([a-f0-9]{40})$/.exec(hash)?.[1];
+        if (report || hash === '#aimarker-diagnostics') {
+            sessionStorage.setItem(MARKER_ACCOUNT_WINDOW, report ? 'report:' + report : 'diagnostics');
+            history.replaceState(history.state, '', pathname);
+            markerBridgeDialog(null, false, report, !report);
+            return;
+        }
         const match = /^#aimarker-connect=([a-f0-9]{32})$/.exec(hash);
-        if (!match || markerFlow(match[1])?.status !== 'pending') return;
+        if (!match || markerFlow(match[1])?.approved !== true) return;
         sessionStorage.setItem(MARKER_ACCOUNT_WINDOW, match[1]);
         history.replaceState(history.state, '', pathname);
         markerBridgeDialog(match[1], false);
         return;
     }
     const id = sessionStorage.getItem(MARKER_ACCOUNT_WINDOW);
-    if (!markerFlow(id)) return;
+    const report = /^report:([a-f0-9]{40})$/.exec(id || '')?.[1];
+    const adminList = id === 'diagnostics';
+    if (!report && !adminList && !markerFlow(id)) return;
     // The official OAuth callback performs its normal exchange before returning to the dashboard.
     function afterCallback() {
         const onDashboard = /^\/dashboard(?:\/|$)/.test(window.location.pathname);
-        if (onDashboard) markerBridgeDialog(id, true);
-        return onDashboard || !markerFlow(id);
+        if (onDashboard) markerBridgeDialog(id, true, report, adminList);
+        return onDashboard || (!report && !adminList && !markerFlow(id));
     }
     if (pathname === MARKER_OAUTH_PATH && !afterCallback()) {
         const watcher = setInterval(() => { if (afterCallback()) clearInterval(watcher); }, 350);

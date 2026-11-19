@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../src/core/marker-account.js'), 'utf8');
 const accountOrigin = 'https://api.ai.five-plus-one.com';
+const toolsOrigin = 'https://tools.aimarking.five-plus-one.com';
 const serviceOrigin = 'https://api.aimarking.five-plus-one.com';
 const authorization = 'https://oauth.five-plus-one.com/oauth/authorize';
 
@@ -56,50 +57,48 @@ test('外部授权地址被拒绝，浏览器保持当前页面', async () => {
     assert.equal(requests.length, 1);
 });
 
-test('仅复用脚本专用密钥，首次连接由同账号创建', async () => {
-    let created = false;
-    const { context, requests } = harness(({ url, method, body }) => {
-        if (url.includes('/search?')) return { items: [
-            { id: 20, name: '其他应用', status: 1, group: 'default', expired_time: -1 },
-            ...(created ? [{ id: 21, name: 'AI 批改助手浏览器脚本', status: 1, group: 'default', expired_time: -1 }] : []),
-        ] };
-        if (method === 'POST' && url.endsWith('/api/token/')) {
-            created = true;
-            assert.equal(JSON.parse(body).name, 'AI 批改助手浏览器脚本');
-            return {};
-        }
-        assert.equal(url, accountOrigin + '/api/token/21/key');
-        return { key: 'synthetic-key-attr-value' };
-    });
-    const result = await vm.runInContext('markerProvisionKey("synthetic-session")', context);
-    assert.equal(result, 'sk-synthetic-key-attr-value');
-    assert.equal(requests.filter(request => request.url.endsWith('/api/token/')).length, 1);
-    assert.ok(requests.every(request => request.headers.Authorization === 'Bearer synthetic-session'));
-});
-
-test('登录回执只从发起端脚本存储获取，并保留当前线路', async () => {
+test('发起端轮询 API 领取一次性结果，并保留当前线路', async () => {
     const { context, values, window } = harness(() => { throw Error('no account requests expected'); });
     const saved = [];
+    const id = 'e'.repeat(32);
+    const expiresAt = Math.floor(Date.now() / 1000 + 60);
+    let proofs, polls = 0;
     context.ProviderManager = {
         getProvider: () => ({ endpointLine: 'backup' }),
         saveOfficialConnection: (line, key) => { saved.push({ line, key }); return true; },
     };
     window.open = (raw, target, options) => {
         const url = new URL(raw);
-        assert.equal(url.origin, accountOrigin);
+        assert.equal(url.origin, toolsOrigin);
         assert.equal(target, '_blank');
         assert.match(options, /noopener/);
-        const id = url.hash.split('=')[1];
-        assert.match(id, /^[a-f0-9]{32}$/);
-        const key = 'aimarker-account-flow-' + id;
-        assert.equal(values.get(key).status, 'pending');
-        values.set(key, {
-            expires: Date.now() + 1000, status: 'complete', apiKey: 'sk-synthetic-key-attr-value',
-            uploadSession: { token: 'synthetic-upload-lease', expiresAt: Date.now() / 1000 + 60 },
-        });
+        assert.equal(url.hash, '#aimarker-connect=' + id);
+        const pending = values.get('aimarker-account-flow-' + id);
+        assert.equal(pending.status, 'pending');
+        assert.equal(pending.approval, proofs.approval);
+        assert.equal(pending.claim, undefined);
+        assert.equal(pending.apiKey, undefined);
+    };
+    context.GM_xmlhttpRequest = request => {
+        assert.equal(request.headers.Authorization, undefined);
+        const input = JSON.parse(request.data);
+        let status = 201, body = { id, expiresAt, pollAfter: 2 };
+        if (request.url === serviceOrigin + '/v1/account/flows') {
+            proofs = input;
+            assert.match(proofs.claim, /^[a-f0-9]{64}$/);
+            assert.match(proofs.approval, /^[a-f0-9]{64}$/);
+            assert.notEqual(proofs.claim, proofs.approval);
+        } else {
+            assert.equal(request.url, serviceOrigin + '/v1/account/flows/claim');
+            assert.deepEqual(input, { id, proof: proofs.claim });
+            status = ++polls === 1 ? 202 : 200;
+            body = status === 202 ? { pollAfter: 2 } : { apiKey: 'sk-synthetic-key-attr-value', uploadToken: 'synthetic-upload-lease', expiresAt };
+        }
+        request.onload({ status, finalUrl: request.url, responseText: JSON.stringify(body) });
     };
     const outcome = await vm.runInContext('connectMarkerAccount()', context);
     assert.equal(outcome.uploadReady, true);
+    assert.equal(polls, 2);
     assert.deepEqual(saved, [{ line: 'backup', key: 'sk-synthetic-key-attr-value' }]);
     assert.equal(values.size, 1);
     assert.ok(values.has('aimarker-diagnostic-upload-session'));

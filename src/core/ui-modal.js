@@ -127,8 +127,55 @@ function ensureModalStyles() {
         }
         .ai-modal-btn-secondary { color: #667085; }
         .ai-modal-btn-secondary:hover { color: #172033; }
+        dialog.ai-modal-card.ai-modal-native {
+            position: fixed; inset: 0; margin: auto; height: fit-content; min-width: 0;
+            width: min(512px, calc(100vw - 32px)); max-width: none;
+            max-height: calc(100dvh - 32px); padding: 0; overflow: auto;
+            box-sizing: border-box; color-scheme: light;
+            --ai-dialog-line: #e1e6ef; --ai-dialog-muted: #475467;
+        }
+        dialog.ai-modal-native[hidden], dialog.ai-modal-native [hidden] { display: none !important; }
+        dialog.ai-modal-native::backdrop { background: rgba(15,23,42,.52); backdrop-filter: blur(4px); }
+        dialog.ai-modal-native .ai-modal-header { padding: 22px 24px 0; }
+        dialog.ai-modal-native .ai-modal-header h2 { font: inherit; margin: 0; }
+        dialog.ai-modal-native .ai-modal-body { padding: 14px 24px 20px; }
+        dialog.ai-modal-native .ai-modal-footer {
+            border-top: 1px solid var(--ai-dialog-line); padding: 14px 24px 18px; flex-wrap: wrap;
+        }
+        dialog.ai-modal-native button { min-height: 44px; }
+        dialog.ai-modal-native :is(button, summary):focus-visible { outline: 2px solid #2166ad; outline-offset: 3px; }
+        dialog.ai-modal-native[data-theme="dark"] {
+            color-scheme: dark; background: #17251f; color: #e4ede6; border-color: #42564a;
+            --ai-dialog-line: #42564a; --ai-dialog-muted: #bfd0c4;
+        }
+        dialog.ai-modal-native[data-theme="dark"] :is(.ai-modal-header,.ai-modal-body) { color: #e4ede6; }
+        dialog.ai-modal-native[data-theme="dark"] .ai-modal-input { background: #24382d; color: #e4ede6; border-color: #52695c; }
+        dialog.ai-modal-native[data-theme="dark"] .ai-modal-btn-cancel { background: #24382d; color: #e4ede6; border-color: #52695c !important; }
+        dialog.ai-modal-native[data-theme="dark"] .ai-modal-btn-confirm { background: #82d6b0; color: #07382b; }
+        #ai-diagnostic-export p { margin: 0; }
+        #ai-diagnostic-export details { margin-top: 14px; border-block: 1px solid var(--ai-dialog-line); }
+        #ai-diagnostic-export summary { min-height: 44px; padding: 11px 2px; cursor: pointer; font-weight: 650; }
+        #ai-diagnostic-export .ai-diagnostic-dates {
+            display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 205px), 1fr));
+            padding: 0 0 14px;
+        }
+        #ai-diagnostic-export label { display: block; min-width: 0; font-weight: 600; }
+        #ai-diagnostic-export .ai-diagnostic-description { margin-top: 16px; }
+        #ai-diagnostic-export .ai-modal-input { display: block; margin-top: 6px; min-height: 44px; }
+        #ai-diagnostic-export textarea { resize: vertical; }
+        #ai-diagnostic-export [role="status"]:not(:empty) { margin-top: 12px; font-weight: 600; }
+        #ai-diagnostic-export [data-diagnostic-receipt] label { margin-top: 12px; }
+        #ai-diagnostic-export [data-diagnostic-receipt] textarea { font-family: ui-monospace,monospace; overflow-wrap: anywhere; }
+        #ai-diagnostic-export .ai-diagnostic-note { color: var(--ai-dialog-muted); }
     `;
     document.head.appendChild(style);
+}
+
+function styleNativeModal(dialog) {
+    dialog.classList.add('ai-modal-card', 'ai-modal-native');
+    const dark = document.documentElement.classList.contains('dark') || document.documentElement.dataset.theme === 'dark'
+        || document.body.classList.contains('dark') || matchMedia('(prefers-color-scheme: dark)').matches;
+    dialog.dataset.theme = dark ? 'dark' : 'light';
 }
 
 function showAlertModal(message) {

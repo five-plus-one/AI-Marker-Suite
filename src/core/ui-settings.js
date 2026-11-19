@@ -3238,6 +3238,7 @@ function showOnboardingDialog(forceShow, mode) {
     let gradingMode = 'trial';
     let selectedWorkflow = 'fast';
     let connectedBackup = '';
+    let signedInDuringSetup = false;
     let detectedUnits = [];  // 检测到的小题列表
 
     function getStepInfo() {
@@ -3268,7 +3269,7 @@ function showOnboardingDialog(forceShow, mode) {
                 <div class="ai-modal-footer" style="padding:12px 24px 20px;border-top:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
                     ${s.apiStep ? `
                         <button class="ai-modal-btn-cancel" id="ob-skip">稍后设置</button>
-                        <button class="ai-modal-btn-confirm" id="ob-next">验证并继续</button>
+                        <button class="ai-modal-btn-cancel" id="ob-next" ${ProviderManager.getProvider('5plus1官方')?.apiKey ? '' : 'hidden'}>验证并继续</button>
                     ` : s.nameModeStep ? `
                         ${s.hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : ''}
                         <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
@@ -3289,17 +3290,17 @@ function showOnboardingDialog(forceShow, mode) {
 
     function renderApiStep() {
         return `
-            <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
-                登录五加一账号，即可为 AI 批改助手配置访问密钥。
-            </p>
-            <div class="form-group">
-                <label for="ob-apikey">API 密钥</label>
-                <input type="password" id="ob-apikey" placeholder="${ProviderManager.getProvider('5plus1官方')?.apiKey ? '已配置访问密钥' : '也可手动输入访问密钥'}" style="width:100%;">
-                <div style="margin-top:6px;">
-                    <button type="button" class="ai-modal-btn-cancel" id="ob-connect-account">登录五加一账号</button>
+            <button type="button" id="ob-connect-account" class="ai-modal-btn-confirm" style="width:100%;min-height:44px;padding:10px 16px;border:0;border-radius:7px;background:#13795b;color:#fff;font-weight:700;cursor:pointer;">
+                登录五加一账号一键获取
+            </button>
+            <details style="margin-top:12px;">
+                <summary style="min-height:44px;line-height:44px;color:#344054;cursor:pointer;">或手动输入 API 密钥</summary>
+                <div class="form-group" style="margin:4px 0 0;">
+                    <label for="ob-apikey">API 密钥</label>
+                    <input type="password" class="ai-modal-input" id="ob-apikey" placeholder="粘贴 API 密钥" autocomplete="off">
                     <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" class="api-key-link">手动获取访问密钥</a>
                 </div>
-            </div>
+            </details>
             <div id="ob-status" role="status" aria-live="polite" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
         `;
     }
@@ -3442,25 +3443,30 @@ function showOnboardingDialog(forceShow, mode) {
 
         if (s.apiStep) {
             overlay.querySelector('#ob-skip').onclick = hideOnboardingDialog;
-            overlay.querySelector('#ob-connect-account').onclick = event => {
+            const input = overlay.querySelector('#ob-apikey');
+            const btn = overlay.querySelector('#ob-next');
+            const connect = overlay.querySelector('#ob-connect-account');
+            input.addEventListener('input', () => {
+                btn.hidden = !input.value.trim() && !ProviderManager.getProvider('5plus1官方')?.apiKey;
+            });
+            if (ProviderManager.getProvider('5plus1官方')?.apiKey) {
+                showStatus(signedInDuringSetup ? '已登录五加一账号。请验证 AI 服务后继续。' : '已保存过 API 密钥。请验证 AI 服务后继续。', 'progress');
+            }
+            connect.onclick = event => {
                 void connectMarkerAccountButton(event.currentTarget, () => {
-                    const field = overlay.querySelector('#ob-apikey');
-                    if (!field) return;
-                    field.value = '';
-                    field.placeholder = '已配置访问密钥';
+                    if (!overlay.isConnected || !getStepInfo().apiStep) return;
+                    signedInDuringSetup = true;
+                    input.value = '';
+                    btn.hidden = false;
+                    void verifyAndContinue();
                 });
             };
-            overlay.querySelector('#ob-next').onclick = async () => {
+            async function verifyAndContinue() {
                 if (_onboardingApiCheck) return;
-                const input = overlay.querySelector('#ob-apikey');
                 const key = input.value.trim() || ProviderManager.getProvider('5plus1官方')?.apiKey;
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
 
-                // 清除之前的错误提示
-                const statusEl = overlay.querySelector('#ob-status');
-                if (statusEl) statusEl.style.display = 'none';
-
-                const btn = overlay.querySelector('#ob-next');
+                showStatus(signedInDuringSetup ? '已登录五加一账号，正在验证 AI 服务…' : '正在验证 AI 服务…', 'progress');
                 btn.disabled = true;
                 input.disabled = true;
                 btn.innerHTML = '<span class="upd-spinner-light"></span> 验证中...';
@@ -3494,13 +3500,14 @@ function showOnboardingDialog(forceShow, mode) {
                         ? (result.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? '上海备用端点' : '备用端点') : '';
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
-                    showStatus('密钥无效，请检查是否正确', 'error');
+                    showStatus(signedInDuringSetup ? '已登录五加一账号，但 AI 服务拒绝了访问密钥，请重新连接。' : '密钥无效，请检查是否正确。', 'error');
                 } else if (result.reason === 'service') {
                     showStatus('已连接服务，但验证未完成。请检查账户余额和模型权限后重试。', 'error');
                 } else {
                     showStatus('暂时无法连接 5plus1API。请检查网络后重试，或稍后在设置中选择端点。', 'error');
                 }
-            };
+            }
+            btn.onclick = () => void verifyAndContinue();
         } else if (s.nameModeStep) {
             if (s.hasApiStep) overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
             overlay.querySelectorAll('input[name="ob-grading-mode"]').forEach(r => {
