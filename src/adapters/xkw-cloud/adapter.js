@@ -68,12 +68,12 @@ const XkwCloudAdapter = {
         const unit = this._gradePanel()?.unit;
         return unit ? [unit] : [];
     },
-    _paper() {
+    _paper(allowSaving = false) {
         const target = this._gradePanel();
         if (!target) return null;
         const { task, state, paper } = target;
         if (!paper.studentId || !paper.sheetId || !paper.teacherMarkType || paper.checked || paper.judged
-            || Number(paper.scored) === 1 || state.isTimeout || target.panel.classList.contains('nooperate')) return null;
+            || Number(paper.scored) === 1 || state.isTimeout || (!allowSaving && target.panel.classList.contains('nooperate'))) return null;
         const urls = paper.urls, layout = state.urls;
         const images = Array.from(this._window().document.querySelectorAll('.svgall .svg-container .photo_bg img'));
         if (!Array.isArray(urls) || !urls.length || urls.length !== layout?.length || urls.length !== images.length) return null;
@@ -91,7 +91,7 @@ const XkwCloudAdapter = {
         const identity = JSON.stringify([task, paperKey, imageKeys]);
         return { ...target, urls: [...urls], paperKey, identity };
     },
-    getPaperIdentity() { return this._paper()?.identity || ''; },
+    getPaperIdentity() { return this._paper(true)?.identity || ''; },
     _autoScoreToggle(target) {
         return target.panel.querySelector('input[type="checkbox"][value="自动给分"]');
     },
@@ -193,7 +193,7 @@ const XkwCloudAdapter = {
             studentId: filled.paper.studentId, sheetId: filled.paper.sheetId, markCount: filled.paper.teacherMarkType,
             score: filled.score, markPageType: 'NORMAL_MARK' };
         return new Promise(resolve => {
-            let request, settled = false;
+            let request, receiptTimer, settled = false;
             const restore = () => {
                 if (proto.open === open) proto.open = originalOpen;
                 if (proto.send === send) proto.send = originalSend;
@@ -201,7 +201,8 @@ const XkwCloudAdapter = {
             const finish = result => {
                 if (settled) return;
                 settled = true;
-                clearTimeout(timer);
+                clearTimeout(launchTimer);
+                clearTimeout(receiptTimer);
                 restore();
                 request?.removeEventListener('loadend', loaded);
                 signal?.removeEventListener('abort', cancelled);
@@ -212,14 +213,20 @@ const XkwCloudAdapter = {
                 try {
                     const raw = request.responseType === 'json' ? request.response : JSON.parse(request.responseText);
                     const result = raw?.desc || raw?.data || raw;
+                    if ([-2, -5].includes(Number(raw?.code))
+                        || ['sessionout', 'sessionexpired', 'sessionmore'].includes(String(raw?.result))) {
+                        adapter.lastSubmitError = '学科网登录已失效，请重新登录后核对已阅状态，再继续批改';
+                        return cancelled();
+                    }
                     if (signal?.aborted || adapter.getTaskIdentifier() !== filled.task || request.status < 200 || request.status >= 300
-                        || Number(raw?.code) !== 200 || ['0', 'sessionout', 'sessionexpired', 'sessionmore'].includes(String(raw?.result))
+                        || Number(raw?.code) !== 200 || String(raw?.result) === '0'
                         || result?.success === false) return cancelled();
                     if (result?.exist === false && Number(result.resultType) === 1) return finish({ completed: true });
                     const next = result?.data;
+                    // 学科网可以为同一题块的不同考生返回相同的卷面编号。
                     if (result?.exist === true && next?.sheetId && next?.studentId
                         && String(next.questionId) === String(expected.questionId)
-                        && String(next.sheetId) !== String(expected.sheetId) && String(next.studentId) !== String(expected.studentId)
+                        && String(next.studentId) !== String(expected.studentId)
                         && Array.isArray(next.urls) && next.urls.length) {
                         return finish({ sheetId: String(next.sheetId), studentId: String(next.studentId) });
                     }
@@ -234,30 +241,38 @@ const XkwCloudAdapter = {
                 return originalOpen.call(this, method, url, ...rest);
             }
             function send(body) {
-                if (candidates.has(this)) {
-                    let data;
-                    try { data = JSON.parse(body); } catch (_) {}
-                    if (request || settled || signal?.aborted || guard.isCurrent?.() === false
-                        || adapter.getPaperIdentity() !== filled.identity || data?.haveJoin !== false
-                        || !Array.isArray(data.questionSubmitList) || data.questionSubmitList.length
-                        || !Object.entries(expected).every(([key, value]) => String(data?.[key]) === String(value))) {
-                        cancelled();
-                        return;
-                    }
-                    request = this;
-                    this.addEventListener('loadend', loaded, { once: true });
+                if (!candidates.has(this)) return originalSend.call(this, body);
+                if (request || settled) return;
+                let data;
+                try { data = JSON.parse(body); } catch (_) {}
+                if (signal?.aborted || guard.isCurrent?.() === false
+                    || adapter.getPaperIdentity() !== filled.identity || data?.haveJoin !== false
+                    || !Array.isArray(data.questionSubmitList) || data.questionSubmitList.length
+                    || !Object.entries(expected).every(([key, value]) => String(data?.[key]) === String(value))) {
+                    cancelled();
+                    return;
                 }
-                return originalSend.call(this, body);
+                request = this;
+                clearTimeout(launchTimer);
+                receiptTimer = setTimeout(cancelled, 15000);
+                this.addEventListener('loadend', loaded, { once: true });
+                try { return originalSend.call(this, body); }
+                catch (error) { cancelled(); throw error; }
             }
-            const timer = setTimeout(cancelled, 15000);
+            const warningSelector = '.el-message__content';
+            const existingWarnings = new Set(w.document.querySelectorAll(warningSelector));
+            const launchTimer = setTimeout(() => {
+                const warning = Array.from(w.document.querySelectorAll(warningSelector)).find(message =>
+                    !existingWarnings.has(message) && /^批阅过快，请查阅至少\d+秒后再进行给分$/.test(message.textContent.trim()));
+                if (warning) adapter.lastSubmitError = '请按学科网提示查阅答卷，达到规定时间后再给分';
+                cancelled();
+            }, 2500);
             signal?.addEventListener('abort', cancelled, { once: true });
             try {
+                if (signal?.aborted) return cancelled();
                 proto.open = open;
                 proto.send = send;
                 button.click();
-                // The native click can be rejected by the platform before it sends anything.
-                if (!request) cancelled();
-                else restore();
             } catch (_) { cancelled(); }
         });
     },
