@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.29.1',
+    VERSION: '1.21.29.2',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.29.2': [
+            '【修复】学科网云阅卷开始批改后可正常读取答卷图片并继续评分',
+        ],
         '1.21.29.1': [
             '【新平台】支持爱多分网页版普通单题阅卷，通过原站打分板填写分数并核对保存结果',
         ],
