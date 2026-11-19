@@ -963,7 +963,15 @@ function createSettingsPanel(options) {
                             </div>
                             <div id="api-key-link-container" style="display:none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">获取访问凭证</a></div>
                         </div>
-                        <div class="form-group"><label>服务网关 URL</label><input type="text" id="api-endpoint"></div>
+                        <div class="form-group" id="custom-endpoint-field"><label for="api-endpoint">服务网关 URL</label><input type="text" id="api-endpoint"></div>
+                        <div class="form-group" id="official-endpoint-field" hidden>
+                            <label for="official-endpoint">5plus1API 端点</label>
+                            <select id="official-endpoint" aria-describedby="official-endpoint-help">
+                                <option value="primary">主端点</option>
+                                <option value="backup">上海备用端点</option>
+                            </select>
+                            <p id="official-endpoint-help" style="font-size:12px;color:#86868b;margin:6px 0 0;">主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。</p>
+                        </div>
                         <div class="form-group"><label>通信密钥 (Token) *</label><input type="password" id="api-key" placeholder="必填，否则无法使用 AI 批改"></div>
                         <div class="form-group">
                             <label>模型列表</label>
@@ -1321,6 +1329,7 @@ function createSettingsPanel(options) {
     panel.querySelector('#btn-new-provider').onclick = handleNewProvider;
     panel.querySelector('#btn-del-provider').onclick = handleDeleteProvider;
     panel.querySelector('#ai-provider').onchange = handleProviderChange;
+    panel.querySelector('#official-endpoint').onchange = handleOfficialEndpointChange;
     panel.querySelector('#btn-add-model').onclick = handleAddModel;
     panel.querySelector('#new-model-id').onkeydown = (e) => { if (e.key === 'Enter') handleAddModel(); };
     panel.querySelector('#workflow-select').onchange = handleWorkflowChange;
@@ -1821,14 +1830,9 @@ function fillFormFromActivePreset() {
     if (defaultProvider && currentProviderSelect) {
         currentProviderSelect.value = defaultProvider;
     }
-    // 5plus1 官方：强制使用默认网关
     const providerName = currentProviderSelect?.value || defaultProvider;
     const provider = ProviderManager.getProvider(providerName);
-    if (providerName === '5plus1官方') {
-        document.getElementById('api-endpoint').value = SCRIPT_CONFIG.DEFAULT_ENDPOINT;
-    } else {
-        document.getElementById('api-endpoint').value = provider?.endpoint || '';
-    }
+    document.getElementById('api-endpoint').value = provider?.endpoint || '';
     document.getElementById('api-key').value = provider?.apiKey || '';
 
     // 模型列表
@@ -2301,16 +2305,13 @@ function updateUIVisibility() {
     const apiKeyWarning = document.getElementById('api-key-warning');
     const apiKeyBadge = document.getElementById('api-key-badge');
 
-    // 5plus1 官方：网关 URL 固定为只读
-    if (provider === '5plus1官方') {
-        apiKeyLink.style.display = 'block';
-        endpointInput.value = SCRIPT_CONFIG.DEFAULT_ENDPOINT;
-        endpointInput.readOnly = true;
-        endpointInput.classList.add('readonly-field');
-    } else {
-        apiKeyLink.style.display = 'none';
-        endpointInput.readOnly = false;
-        endpointInput.classList.remove('readonly-field');
+    const official = provider === '5plus1官方';
+    apiKeyLink.style.display = official ? 'block' : 'none';
+    document.getElementById('official-endpoint-field').hidden = !official;
+    document.getElementById('custom-endpoint-field').hidden = official;
+    if (official) {
+        refreshOfficialEndpointOptions();
+        refreshOfficialApiRoutes()?.then(refreshOfficialEndpointOptions);
     }
 
     // API 密钥未填写时显示警告
@@ -2539,11 +2540,32 @@ function handleProviderChange() {
         document.getElementById('api-endpoint').value = provider.endpoint || '';
         document.getElementById('api-key').value = provider.apiKey || '';
     }
-    document.getElementById('api-key-link-container').style.display = name === '5plus1官方' ? 'block' : 'none';
     renderModelList();
     renderWorkflowInfo();
     updateUIVisibility();
     markUnsavedChanges();
+}
+
+function handleOfficialEndpointChange() {
+    if (document.getElementById('ai-provider').value !== '5plus1官方') return;
+    const line = document.getElementById('official-endpoint').value;
+    const saved = ProviderManager.saveOfficialConnection(line);
+    updateUIVisibility();
+    showToast(saved ? (line === 'backup' ? '已切换到备用端点' : '已切换到主端点')
+        : '端点选择尚未保存，请刷新页面后重试');
+}
+
+function refreshOfficialEndpointOptions() {
+    const select = document.getElementById('official-endpoint');
+    if (!select || document.getElementById('ai-provider')?.value !== '5plus1官方') return;
+    select.value = getOfficialApiLine(ProviderManager.getProvider('5plus1官方')) || 'primary';
+    const backupInShanghai = getOfficialApiEndpoint('backup') === SCRIPT_CONFIG.SHANGHAI_ENDPOINT;
+    select.options[0].textContent = `主端点（${new URL(getOfficialApiEndpoint('primary')).hostname}）`;
+    select.options[1].textContent = `${backupInShanghai ? '上海备用端点' : '备用端点'}（${new URL(getOfficialApiEndpoint('backup')).hostname}）`;
+    document.getElementById('official-endpoint-help').textContent = backupInShanghai
+        ? '主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。'
+        : '国内部分地区访问受限时，可以切换到备用端点。';
+    document.getElementById('api-endpoint').value = getOfficialApiEndpoint(select.value);
 }
 
 async function handleNewProvider() {
@@ -2984,7 +3006,7 @@ function saveAISettings() {
     // 保存供应商配置（仅保存当前编辑的供应商，不设置"活跃"供应商）
     const provider = ProviderManager.getProvider(providerName);
     if (provider) {
-        provider.endpoint = document.getElementById('api-endpoint').value;
+        if (providerName !== '5plus1官方') provider.endpoint = document.getElementById('api-endpoint').value;
         provider.apiKey = document.getElementById('api-key').value;
         if (ProviderManager.save() === false) return;
     }
@@ -3198,9 +3220,12 @@ function saveAISettings() {
 // ========== 新手引导 ==========
 let _onboardingDialogOpen = false; // 防止重复弹出
 let _onboardingOverlayEl = null;   // 引导弹窗根元素（SPA 导航离开批改页时需主动关闭）
+let _onboardingApiCheck = null;
 
 // 关闭新手引导弹窗（供「离开批改页」生命周期清理调用）
 function hideOnboardingDialog() {
+    _onboardingApiCheck?.abort();
+    _onboardingApiCheck = null;
     if (_onboardingOverlayEl) {
         _onboardingOverlayEl.remove();
         _onboardingOverlayEl = null;
@@ -3216,8 +3241,7 @@ function showOnboardingDialog(forceShow, mode) {
     _onboardingDialogOpen = true;
 
     mode = mode || 'first-launch';
-    const existingApiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
-    if (!forceShow && existingApiKey && mode !== 'new-question') {
+    if (!forceShow && ProviderManager.getProvider('5plus1官方')?.apiKey && mode !== 'new-question') {
         _onboardingDialogOpen = false;
         return;
     }
@@ -3233,6 +3257,7 @@ function showOnboardingDialog(forceShow, mode) {
     let presetName = '';
     let gradingMode = 'trial';
     let selectedWorkflow = 'fast';
+    let connectedBackup = '';
     let detectedUnits = [];  // 检测到的小题列表
 
     function getStepInfo() {
@@ -3288,18 +3313,19 @@ function showOnboardingDialog(forceShow, mode) {
                 AI 批改助手可以帮助你自动批改试卷。首先，请配置你的 API 密钥。
             </p>
             <div class="form-group">
-                <label>API 密钥</label>
-                <input type="password" id="ob-apikey" placeholder="请输入 5plus1 API 密钥" value="${existingApiKey}" style="width:100%;">
+                <label for="ob-apikey">API 密钥</label>
+                <input type="password" id="ob-apikey" placeholder="请输入 5plus1 API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}" style="width:100%;">
                 <div style="margin-top:6px;">
                     <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" style="font-size:12px;color:#0052FF;text-decoration:none;">点击获取访问凭证 →</a>
                 </div>
             </div>
-            <div id="ob-status" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
+            <div id="ob-status" role="status" aria-live="polite" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
         `;
     }
 
     function renderNameModeStep() {
         return `
+            ${connectedBackup ? `<p role="status" style="font-size:13px;margin:0 0 14px;">已连接${connectedBackup}，可在供应商与模型设置中切换。</p>` : ''}
             <div class="form-group">
                 <label>配置方案名称</label>
                 <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${presetName}" style="width:100%;">
@@ -3434,9 +3460,11 @@ function showOnboardingDialog(forceShow, mode) {
         const s = getStepInfo();
 
         if (s.apiStep) {
-            overlay.querySelector('#ob-skip').onclick = () => { _onboardingDialogOpen = false; overlay.remove(); };
+            overlay.querySelector('#ob-skip').onclick = hideOnboardingDialog;
             overlay.querySelector('#ob-next').onclick = async () => {
-                const key = overlay.querySelector('#ob-apikey').value.trim();
+                if (_onboardingApiCheck) return;
+                const input = overlay.querySelector('#ob-apikey');
+                const key = input.value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
 
                 // 清除之前的错误提示
@@ -3445,6 +3473,7 @@ function showOnboardingDialog(forceShow, mode) {
 
                 const btn = overlay.querySelector('#ob-next');
                 btn.disabled = true;
+                input.disabled = true;
                 btn.innerHTML = '<span class="upd-spinner-light"></span> 验证中...';
 
                 // 确保 spinner 样式存在（浅色版本用于深色背景）
@@ -3455,17 +3484,32 @@ function showOnboardingDialog(forceShow, mode) {
                     document.head.appendChild(s);
                 }
 
-                const result = await testApiKey(key);
+                const controller = new AbortController();
+                _onboardingApiCheck = controller;
+                const result = await verifyOfficialApiKey(key, {
+                    line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
+                    signal: controller.signal,
+                    onFallback: () => showStatus('主端点暂时无法连接，正在验证备用端点…', 'progress'),
+                });
+                if (controller !== _onboardingApiCheck) return;
+                _onboardingApiCheck = null;
+                if (!overlay.isConnected) return;
                 btn.disabled = false; btn.textContent = '验证并继续';
+                input.disabled = false;
                 if (result.success) {
-                    const p = ProviderManager.getProvider('5plus1官方');
-                    if (p) p.apiKey = key;
-                    if (ProviderManager.save() === false) { showStatus('访问密钥尚未保存，请核对其他页面的修改', 'error'); return; }
+                    if (!ProviderManager.saveOfficialConnection(result.line, key)) {
+                        showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
+                        return;
+                    }
+                    connectedBackup = result.line === 'backup'
+                        ? (result.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? '上海备用端点' : '备用端点') : '';
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
                     showStatus('密钥无效，请检查是否正确', 'error');
+                } else if (result.reason === 'service') {
+                    showStatus('已连接服务，但验证未完成。请检查账户余额和模型权限后重试。', 'error');
                 } else {
-                    showStatus('网络连接失败，请检查网络后重试', 'error');
+                    showStatus('暂时无法连接 5plus1API。请检查网络后重试，或稍后在设置中选择端点。', 'error');
                 }
             };
         } else if (s.nameModeStep) {
@@ -3551,59 +3595,9 @@ function showOnboardingDialog(forceShow, mode) {
         const el = overlay.querySelector('#ob-status');
         if (!el) return;
         el.style.display = 'block';
-        el.style.background = type === 'error' ? 'rgba(217,48,37,0.08)' : 'rgba(52,168,83,0.08)';
-        el.style.color = type === 'error' ? '#D93025' : '#34A853';
+        el.style.background = type === 'error' ? 'rgba(217,48,37,0.08)' : 'rgba(100,116,139,0.12)';
+        el.style.color = type === 'error' ? '#D93025' : 'inherit';
         el.textContent = msg;
-    }
-
-    async function testApiKey(key) {
-        const MAX_RETRIES = 2;
-        const TIMEOUT = 30000;
-
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            console.log(`🔑 [诊断] API 密钥验证 — 第 ${attempt}/${MAX_RETRIES} 次尝试`);
-            const result = await new Promise(resolve => {
-                GM_xmlhttpRequest({
-                    method: 'POST', url: SCRIPT_CONFIG.DEFAULT_ENDPOINT,
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                    data: JSON.stringify({ model: 'aimarker-fast', messages: [{ role: 'system', content: '只回复"收到"两个字' }, { role: 'user', content: 'test' }], max_tokens: 5 }),
-                    timeout: TIMEOUT,
-                    onload: res => {
-                        console.log(`🔑 [诊断] API 响应 — HTTP ${res.status}, 长度: ${res.responseText?.length || 0}`);
-                        resolve({ ok: res.status >= 200 && res.status < 300, type: 'http', status: res.status });
-                    },
-                    onerror: e => {
-                        console.warn(`🔑 [诊断] 网络错误:`, e);
-                        resolve({ ok: false, type: 'network' });
-                    },
-                    ontimeout: () => {
-                        console.warn(`🔑 [诊断] 请求超时 (${TIMEOUT}ms)`);
-                        resolve({ ok: false, type: 'timeout' });
-                    }
-                });
-            });
-
-            if (result.ok) {
-                console.log('✅ [诊断] API 密钥验证成功');
-                return { success: true };
-            }
-
-            if (result.type === 'timeout') {
-                showStatus(`验证超时，正在重试 (${attempt}/${MAX_RETRIES})...`, 'error');
-            } else if (result.type === 'network') {
-                showStatus(`网络错误，正在重试 (${attempt}/${MAX_RETRIES})...`, 'error');
-            } else {
-                // HTTP 错误，不重试
-                console.error(`❌ [诊断] API 返回 HTTP ${result.status}`);
-                return { success: false, reason: 'invalid' };
-            }
-
-            if (attempt < MAX_RETRIES) {
-                await new Promise(r => setTimeout(r, 2000));
-            }
-        }
-
-        return { success: false, reason: 'network' };
     }
 
     function saveAndFinish(saveCtx) {
