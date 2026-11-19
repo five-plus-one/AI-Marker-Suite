@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>爱多分单题阅卷示例</title>
+<exam-index>
+    <div class="info">
+        <div class="topic-info"><div class="topic" title="第32题(序号32)">第32题</div></div>
+        <div class="detail">阅卷进度：<span>0/2</span></div>
+    </div>
+    <div class="status">当前处于阅卷模式</div>
+    <div class="mark-container">
+        <div class="score" hidden></div>
+        <div class="dragable"><div class="imgs"><div><img alt="合成答卷"></div></div></div>
+    </div>
+    <exam-submit>
+        <form>
+            <div class="submit-bd"><div class="item"><div class="form-controller">
+                <span class="num" title="32(32)">32(32)</span><input type="number" min="0" max="6" required placeholder="满分6">
+            </div></div></div>
+            <div class="submit-dashboard show">
+                <div class="hd add-hd">
+                    <div class="radiobox active" id="step">0.5</div>
+                    <div class="radiobox active" id="auto">自动提交</div>
+                </div>
+                <div class="bd"><span>0</span> <span>1.5</span> <span>6</span></div>
+            </div>
+            <button type="submit">提交分数</button>
+        </form>
+    </exam-submit>
+    <com-dialog hidden><div class="dialog-content"></div></com-dialog>
+</exam-index>
+<pre id="result"></pre>
+<script>
+window.unsafeWindow = window;
+const settings = new Map();
+window.GM_getValue = (key, fallback) => settings.get(key) ?? fallback;
+window.GM_setValue = (key, value) => settings.set(key, value);
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => {
+    const controller = new AbortController();
+    fetch(options.url, { signal: controller.signal }).then(async response => {
+        options.onload({ status: response.status, response: await response.arrayBuffer() });
+    }).catch(() => options.onerror?.());
+    return { abort() { controller.abort(); } };
+};
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const checks = [];
+    const check = (passed, label) => {
+        if (!passed) throw new Error(label);
+        checks.push(label);
+    };
+    const image = document.querySelector('img');
+    const panel = document.querySelector('exam-submit');
+    const form = document.querySelector('form');
+    const field = form.querySelector('input');
+    const auto = document.getElementById('auto');
+    const receipt = document.querySelector('.score');
+    const progress = document.querySelector('.detail span');
+    const dialog = document.querySelector('com-dialog');
+    const topic = document.querySelector('.topic');
+    const alert = text => {
+        dialog.firstElementChild.textContent = text;
+        dialog.hidden = false;
+    };
+    const setPaper = async (name, search = '?x-oss-process=image/crop,x_0,y_0,w_300,h_80') => {
+        field.value = '';
+        image.src = '/__fixture/paper-' + name + '.svg' + search;
+        await image.decode();
+    };
+    let action = 'failure', submissions = 0, nativeInputs = 0;
+    field.addEventListener('input', () => { nativeInputs++; });
+    auto.addEventListener('mousedown', () => auto.classList.toggle('active'));
+    form.querySelectorAll('.bd span').forEach(button => button.addEventListener('mousedown', () => {
+        field.value = button.textContent;
+        if (auto.classList.contains('active')) form.requestSubmit();
+    }));
+    form.querySelector('button').addEventListener('click', event => {
+        event.preventDefault();
+        submissions++;
+        if (action === 'failure') {
+            alert('保存失败，请重试');
+            return;
+        }
+        receipt.textContent = '得分：' + field.value;
+        receipt.hidden = false;
+        receipt.classList.add('active');
+        if (action === 'last') {
+            alert('当前题块所有任务已完成，是否确认继续阅下一题？');
+        } else if (action === 'same') {
+            field.value = '';
+            progress.textContent = '1/2';
+            image.src = '/__fixture/paper-a.svg?cache=changed';
+        } else {
+            progress.textContent = '1/2';
+            void setPaper('b');
+        }
+    });
+    const hideReceipt = () => {
+        receipt.hidden = true;
+        receipt.classList.remove('active');
+    };
+    try {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        check(adapter?.id === 'eiduo', '识别爱多分入口');
+        topic.title = '第题(序号)';
+        alert('因管理员暂停阅卷，所有题块暂时将无法阅卷');
+        check(!await adapter.detectMarkingPage() && !adapter.getPaperIdentity(), '暂停阅卷时不启动');
+        topic.title = '第32题(序号32)';
+        dialog.hidden = true;
+        await setPaper('a');
+        check(await adapter.detectMarkingPage(), '识别已加载单题');
+        const unit = adapter.getQuestionContext().units[0];
+        check(unit.label === '32' && unit.maxScore === 6 && unit.roundStep === 0.5, '读取题号、满分和步长');
+        check(await adapter.prepareGrading() && !auto.classList.contains('active'), '取消原站自动提交');
+        const [url] = await adapter.gatherAnswerImages();
+        check((await adapter.fetchImageAsBase64(url)).length > 40, '读取当前裁切答卷');
+        check(!adapter.fillScores([2]), '拒绝原站打分板不提供的分数');
+        check(adapter.fillScores([0]) && field.value === '0' && !submissions && !nativeInputs, '原站打分板填写零分且不触发原站输入计时');
+        await setPaper('b');
+        check(!adapter.fillScores([1.5]) && !await adapter.submitGrade(), '换卷后拒绝上一份分数');
+        await setPaper('a');
+        await adapter.gatherAnswerImages();
+        check(adapter.fillScores([1.5]) && !await adapter.submitGrade(), '原站报错不确认保存');
+        dialog.hidden = true;
+        await adapter.gatherAnswerImages();
+        const firstPaper = adapter.getPaperIdentity(), taskId = adapter.getTaskIdentifier();
+        action = 'same';
+        const controller = new AbortController();
+        check(adapter.fillScores([1.5]), '同一答卷可填分');
+        setTimeout(() => controller.abort(), 220);
+        check(!await adapter.submitGrade({ signal: controller.signal }), '换缓存地址时不确认下一份');
+        hideReceipt();
+        progress.textContent = '0/2';
+        await setPaper('a');
+        await adapter.gatherAnswerImages();
+        action = 'next';
+        check(adapter.fillScores([1.5]) && await adapter.submitGrade(), '原站回显分数、进度增加并换卷');
+        check(await adapter.waitForNextPaper(url, { taskId, paperId: firstPaper }), '下一份答卷与原题匹配');
+        hideReceipt();
+        action = 'last';
+        await adapter.gatherAnswerImages();
+        check(adapter.fillScores([6]) && await adapter.submitGrade() && adapter.isGradingTaskComplete(), '末份保存后停止在当前题');
+        dialog.hidden = true;
+        hideReceipt();
+        panel.querySelector('.item').classList.add('steps');
+        check(!adapter.isMarkingPage(), '多评分项不启动');
+        finish({ passed: true, checks });
+    } catch (error) {
+        finish({ passed: false, checks, error: error.message });
+    }
+    function finish(result) {
+        document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(
+            JSON.stringify({ runId, width: innerWidth, ...result }))));
+    }
+})();
+</script>
