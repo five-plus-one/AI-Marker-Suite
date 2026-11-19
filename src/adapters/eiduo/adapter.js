@@ -64,7 +64,8 @@ const EiduoAdapter = {
     _paper() {
         const root = this._root(), task = this.getTaskIdentifier(), panel = this._panel(root);
         const progress = this._progress(root);
-        if (!task || !panel || !progress || !progress.total || this._dialog(root)) return null;
+        if (!task || !panel || !progress || !progress.total || this._dialog(root)
+            || root.querySelector('.mark-container .loading.active, .mark-container .empty')) return null;
         const images = [...root.querySelectorAll('.mark-container .imgs img')];
         if (!images.length || images.some(image => !this._visible(image) || !image.complete || !image.naturalWidth || !image.naturalHeight)) return null;
         if (images.some(image => !image.currentSrc)) return null;
@@ -127,7 +128,7 @@ const EiduoAdapter = {
         this._filled = null;
         const paper = this._paper(), score = scores?.[0];
         this.lastFillError = '请核对当前答卷、打分步长和自动提交设置后重试';
-        if (!paper || this._collected?.identity !== paper.identity || scores?.length !== 1
+        if (!paper || this._collected?.identity !== paper.identity || !Array.isArray(scores) || scores.length !== 1
             || !Number.isFinite(score) || score < 0 || score > paper.panel.maxScore) return false;
         const { auto, dashboard, element } = paper.panel;
         if (!auto || auto.classList.contains('active')) return false;
@@ -168,8 +169,8 @@ const EiduoAdapter = {
                     return true;
                 }
                 const next = this._paper();
-                if (saved && next && next.paperKey !== filled.paperKey && next.panel.element.value === ''
-                    && next.progress.marked > paper.progress.marked) {
+                if (saved && next?.root === paper.root && next.paperKey !== filled.paperKey && next.panel.element.value === ''
+                    && next.progress.marked === paper.progress.marked + 1) {
                     this._submitted = { completed: false, filled, nextIdentity: next.identity };
                     return true;
                 }
