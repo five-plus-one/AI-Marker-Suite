@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.31.1',
+    VERSION: '1.21.32.1',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.32.1': [
+            '【新平台】支持爱多分网页版普通单题阅卷，填写后核对原站保存结果与换卷',
+        ],
         '1.21.31.1': [
             '【修复】学科网云阅卷保存后正确识别下一份答卷，登录失效时提示重新登录',
         ],
