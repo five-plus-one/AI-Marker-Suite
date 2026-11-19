@@ -137,11 +137,14 @@ async function connect(url) {
                     let result = { exist: false, resultType: 2 };
                     if (event.params.request.method === 'POST' && payload.questionId === 12) {
                         if (outcome === 'last' && payload.sheetId === 'sheet-b' && payload.score === 15) result = { exist: false, resultType: 1 };
-                        if (outcome === 'saved' && payload.sheetId === 'sheet-a' && payload.score === 3) {
-                            result = { exist: true, data: { questionId: 12, sheetId: 'sheet-b', studentId: 'student-b', urls: ['fixture'] } };
+                        if (['saved', 'shared-sheet'].includes(outcome) && payload.sheetId === 'sheet-a'
+                            && payload.studentId === 'student-a' && payload.score === 3) {
+                            const sheetId = outcome === 'shared-sheet' ? payload.sheetId : 'sheet-b';
+                            result = { exist: true, resultType: 0, data: { questionId: 12, sheetId, studentId: 'student-b', urls: ['fixture'] } };
                         }
                     }
-                    body = JSON.stringify({ code: 200, data: result }); type = 'application/json'; status = 200;
+                    body = JSON.stringify(outcome === 'session-expired' ? { code: -2 } : { code: 200, data: result });
+                    type = 'application/json'; status = 200;
                 } else if (url.hostname === 'yyj-xkw-1357989693.cos.ap-beijing.myqcloud.com' && url.pathname.startsWith('/__fixture/')) {
                     body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><text x="10" y="30">Math practice</text></svg>';
                     type = 'image/svg+xml'; status = 200;
