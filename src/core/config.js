@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.27.11',
+    VERSION: '1.21.28.1',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -44,6 +44,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.28.1': [
+            '【新平台】支持学科网云阅卷，识别当前答卷，按题块填写得分，并核对保存与翻卷结果',
+        ],
         '1.21.27.11': [
             '【新功能】导出诊断包，默认收集最近 2 小时的日志和阅卷记录，可自选时间并随包导出配置摘要',
             '【修复】百师联盟和悦卷通核对本次答卷的保存请求与回执，确认成功后再继续批改',
