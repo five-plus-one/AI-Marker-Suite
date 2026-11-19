@@ -9,6 +9,7 @@
     </div>
     <div class="status">当前处于阅卷模式</div>
     <div class="mark-container">
+        <div class="loading"></div>
         <div class="score" hidden></div>
         <div class="dragable"><div class="imgs"><div><img alt="合成答卷"></div></div></div>
     </div>
@@ -118,6 +119,10 @@ window.GM_xmlhttpRequest = options => {
         check(await adapter.prepareGrading() && !auto.classList.contains('active'), '取消原站自动提交');
         const [url] = await adapter.gatherAnswerImages();
         check((await adapter.fetchImageAsBase64(url)).length > 40, '读取当前裁切答卷');
+        const loading = document.querySelector('.loading');
+        loading.classList.add('active');
+        check(!adapter.fillScores([1.5]) && !adapter.getPaperIdentity(), '加载下一份期间不操作旧答卷');
+        loading.classList.remove('active');
         check(!adapter.fillScores([2]), '拒绝原站打分板不提供的分数');
         check(adapter.fillScores([0]) && field.value === '0' && !submissions && !nativeInputs, '原站打分板填写零分且不触发原站输入计时');
         await setPaper('b');
