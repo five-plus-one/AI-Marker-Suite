@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {env, load, settle, vm} = require('./_audit-harness');
+const {env, load, read, settle, vm} = require('./_audit-harness');
 
 function fixture() {
     const e=env(); let task='question-31';
@@ -72,6 +72,30 @@ test('下载期间切题，在调用模型前核对任务', async()=>{
     e.sb.callAIGrading=async()=>{requests++;return {score:8};};
     await e.sb.startAutoGrading();
     assert.equal(requests,0); assert.equal(e.calls.fill.length,0);
+});
+
+test('开始批改时学科网取图方法能读取适配器保存的当前答卷', async () => {
+    const e = fixture();
+    vm.runInContext("'use strict';\n" + read('src/adapters/xkw-cloud/adapter.js'), e.sb);
+    const xkw = vm.runInContext('XkwCloudAdapter', e.sb);
+    const url = 'https://x.test/A.png';
+    e.adapter.fetchImageAsBase64 = xkw.fetchImageAsBase64;
+    e.adapter.gatherAnswerImages = async function () {
+        this._collected = { urls: [url], identity: this.getPaperIdentity() };
+        return [url];
+    };
+    const downloads = [];
+    e.sb.fetchImageAsBase64 = async (source, signal) => {
+        downloads.push({ source, signal });
+        return 'PNG';
+    };
+    load(e, 'src/core/main.js');
+    await e.sb.startAutoGrading();
+    assert.equal(downloads.length, 1, e.calls.toasts.join('\n'));
+    assert.equal(downloads[0].source, url);
+    assert.ok(downloads[0].signal instanceof AbortSignal);
+    assert.deepEqual(e.calls.fill, [{ paper: 'A', scores: [8] }]);
+    assert.equal(e.calls.submit.length, 0);
 });
 
 test('轮次交界题号暂不可读，恢复为另一题时仍沿用连续基准拦截',async()=>{
