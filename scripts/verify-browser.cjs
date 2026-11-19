@@ -57,7 +57,7 @@ async function connect(url) {
         await client.send('Runtime.enable');
         await client.send('Network.enable');
         const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
-        const fixtures = ['embedded-ui', 'diagnostic-export', 'taowei', 'yuejuantong', 'baishi', 'xkw-cloud', 'workflow', 'api-endpoints', 'renderer', 'bundle', 'output-mode', 'subscore', 'xinkao-cloud', 'xinkao-campus', 'xinkao-intranet', 'xinkao-public', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
+        const fixtures = ['embedded-ui', 'diagnostic-export', 'taowei', 'yuejuantong', 'baishi', 'xkw-cloud', 'eiduo', 'workflow', 'api-endpoints', 'renderer', 'bundle', 'output-mode', 'subscore', 'xinkao-cloud', 'xinkao-campus', 'xinkao-intranet', 'xinkao-public', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
@@ -87,6 +87,7 @@ async function connect(url) {
         const taoweiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/taowei.html'), 'utf8');
         const taoweiPageHtml = fs.readFileSync(path.join(root, 'tests/fixtures/taowei-page.html'), 'utf8');
         const baishiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/baishi.html'), 'utf8');
+        const eiduoHtml = fs.readFileSync(path.join(root, 'tests/fixtures/eiduo.html'), 'utf8');
         const xkwCloudHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xkw-cloud.html'), 'utf8');
         const yuejuantongHtml = fs.readFileSync(path.join(root, 'tests/fixtures/yuejuantong.html'), 'utf8');
         const xinkaoHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xinkao.html'), 'utf8');
@@ -117,6 +118,11 @@ async function connect(url) {
                     body = bundle; type = 'application/javascript'; status = 200;
                 } else if (url.hostname === 'img-oss.sdzdf.com') {
                     body = '<svg xmlns="http://www.w3.org/2000/svg" width="1194" height="1428"><rect width="1194" height="1428" fill="white"/><text x="20" y="40">Composition practice</text></svg>'; type = 'image/svg+xml'; status = 200;
+                } else if (url.hostname === 'ui.eiduo.com' && url.pathname === '/exam-webapp/marking/index') {
+                    body = eiduoHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 'ui.eiduo.com' && /^\/__fixture\/paper-[ab]\.svg$/.test(url.pathname)) {
+                    body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><text x="10" y="30">Physics practice</text></svg>';
+                    type = 'image/svg+xml'; status = 200;
                 } else if (url.hostname === 'xycp.xkw.com' && url.pathname === '/static-v2/exam/index.html') {
                     body = xkwCloudHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'xycp.xkw.com' && url.pathname === '/v2/exam/mark/submit') {
@@ -231,6 +237,7 @@ async function connect(url) {
             const haofenshu = fixture === 'haofenshu';
             const yuandingbang = fixture === 'yuandingbang';
             const xkwCloud = fixture === 'xkw-cloud';
+            const eiduo = fixture === 'eiduo';
             const taowei = fixture === 'taowei', baishi = fixture === 'baishi', yuejuantong = fixture === 'yuejuantong';
             const xinkao = fixture.startsWith('xinkao-');
             const zhixue = fixture === 'zhixue';
@@ -242,7 +249,7 @@ async function connect(url) {
             const youfen = fixture.startsWith('youfen-');
             const xiaoleyouyue = fixture.startsWith('xiaoleyouyue-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || xinkao || taowei || baishi || yuejuantong || xkwCloud) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || xinkao || taowei || baishi || yuejuantong || xkwCloud || eiduo) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -265,6 +272,7 @@ async function connect(url) {
             if (haofenshu) url = 'https://yue.haofenshu.com/minions/subject/10500001/mark/1/normal/0?run=' + runId;
             if (yuandingbang) url = 'https://yuejuan.yuandingbang.cn/web/mark/sjpy/sjpy_kspy.jsp?ksdm=100&kmdm=B21&stbh=2&run=' + runId;
             if (taowei) url = 'http://s3.taoweiedu.com/web/main.jsp?run=' + runId;
+            if (eiduo) url = 'https://ui.eiduo.com/exam-webapp/marking/index?examId=1&subjectId=2&isArbitrate=false&check=false&run=' + runId;
             if (xkwCloud) url = 'https://xycp.xkw.com/static-v2/exam/index.html?run=' + runId + '#/exam/index';
             if (baishi) url = 'https://ebs.bsedu.com/tasklist?projectId=exercise&run=' + runId;
             if (yuejuantong) url = 'http://www.yuejuantong.com/mark/v6/view/fixture?run=' + runId;
