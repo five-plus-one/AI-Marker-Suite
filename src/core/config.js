@@ -35,6 +35,7 @@ const SCRIPT_CONFIG = {
 
     /** 默认 AI 端点 */
     DEFAULT_ENDPOINT: 'https://api.ai.five-plus-one.com/v1/chat/completions',
+    SHANGHAI_ENDPOINT: 'https://api-sh.ai.five-plus-one.com/v1/chat/completions',
 
     /** 默认模型 */
     DEFAULT_MODEL: 'aimarker-fast',
@@ -46,6 +47,7 @@ const SCRIPT_CONFIG = {
     CHANGELOG: {
         '1.21.28.1': [
             '【新平台】支持学科网云阅卷，识别当前答卷，按题块填写得分，并核对保存与翻卷结果',
+            '【新功能】5plus1API 主端点连接失败时可验证上海备用端点，设置中也可切换端点',
         ],
         '1.21.28': [
             '【新平台】支持百师联盟单题评阅，按平台步长填分并核对保存结果',
