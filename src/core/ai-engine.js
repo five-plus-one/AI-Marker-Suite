@@ -78,7 +78,8 @@ function getOfficialApiEndpoint(value) {
     return officialApiRoutes[line || 'primary'] || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
 }
 
-function checkOfficialApiConnection(endpoint, apiKey, signal) {
+function checkOfficialApiConnection(endpoint, { apiKey, signal, timeoutMs }) {
+    const checkingStatus = apiKey === undefined;
     return new Promise(resolve => {
         if (signal?.aborted) { resolve('cancelled'); return; }
         let request, settled = false;
@@ -94,18 +95,22 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
             request?.abort();
         };
         const cancel = () => stop('cancelled');
-        const timer = setTimeout(() => stop('network'), 15000);
+        const timer = setTimeout(() => stop('network'), timeoutMs);
         signal?.addEventListener('abort', cancel, { once: true });
         try {
-            request = GM_xmlhttpRequest({
-                method: 'POST', url: endpoint, anonymous: true, redirect: 'error',
+            const options = checkingStatus ? { method: 'GET', nocache: true } : {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                 data: JSON.stringify({ model: SCRIPT_CONFIG.DEFAULT_MODEL, messages: [{ role: 'user', content: '回复：收到' }], max_tokens: 5 }),
+            };
+            request = GM_xmlhttpRequest({
+                ...options, url: endpoint, anonymous: true, redirect: 'error', timeout: timeoutMs,
                 onload(response) {
                     if (response.finalUrl && response.finalUrl !== endpoint) { finish('network'); return; }
                     const status = Number(response.status);
                     let data;
                     try { data = JSON.parse(response.responseText); } catch (_) { /* 上游可能返回网页。 */ }
+                    if (checkingStatus) { finish(status === 200 && data?.success === true ? 'connected' : 'network'); return; }
                     if (status >= 200 && status < 300) finish(data?.choices?.[0]?.message && !data.error ? 'connected' : 'network');
                     else if (status === 401 || (status === 403 && data?.error)) finish('invalid');
                     else if (!status || status === 403 || status === 408 || status >= 500) finish('network');
@@ -119,15 +124,32 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
     });
 }
 
-async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback } = {}) {
+async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onPrimaryReady, onFallback } = {}) {
     await refreshOfficialApiRoutes();
     const preferred = ['primary', 'backup'].includes(line) ? line : getOfficialApiLine({ endpoint }) || 'primary';
     const verify = async (url, route) => {
-        const reason = await checkOfficialApiConnection(url, apiKey, signal);
+        const reason = await checkOfficialApiConnection(url, { apiKey, signal, timeoutMs: route === 'primary' ? 60000 : 15000 });
         return reason === 'connected' ? { success: true, endpoint: url, line: route } : { success: false, reason };
     };
-    const first = await verify(getOfficialApiEndpoint(preferred), preferred);
-    if (first.reason !== 'network' || !officialApiRoutes.backup || preferred === 'backup' || signal?.aborted) return first;
+    if (preferred === 'backup') return verify(officialApiRoutes.backup, 'backup');
+    const primary = getOfficialApiEndpoint('primary');
+    const statusUrl = new URL('/api/status', primary).href;
+    const maxRetries = 3;
+    for (let retry = 0; retry <= maxRetries; retry++) {
+        if (retry > 0) {
+            try { await abortableGradingDelay(500, signal); }
+            catch (_) { return { success: false, reason: 'cancelled' }; }
+        }
+        const status = await checkOfficialApiConnection(statusUrl, { signal, timeoutMs: 6000 });
+        if (status === 'cancelled') return { success: false, reason: status };
+        if (status === 'connected') {
+            onPrimaryReady?.();
+            const result = await verify(primary, 'primary');
+            return result.reason === 'network' ? { success: false, reason: 'validation' } : result;
+        }
+    }
+    if (signal?.aborted) return { success: false, reason: 'cancelled' };
+    if (!officialApiRoutes.backup) return { success: false, reason: 'network' };
     onFallback?.();
     return verify(officialApiRoutes.backup, 'backup');
 }

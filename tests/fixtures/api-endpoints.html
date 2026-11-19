@@ -4,8 +4,8 @@
 <title>5plus1API 端点切换</title>
 <script>
 const storage = new Map(), checks = [], requests = [];
-let outcomes = [], failStorage = false, cloudPolicy;
-const cloudRequests = [];
+let outcomes = [], statusOutcomes = [], failStorage = false, cloudPolicy;
+const cloudRequests = [], statusRequests = [];
 window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
 window.GM_setValue = (key, value) => {
     if (failStorage && key === 'ai-grading-providers-v2') throw Error('storage unavailable');
@@ -15,12 +15,23 @@ window.getUIRoot = () => document.body;
 window.showToast = () => {};
 window.GM_xmlhttpRequest = request => {
     if (request.method === 'GET') {
+        if (new URL(request.url).pathname === '/api/status') {
+            const outcome = statusOutcomes.shift() ?? 'ok';
+            const observed = { url: request.url, headers: request.headers, anonymous: request.anonymous, cancelled: false };
+            statusRequests.push(observed);
+            const timer = setTimeout(() => {
+                if (outcome === 'network') request.onerror();
+                else if (outcome === 'ok') request.onload({ status: 200, finalUrl: request.url, responseText: '{"success":true}' });
+                else request.onload(outcome);
+            }, outcome === 'delayed' ? 1000 : 0);
+            return { abort() { clearTimeout(timer); observed.cancelled = true; request.onabort(); } };
+        }
         cloudRequests.push({ url: request.url, headers: request.headers, anonymous: request.anonymous });
         queueMicrotask(() => cloudPolicy ? request.onload({ status: 200, finalUrl: request.url, responseText: JSON.stringify(cloudPolicy) }) : request.onerror());
         return { abort() {} };
     }
     const outcome = outcomes.shift();
-    const observed = { url: request.url, data: JSON.parse(request.data), redirect: request.redirect, cancelled: false };
+    const observed = { url: request.url, data: JSON.parse(request.data), redirect: request.redirect, timeout: request.timeout, cancelled: false };
     requests.push(observed);
     const timer = setTimeout(() => {
         if (outcome === 'network') request.onerror();
@@ -55,7 +66,9 @@ window.GM_xmlhttpRequest = request => {
         checks.push({ pass: Boolean(value), label });
         if (!value) throw new Error(label);
     };
-    const reset = (...responses) => { requests.length = 0; outcomes = responses; };
+    const reset = (...responses) => {
+        requests.length = 0; statusRequests.length = 0; outcomes = responses; statusOutcomes = [];
+    };
     const tried = (...urls) => requests.map(request => request.url).join() === urls.join();
     const start = () => {
         showOnboardingDialog(true);
@@ -65,37 +78,55 @@ window.GM_xmlhttpRequest = request => {
     try {
         reset('ok');
         check((await verifyOfficialApiKey('fixture-key')).endpoint === main && tried(main), '主端点可用时只访问主端点');
+        check(statusRequests.length === 1 && statusRequests[0].url === new URL('/api/status', main).href
+            && statusRequests[0].anonymous && !statusRequests[0].headers && requests[0].timeout === 60000,
+            '先匿名探测主端点，再等待密钥验证回复');
+        reset('ok');
+        statusOutcomes = ['network', 'network', 'network', 'ok'];
+        check((await verifyOfficialApiKey('fixture-key')).endpoint === main && tried(main) && statusRequests.length === 4,
+            '首次失败后最多重试三次，恢复时保留主端点');
         reset({ status: 401, responseText: '{"error":{"message":"invalid"}}' });
         await start();
         check(tried(main) && get('ob-status').textContent.includes('密钥无效') && !official().apiKey, '密钥错误提示重新输入');
         hideOnboardingDialog();
         reset({ status: 429, responseText: '{"error":{"message":"rate limit"}}' });
         check((await verifyOfficialApiKey('fixture-key')).reason === 'service' && tried(main), '服务响应不当成线路故障');
-        reset('network', 'timeout');
+        reset('timeout');
+        statusOutcomes = Array(4).fill('network');
         await start();
-        check(tried(main, shanghai) && get('ob-status').textContent.includes('暂时无法连接') && official().endpoint === main && !official().apiKey,
+        check(statusRequests.length === 4 && tried(shanghai) && get('ob-status').textContent.includes('暂时无法连接')
+            && official().endpoint === main && !official().apiKey,
             '两端点都不可用时保留原配置');
         hideOnboardingDialog();
-        reset({ status: 200, responseText: '<html>Gateway</html>' }, 'ok');
-        check((await verifyOfficialApiKey('fixture-key')).endpoint === shanghai && tried(main, shanghai), '网页拦截响应触发备用端点');
-        reset({ status: 200, finalUrl: 'https://other.example', responseText: '{"choices":[{"message":{}}]}' }, 'ok');
-        check((await verifyOfficialApiKey('fixture-key')).endpoint === shanghai && requests.every(r => r.redirect === 'error'), '验证限制在已配置的官方域名');
-        reset('delayed');
+        reset('ok');
+        statusOutcomes = Array(4).fill({ status: 200, responseText: '<html>Gateway</html>' });
+        check((await verifyOfficialApiKey('fixture-key')).endpoint === shanghai && tried(shanghai) && statusRequests.length === 4,
+            '探测返回拦截网页时使用备用端点');
+        reset({ status: 200, finalUrl: 'https://other.example', responseText: '{"choices":[{"message":{}}]}' });
+        check((await verifyOfficialApiKey('fixture-key')).reason === 'validation' && tried(main) && requests[0].redirect === 'error',
+            '主端点可达时密钥验证仅使用配置的主端点');
+        reset({ status: 500, responseText: '{"error":{"message":"temporary model failure"}}' });
+        check((await verifyOfficialApiKey('fixture-key')).reason === 'validation' && tried(main),
+            '主端点的模型验证故障保留主端点');
+        reset();
+        statusOutcomes = ['delayed'];
         const pending = start();
         await Promise.resolve();
         get('ob-skip').click();
         await pending;
-        check(tried(main) && requests[0].cancelled && !get('ob-status') && !official().apiKey, '离开首次设置时取消验证且不保存');
-        reset('timeout', 'ok');
+        check(tried() && statusRequests[0].cancelled && !get('ob-status') && !official().apiKey, '离开首次设置时取消探测且不保存');
+        reset('ok');
+        statusOutcomes = Array(4).fill('network');
         await start();
-        check(tried(main, shanghai) && get('ob-preset-name') && official().endpoint === shanghai && official().apiKey === 'fixture-key'
+        check(statusRequests.length === 4 && tried(shanghai) && get('ob-preset-name') && official().endpoint === shanghai && official().apiKey === 'fixture-key'
             && document.querySelector('.ai-modal-body [role="status"]').textContent.includes('上海备用端点'), '备用验证成功后保存同一密钥与端点');
         check(requests.every(r => r.data.messages.length === 1 && r.data.messages[0].content === '回复：收到'), '使用独立的验证消息');
         hideOnboardingDialog();
         ProviderManager.init();
         check(ProviderManager.getCallConfig('5plus1官方', 'aimarker-fast').endpoint === shanghai, '重载后工作流使用已保存的备用端点');
         reset('ok');
-        check((await verifyOfficialApiKey('fixture-key', { endpoint: official().endpoint })).endpoint === shanghai && tried(shanghai), '已选备用端点重新验证时直接使用');
+        check((await verifyOfficialApiKey('fixture-key', { endpoint: official().endpoint })).endpoint === shanghai
+            && tried(shanghai) && statusRequests.length === 0, '已选备用端点重新验证时直接使用');
         window.getChannelName = window.getBuildChannel = window.getBuildChannelLabel = () => 'dev';
         window.markUnsavedChanges = () => {};
         setupSettingsMenuLayout = () => {};

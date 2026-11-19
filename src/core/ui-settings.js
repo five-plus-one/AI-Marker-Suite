@@ -3426,9 +3426,12 @@ function showOnboardingDialog(forceShow, mode) {
 
                 const controller = new AbortController();
                 _onboardingApiCheck = controller;
+                const line = getOfficialApiLine(ProviderManager.getProvider('5plus1官方'));
+                showStatus(line === 'backup' ? '正在验证备用端点…' : '正在检查主端点连接…', 'progress');
                 const result = await verifyOfficialApiKey(key, {
-                    line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
+                    line,
                     signal: controller.signal,
+                    onPrimaryReady: () => showStatus('主端点可以访问，正在验证 API 密钥…', 'progress'),
                     onFallback: () => showStatus('主端点暂时无法连接，正在验证备用端点…', 'progress'),
                 });
                 if (controller !== _onboardingApiCheck) return;
@@ -3448,6 +3451,8 @@ function showOnboardingDialog(forceShow, mode) {
                     showStatus('密钥无效，请检查是否正确', 'error');
                 } else if (result.reason === 'service') {
                     showStatus('已连接服务，但验证未完成。请检查账户余额和模型权限后重试。', 'error');
+                } else if (result.reason === 'validation') {
+                    showStatus('主端点可以访问，密钥验证暂未完成。请稍后重试，或在设置中选择其他端点。', 'error');
                 } else {
                     showStatus('暂时无法连接 5plus1API。请检查网络后重试，或稍后在设置中选择端点。', 'error');
                 }
