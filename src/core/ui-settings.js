@@ -956,8 +956,8 @@ function createSettingsPanel(options) {
                         <div class="form-group" id="official-endpoint-field" hidden>
                             <label for="official-endpoint">5plus1API 端点</label>
                             <select id="official-endpoint" aria-describedby="official-endpoint-help">
-                                <option value="${SCRIPT_CONFIG.DEFAULT_ENDPOINT}">主端点</option>
-                                <option value="${SCRIPT_CONFIG.SHANGHAI_ENDPOINT}">上海备用端点</option>
+                                <option value="primary">主端点</option>
+                                <option value="backup">上海备用端点</option>
                             </select>
                             <p id="official-endpoint-help" style="font-size:12px;color:#86868b;margin:6px 0 0;">主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。</p>
                         </div>
@@ -2280,8 +2280,8 @@ function updateUIVisibility() {
     document.getElementById('official-endpoint-field').hidden = !official;
     document.getElementById('custom-endpoint-field').hidden = official;
     if (official) {
-        endpointInput.value = getOfficialApiEndpoint(endpointInput.value);
-        document.getElementById('official-endpoint').value = endpointInput.value;
+        refreshOfficialEndpointOptions();
+        refreshOfficialApiRoutes()?.then(refreshOfficialEndpointOptions);
     }
 
     // API 密钥未填写时显示警告
@@ -2518,12 +2518,24 @@ function handleProviderChange() {
 
 function handleOfficialEndpointChange() {
     if (document.getElementById('ai-provider').value !== '5plus1官方') return;
-    const endpoint = getOfficialApiEndpoint(document.getElementById('official-endpoint').value);
-    const saved = ProviderManager.saveOfficialConnection(endpoint);
-    document.getElementById('api-endpoint').value = ProviderManager.getProvider('5plus1官方')?.endpoint || '';
+    const line = document.getElementById('official-endpoint').value;
+    const saved = ProviderManager.saveOfficialConnection(line);
     updateUIVisibility();
-    showToast(saved ? (endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? '已切换到上海备用端点' : '已切换到主端点')
+    showToast(saved ? (line === 'backup' ? '已切换到备用端点' : '已切换到主端点')
         : '端点选择尚未保存，请刷新页面后重试');
+}
+
+function refreshOfficialEndpointOptions() {
+    const select = document.getElementById('official-endpoint');
+    if (!select || document.getElementById('ai-provider')?.value !== '5plus1官方') return;
+    select.value = getOfficialApiLine(ProviderManager.getProvider('5plus1官方')) || 'primary';
+    const backupInShanghai = getOfficialApiEndpoint('backup') === SCRIPT_CONFIG.SHANGHAI_ENDPOINT;
+    select.options[0].textContent = `主端点（${new URL(getOfficialApiEndpoint('primary')).hostname}）`;
+    select.options[1].textContent = `${backupInShanghai ? '上海备用端点' : '备用端点'}（${new URL(getOfficialApiEndpoint('backup')).hostname}）`;
+    document.getElementById('official-endpoint-help').textContent = backupInShanghai
+        ? '主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。'
+        : '国内部分地区访问受限时，可以切换到备用端点。';
+    document.getElementById('api-endpoint').value = getOfficialApiEndpoint(select.value);
 }
 
 async function handleNewProvider() {
@@ -2941,7 +2953,7 @@ function saveAISettings() {
     // 保存供应商配置（仅保存当前编辑的供应商，不设置"活跃"供应商）
     const provider = ProviderManager.getProvider(providerName);
     if (provider) {
-        provider.endpoint = document.getElementById('api-endpoint').value;
+        if (providerName !== '5plus1官方') provider.endpoint = document.getElementById('api-endpoint').value;
         provider.apiKey = document.getElementById('api-key').value;
         if (ProviderManager.save() === false) return;
     }
@@ -3185,7 +3197,7 @@ function showOnboardingDialog(forceShow, mode) {
     let presetName = '';
     let gradingMode = 'trial';
     let selectedWorkflow = 'fast';
-    let usedFallback = false;
+    let connectedBackup = '';
     let detectedUnits = [];  // 检测到的小题列表
 
     function getStepInfo() {
@@ -3253,7 +3265,7 @@ function showOnboardingDialog(forceShow, mode) {
 
     function renderNameModeStep() {
         return `
-            ${usedFallback ? '<p role="status" style="font-size:13px;margin:0 0 14px;">已连接上海备用端点，可在供应商与模型设置中切换。</p>' : ''}
+            ${connectedBackup ? `<p role="status" style="font-size:13px;margin:0 0 14px;">已连接${connectedBackup}，可在供应商与模型设置中切换。</p>` : ''}
             <div class="form-group">
                 <label>配置方案名称</label>
                 <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${presetName}" style="width:100%;">
@@ -3415,9 +3427,9 @@ function showOnboardingDialog(forceShow, mode) {
                 const controller = new AbortController();
                 _onboardingApiCheck = controller;
                 const result = await verifyOfficialApiKey(key, {
-                    endpoint: ProviderManager.getProvider('5plus1官方')?.endpoint,
+                    line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
                     signal: controller.signal,
-                    onFallback: () => showStatus('主端点暂时无法连接，正在验证上海备用端点…', 'progress'),
+                    onFallback: () => showStatus('主端点暂时无法连接，正在验证备用端点…', 'progress'),
                 });
                 if (controller !== _onboardingApiCheck) return;
                 _onboardingApiCheck = null;
@@ -3425,11 +3437,12 @@ function showOnboardingDialog(forceShow, mode) {
                 btn.disabled = false; btn.textContent = '验证并继续';
                 input.disabled = false;
                 if (result.success) {
-                    if (!ProviderManager.saveOfficialConnection(result.endpoint, key)) {
+                    if (!ProviderManager.saveOfficialConnection(result.line, key)) {
                         showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
                         return;
                     }
-                    usedFallback = result.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT;
+                    connectedBackup = result.line === 'backup'
+                        ? (result.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? '上海备用端点' : '备用端点') : '';
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
                     showStatus('密钥无效，请检查是否正确', 'error');
