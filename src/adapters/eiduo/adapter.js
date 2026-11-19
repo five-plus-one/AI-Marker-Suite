@@ -159,7 +159,8 @@ const EiduoAdapter = {
         try {
             paper.panel.button.click();
             let saved = false;
-            for (let i = 0; i < 150; i++) {
+            const deadline = performance.now() + 60_000;
+            do {
                 if (guard.signal?.aborted || this.getTaskIdentifier() !== filled.task) return false;
                 const receipt = paper.root.querySelector('.mark-container .score.active');
                 const score = /^得分[：:]\s*(\d+(?:\.\d+)?)$/.exec(receipt?.textContent.trim() || '');
@@ -177,7 +178,7 @@ const EiduoAdapter = {
                     return true;
                 }
                 await new Promise(resolve => setTimeout(resolve, 80));
-            }
+            } while (performance.now() < deadline);
             return false;
         } finally {
             this._submitting = false;

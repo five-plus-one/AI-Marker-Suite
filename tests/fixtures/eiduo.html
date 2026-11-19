@@ -86,9 +86,15 @@ window.GM_xmlhttpRequest = options => {
             alert('保存失败，请重试');
             return;
         }
-        receipt.textContent = '得分：' + field.value;
-        receipt.hidden = false;
-        receipt.classList.add('active');
+        if (action === 'next' && runId.startsWith('eiduo-1280-light-')) {
+            setTimeout(() => {
+                showReceipt();
+                progress.textContent = '1/2';
+                void setPaper('b');
+            }, 12_500);
+            return;
+        }
+        showReceipt();
         if (action === 'last') {
             alert('当前题块所有任务已完成，是否确认继续阅下一题？');
         } else if (action === 'same') {
@@ -100,6 +106,11 @@ window.GM_xmlhttpRequest = options => {
             void setPaper('b');
         }
     });
+    const showReceipt = () => {
+        receipt.textContent = '得分：' + field.value;
+        receipt.hidden = false;
+        receipt.classList.add('active');
+    };
     const hideReceipt = () => {
         receipt.hidden = true;
         receipt.classList.remove('active');
