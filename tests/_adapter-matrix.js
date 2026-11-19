@@ -87,6 +87,7 @@ function makeStub(form = {}) {
         console: { log() {}, warn() {}, error() {} },
         location: {
             hostname: form.host || 'example.com',
+            protocol: form.protocol || 'https:',
             pathname: form.path || '/',
             hash: form.hash || '',
             search: form.search || '',
@@ -433,6 +434,11 @@ const ADAPTERS = [
       own: { host: 'ejt.xkw.com', path: '/' },
       near: [{ label: '近似域名 xkw.com', form: { host: 'xkw.com', path: '/' } },
              { label: '近似域名 ejt.xkw.com.cn（子域规则不得吞后缀域）', form: { host: 'ejt.xkw.com.cn', path: '/' } }] },
+    { dir: 'xkw-cloud', id: 'xkw-cloud', name: '学科网云阅卷',
+      own: { host: 'xycp.xkw.com', protocol: 'https:', path: '/static-v2/exam/index.html' },
+      near: [{ label: '学科网云阅卷首页', form: { host: 'xycp.xkw.com', protocol: 'https:', path: '/' } },
+             { label: '学科网云阅卷 HTTP 入口', form: { host: 'xycp.xkw.com', protocol: 'http:', path: '/static-v2/exam/index.html' } },
+             { label: '学科网云阅卷近似域名', form: { host: 'xycp.xkw.com.example.com', protocol: 'https:', path: '/static-v2/exam/index.html' } }] },
 ];
 
 // 竞争矩阵中走「已知竞争」而非严格唯一命中断言的目录（见 bundle-competition.test.js KNOWN 块）
