@@ -175,7 +175,7 @@ const BaishiAdapter = {
                 || this._scoreInput(page) !== filled.input || page.inputvalue === '' || filled.input.disabled
                 || filled.input.value !== String(filled.value) || String(page.inputvalue) !== String(filled.value)
                 || !this._allowsScore(page, filled.value) || !this._visible(button) || button.disabled) return false;
-            if (!await this._confirmSave(button, filled, guard.signal)) return false;
+            if (!await this._confirmSave(button, filled, guard)) return false;
             this._submitted = filled;
             this.lastSubmitError = '';
             return true;
@@ -185,17 +185,21 @@ const BaishiAdapter = {
             this._submitting = false;
         }
     },
-    _confirmSave(button, filled, signal) {
+    _confirmSave(button, filled, guard) {
         // 核对由原生按钮发出的保存回执，其他平台请求照常运行。
         const w = this._window(), adapter = this;
+        const { signal } = guard;
         const proto = w.XMLHttpRequest.prototype, originalOpen = proto.open, originalSend = proto.send;
         const candidates = new WeakSet();
         return new Promise(resolve => {
             let request;
-            const finish = ok => {
-                clearTimeout(timer);
+            const restore = () => {
                 if (proto.open === open) proto.open = originalOpen;
                 if (proto.send === send) proto.send = originalSend;
+            };
+            const finish = ok => {
+                clearTimeout(timer);
+                restore();
                 signal?.removeEventListener('abort', failed);
                 request?.removeEventListener('loadend', loaded);
                 resolve(ok);
@@ -217,15 +221,23 @@ const BaishiAdapter = {
             function send(body) {
                 if (!request && candidates.has(this)) {
                     let payload;
-                    try { payload = JSON.parse(body); } catch (_) { /* 由平台处理其他请求。 */ }
+                    try { payload = JSON.parse(body); } catch (_) {}
                     const units = payload?.taskTeacherAssignmentStepScoreVOS;
-                    if (String(payload?.id) === filled.paper && payload.teacherId === filled.card.teacherId
+                    if (!signal?.aborted && guard.isCurrent?.() !== false
+                        && adapter.getPaperIdentity() === filled.identity
+                        && filled.page.autoSubmit === false && filled.input.value === String(filled.value)
+                        && String(payload?.id) === filled.paper && payload.teacherId === filled.card.teacherId
                         && payload.score === filled.value && Array.isArray(units) && units.length === 1
                         && units[0]?.questionNumber === filled.card.questionNumber
                         && units[0].assignmentConfigId === filled.card.assignmentConfigId
                         && String(units[0].score) === String(filled.value)) {
                         request = this;
                         request.addEventListener('loadend', loaded, { once: true });
+                        restore();
+                    } else {
+                        this.abort();
+                        failed();
+                        return;
                     }
                 }
                 return originalSend.call(this, body);
