@@ -588,10 +588,198 @@ const RuiyaAdapter = {
     },
 };
 
+const YuejuantongAdapter = Object.assign(Object.create(RuiyaAdapter), {
+    name: '悦卷通阅卷',
+
+    getGradingTaskIdentifier() { return this.isMarkingPage() ? this.getTaskIdentifier() : ''; },
+    getQuestionContext() {
+        const question = document.querySelector(RUIYA_SELECTORS.QUESTION_LABEL)?.textContent.trim();
+        const units = this.getScoreInputs().map(({ label, maxScore }) => ({ label, maxScore }));
+        return question && units.length && units.every(unit => unit.maxScore > 0) ? { question, units } : null;
+    },
+    _paper() {
+        const task = this.getGradingTaskIdentifier(), number = this._paperNo(), student = this._stuId();
+        const image = this._visible(RUIYA_SELECTORS.ANSWER_IMAGE);
+        const nativeNumber = document.querySelector('input[name="input-rpe-title"]')?.value;
+        const nativeStudent = document.querySelector(RUIYA_SELECTORS.HIDDEN_MARK_PIC)?.value;
+        if (!task || this.isRegradeMode() || this._visible('.loading') || !number || nativeNumber !== number
+            || !student || student === '0' || nativeStudent !== student || !image?.complete || !image.naturalWidth
+            || !image.naturalHeight || image.src !== image.currentSrc
+            || !/^(https?:|data:image\/)/i.test(image.currentSrc)) return null;
+        const url = image.currentSrc;
+        const imageKey = url.startsWith('data:') ? url : this._imagePath(url);
+        return { task, number, student, url, identity: JSON.stringify([task, number, student, imageKey]) };
+    },
+    getPaperIdentity() { return this._paper()?.identity || null; },
+    async gatherAnswerImages() {
+        const task = this.getGradingTaskIdentifier();
+        this._collected = null;
+        for (let poll = 0; task && poll < 40 && this.getGradingTaskIdentifier() === task; poll++) {
+            const paper = this._paper();
+            if (paper) {
+                this._collected = paper;
+                return [paper.url];
+            }
+            await new Promise(resolve => setTimeout(resolve, RUIYA_TIMING.IMAGE_POLL_MS));
+        }
+        return [];
+    },
+    async fetchImageAsBase64(url, signal) {
+        const adapter = YuejuantongAdapter, paper = adapter._collected;
+        if (!paper || paper.url !== url || adapter.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
+        const data = url.startsWith('data:') ? url.slice(url.indexOf(',') + 1) : await fetchImageAsBase64(url, signal);
+        if (signal?.aborted || adapter.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
+        return data;
+    },
+    _readyToWrite() {
+        return document.querySelector(RUIYA_SELECTORS.MODE_KEYBOARD)?.checked === true
+            && document.querySelector(RUIYA_SELECTORS.AUTO_SUBMIT_CHECKBOX)?.checked === false
+            && !document.querySelector(RUIYA_SELECTORS.MODE_STEPS)?.checked
+            && ![RUIYA_SELECTORS.TIPS_MODAL, RUIYA_SELECTORS.TIPS_DP_MODAL, RUIYA_SELECTORS.DIST_MODAL].some(sel => this._visible(sel));
+    },
+    fillScores(scores) {
+        this._filled = null;
+        this.lastFillError = '请核对当前答卷、键盘打分方式与各小题满分';
+        const paper = this._collected;
+        if (!paper || this.getPaperIdentity() !== paper.identity || document.querySelector(RUIYA_SELECTORS.MODE_STEPS)?.checked
+            || this._visible(RUIYA_SELECTORS.ZERO_MODAL) || !this._ensureKeyboardMode()) return false;
+        this._disableAutoSubmit();
+        const inputs = this.getScoreInputs();
+        const nativeInputs = [...document.querySelectorAll('#panelKey input:not([type]), #panelKey input[type="text"]')];
+        if (!this._readyToWrite() || this.getPaperIdentity() !== paper.identity || !inputs.length
+            || !Array.isArray(scores) || scores.length !== inputs.length || nativeInputs.length !== inputs.length
+            || inputs.some(({ element, maxScore }, index) => element !== nativeInputs[index] || !element.id
+                || element.readOnly || !(maxScore > 0) || !Number.isFinite(scores[index])
+                || scores[index] < 0 || scores[index] > maxScore)) return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        for (const [index, { element }] of inputs.entries()) {
+            if (!this._readyToWrite() || this.getPaperIdentity() !== paper.identity
+                || !this._writeScore(element, scores[index], setter)) return false;
+        }
+        const filled = { paper, inputs, scores: scores.slice() };
+        if (!this._matches(filled)) return false;
+        this._filled = filled;
+        this.lastFillError = '';
+        return true;
+    },
+    _matches(filled) {
+        const inputs = this.getScoreInputs();
+        return this.getPaperIdentity() === filled.paper.identity && this._readyToWrite() && inputs.length === filled.inputs.length
+            && inputs.every(({ element, maxScore }, index) => element === filled.inputs[index].element
+                && maxScore === filled.inputs[index].maxScore && !element.readOnly && element.value !== ''
+                && Number(element.value) === filled.scores[index]);
+    },
+    async submitGrade(guard = {}) {
+        const filled = this._filled;
+        this._filled = null;
+        if (!filled || this._saving) return false;
+        this._saving = true;
+        this._submitted = null;
+        this.lastSubmitError = '请在悦卷通核对当前答卷是否保存成功';
+        try {
+            await guard.verify?.();
+            const submit = this._visible(RUIYA_SELECTORS.SUBMIT_BUTTON);
+            if (guard.signal?.aborted || guard.isCurrent?.() === false || !this._matches(filled)
+                || this._visible(RUIYA_SELECTORS.ZERO_MODAL) || !submit || submit.disabled) return false;
+            if (!await this._save(filled, submit, guard)) return false;
+            this._submitted = filled.paper;
+            this.lastSubmitError = '';
+            return true;
+        } catch (_) { return false; }
+        finally { this._saving = false; }
+    },
+    _save(filled, submit, guard) {
+        const adapter = this, page = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
+        const proto = page.XMLHttpRequest.prototype, originalOpen = proto.open, originalSend = proto.send;
+        const candidates = new WeakSet(), total = filled.scores.reduce((sum, score) => sum + score, 0);
+        return new Promise(resolve => {
+            let request, finished = false, confirming = false;
+            const active = () => !guard.signal?.aborted && guard.isCurrent?.() !== false && adapter._matches(filled);
+            const restore = () => {
+                if (proto.open === open) proto.open = originalOpen;
+                if (proto.send === send) proto.send = originalSend;
+            };
+            const finish = ok => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timeout);
+                clearInterval(waitForZero);
+                restore();
+                request?.removeEventListener('loadend', received);
+                guard.signal?.removeEventListener('abort', cancel);
+                resolve(ok);
+            };
+            const cancel = () => finish(false);
+            const received = () => {
+                try {
+                    const data = request.responseType === 'json' ? request.response : JSON.parse(request.responseText);
+                    finish(!guard.signal?.aborted && adapter.getGradingTaskIdentifier() === filled.paper.task
+                        && request.status >= 200 && request.status < 300 && typeof data?.result === 'string' && data.result.startsWith('0'));
+                } catch (_) { cancel(); }
+            };
+            function open(method, url, ...args) {
+                const target = new URL(url, page.location.href);
+                if (String(method).toUpperCase() === 'POST' && target.origin === page.location.origin
+                    && target.pathname === '/api/markview/mark/') candidates.add(this);
+                return originalOpen.call(this, method, url, ...args);
+            }
+            function send(body) {
+                if (!request && candidates.has(this)) {
+                    let payload;
+                    try { payload = JSON.parse(body); } catch (_) {}
+                    const mark = payload?.mark, items = mark?.items;
+                    const itemScoresMatch = Array.isArray(items) && (Number(payload?.inum) === 0
+                        ? filled.scores.length === 1 && items.length === 1 && String(items[0]?.key) === '0' && items[0].score === -1
+                        : items.length === filled.scores.length && filled.inputs.every(({ element }, index) => items.some(
+                            item => String(item?.key) === element.id.slice(3) && item.score === filled.scores[index])));
+                    if (!active() || String(payload?.mtid) !== filled.paper.number || String(mark?.stu) !== filled.paper.student
+                        || !mark?.key || mark.score !== total || !itemScoresMatch) {
+                        this.abort();
+                        cancel();
+                        return;
+                    }
+                    request = this;
+                    request.addEventListener('loadend', received, { once: true });
+                    restore();
+                }
+                return originalSend.call(this, body);
+            }
+            const timeout = setTimeout(cancel, 20000);
+            const waitForZero = setInterval(async () => {
+                if (finished || request || confirming) return;
+                if (!active()) { cancel(); return; }
+                if (!adapter._visible(RUIYA_SELECTORS.ZERO_MODAL)) return;
+                const button = adapter._visible(RUIYA_SELECTORS.ZERO_MODAL_OK);
+                if (total !== 0 || !button || button.disabled) { cancel(); return; }
+                confirming = true;
+                try {
+                    await guard.verify?.();
+                    if (finished || !active() || adapter._visible(RUIYA_SELECTORS.ZERO_MODAL_OK) !== button) cancel();
+                    else button.click();
+                } catch (_) { cancel(); }
+            }, RUIYA_TIMING.MODAL_WATCH_POLL_MS);
+            guard.signal?.addEventListener('abort', cancel, { once: true });
+            try { proto.open = open; proto.send = send; submit.click(); }
+            catch (_) { cancel(); }
+        });
+    },
+    async waitForNextPaper(_url, guard = {}) {
+        const old = this._submitted;
+        if (!old || (guard.paperId && guard.paperId !== old.identity) || (guard.taskId && guard.taskId !== old.task)) return false;
+        const deadline = Date.now() + RUIYA_TIMING.NEXT_PAPER_TIMEOUT_MS;
+        while (!guard.signal?.aborted && Date.now() < deadline && this.getGradingTaskIdentifier() === old.task) {
+            const current = this._paper();
+            if (current && current.number !== old.number && current.student !== old.student) return true;
+            await new Promise(resolve => setTimeout(resolve, RUIYA_TIMING.NEXT_PAPER_POLL_MS));
+        }
+        return false;
+    },
+});
+
 if (RuiyaAdapter.shouldInitialize()) {
-    const [, tenantName] = getRuiyaTenant();
+    const [domain, tenantName] = getRuiyaTenant();
     RuiyaAdapter.name = tenantName;
-    window.__AI_MARKER_ADAPTER__ = RuiyaAdapter;
+    window.__AI_MARKER_ADAPTER__ = domain === 'yuejuantong.com' ? YuejuantongAdapter : RuiyaAdapter;
     try {
         RuiyaAdapter._installZIndexStyle();
     } catch (e) {

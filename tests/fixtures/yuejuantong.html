@@ -4,6 +4,8 @@
 <title>悦卷通阅卷练习</title>
 <div id="reviewPanel" hidden>回评</div>
 <span id="span_mt_pwd">练习卷 A</span>
+<input type="hidden" name="input-rpe-title" value="练习卷 A">
+<input type="hidden" id="hdMarkPic" value="fixture-a">
 <img id="imageFullScreen" data-stu="fixture-a" src="/__fixture/answer.svg" alt="练习答卷">
 <label><input type="radio" name="mode" id="rdKeyboard">键盘打分</label>
 <label><input type="radio" name="mode" id="rdMouse" checked>鼠标打分</label>
@@ -47,22 +49,58 @@
             const inputs = adapter.getScoreInputs();
             check(inputs.map(input => input.maxScore).join(',') === '6,7', '提取两问各自满分');
             check(inputs.map(input => input.label).join(',') === '第（1）问,第（2）问', '按页面顺序识别小题');
+            check(!adapter.fillScores([1]) && !adapter.fillScores([6.5, 7]) && !adapter.fillScores([0, null]), '缺项和越界分数拒绝写入');
             check(adapter.fillScores([0, 7]), '按小题录入零分和满分');
             check(inputs.map(input => input.element.value).join(',') === '0,7', '页面分值正确');
             check(document.querySelector('#rdKeyboard').checked, '填分时切换键盘打分');
             check(!document.querySelector('#autoSubmit').checked, '填分后等待明确提交');
 
             const modal = document.querySelector('#zeroCheckModal');
-            let submitted = 0;
-            document.querySelector('#submitMark').onclick = () => { modal.hidden = false; };
-            document.querySelector('#btn_0_ok').onclick = () => {
-                modal.hidden = true;
-                submitted++;
-                document.querySelector('#span_mt_pwd').textContent = '练习卷 B';
+            const button = document.querySelector('#submitMark');
+            let sent = 0, confirmed = 0, response = '2拒绝', wrongPaper = false;
+            class NativeSave extends EventTarget {
+                open() {}
+                abort() {}
+                send() {
+                    sent++;
+                    this.status = 200;
+                    this.responseText = JSON.stringify({ result: response });
+                    this.dispatchEvent(new Event('loadend'));
+                    if (!response.startsWith('0')) return;
+                    document.querySelector('#span_mt_pwd').textContent = '练习卷 B';
+                    document.querySelector('[name="input-rpe-title"]').value = '练习卷 B';
+                    document.querySelector('#hdMarkPic').value = 'fixture-b';
+                    const image = document.querySelector('#imageFullScreen');
+                    image.dataset.stu = 'fixture-b';
+                    image.src = '/__fixture/answer.svg?paper=b';
+                }
+            }
+            window.XMLHttpRequest = NativeSave;
+            const save = () => {
+                const scores = inputs.map(({ element }) => Number(element.value));
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/markview/mark/');
+                xhr.send(JSON.stringify({
+                    mtid: '练习卷 A', inum: 2,
+                    mark: { key: 'practice', stu: wrongPaper ? 'not-the-current-paper' : 'fixture-a',
+                        score: scores[0] + scores[1],
+                        items: inputs.map(({ element }, index) => ({ key: element.id.slice(3), score: scores[index] })) }
+                }));
             };
-            const nextPaper = adapter.waitForNextPaper(image);
-            check(adapter.submitGrade(), '通过平台按钮提交');
-            check(await nextPaper && submitted === 1, '确认零分后识别新答卷');
+            button.onclick = () => {
+                if (inputs.every(({ element }) => Number(element.value) === 0)) modal.hidden = false;
+                else save();
+            };
+            document.querySelector('#btn_0_ok').onclick = () => { confirmed++; modal.hidden = true; save(); };
+            const paperId = adapter.getPaperIdentity(), taskId = adapter.getGradingTaskIdentifier();
+            check(!await adapter.submitGrade() && sent === 1, '保存被拒绝后暂停');
+            check(!await adapter.waitForNextPaper(image), '拒绝回执不开始换卷');
+            wrongPaper = true;
+            check(adapter.fillScores([0, 7]) && !await adapter.submitGrade() && sent === 1, '身份不符的保存请求被拒绝');
+            wrongPaper = false;
+            response = '0';
+            check(adapter.fillScores([0, 0]) && await adapter.submitGrade(), '核对全零分确认和成功回执');
+            check(await adapter.waitForNextPaper(image, { paperId, taskId }) && sent === 2 && confirmed === 1, '保存成功后识别同题新答卷');
             document.querySelector('#reviewPanel').hidden = false;
             check(adapter.isRegradeMode(), '识别回评面板');
             document.querySelector('#rdSteps').click();
