@@ -1,5 +1,5 @@
 /**
- * build.js — 零依赖 Node.js 构建脚本
+ * build.js — Node.js 构建脚本
  * 将 src/core/ 和 src/adapters/ 下的模块合并，输出到 dist/
  *
  * 版本号唯一来源：src/core/config.js 中的 SCRIPT_CONFIG.VERSION
@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { minify } = require('terser');
+const { instrumentDiagnosticLogs } = require('./scripts/instrument-diagnostic-logs.cjs');
 
 // ========== 解析命令行参数 ==========
 const args = process.argv.slice(2);
@@ -69,6 +70,7 @@ const CORE_MODULES = [
     'correction.js',
     'zip.js',              // 极简 ZIP 打包（导出材料包用，需在 history.js 之前）
     'history.js',
+    'diagnostic-export.js',
     'ui-tools.js',  // 工具页面UI（/tools）
     'updater.js',
     'main.js',
@@ -146,6 +148,9 @@ const BUILD_CONFIGS = [
             'adapters/haiyun/adapter.js',
             'adapters/jiuwuyouping/selectors.js',
             'adapters/jiuwuyouping/adapter.js',
+            'adapters/taowei/selectors.js',
+            'adapters/taowei/adapter.js',
+            'adapters/baishi/adapter.js',
             'adapters/sipd/selectors.js',
             'adapters/sipd/adapter.js',
             'adapters/nhcisc/selectors.js',
@@ -181,7 +186,7 @@ const BUILD_CONFIGS = [
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'https://aimarking.five-plus-one.com/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊、酷鱼、A佳教育、云阅卷(开州)、正确阅卷、精斗云、小帆智能阅卷、睿芽、恒佳、云阅卷(华翰云)、懂你系统、学科网 e卷通、启光优测、诊学网、焦作精准教学、文通云、园丁邦云阅卷、小闲 AI 网上阅卷、丽升阅卷、天喻慧学（含惠州）、优分优学、小乐优阅、享尚学等51个平台。识别手写答案、按标准评分，支持双评仲裁、分小题评分与评阅历史导出。',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊、酷鱼、A佳教育、云阅卷(开州)、正确阅卷、精斗云、小帆智能阅卷、睿芽、恒佳、悦卷通、云阅卷(华翰云)、懂你系统、学科网 e卷通、启光优测、诊学网、焦作精准教学、文通云、园丁邦云阅卷、小闲 AI 网上阅卷、丽升阅卷、天喻慧学（含惠州）、优分优学、小乐优阅、享尚学、韬普教育云阅卷、百师联盟等54个平台。识别手写答案、按标准评分，支持双评仲裁、分小题评分与评阅历史导出。',
             author: '5plus1',
             match: [
                 '*://www.zhixue.com/*',
@@ -218,6 +223,7 @@ const BUILD_CONFIGS = [
                 'https://ls.xiaoxianai.cn/webPaper*',
                 '*://liankao.1000cb.com/Home/Mark*',
                 'http://120.55.199.134/*',
+                'http://hb.leascent.com/home/index*',
                 '*://hx-webscan.tyhuixue.com/web-reviewer/*',
                 'https://xinluolk.fjjxhl.com/lypaper/Base/lyReadPaper.aspx*',
                 '*://hx-webscan.hzjy.edu.cn/web-reviewer/*',
@@ -228,6 +234,8 @@ const BUILD_CONFIGS = [
                 '*://zp.kaow.cn/*',
                 '*://*.timesphoenix.com/*',
                 '*://timesphoenix.com/*',
+                '*://*.taoweiedu.com/web/*',
+                'https://ebs.bsedu.com/*',
                 '*://*.sipd.cn/*',
                 '*://sipd.cn/*',
                 '*://nhcisc.com/*',
@@ -244,6 +252,8 @@ const BUILD_CONFIGS = [
                 '*://ruiya.onlyets.com/*',
                 '*://*.yuejuan51.com/*',
                 '*://yuejuan51.com/*',
+                '*://*.yuejuantong.com/*',
+                '*://yuejuantong.com/*',
                 '*://yj.lcedu.net.cn/*',
                 '*://yuejuan.wzedu.cn/*',
                 '*://*.lcedu.net.cn/*',
@@ -258,7 +268,7 @@ const BUILD_CONFIGS = [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
-            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_registerMenuCommand', 'unsafeWindow'],
+            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_listValues', 'GM_deleteValue', 'GM_registerMenuCommand', 'unsafeWindow'],
             connect: [
                 'api.ai.five-plus-one.com',
                 'zhixue-sc.oss-cn-hangzhou.aliyuncs.com',
@@ -281,6 +291,8 @@ const BUILD_CONFIGS = [
                 'kyasource.keewing.com',
                 'static.wtjy.com',
                 'yuejuan-img.yuandingbang.cn',
+                'img-oss.sdzdf.com',
+                'bs-exam-bucket.oss-cn-beijing.aliyuncs.com',
                 'i3rx-registry.oss-cn-shanghai.aliyuncs.com',
                 'xzb-onlinemarking.oss-cn-beijing.aliyuncs.com',
                 'yyaitantao.oss-cn-shenzhen.aliyuncs.com',
@@ -415,7 +427,8 @@ function readModule(filePath, moduleName) {
     }
     const content = fs.readFileSync(filePath, 'utf8');
     const divider = `\n// ========== [Module: ${moduleName}] ==========\n`;
-    return divider + content + '\n';
+    return divider + (moduleName === 'core/diagnostic-log.js'
+        ? content : instrumentDiagnosticLogs(content, moduleName)) + '\n';
 }
 
 /**
@@ -503,7 +516,8 @@ async function build() {
         console.log(`\n📦 构建平台: ${buildConfig.name}`);
 
         // 构建外部库代码（marked.js + KaTeX）
-        let modulesContent = buildVendorCode();
+        let modulesContent = buildVendorCode() + `\nconst DIAGNOSTIC_SCRIPT_VERSION = ${JSON.stringify(VERSION)};\n`
+            + readModule(path.join(CORE_DIR, 'diagnostic-log.js'), 'core/diagnostic-log.js');
 
         // 读取适配器模块（需在核心模块之前加载，以便 window.__AI_MARKER_ADAPTER__ 可用）
         if (buildConfig.adapterModules) {

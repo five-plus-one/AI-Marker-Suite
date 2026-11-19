@@ -1,6 +1,5 @@
-// ========== OnlyETS 考试服务云平台阅卷适配器（睿芽/恒佳租户） ==========
+// ========== OnlyETS 考试服务云平台阅卷适配器（睿芽、恒佳、悦卷通） ==========
 // ASP.NET WebForms + jQuery + Bootstrap + iCheck
-// 租户域名: ruiya.onlyets.com（睿芽）、*.yuejuan51.com（恒佳，2026-11-06 实测 31/31 选择器一致）
 // 阅卷页: /mark/v6/view/<32位GUID>
 //
 // 与威科姆（wyna.onlyets.com）同为厂商 CampusManage/MarkClient 代码，DOM 一致，
@@ -22,27 +21,33 @@ const RUIYA_TIMING = {
     DETECT_TIMEOUT_MS: 12000,
     NEXT_PAPER_TIMEOUT_MS: 26000,
     NEXT_PAPER_POLL_MS: 250,
-    NEXT_PAPER_GRACE_MS: 1500,     // 宽限期内不认「输入框被清空」
-    NEXT_PAPER_EMPTY_HITS: 3,      // 连续 3 次全空 ≈ 750ms
     MODAL_WATCH_MS: 3000,
     MODAL_WATCH_POLL_MS: 200,
     // 资源时间线兜底：默认关闭（宁可返回空图，不可批错卷）
     ALLOW_RESOURCE_FALLBACK: false,
 };
 
+const RUIYA_TENANTS = [
+    ['ruiya.onlyets.com', '睿芽阅卷'],
+    ['yuejuan51.com', '恒佳阅卷'],
+    ['yuejuantong.com', '悦卷通阅卷'],
+];
+
+function getRuiyaTenant() {
+    const hostname = (window.location.hostname || '').toLowerCase();
+    return RUIYA_TENANTS.find(([domain]) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+
 const RuiyaAdapter = {
-    name: '睿芽阅卷',   // 注册时按租户域名覆盖（恒佳租户显示「恒佳阅卷」）
+    name: '睿芽阅卷',
     id: 'ruiya',
-    urlPatterns: ['*://ruiya.onlyets.com/*', '*://*.yuejuan51.com/*', '*://yuejuan51.com/*'],
+    urlPatterns: ['*://ruiya.onlyets.com/*', '*://*.yuejuan51.com/*', '*://yuejuan51.com/*',
+        '*://*.yuejuantong.com/*', '*://yuejuantong.com/*'],
     iconUrl: '',
 
     // ---------- 宿主判定 ----------
     shouldInitialize() {
-        const h = (window.location.hostname || '').toLowerCase();
-        // 多租户精确匹配：睿芽（ruiya.onlyets.com）与恒佳（yuejuan51.com）同为 OnlyETS 租户；
-        // 不能吞掉 wyna.onlyets.com（威科姆），也不误匹配 xruiya.onlyets.com 等近似域
-        return h === 'ruiya.onlyets.com' || h.endsWith('.ruiya.onlyets.com')
-            || h === 'yuejuan51.com' || h.endsWith('.yuejuan51.com');
+        return Boolean(getRuiyaTenant());
     },
 
     // 快速页面检查（不等待 DOM），供 URL 变化监听器使用
@@ -308,9 +313,6 @@ const RuiyaAdapter = {
         const basePaperNo = this._paperNo();
         const baseStu = this._stuId();
         const basePath = this._imagePath(oldImageUrl) || this._imagePath(this._rawImageSrc());
-        const hadValueBefore = this.getScoreInputs().some(x => String(x.element.value || '').trim() !== '')
-            || !!this._lastFillSignature;
-        let emptyHits = 0;
 
         console.log(`[睿芽] 等待下一份 密号=${basePaperNo || '-'} 图=${basePath ? basePath.slice(-40) : '-'}`);
 
@@ -336,19 +338,6 @@ const RuiyaAdapter = {
                 return true;
             }
 
-            // 弱信号：全框清空 —— 必须①过宽限期 ②填分前确有值 ③连续 3 次
-            // 绝不把 "0" 当空（0 分是合法分值），否则 0 分卷会被误判翻卷 → 重复提交
-            if (Date.now() - start > RUIYA_TIMING.NEXT_PAPER_GRACE_MS && hadValueBefore) {
-                const cur = this.getScoreInputs();
-                const allEmpty = cur.length > 0
-                    && cur.every(x => String(x.element.value || '').trim() === '');
-                emptyHits = allEmpty ? emptyHits + 1 : 0;
-                if (emptyHits >= RUIYA_TIMING.NEXT_PAPER_EMPTY_HITS) {
-                    console.warn('[睿芽] 仅凭「输入框持续清空」判定翻卷（密号与图片未变），请留意');
-                    return true;
-                }
-            }
-
             await new Promise(r => setTimeout(r, RUIYA_TIMING.NEXT_PAPER_POLL_MS));
         }
 
@@ -368,22 +357,6 @@ const RuiyaAdapter = {
     },
 
     // ---------- 生命周期钩子 ----------
-    onPageLoad() {
-        console.log('[睿芽] 页面加载完成');
-        // 「阅卷小提示」为 data-backdrop=static 弹窗会遮挡自动批改操作，
-        // 点「不再提示」关闭并记住偏好（信息性弹窗，无风险）
-        try {
-            if (this._visible(RUIYA_SELECTORS.TIPS_MODAL)) {
-                const dismiss = document.querySelector(RUIYA_SELECTORS.TIPS_MODAL_DISMISS);
-                if (dismiss) {
-                    dismiss.click();
-                    console.log('[睿芽] 已关闭「阅卷小提示」弹窗');
-                }
-            }
-        } catch (e) {
-            console.warn('[睿芽] 关闭提示弹窗失败', e);
-        }
-    },
 
     // ---------- 内部工具 ----------
     _writeScore(el, score, setter) {
@@ -615,11 +588,198 @@ const RuiyaAdapter = {
     },
 };
 
+const YuejuantongAdapter = Object.assign(Object.create(RuiyaAdapter), {
+    name: '悦卷通阅卷',
+
+    getGradingTaskIdentifier() { return this.isMarkingPage() ? this.getTaskIdentifier() : ''; },
+    getQuestionContext() {
+        const question = document.querySelector(RUIYA_SELECTORS.QUESTION_LABEL)?.textContent.trim();
+        const units = this.getScoreInputs().map(({ label, maxScore }) => ({ label, maxScore }));
+        return question && units.length && units.every(unit => unit.maxScore > 0) ? { question, units } : null;
+    },
+    _paper() {
+        const task = this.getGradingTaskIdentifier(), number = this._paperNo(), student = this._stuId();
+        const image = this._visible(RUIYA_SELECTORS.ANSWER_IMAGE);
+        const nativeNumber = document.querySelector('input[name="input-rpe-title"]')?.value;
+        const nativeStudent = document.querySelector(RUIYA_SELECTORS.HIDDEN_MARK_PIC)?.value;
+        if (!task || this.isRegradeMode() || this._visible('.loading') || !number || nativeNumber !== number
+            || !student || student === '0' || nativeStudent !== student || !image?.complete || !image.naturalWidth
+            || !image.naturalHeight || image.src !== image.currentSrc
+            || !/^(https?:|data:image\/)/i.test(image.currentSrc)) return null;
+        const url = image.currentSrc;
+        const imageKey = url.startsWith('data:') ? url : this._imagePath(url);
+        return { task, number, student, url, identity: JSON.stringify([task, number, student, imageKey]) };
+    },
+    getPaperIdentity() { return this._paper()?.identity || null; },
+    async gatherAnswerImages() {
+        const task = this.getGradingTaskIdentifier();
+        this._collected = null;
+        for (let poll = 0; task && poll < 40 && this.getGradingTaskIdentifier() === task; poll++) {
+            const paper = this._paper();
+            if (paper) {
+                this._collected = paper;
+                return [paper.url];
+            }
+            await new Promise(resolve => setTimeout(resolve, RUIYA_TIMING.IMAGE_POLL_MS));
+        }
+        return [];
+    },
+    async fetchImageAsBase64(url, signal) {
+        const adapter = YuejuantongAdapter, paper = adapter._collected;
+        if (!paper || paper.url !== url || adapter.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
+        const data = url.startsWith('data:') ? url.slice(url.indexOf(',') + 1) : await fetchImageAsBase64(url, signal);
+        if (signal?.aborted || adapter.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
+        return data;
+    },
+    _readyToWrite() {
+        return document.querySelector(RUIYA_SELECTORS.MODE_KEYBOARD)?.checked === true
+            && document.querySelector(RUIYA_SELECTORS.AUTO_SUBMIT_CHECKBOX)?.checked === false
+            && !document.querySelector(RUIYA_SELECTORS.MODE_STEPS)?.checked
+            && ![RUIYA_SELECTORS.TIPS_MODAL, RUIYA_SELECTORS.TIPS_DP_MODAL, RUIYA_SELECTORS.DIST_MODAL].some(sel => this._visible(sel));
+    },
+    fillScores(scores) {
+        this._filled = null;
+        this.lastFillError = '请核对当前答卷、键盘打分方式与各小题满分';
+        const paper = this._collected;
+        if (!paper || this.getPaperIdentity() !== paper.identity || document.querySelector(RUIYA_SELECTORS.MODE_STEPS)?.checked
+            || this._visible(RUIYA_SELECTORS.ZERO_MODAL) || !this._ensureKeyboardMode()) return false;
+        this._disableAutoSubmit();
+        const inputs = this.getScoreInputs();
+        const nativeInputs = [...document.querySelectorAll('#panelKey input:not([type]), #panelKey input[type="text"]')];
+        if (!this._readyToWrite() || this.getPaperIdentity() !== paper.identity || !inputs.length
+            || !Array.isArray(scores) || scores.length !== inputs.length || nativeInputs.length !== inputs.length
+            || inputs.some(({ element, maxScore }, index) => element !== nativeInputs[index] || !element.id
+                || element.readOnly || !(maxScore > 0) || !Number.isFinite(scores[index])
+                || scores[index] < 0 || scores[index] > maxScore)) return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        for (const [index, { element }] of inputs.entries()) {
+            if (!this._readyToWrite() || this.getPaperIdentity() !== paper.identity
+                || !this._writeScore(element, scores[index], setter)) return false;
+        }
+        const filled = { paper, inputs, scores: scores.slice() };
+        if (!this._matches(filled)) return false;
+        this._filled = filled;
+        this.lastFillError = '';
+        return true;
+    },
+    _matches(filled) {
+        const inputs = this.getScoreInputs();
+        return this.getPaperIdentity() === filled.paper.identity && this._readyToWrite() && inputs.length === filled.inputs.length
+            && inputs.every(({ element, maxScore }, index) => element === filled.inputs[index].element
+                && maxScore === filled.inputs[index].maxScore && !element.readOnly && element.value !== ''
+                && Number(element.value) === filled.scores[index]);
+    },
+    async submitGrade(guard = {}) {
+        const filled = this._filled;
+        this._filled = null;
+        if (!filled || this._saving) return false;
+        this._saving = true;
+        this._submitted = null;
+        this.lastSubmitError = '请在悦卷通核对当前答卷是否保存成功';
+        try {
+            await guard.verify?.();
+            const submit = this._visible(RUIYA_SELECTORS.SUBMIT_BUTTON);
+            if (guard.signal?.aborted || guard.isCurrent?.() === false || !this._matches(filled)
+                || this._visible(RUIYA_SELECTORS.ZERO_MODAL) || !submit || submit.disabled) return false;
+            if (!await this._save(filled, submit, guard)) return false;
+            this._submitted = filled.paper;
+            this.lastSubmitError = '';
+            return true;
+        } catch (_) { return false; }
+        finally { this._saving = false; }
+    },
+    _save(filled, submit, guard) {
+        const adapter = this, page = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
+        const proto = page.XMLHttpRequest.prototype, originalOpen = proto.open, originalSend = proto.send;
+        const candidates = new WeakSet(), total = filled.scores.reduce((sum, score) => sum + score, 0);
+        return new Promise(resolve => {
+            let request, finished = false, confirming = false;
+            const active = () => !guard.signal?.aborted && guard.isCurrent?.() !== false && adapter._matches(filled);
+            const restore = () => {
+                if (proto.open === open) proto.open = originalOpen;
+                if (proto.send === send) proto.send = originalSend;
+            };
+            const finish = ok => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timeout);
+                clearInterval(waitForZero);
+                restore();
+                request?.removeEventListener('loadend', received);
+                guard.signal?.removeEventListener('abort', cancel);
+                resolve(ok);
+            };
+            const cancel = () => finish(false);
+            const received = () => {
+                try {
+                    const data = request.responseType === 'json' ? request.response : JSON.parse(request.responseText);
+                    finish(!guard.signal?.aborted && adapter.getGradingTaskIdentifier() === filled.paper.task
+                        && request.status >= 200 && request.status < 300 && typeof data?.result === 'string' && data.result.startsWith('0'));
+                } catch (_) { cancel(); }
+            };
+            function open(method, url, ...args) {
+                const target = new URL(url, page.location.href);
+                if (String(method).toUpperCase() === 'POST' && target.origin === page.location.origin
+                    && target.pathname === '/api/markview/mark/') candidates.add(this);
+                return originalOpen.call(this, method, url, ...args);
+            }
+            function send(body) {
+                if (!request && candidates.has(this)) {
+                    let payload;
+                    try { payload = JSON.parse(body); } catch (_) {}
+                    const mark = payload?.mark, items = mark?.items;
+                    const itemScoresMatch = Array.isArray(items) && (Number(payload?.inum) === 0
+                        ? filled.scores.length === 1 && items.length === 1 && String(items[0]?.key) === '0' && items[0].score === -1
+                        : items.length === filled.scores.length && filled.inputs.every(({ element }, index) => items.some(
+                            item => String(item?.key) === element.id.slice(3) && item.score === filled.scores[index])));
+                    if (!active() || String(payload?.mtid) !== filled.paper.number || String(mark?.stu) !== filled.paper.student
+                        || !mark?.key || mark.score !== total || !itemScoresMatch) {
+                        this.abort();
+                        cancel();
+                        return;
+                    }
+                    request = this;
+                    request.addEventListener('loadend', received, { once: true });
+                    restore();
+                }
+                return originalSend.call(this, body);
+            }
+            const timeout = setTimeout(cancel, 20000);
+            const waitForZero = setInterval(async () => {
+                if (finished || request || confirming) return;
+                if (!active()) { cancel(); return; }
+                if (!adapter._visible(RUIYA_SELECTORS.ZERO_MODAL)) return;
+                const button = adapter._visible(RUIYA_SELECTORS.ZERO_MODAL_OK);
+                if (total !== 0 || !button || button.disabled) { cancel(); return; }
+                confirming = true;
+                try {
+                    await guard.verify?.();
+                    if (finished || !active() || adapter._visible(RUIYA_SELECTORS.ZERO_MODAL_OK) !== button) cancel();
+                    else button.click();
+                } catch (_) { cancel(); }
+            }, RUIYA_TIMING.MODAL_WATCH_POLL_MS);
+            guard.signal?.addEventListener('abort', cancel, { once: true });
+            try { proto.open = open; proto.send = send; submit.click(); }
+            catch (_) { cancel(); }
+        });
+    },
+    async waitForNextPaper(_url, guard = {}) {
+        const old = this._submitted;
+        if (!old || (guard.paperId && guard.paperId !== old.identity) || (guard.taskId && guard.taskId !== old.task)) return false;
+        const deadline = Date.now() + RUIYA_TIMING.NEXT_PAPER_TIMEOUT_MS;
+        while (!guard.signal?.aborted && Date.now() < deadline && this.getGradingTaskIdentifier() === old.task) {
+            const current = this._paper();
+            if (current && current.number !== old.number && current.student !== old.student) return true;
+            await new Promise(resolve => setTimeout(resolve, RUIYA_TIMING.NEXT_PAPER_POLL_MS));
+        }
+        return false;
+    },
+});
+
 if (RuiyaAdapter.shouldInitialize()) {
-    // 多租户显示名：恒佳租户（yuejuan51.com）显示「恒佳阅卷」，睿芽保持「睿芽阅卷」
-    RuiyaAdapter.name = window.location.hostname.toLowerCase().includes('yuejuan51')
-        ? '恒佳阅卷' : '睿芽阅卷';
-    window.__AI_MARKER_ADAPTER__ = RuiyaAdapter;
+    const [domain, tenantName] = getRuiyaTenant();
+    RuiyaAdapter.name = tenantName;
+    window.__AI_MARKER_ADAPTER__ = domain === 'yuejuantong.com' ? YuejuantongAdapter : RuiyaAdapter;
     try {
         RuiyaAdapter._installZIndexStyle();
     } catch (e) {

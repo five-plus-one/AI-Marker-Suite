@@ -17,7 +17,7 @@ function getUIRoot() {
 //      —— 对脚本 UI 根节点注入防御性 !important 样式（作用域仅限脚本 UI，不触碰平台 DOM）。
 const AI_UI_ROOTS = [
     '#auto-submit-dialog', '#asd-minimized-bar',
-    '.ai-modal-overlay', '#correction-panel',
+    '.ai-modal-overlay', '#ai-diagnostic-export', '#correction-panel',
     '#ai-settings-overlay', '#ai-grading-settings',
     '#ai-md-editor-overlay', '#ai-md-editor', '.md-formula-panel',
     '#ai-crop-overlay', '.ai-img-choice-overlay', '.ai-recog-overlay',
