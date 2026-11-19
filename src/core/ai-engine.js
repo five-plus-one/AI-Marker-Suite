@@ -1,6 +1,67 @@
 function isOfficialModelProvider(provider) {
-    try { return new URL(provider?.endpoint || '').hostname === new URL(SCRIPT_CONFIG.DEFAULT_ENDPOINT).hostname; }
+    try {
+        const { hostname } = new URL(provider?.endpoint || '');
+        return [SCRIPT_CONFIG.DEFAULT_ENDPOINT, SCRIPT_CONFIG.SHANGHAI_ENDPOINT].filter(Boolean)
+            .some(endpoint => new URL(endpoint).hostname === hostname);
+    }
     catch (_) { return false; }
+}
+
+function getOfficialApiEndpoint(value) {
+    return value && value === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? value : SCRIPT_CONFIG.DEFAULT_ENDPOINT;
+}
+
+function checkOfficialApiConnection(endpoint, apiKey, signal) {
+    return new Promise(resolve => {
+        if (signal?.aborted) { resolve('cancelled'); return; }
+        let request, settled = false;
+        const finish = reason => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', cancel);
+            resolve(reason);
+        };
+        const stop = reason => {
+            finish(reason);
+            request?.abort();
+        };
+        const cancel = () => stop('cancelled');
+        const timer = setTimeout(() => stop('network'), 15000);
+        signal?.addEventListener('abort', cancel, { once: true });
+        try {
+            request = GM_xmlhttpRequest({
+                method: 'POST', url: endpoint, anonymous: true, redirect: 'error',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                data: JSON.stringify({ model: SCRIPT_CONFIG.DEFAULT_MODEL, messages: [{ role: 'user', content: '回复：收到' }], max_tokens: 5 }),
+                onload(response) {
+                    if (response.finalUrl && response.finalUrl !== endpoint) { finish('network'); return; }
+                    const status = Number(response.status);
+                    let data;
+                    try { data = JSON.parse(response.responseText); } catch (_) { /* 上游可能返回网页。 */ }
+                    if (status >= 200 && status < 300) finish(data?.choices?.[0]?.message && !data.error ? 'connected' : 'network');
+                    else if (status === 401 || (status === 403 && data?.error)) finish('invalid');
+                    else if (!status || status === 403 || status === 408 || status >= 500) finish('network');
+                    else finish('service');
+                },
+                onerror: () => finish('network'),
+                ontimeout: () => finish('network'),
+                onabort: () => finish(signal?.aborted ? 'cancelled' : 'network'),
+            });
+        } catch (_) { finish('network'); }
+    });
+}
+
+async function verifyOfficialApiKey(apiKey, { endpoint, signal, onFallback } = {}) {
+    const primary = getOfficialApiEndpoint(endpoint);
+    const verify = async url => {
+        const reason = await checkOfficialApiConnection(url, apiKey, signal);
+        return reason === 'connected' ? { success: true, endpoint: url } : { success: false, reason };
+    };
+    const first = await verify(primary);
+    if (first.reason !== 'network' || !SCRIPT_CONFIG.SHANGHAI_ENDPOINT || primary === SCRIPT_CONFIG.SHANGHAI_ENDPOINT || signal?.aborted) return first;
+    onFallback?.();
+    return verify(SCRIPT_CONFIG.SHANGHAI_ENDPOINT);
 }
 
 function isProviderDataValid(data) {
@@ -204,6 +265,19 @@ const ProviderManager = {
     },
     getProvider(name) {
         return Object.prototype.hasOwnProperty.call(this.data.providers, name) ? this.data.providers[name] : null;
+    },
+    saveOfficialConnection(endpoint, apiKey) {
+        const provider = this.getProvider('5plus1官方');
+        if (!provider) return false;
+        const previous = { endpoint: provider.endpoint, apiKey: provider.apiKey };
+        const connection = { endpoint: getOfficialApiEndpoint(endpoint), apiKey: apiKey ?? previous.apiKey };
+        Object.assign(provider, connection);
+        try { if (this.save() !== false) return true; } catch (_) { /* 保留已保存的连接。 */ }
+        const current = this.getProvider('5plus1官方');
+        const saved = current === provider ? previous : this._storageBaseline?.providers?.['5plus1官方'] || previous;
+        if (current?.endpoint === connection.endpoint) current.endpoint = saved.endpoint;
+        if (apiKey !== undefined && current?.apiKey === connection.apiKey) current.apiKey = saved.apiKey;
+        return false;
     },
     getCurrentProvider() {
         return this.data.providers[this.data.activeProvider] || {};
@@ -771,7 +845,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     // 检测余额不足
                     const isInsufficient = /insufficient|balance|quota|余额|额度|欠费/i.test(errorMsg);
                     if (isInsufficient) {
-                        const isOfficial = config.endpoint?.includes('five-plus-one.com');
+                        const isOfficial = isOfficialModelProvider(config);
                         if (isOfficial) {
                             showInsufficientBalanceDialog(true);
                         } else {
