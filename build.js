@@ -273,6 +273,7 @@ const BUILD_CONFIGS = [
             grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_listValues', 'GM_deleteValue', 'GM_registerMenuCommand', 'unsafeWindow'],
             connect: [
                 'api.ai.five-plus-one.com',
+                'api-sh.ai.five-plus-one.com',
                 'zhixue-sc.oss-cn-hangzhou.aliyuncs.com',
                 'yjimage.oss-cn-hangzhou.aliyuncs.com',
                 'static.7net.cc',
