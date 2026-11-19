@@ -1,14 +1,81 @@
-function isOfficialModelProvider(provider) {
+function isTrustedOfficialEndpoint(endpoint) {
     try {
-        const { hostname } = new URL(provider?.endpoint || '');
-        return [SCRIPT_CONFIG.DEFAULT_ENDPOINT, SCRIPT_CONFIG.SHANGHAI_ENDPOINT].filter(Boolean)
-            .some(endpoint => new URL(endpoint).hostname === hostname);
-    }
-    catch (_) { return false; }
+        const url = new URL(endpoint);
+        return /^[a-z0-9][a-z0-9-]*\.ai\.five-plus-one\.com$/.test(url.hostname)
+            && endpoint === `https://${url.hostname}/v1/chat/completions`;
+    } catch (_) { return false; }
+}
+
+const officialApiRoutes = {
+    primary: SCRIPT_CONFIG.DEFAULT_ENDPOINT, backup: SCRIPT_CONFIG.SHANGHAI_ENDPOINT, revision: 0,
+};
+let officialApiRoutingRequest = null;
+let officialApiRoutingChecked = 0;
+let officialApiFallback = null;
+
+function applyOfficialApiRoutes(value) {
+    const primary = value?.official?.endpoint, backup = value?.official?.backupEndpoint;
+    if (!Number.isSafeInteger(value?.revision) || value.revision <= officialApiRoutes.revision
+        || !isTrustedOfficialEndpoint(primary) || !isTrustedOfficialEndpoint(backup) || primary === backup) return false;
+    Object.assign(officialApiRoutes, { primary, backup, revision: value.revision });
+    officialApiFallback = null;
+    return true;
+}
+
+function refreshOfficialApiRoutes() {
+    const url = SCRIPT_CONFIG.API_ROUTING_URL;
+    if (officialApiRoutingRequest) return officialApiRoutingRequest;
+    if (!url || (officialApiRoutingChecked && Date.now() - officialApiRoutingChecked < 300000)) return null;
+    officialApiRoutingChecked = Date.now();
+    try { applyOfficialApiRoutes(GM_getValue('ai-marker-official-api-routes')); } catch (_) { /* 内置线路可用。 */ }
+    officialApiRoutingRequest = new Promise(resolve => {
+        let request, settled = false;
+        const finish = value => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (applyOfficialApiRoutes(value)) {
+                const { primary, backup, revision } = officialApiRoutes;
+                try { GM_setValue('ai-marker-official-api-routes', { revision, official: { endpoint: primary, backupEndpoint: backup } }); }
+                catch (_) { /* 本页仍可使用当前线路。 */ }
+            }
+            resolve();
+        };
+        const timer = setTimeout(() => { finish(); request?.abort(); }, 3000);
+        try {
+            request = GM_xmlhttpRequest({
+                method: 'GET', url, anonymous: true, redirect: 'error', nocache: true,
+                onload(response) {
+                    if (response.status !== 200 || (response.finalUrl && response.finalUrl !== url)
+                        || response.responseText?.length > 8192) { finish(); return; }
+                    let value;
+                    try { value = JSON.parse(response.responseText); } catch (_) { /* 响应必须是线路配置。 */ }
+                    finish(value);
+                },
+                onerror: () => finish(), ontimeout: () => finish(), onabort: () => finish(),
+            });
+        } catch (_) { finish(); }
+    }).finally(() => { officialApiRoutingRequest = null; });
+    return officialApiRoutingRequest;
+}
+
+function getOfficialApiLine(provider) {
+    if (provider?.endpointLine === 'primary' || provider?.endpointLine === 'backup') return provider.endpointLine;
+    if (!provider?.endpoint) return '';
+    if (provider.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT) return 'backup';
+    if (provider.endpoint === SCRIPT_CONFIG.DEFAULT_ENDPOINT) return 'primary';
+    return ['primary', 'backup'].find(line => officialApiRoutes[line] === provider.endpoint) || '';
+}
+
+function isOfficialModelProvider(provider) {
+    const endpoint = provider?.endpoint;
+    return !!endpoint && ([SCRIPT_CONFIG.DEFAULT_ENDPOINT, SCRIPT_CONFIG.SHANGHAI_ENDPOINT].includes(endpoint)
+        || (isTrustedOfficialEndpoint(endpoint) && !!getOfficialApiLine(provider)));
 }
 
 function getOfficialApiEndpoint(value) {
-    return value && value === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? value : SCRIPT_CONFIG.DEFAULT_ENDPOINT;
+    const line = ['primary', 'backup'].includes(value) ? value : getOfficialApiLine({ endpoint: value });
+    return officialApiRoutes[line || 'primary'] || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
 }
 
 function checkOfficialApiConnection(endpoint, apiKey, signal) {
@@ -52,16 +119,17 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
     });
 }
 
-async function verifyOfficialApiKey(apiKey, { endpoint, signal, onFallback } = {}) {
-    const primary = getOfficialApiEndpoint(endpoint);
-    const verify = async url => {
+async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback } = {}) {
+    await refreshOfficialApiRoutes();
+    const preferred = ['primary', 'backup'].includes(line) ? line : getOfficialApiLine({ endpoint }) || 'primary';
+    const verify = async (url, route) => {
         const reason = await checkOfficialApiConnection(url, apiKey, signal);
-        return reason === 'connected' ? { success: true, endpoint: url } : { success: false, reason };
+        return reason === 'connected' ? { success: true, endpoint: url, line: route } : { success: false, reason };
     };
-    const first = await verify(primary);
-    if (first.reason !== 'network' || !SCRIPT_CONFIG.SHANGHAI_ENDPOINT || primary === SCRIPT_CONFIG.SHANGHAI_ENDPOINT || signal?.aborted) return first;
+    const first = await verify(getOfficialApiEndpoint(preferred), preferred);
+    if (first.reason !== 'network' || !officialApiRoutes.backup || preferred === 'backup' || signal?.aborted) return first;
     onFallback?.();
-    return verify(SCRIPT_CONFIG.SHANGHAI_ENDPOINT);
+    return verify(officialApiRoutes.backup, 'backup');
 }
 
 function isProviderDataValid(data) {
@@ -269,13 +337,20 @@ const ProviderManager = {
     saveOfficialConnection(endpoint, apiKey) {
         const provider = this.getProvider('5plus1官方');
         if (!provider) return false;
-        const previous = { endpoint: provider.endpoint, apiKey: provider.apiKey };
-        const connection = { endpoint: getOfficialApiEndpoint(endpoint), apiKey: apiKey ?? previous.apiKey };
+        const previous = { endpoint: provider.endpoint, endpointLine: provider.endpointLine, apiKey: provider.apiKey };
+        const endpointLine = ['primary', 'backup'].includes(endpoint) ? endpoint : getOfficialApiLine({ endpoint }) || 'primary';
+        const connection = { endpoint: getOfficialApiEndpoint(endpointLine), endpointLine, apiKey: apiKey ?? previous.apiKey };
         Object.assign(provider, connection);
-        try { if (this.save() !== false) return true; } catch (_) { /* 保留已保存的连接。 */ }
+        try {
+            if (this.save() !== false) { officialApiFallback = null; return true; }
+        } catch (_) { /* 保留已保存的连接。 */ }
         const current = this.getProvider('5plus1官方');
         const saved = current === provider ? previous : this._storageBaseline?.providers?.['5plus1官方'] || previous;
         if (current?.endpoint === connection.endpoint) current.endpoint = saved.endpoint;
+        if (current?.endpointLine === connection.endpointLine) {
+            if (saved.endpointLine) current.endpointLine = saved.endpointLine;
+            else delete current.endpointLine;
+        }
         if (apiKey !== undefined && current?.apiKey === connection.apiKey) current.apiKey = saved.apiKey;
         return false;
     },
@@ -299,8 +374,10 @@ const ProviderManager = {
     getCallConfig(providerName, modelId) {
         const provider = this.getProvider(providerName);
         if (!provider || !modelId || !Object.prototype.hasOwnProperty.call(provider.models || {}, modelId)) return null;
+        const officialApiLine = providerName === '5plus1官方' ? getOfficialApiLine(provider) : '';
         return {
-            endpoint: provider.endpoint,
+            endpoint: officialApiLine ? getOfficialApiEndpoint(officialApiLine) : provider.endpoint,
+            ...(officialApiLine ? { officialApiLine } : {}),
             apiKey: provider.apiKey,
             model: modelId
         };
@@ -703,7 +780,7 @@ function filterUsableImagesForAI(list) {
 // ========== 通用 AI 请求函数 ==========
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
     const signal = config.signal || window.aiGradingState.abortController?.signal;
-    let abortRequest;
+    let abortRequest, timeout;
     return new Promise((resolve, reject) => {
         if (signal?.aborted) return reject(new Error('用户主动暂停'));
         // 合并额外图片（来自题目/答案/评分标准）+ 学生答题卡图片
@@ -768,6 +845,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         let streamError = null;
         let streamDone = false;
         let sawSSE = false;
+        let receivedHeaders = false;
 
         function parseSSEBuffer(chunk) {
             buffer += chunk;
@@ -799,12 +877,16 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         const request = GM_xmlhttpRequest({
             method: 'POST',
             url: config.endpoint,
+            ...(config.officialApiLine ? { redirect: 'error' } : {}),
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${config.apiKey}`
             },
             data: JSON.stringify(requestBody),
             timeout: 120000,
+            onreadystatechange(res) {
+                if (res.readyState >= 2 && res.status >= 200 && res.status < 300) receivedHeaders = true;
+            },
             onprogress: function(res) {
                 if (res.responseText) {
                     progressCallCount++;
@@ -819,6 +901,9 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             onload: function(res) {
                 if (settled) return;
                 settled = true;
+                if (config.officialApiLine && res.finalUrl && res.finalUrl !== config.endpoint) {
+                    return reject(new Error('官方端点响应地址已变化，请核对线路设置'));
+                }
                 const responseText = res.responseText || '';
                 console.log(`✅ [诊断] onload 触发 — HTTP状态: ${res.status}, onprogress累计触发次数: ${progressCallCount}, 响应长度: ${responseText.length} 字节`);
                 if (res.status < 200 || res.status >= 300) {
@@ -847,6 +932,8 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
 
                     const error = new Error(`API报错 (${res.status}): ${errorMsg}`);
                     error.status = res.status;
+                    error.routeUnavailable = !sawSSE && ([502, 503].includes(res.status)
+                        || ([403, 451].includes(res.status) && /<html|<!doctype/i.test(responseText)));
                     return reject(error);
                 }
 
@@ -899,7 +986,9 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             onerror: function() {
                 if (settled) return;
                 settled = true;
-                reject(new Error('网络请求被拦截，请检查跨域权限'));
+                const error = new Error('网络请求被拦截，请检查跨域权限');
+                error.routeUnavailable = !receivedHeaders && !progressCallCount;
+                reject(error);
             },
             ontimeout: function() {
                 if (settled) return;
@@ -907,6 +996,14 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                 reject(new Error('请求超时'));
             }
         });
+
+        // Tampermonkey redirects are blocked in fetch mode, whose Chrome timeout is handled here.
+        if (config.officialApiLine && !settled) timeout = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            reject(new Error('请求超时'));
+            request.abort();
+        }, 120000);
 
         if (signal) {
             abortRequest = () => {
@@ -918,7 +1015,10 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             };
             signal.addEventListener('abort', abortRequest, { once: true });
         }
-    }).finally(() => { if (abortRequest) signal?.removeEventListener('abort', abortRequest); });
+    }).finally(() => {
+        if (timeout !== undefined) clearTimeout(timeout);
+        if (abortRequest) signal?.removeEventListener('abort', abortRequest);
+    });
 }
 
 // ========== 带重试的 AI 请求包装 ==========
@@ -996,6 +1096,16 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
+    const preferred = ['primary', 'backup'].includes(config.officialApiLine) ? config.officialApiLine
+        : config.provider === '5plus1官方' ? getOfficialApiLine(config) : '';
+    if (preferred) await refreshOfficialApiRoutes();
+    const routes = preferred ? { ...officialApiRoutes } : null;
+    let line = preferred, switched = false;
+    if (preferred) {
+        config.officialApiLine = preferred;
+        if (officialApiFallback?.preferred === preferred && officialApiFallback.expires > Date.now()) line = officialApiFallback.line;
+        config.endpoint = routes[line];
+    }
     const budget = config.requestBudget || { remaining: 3 };
     const policy = getOutputLimitPolicy(config.outputLimitKey);
     const configuredLimit = Number(config.maxOutputTokens);
@@ -1009,9 +1119,20 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         budget.remaining--;
         try {
             const result = await callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
+            if (switched && !config.signal?.aborted && routes.revision === officialApiRoutes.revision) {
+                officialApiFallback = line === preferred ? null : { preferred, line, expires: Date.now() + 300000 };
+            }
             if (upgraded && config.outputObservation) config.outputObservation.upgraded = true;
             return result;
         } catch (error) {
+            if (line && error.routeUnavailable && !switched && !config.signal?.aborted
+                && attempt < 2 && budget.remaining > 0 && routes.backup) {
+                line = line === 'primary' ? 'backup' : 'primary';
+                config.endpoint = routes[line];
+                switched = true;
+                onStreamUpdate?.('当前端点连接失败，正在尝试另一条线路…');
+                continue;
+            }
             if (error.code === 'OUTPUT_TRUNCATED' && maxTokens !== null && !upgraded && attempt < 2 && budget.remaining > 0) {
                 upgraded = true;
                 maxTokens = null;
