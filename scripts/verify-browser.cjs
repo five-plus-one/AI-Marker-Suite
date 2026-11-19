@@ -28,8 +28,12 @@ async function connect(url) {
 }
 (async () => {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'aimarker-browser-'));
-    const child = spawn(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--disable-background-networking',
-        '--allow-file-access-from-files', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+    const flags = ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--disable-background-networking',
+        '--allow-file-access-from-files', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'];
+    const useChildReaper = process.env.CI === 'true' && process.platform === 'linux' && process.arch === 'x64';
+    const child = useChildReaper
+        ? spawn('perl', [path.join(__dirname, 'ci', 'chromium-subreaper.pl'), browser, ...flags], { stdio: 'ignore' })
+        : spawn(browser, flags, { windowsHide: true, stdio: 'ignore' });
     const results = []; let browserClient, client;
     try {
         const activePort = path.join(profile, 'DevToolsActivePort');
@@ -53,7 +57,7 @@ async function connect(url) {
         await client.send('Runtime.enable');
         await client.send('Network.enable');
         const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
-        const fixtures = ['embedded-ui', 'diagnostic-export', 'taowei', 'yuejuantong', 'baishi', 'workflow', 'renderer', 'bundle', 'output-mode', 'subscore', 'xinkao-cloud', 'xinkao-campus', 'xinkao-intranet', 'xinkao-public', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
+        const fixtures = ['embedded-ui', 'diagnostic-export', 'taowei', 'yuejuantong', 'baishi', 'xkw-cloud', 'workflow', 'api-endpoints', 'renderer', 'bundle', 'output-mode', 'subscore', 'xinkao-cloud', 'xinkao-campus', 'xinkao-intranet', 'xinkao-public', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
@@ -83,6 +87,7 @@ async function connect(url) {
         const taoweiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/taowei.html'), 'utf8');
         const taoweiPageHtml = fs.readFileSync(path.join(root, 'tests/fixtures/taowei-page.html'), 'utf8');
         const baishiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/baishi.html'), 'utf8');
+        const xkwCloudHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xkw-cloud.html'), 'utf8');
         const yuejuantongHtml = fs.readFileSync(path.join(root, 'tests/fixtures/yuejuantong.html'), 'utf8');
         const xinkaoHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xinkao.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
@@ -112,6 +117,22 @@ async function connect(url) {
                     body = bundle; type = 'application/javascript'; status = 200;
                 } else if (url.hostname === 'img-oss.sdzdf.com') {
                     body = '<svg xmlns="http://www.w3.org/2000/svg" width="1194" height="1428"><rect width="1194" height="1428" fill="white"/><text x="20" y="40">Composition practice</text></svg>'; type = 'image/svg+xml'; status = 200;
+                } else if (url.hostname === 'xycp.xkw.com' && url.pathname === '/static-v2/exam/index.html') {
+                    body = xkwCloudHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.hostname === 'xycp.xkw.com' && url.pathname === '/v2/exam/mark/submit') {
+                    const payload = JSON.parse(event.params.request.postData || '{}');
+                    const outcome = url.searchParams.get('outcome');
+                    let result = { exist: false, resultType: 2 };
+                    if (event.params.request.method === 'POST' && payload.questionId === 12) {
+                        if (outcome === 'last' && payload.sheetId === 'sheet-b' && payload.score === 15) result = { exist: false, resultType: 1 };
+                        if (outcome === 'saved' && payload.sheetId === 'sheet-a' && payload.score === 3) {
+                            result = { exist: true, data: { questionId: 12, sheetId: 'sheet-b', studentId: 'student-b', urls: ['fixture'] } };
+                        }
+                    }
+                    body = JSON.stringify({ code: 200, data: result }); type = 'application/json'; status = 200;
+                } else if (url.hostname === 'yyj-xkw-1357989693.cos.ap-beijing.myqcloud.com' && url.pathname.startsWith('/__fixture/')) {
+                    body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><text x="10" y="30">Math practice</text></svg>';
+                    type = 'image/svg+xml'; status = 200;
                 } else if (url.hostname === 'ebs.bsedu.com' && url.pathname === '/tasklist') {
                     body = baishiHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'ebs.bsedu.com' && url.pathname === '/stage-api/task/teacher/assignment') {
@@ -183,7 +204,7 @@ async function connect(url) {
                 }
                 await client.send('Fetch.fulfillRequest', { requestId: event.params.requestId, responseCode: status,
                     responseHeaders: [{ name: 'Content-Type', value: type }, { name: 'Cache-Control', value: 'no-store' },
-                        ...(['img-oss.sdzdf.com', 'bs-exam-bucket.oss-cn-beijing.aliyuncs.com'].includes(url.hostname)
+                        ...(['img-oss.sdzdf.com', 'bs-exam-bucket.oss-cn-beijing.aliyuncs.com', 'yyj-xkw-1357989693.cos.ap-beijing.myqcloud.com'].includes(url.hostname)
                             ? [{ name: 'Access-Control-Allow-Origin', value: '*' }] : []),
                         ...(url.hostname === 'yuejuan-img.yuandingbang.cn' ? [{ name: 'Access-Control-Allow-Origin', value: 'https://yuejuan.yuandingbang.cn' }] : [])],
                     body: Buffer.from(body).toString('base64') });
@@ -209,6 +230,7 @@ async function connect(url) {
             const jiukexing = fixture.startsWith('jiukexing-');
             const haofenshu = fixture === 'haofenshu';
             const yuandingbang = fixture === 'yuandingbang';
+            const xkwCloud = fixture === 'xkw-cloud';
             const taowei = fixture === 'taowei', baishi = fixture === 'baishi', yuejuantong = fixture === 'yuejuantong';
             const xinkao = fixture.startsWith('xinkao-');
             const zhixue = fixture === 'zhixue';
@@ -220,7 +242,7 @@ async function connect(url) {
             const youfen = fixture.startsWith('youfen-');
             const xiaoleyouyue = fixture.startsWith('xiaoleyouyue-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || xinkao || taowei || baishi || yuejuantong) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || xinkao || taowei || baishi || yuejuantong || xkwCloud) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -243,6 +265,7 @@ async function connect(url) {
             if (haofenshu) url = 'https://yue.haofenshu.com/minions/subject/10500001/mark/1/normal/0?run=' + runId;
             if (yuandingbang) url = 'https://yuejuan.yuandingbang.cn/web/mark/sjpy/sjpy_kspy.jsp?ksdm=100&kmdm=B21&stbh=2&run=' + runId;
             if (taowei) url = 'http://s3.taoweiedu.com/web/main.jsp?run=' + runId;
+            if (xkwCloud) url = 'https://xycp.xkw.com/static-v2/exam/index.html?run=' + runId + '#/exam/index';
             if (baishi) url = 'https://ebs.bsedu.com/tasklist?projectId=exercise&run=' + runId;
             if (yuejuantong) url = 'http://www.yuejuantong.com/mark/v6/view/fixture?run=' + runId;
             if (xinkao) url = 'http://10.30.0.8' + (fixture === 'xinkao-intranet' ? '/biluo/display.jsp' : fixture === 'xinkao-public' ? '/Marking/DisPlay' : '/Marking/NormalReadPaper') + '?mode=' + fixture.slice(7) + '&run=' + runId;

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>5plus1API 端点切换</title>
+<script>
+const storage = new Map(), checks = [], requests = [];
+let outcomes = [], failStorage = false, cloudPolicy;
+const cloudRequests = [];
+window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
+window.GM_setValue = (key, value) => {
+    if (failStorage && key === 'ai-grading-providers-v2') throw Error('storage unavailable');
+    storage.set(key, value);
+};
+window.getUIRoot = () => document.body;
+window.showToast = () => {};
+window.GM_xmlhttpRequest = request => {
+    if (request.method === 'GET') {
+        cloudRequests.push({ url: request.url, headers: request.headers, anonymous: request.anonymous });
+        queueMicrotask(() => cloudPolicy ? request.onload({ status: 200, finalUrl: request.url, responseText: JSON.stringify(cloudPolicy) }) : request.onerror());
+        return { abort() {} };
+    }
+    const outcome = outcomes.shift();
+    const observed = { url: request.url, data: JSON.parse(request.data), redirect: request.redirect, cancelled: false };
+    requests.push(observed);
+    const timer = setTimeout(() => {
+        if (outcome === 'network') request.onerror();
+        else if (outcome === 'timeout') request.ontimeout();
+        else if (outcome === 'ok') request.onload({ status: 200, finalUrl: request.url, responseText: '{"choices":[{"message":{"content":"收到"}}]}' });
+        else if (outcome === 'stream') {
+            request.onprogress({ responseText: 'data: {"choices":[{"delta":{"content":"已开始"}}]}\n\n' });
+            request.onerror();
+        }
+        else request.onload(outcome || {});
+    }, outcome === 'delayed' ? 1000 : 0);
+    return { abort() { clearTimeout(timer); observed.cancelled = true; request.onabort(); } };
+};
+</script>
+<script src="../../src/core/config.js"></script>
+<script src="../../src/core/state.js"></script>
+<script src="../../src/core/runtime.js"></script>
+<script src="../../src/core/score.js"></script>
+<script src="../../src/core/ai-engine.js"></script>
+<script src="../../src/core/preset.js"></script>
+<script src="../../src/core/prompt.js"></script>
+<script src="../../src/core/ui-modal.js"></script>
+<script src="../../src/core/ui-settings.js"></script>
+<body><pre id="result"></pre>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const { DEFAULT_ENDPOINT: main, SHANGHAI_ENDPOINT: shanghai } = SCRIPT_CONFIG;
+    const official = () => ProviderManager.getProvider('5plus1官方');
+    const get = id => document.getElementById(id);
+    const check = (value, label) => {
+        checks.push({ pass: Boolean(value), label });
+        if (!value) throw new Error(label);
+    };
+    const reset = (...responses) => { requests.length = 0; outcomes = responses; };
+    const tried = (...urls) => requests.map(request => request.url).join() === urls.join();
+    const start = () => {
+        showOnboardingDialog(true);
+        get('ob-apikey').value = 'fixture-key';
+        return get('ob-next').onclick();
+    };
+    try {
+        reset('ok');
+        check((await verifyOfficialApiKey('fixture-key')).endpoint === main && tried(main), '主端点可用时只访问主端点');
+        reset({ status: 401, responseText: '{"error":{"message":"invalid"}}' });
+        await start();
+        check(tried(main) && get('ob-status').textContent.includes('密钥无效') && !official().apiKey, '密钥错误提示重新输入');
+        hideOnboardingDialog();
+        reset({ status: 429, responseText: '{"error":{"message":"rate limit"}}' });
+        check((await verifyOfficialApiKey('fixture-key')).reason === 'service' && tried(main), '服务响应不当成线路故障');
+        reset('network', 'timeout');
+        await start();
+        check(tried(main, shanghai) && get('ob-status').textContent.includes('暂时无法连接') && official().endpoint === main && !official().apiKey,
+            '两端点都不可用时保留原配置');
+        hideOnboardingDialog();
+        reset({ status: 200, responseText: '<html>Gateway</html>' }, 'ok');
+        check((await verifyOfficialApiKey('fixture-key')).endpoint === shanghai && tried(main, shanghai), '网页拦截响应触发备用端点');
+        reset({ status: 200, finalUrl: 'https://other.example', responseText: '{"choices":[{"message":{}}]}' }, 'ok');
+        check((await verifyOfficialApiKey('fixture-key')).endpoint === shanghai && requests.every(r => r.redirect === 'error'), '验证限制在已配置的官方域名');
+        reset('delayed');
+        const pending = start();
+        await Promise.resolve();
+        get('ob-skip').click();
+        await pending;
+        check(tried(main) && requests[0].cancelled && !get('ob-status') && !official().apiKey, '离开首次设置时取消验证且不保存');
+        reset('timeout', 'ok');
+        await start();
+        check(tried(main, shanghai) && get('ob-preset-name') && official().endpoint === shanghai && official().apiKey === 'fixture-key'
+            && document.querySelector('.ai-modal-body [role="status"]').textContent.includes('上海备用端点'), '备用验证成功后保存同一密钥与端点');
+        check(requests.every(r => r.data.messages.length === 1 && r.data.messages[0].content === '回复：收到'), '使用独立的验证消息');
+        hideOnboardingDialog();
+        ProviderManager.init();
+        check(ProviderManager.getCallConfig('5plus1官方', 'aimarker-fast').endpoint === shanghai, '重载后工作流使用已保存的备用端点');
+        reset('ok');
+        check((await verifyOfficialApiKey('fixture-key', { endpoint: official().endpoint })).endpoint === shanghai && tried(shanghai), '已选备用端点重新验证时直接使用');
+        window.getChannelName = window.getBuildChannel = window.getBuildChannelLabel = () => 'dev';
+        window.markUnsavedChanges = () => {};
+        setupSettingsMenuLayout = () => {};
+        loadSettings = () => {};
+        renderChangelog = () => {};
+        renderPresetDropdown = () => {};
+        fillFormFromActivePreset = () => {};
+        createSettingsPanel({ deferOpen: true });
+        get('ai-grading-settings').style.display = 'block';
+        renderProviderDropdown();
+        get('ai-provider').value = '5plus1官方';
+        handleProviderChange();
+        const select = get('official-endpoint'), custom = get('custom-endpoint-field');
+        check(select.value === 'backup' && custom.hidden && !get('official-endpoint-field').hidden
+            && get('official-endpoint-help').textContent.includes('国内部分地区'), '设置显示当前官方端点与使用提示');
+        const change = endpoint => { select.value = endpoint; select.dispatchEvent(new Event('change')); };
+        change('primary');
+        check(official().endpoint === main && official().apiKey === 'fixture-key', '切换端点保留 API 密钥');
+        failStorage = true;
+        change('backup');
+        check(select.value === 'primary' && official().endpoint === main, '保存失败恢复已保存的选择');
+        failStorage = false;
+        change('backup');
+        check(JSON.parse(storage.get('ai-grading-providers-v2')).providers['5plus1官方'].endpoint === shanghai, '手动切换持久保存');
+        get('ai-provider').value = 'OpenAI兼容';
+        handleProviderChange();
+        check(get('official-endpoint-field').hidden && !custom.hidden && get('api-endpoint').value.includes('api.openai.com'), '自定义服务保持网关配置');
+        check(cloudRequests.length === 1 && cloudRequests[0].url === SCRIPT_CONFIG.API_ROUTING_URL
+            && cloudRequests[0].anonymous && !cloudRequests[0].headers, '云控读取独立于密钥与答卷');
+        const cloudMain = 'https://regional-fixture.ai.five-plus-one.com/v1/chat/completions';
+        cloudPolicy = { revision: 2, official: { endpoint: cloudMain, backupEndpoint: shanghai } };
+        officialApiRoutingChecked = 0;
+        await refreshOfficialApiRoutes();
+        check(getOfficialApiEndpoint('primary') === cloudMain && official().endpointLine === 'backup', '新版云控覆盖默认地址并保留用户端点选择');
+        cloudPolicy = { revision: 3, official: { endpoint: 'https://api.ai.five-plus-one.com.other.example/v1/chat/completions', backupEndpoint: shanghai } };
+        officialApiRoutingChecked = 0;
+        await refreshOfficialApiRoutes();
+        check(getOfficialApiEndpoint('primary') === cloudMain && officialApiRoutes.revision === 2, '拒绝不受信任的云控地址');
+        const grading = { endpoint: main, officialApiLine: 'primary', apiKey: 'fixture-key', model: 'aimarker-fast', gradingRequest: true,
+            [STUDENT_GRADING_EVIDENCE]: { status: 'readable', answer: '模拟答案' } };
+        reset('network', 'ok');
+        check(await callAI('评分练习', [], grading) === '收到' && tried(cloudMain, shanghai), '批改遇到连接错误时切换备用端点');
+        reset('ok');
+        check(await callAI('评分练习', [], grading) === '收到' && tried(shanghai), '后续批改沿用已验证的端点');
+        officialApiFallback = null;
+        reset('stream');
+        await callAI('评分练习', [], grading).then(() => { throw Error('未识别流中断'); }, () => {});
+        check(tried(cloudMain), '已开始输出的评分请求不跨端点重放');
+        reset('network');
+        const customUrl = 'https://custom.example/v1/chat/completions';
+        await callAI('评分练习', [], { ...grading, officialApiLine: undefined, endpoint: customUrl })
+            .then(() => { throw Error('未识别自定义线路错误'); }, () => {});
+        check(tried(customUrl), '第三方服务仍走自己的端点');
+    } catch (error) { checks.push({ pass: false, label: String(error.message) }); }
+    get('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: checks.every(item => item.pass), checks }))));
+})();
+</script>
