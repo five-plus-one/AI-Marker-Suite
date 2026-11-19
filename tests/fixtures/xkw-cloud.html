@@ -18,7 +18,7 @@ const fixtureEndpoint = 'https://ai.fixture.invalid/v1/chat/completions';
 const settings = new Map(Object.entries({
     'ai-grading-show-onboarding': false,
     'ai-grading-presets': JSON.stringify({ list: { Fixture: { question: '填空题 11-15', answer: '参考答案', rubric: '按小题给分',
-        workflowId: 'fixture', gradingMode: 'normal', scoring: { maxScore: 15, roundStep: 1, roundMethod: 'round' },
+        workflowId: 'fixture', gradingMode: 'trial', scoring: { maxScore: 15, roundStep: 1, roundMethod: 'round' },
         blankDetection: { enabled: false } } }, active: 'Fixture', bindings: {} }),
     'ai-grading-providers-v2': JSON.stringify({ providers: { '5plus1官方': { apiKey: 'fixture' },
         Fixture: { endpoint: fixtureEndpoint, apiKey: 'fixture', models: { fixture: {} } } },
@@ -66,9 +66,9 @@ window.GM_xmlhttpRequest = options => {
     } };
     document.querySelector('#app').__vue_app__ = { config: { globalProperties: { $store: store } } };
     const host = 'https://yyj-xkw-1357989693.cos.ap-beijing.myqcloud.com/__fixture/';
-    function setPaper(suffix, signature = 'first', count = 2) {
+    function setPaper(suffix, signature = 'first', count = 2, sheetId = 'sheet-' + suffix) {
         const urls = Array.from({ length: count }, (_, i) => `${host}${suffix}-${i}.svg?q-signature=${signature}&imageMogr2/cut/300x80x0x0`);
-        state.readOverInfo = { questionId: 12, sheetId: 'sheet-' + suffix, studentId: 'student-' + suffix,
+        state.readOverInfo = { questionId: 12, sheetId, studentId: 'student-' + suffix,
             teacherMarkType: 1, questions: [{ questionId: 12, score: 15, step: 0, markValues: '' }],
             markPageTilteInfo: { questionName: '填空题 11-15' }, urls };
         state.urls = urls.map(url => ({ url, done: true }));
@@ -95,7 +95,7 @@ window.GM_xmlhttpRequest = options => {
         xhr.open('POST', '/v2/exam/mark/submit?outcome=' + outcome);
         xhr.onload = () => {
             const next = JSON.parse(xhr.responseText).data;
-            if (next.exist) setTimeout(() => setPaper('b'), 40);
+            if (next?.exist) setTimeout(() => setPaper('b', 'first', 2, next.data.sheetId), 40);
         };
         xhr.onloadend = () => { requests++; scorePanel.classList.remove('nooperate'); };
         xhr.send(JSON.stringify({ questionId, sheetId, studentId: wrongPaper ? 'other' : studentId,
@@ -158,6 +158,10 @@ window.GM_xmlhttpRequest = options => {
             && adapter.lastSubmitError.includes('规定时间') && adapter.getPaperIdentity() === paperId,
             '平台要求继续查阅时提示教师并保留当前答卷');
         minimumTime = false;
+        outcome = 'session-expired';
+        check(adapter.fillScores([3]) && !await adapter.submitGrade() && requests === 2
+            && adapter.lastSubmitError.includes('请重新登录') && adapter.getPaperIdentity() === paperId,
+            '学科网拒绝失效会话时，提示重新登录并且暂停在当前答卷');
         outcome = 'saved';
         deferredSave = true;
         check(adapter.fillScores([3]) && await adapter.submitGrade(), '等待平台异步发出保存请求，核对当前答卷的保存回执');
@@ -171,8 +175,8 @@ window.GM_xmlhttpRequest = options => {
         location.hash = route + '&review=true';
         check(adapter.isRegradeMode() && !await adapter.detectMarkingPage() && !await adapter.prepareGrading(), '回评入口不启用评分');
         location.hash = route;
-        setPaper('a');
-        outcome = 'saved';
+        setPaper('a', 'first', 1);
+        outcome = 'shared-sheet';
         await ready();
         const waitFor = async (predicate) => {
             for (let i = 0; i < 150 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 20));
@@ -185,8 +189,8 @@ window.GM_xmlhttpRequest = options => {
         start.click();
         await waitFor(() => gradingRequest || window.aiGradingState.isPaused);
         check(gradingRequest?.messages.some(message => Array.isArray(message.content)
-            && message.content.filter(item => item.type === 'image_url').length === 2),
-            '点击开始批改后将当前两张答卷图送入评分');
+            && message.content.filter(item => item.type === 'image_url').length === 1),
+            '点击试改后将当前一张答卷图送入评分');
         await waitFor(() => document.querySelector('#auto-submit-dialog') || window.aiGradingState.isPaused);
         check(input.value === '3' && state.questionScore === 3 && !autoScore.checked
             && requests === submissionsBeforeStart && document.querySelector('#auto-submit-dialog'),
@@ -195,8 +199,9 @@ window.GM_xmlhttpRequest = options => {
         document.querySelector('#auto-submit-dialog #confirm-submit-btn').click();
         await waitFor(() => requests > submissionsBeforeStart && adapter.getPaperIdentity() !== gradedPaper);
         check(requests === submissionsBeforeStart + 1 && adapter.getPaperIdentity()
-            && adapter.getPaperIdentity() !== gradedPaper && !window.aiGradingState.isPaused,
-            '确认提交后仅保存一次，并进入平台回执对应的下一份练习卷');
+            && adapter.getPaperIdentity() !== gradedPaper && !window.aiGradingState.isPaused
+            && state.readOverInfo.sheetId === 'sheet-a' && state.readOverInfo.studentId === 'student-b',
+            '卷面编号相同的回执只保存一次，并按下一位学生的答卷继续');
         document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: true, checks }))));
     } catch (error) {
         document.querySelector('#result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: false, error: error.message, checks }))));

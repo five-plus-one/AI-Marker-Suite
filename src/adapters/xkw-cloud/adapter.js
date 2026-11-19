@@ -213,14 +213,20 @@ const XkwCloudAdapter = {
                 try {
                     const raw = request.responseType === 'json' ? request.response : JSON.parse(request.responseText);
                     const result = raw?.desc || raw?.data || raw;
+                    if ([-2, -5].includes(Number(raw?.code))
+                        || ['sessionout', 'sessionexpired', 'sessionmore'].includes(String(raw?.result))) {
+                        adapter.lastSubmitError = '学科网登录已失效，请重新登录后核对已阅状态，再继续批改';
+                        return cancelled();
+                    }
                     if (signal?.aborted || adapter.getTaskIdentifier() !== filled.task || request.status < 200 || request.status >= 300
-                        || Number(raw?.code) !== 200 || ['0', 'sessionout', 'sessionexpired', 'sessionmore'].includes(String(raw?.result))
+                        || Number(raw?.code) !== 200 || String(raw?.result) === '0'
                         || result?.success === false) return cancelled();
                     if (result?.exist === false && Number(result.resultType) === 1) return finish({ completed: true });
                     const next = result?.data;
+                    // 学科网可以为同一题块的不同考生返回相同的卷面编号。
                     if (result?.exist === true && next?.sheetId && next?.studentId
                         && String(next.questionId) === String(expected.questionId)
-                        && String(next.sheetId) !== String(expected.sheetId) && String(next.studentId) !== String(expected.studentId)
+                        && String(next.studentId) !== String(expected.studentId)
                         && Array.isArray(next.urls) && next.urls.length) {
                         return finish({ sheetId: String(next.sheetId), studentId: String(next.studentId) });
                     }
