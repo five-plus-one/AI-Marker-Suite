@@ -5,7 +5,7 @@ function diagnosticModelId(value, apiKey) {
 
 // 诊断包用于排查，保留业务内容和错误上下文，凭证在写日志前过滤。
 function diagnosticSnapshot(input, { limit = Infinity, depth = Infinity, secrets = [], omitImageData = false } = {}) {
-    const credentialField = /^(?:(?:x[-_]?)?(?:api[-_]?key|auth[-_]?token)|(?:access|refresh|id|session|security)[-_]?token|authorization|proxy[-_]?authorization|(?:proxy[-_]?)?authentication[-_]?info|(?:www|proxy)[-_]?authenticate|x[-_](?:access[-_]?token|auth|secret|session[-_]?token)|auth|key|access[-_]?key(?:[-_]?id)?|ossaccesskeyid|(?:set[-_]?)?cookie|password|passwd|client[-_]?secret|private[-_]?key|secret|token|signature|session[-_]?id|jsessionid|phpsessid|sid|sig|credential|policy|x[-_](?:amz|oss|goog|cos)[-_].+)$/i;
+    const credentialField = /^(?:(?:x[-_]?)?(?:api[-_]?key|auth[-_]?token)|(?:access|refresh|id|session|security)[-_]?token|authorization|proxy[-_]?authorization|(?:proxy[-_]?)?authentication[-_]?info|(?:www|proxy)[-_]?authenticate|x[-_](?:access[-_]?token|auth|secret|session[-_]?token)|auth|key|access[-_]?key(?:[-_]?id)?|ossaccesskeyid|q[-_](?:ak|signature|security[-_]?token)|(?:set[-_]?)?cookie|password|passwd|client[-_]?secret|private[-_]?key|secret|token|signature|session[-_]?id|jsessionid|phpsessid|sid|sig|credential|policy|x[-_](?:amz|oss|goog|cos)[-_].+)$/i;
     const seen = new WeakSet();
     function redact(text) {
         for (const secret of secrets) {
