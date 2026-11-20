@@ -948,11 +948,8 @@ function createSettingsPanel(options) {
                         <div class="form-group" id="custom-endpoint-field"><label for="api-endpoint">服务网关 URL</label><input type="text" id="api-endpoint"></div>
                         <div class="form-group" id="official-endpoint-field" hidden>
                             <label for="official-endpoint">5plus1API 端点</label>
-                            <select id="official-endpoint" aria-describedby="official-endpoint-help">
-                                <option value="primary">主端点</option>
-                                <option value="backup">上海备用端点</option>
-                            </select>
-                            <p id="official-endpoint-help" style="font-size:12px;color:#86868b;margin:6px 0 0;">主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。</p>
+                            <select id="official-endpoint" aria-describedby="official-endpoint-help"></select>
+                            <p id="official-endpoint-help" style="font-size:12px;color:#86868b;margin:6px 0 0;">可跟随云控默认设置，也可选择适合当前网络的端点。</p>
                         </div>
                         <div class="form-group"><label>通信密钥 (Token) *</label><input type="password" id="api-key" placeholder="必填，否则无法使用 AI 批改"></div>
                         <div class="form-group">
@@ -2512,20 +2509,22 @@ function handleOfficialEndpointChange() {
     const line = document.getElementById('official-endpoint').value;
     const saved = ProviderManager.saveOfficialConnection(line);
     updateUIVisibility();
-    showToast(saved ? (line === 'backup' ? '已切换到备用端点' : '已切换到主端点')
-        : '端点选择尚未保存，请刷新页面后重试');
+    showToast(saved ? `已切换到${officialApiLineLabel(line)}` : '端点选择尚未保存，请刷新页面后重试');
+}
+
+function officialApiLineLabel(line) {
+    const name = resolveOfficialApiLine(line).name;
+    return line === 'default' ? '跟随云控（' + name + '）' : name;
 }
 
 function refreshOfficialEndpointOptions() {
     const select = document.getElementById('official-endpoint');
     if (!select || document.getElementById('ai-provider')?.value !== '5plus1官方') return;
-    select.value = getOfficialApiLine(ProviderManager.getProvider('5plus1官方')) || 'primary';
-    const backupInShanghai = getOfficialApiEndpoint('backup') === SCRIPT_CONFIG.SHANGHAI_ENDPOINT;
-    select.options[0].textContent = `主端点（${new URL(getOfficialApiEndpoint('primary')).hostname}）`;
-    select.options[1].textContent = `${backupInShanghai ? '上海备用端点' : '备用端点'}（${new URL(getOfficialApiEndpoint('backup')).hostname}）`;
-    document.getElementById('official-endpoint-help').textContent = backupInShanghai
-        ? '主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。'
-        : '国内部分地区访问受限时，可以切换到备用端点。';
+    const selected = getOfficialApiLine(ProviderManager.getProvider('5plus1官方'));
+    const endpoints = officialApiRoutes.endpoints;
+    select.replaceChildren(new Option(officialApiLineLabel('default'), 'default'),
+        ...endpoints.map(line => new Option(line.name, line.id)));
+    select.value = endpoints.some(line => line.id === selected) ? selected : 'default';
     document.getElementById('api-endpoint').value = getOfficialApiEndpoint(select.value);
 }
 
@@ -3244,7 +3243,7 @@ function showOnboardingDialog(forceShow, mode) {
 
     function renderNameModeStep() {
         return `
-            ${connectedBackup ? `<p role="status" style="font-size:13px;margin:0 0 14px;">已连接${connectedBackup}，可在供应商与模型设置中切换。</p>` : ''}
+            ${connectedBackup ? `<p role="status" style="font-size:13px;margin:0 0 14px;">已连接${escapeSettingsHtml(connectedBackup)}，可在供应商与模型设置中切换。</p>` : ''}
             <div class="form-group">
                 <label>配置方案名称</label>
                 <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${presetName}" style="width:100%;">
@@ -3408,7 +3407,7 @@ function showOnboardingDialog(forceShow, mode) {
                 const result = await verifyOfficialApiKey(key, {
                     line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
                     signal: controller.signal,
-                    onFallback: () => showStatus('主端点暂时无法连接，正在验证备用端点…', 'progress'),
+                    onFallback: () => showStatus('所选端点暂时无法连接，正在验证备用端点…', 'progress'),
                 });
                 if (controller !== _onboardingApiCheck) return;
                 _onboardingApiCheck = null;
@@ -3416,12 +3415,16 @@ function showOnboardingDialog(forceShow, mode) {
                 btn.disabled = false; btn.textContent = '验证并继续';
                 input.disabled = false;
                 if (result.success) {
-                    if (!ProviderManager.saveOfficialConnection(result.line, key)) {
+                    if (!ProviderManager.saveOfficialConnection(result.selection, key)) {
                         showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
                         return;
                     }
-                    connectedBackup = result.line === 'backup'
-                        ? (result.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? '上海备用端点' : '备用端点') : '';
+                    if (result.line !== result.preferred && result.revision === officialApiRoutes.revision) {
+                        officialApiFallback = { preferred: result.preferred, line: result.line, expires: Date.now() + 300000 };
+                        connectedBackup = resolveOfficialApiLine(result.line).name;
+                    } else {
+                        connectedBackup = '';
+                    }
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
                     showStatus('密钥无效，请检查是否正确', 'error');

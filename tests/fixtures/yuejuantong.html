@@ -1,8 +1,9 @@
 <!doctype html>
 <html lang="zh-CN">
 <meta charset="utf-8">
-<title>悦卷通阅卷练习</title>
+<title>在线阅卷练习</title>
 <div id="reviewPanel" hidden>回评</div>
+<div id="td-rpe-title" hidden>第56-65题</div>
 <span id="span_mt_pwd">练习卷 A</span>
 <input type="hidden" name="input-rpe-title" value="练习卷 A">
 <input type="hidden" id="hdMarkPic" value="fixture-a">
@@ -23,6 +24,7 @@
 </div>
 <button id="submitMark">提交</button>
 <div id="zeroCheckModal" hidden><button id="btn_0_ok">确认零分</button></div>
+<div id="myModal" hidden>已完成阅卷任务，老师您辛苦了</div>
 <pre id="result"></pre>
 <script>
     const store = {};
@@ -42,7 +44,10 @@
         };
         try {
             const adapter = window.__AI_MARKER_ADAPTER__;
-            check(adapter?.id === 'ruiya' && adapter.name === '悦卷通阅卷', '悦卷通入口与名称');
+            const bfzks = location.hostname === 'www.bfzks.com';
+            const platformName = bfzks ? '百分智考试服务' : '悦卷通阅卷';
+            check(adapter?.id === 'ruiya' && adapter.name === platformName, '阅卷入口与平台名称');
+            if (bfzks) check(adapter.getQuestionContext()?.question === '第56-65题', '识别百分智原生题块名称');
             check(await adapter.detectMarkingPage(), '识别阅卷页面');
             const [image] = await adapter.gatherAnswerImages();
             check(image === document.querySelector('#imageFullScreen').src, '读取当前答题图');
@@ -57,7 +62,7 @@
 
             const modal = document.querySelector('#zeroCheckModal');
             const button = document.querySelector('#submitMark');
-            let sent = 0, confirmed = 0, response = '2拒绝', wrongPaper = false;
+            let sent = 0, confirmed = 0, response = '2拒绝', wrongPaper = false, completed = false;
             class NativeSave extends EventTarget {
                 open() {}
                 abort() {}
@@ -67,6 +72,11 @@
                     this.responseText = JSON.stringify({ result: response });
                     this.dispatchEvent(new Event('loadend'));
                     if (!response.startsWith('0')) return;
+                    if (completed) {
+                        document.querySelector('#imageFullScreen').removeAttribute('src');
+                        document.querySelector('#myModal').hidden = false;
+                        return;
+                    }
                     document.querySelector('#span_mt_pwd').textContent = '练习卷 B';
                     document.querySelector('[name="input-rpe-title"]').value = '练习卷 B';
                     document.querySelector('#hdMarkPic').value = 'fixture-b';
@@ -101,6 +111,32 @@
             response = '0';
             check(adapter.fillScores([0, 0]) && await adapter.submitGrade(), '核对全零分确认和成功回执');
             check(await adapter.waitForNextPaper(image, { paperId, taskId }) && sent === 2 && confirmed === 1, '保存成功后识别同题新答卷');
+            if (bfzks) {
+                const imageB = document.querySelector('#imageFullScreen');
+                const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jMC8AAAAASUVORK5CYII=';
+                imageB.src = dataUrl;
+                await imageB.decode();
+                const input = inputs[0].element;
+                input.id = 'txtfixture';
+                inputs[1].element.closest('.panel-item-input').remove();
+                document.querySelector('font span').textContent = '15';
+                check((await adapter.gatherAnswerImages())[0] === dataUrl
+                    && await adapter.fetchImageAsBase64(dataUrl) === dataUrl.split(',')[1], '百分智可读取内嵌答卷图');
+                const lastId = adapter.getPaperIdentity();
+                check(adapter.fillScores([13.5]) && input.value === '13.5', '百分智单框兼容半分且只填分');
+                completed = true;
+                button.onclick = () => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/api/markview/mark/');
+                    xhr.send(JSON.stringify({
+                        mtid: '练习卷 B', inum: 0,
+                        mark: { key: 'practice-two', stu: 'fixture-b', score: Number(input.value), items: [{ key: '0', score: -1 }] },
+                    }));
+                };
+                check(await adapter.submitGrade() && sent === 3 && adapter.isGradingTaskComplete(),
+                    '百分智核对单题保存回执后识别任务完成');
+                check(!await adapter.waitForNextPaper(dataUrl, { paperId: lastId, taskId }), '任务结束后不翻到其他卷');
+            }
             document.querySelector('#reviewPanel').hidden = false;
             check(adapter.isRegradeMode(), '识别回评面板');
             document.querySelector('#rdSteps').click();
