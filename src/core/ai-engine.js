@@ -834,7 +834,7 @@ function filterUsableImagesForAI(list) {
 // ========== 通用 AI 请求函数 ==========
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
     const signal = config.signal || window.aiGradingState.abortController?.signal;
-    let abortRequest, timeout, diagnosticRequest, diagnosticUsage;
+    let abortRequest, timeout, diagnosticRequest, diagnosticUsage, diagnosticResponseText;
     let diagnosticOutcome = 'error';
     return new Promise((resolve, reject) => {
         if (signal?.aborted) return reject(new Error('用户主动暂停'));
@@ -891,7 +891,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         console.log(`📤 发送请求到: ${config.endpoint} (模型: ${config.model}${config.reasoningEffort ? ', 思考深度: ' + config.reasoningEffort : ''})`);
 
         if (typeof DiagnosticLog !== 'undefined') {
-            diagnosticRequest = DiagnosticLog.request(config.diagnosticCallId, config, maxTokens);
+            diagnosticRequest = DiagnosticLog.request(config.diagnosticCallId, config, requestBody);
         }
 
         let fullText = '';
@@ -953,6 +953,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     if (progressCallCount === 1) {
                         console.log('✅ [诊断] onprogress 已触发，当前环境支持流式输出');
                     }
+                    if (diagnosticRequest) diagnosticResponseText = res.responseText;
                     fullText = '';
                     buffer = '';
                     parseSSEBuffer(res.responseText);
@@ -966,6 +967,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     return reject(new Error('官方端点响应地址已变化，请核对线路设置'));
                 }
                 const responseText = res.responseText || '';
+                if (diagnosticRequest) diagnosticResponseText = responseText;
                 console.log(`✅ [诊断] onload 触发 — HTTP状态: ${res.status}, onprogress累计触发次数: ${progressCallCount}, 响应长度: ${responseText.length} 字节`);
                 if (res.status < 200 || res.status >= 300) {
                     let errorMsg = responseText || res.statusText;
@@ -1083,7 +1085,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             signal.addEventListener('abort', abortRequest, { once: true });
         }
     }).finally(() => {
-        diagnosticRequest?.finish(diagnosticOutcome, diagnosticUsage);
+        diagnosticRequest?.finish(diagnosticOutcome, diagnosticUsage, diagnosticResponseText);
         if (timeout !== undefined) clearTimeout(timeout);
         if (abortRequest) signal?.removeEventListener('abort', abortRequest);
     });
