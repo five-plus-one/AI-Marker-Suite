@@ -571,7 +571,23 @@ async function build() {
         }
 
         // 用 IIFE 包裹所有模块代码
-        const iife = `\n(function() {\n    'use strict';\n${modulesContent}\n})();\n`;
+        const iife = `
+(function() {
+    'use strict';
+
+    // Some grading pages replace the standard Map runtime with a legacy implementation.
+    const Map = (() => {
+        const available = globalThis.Map;
+        if (typeof available?.prototype?.set === 'function' && typeof available.prototype.has === 'function') return available;
+        const frame = document.createElement('iframe');
+        frame.hidden = true;
+        document.documentElement.appendChild(frame);
+        try { return frame.contentWindow.Map; }
+        finally { frame.remove(); }
+    })();
+${modulesContent}
+})();
+`;
 
         // 压缩 IIFE 部分（保留 UserScript header 可读）
         console.log(`  ⏳ 压缩中...`);
