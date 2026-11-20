@@ -33,7 +33,7 @@ test('stores diagnostic arguments and errors across tabs while filtering credent
     const at = 1794997905708;
     const shared = new Map([['user-setting', 'preserved']]);
     const first = openPage(shared, at - 1000, 'mark.first.example');
-    first.run('const answer = "private answer"; console.log(`已记录：${answer}`, { apiKey: "private key", link: "https://mark.example/paper?paperId=41&token=private-url-token" });');
+    first.run('const answer = "private answer"; console.log(`已记录：${answer}`, { apiKey: "private key", link: "https://mark.example/paper?paperId=41&key=private-query-key&token=private-url-token" });');
     first.listeners.pagehide();
     const second = openPage(shared, at, 'mark.second.example');
     second.run('console.warn("下载失败", Object.assign(new Error("private response"), { status: 403 }));');
@@ -47,7 +47,7 @@ test('stores diagnostic arguments and errors across tabs while filtering credent
     assert.equal(entries[1].version, '1.21.27.9');
     assert.equal(entries[0].args[0], '已记录：private answer');
     assert.equal(entries[0].args[1].apiKey, undefined);
-    assert.equal(entries[0].args[1].link, 'https://mark.example/paper?paperId=41&token=[凭证]');
+    assert.equal(entries[0].args[1].link, 'https://mark.example/paper?paperId=41&key=[凭证]&token=[凭证]');
     assert.equal(entries[1].args[1].message, 'private response');
     assert.match(entries[1].args[1].stack, /Error: private response/);
     assert.ok(!JSON.stringify([...shared]).includes('private key'));

@@ -5,10 +5,14 @@ function diagnosticModelId(value, apiKey) {
 
 // 诊断包用于排查，保留业务内容和错误上下文，凭证在写日志前过滤。
 function diagnosticSnapshot(input, { limit = Infinity, depth = Infinity, secrets = [], omitImageData = false } = {}) {
-    const credentialField = /^(?:(?:x[-_]?)?(?:api[-_]?key|auth[-_]?token)|(?:access|refresh|id|session|security)[-_]?token|authorization|proxy[-_]?authorization|(?:set[-_]?)?cookie|password|passwd|client[-_]?secret|private[-_]?key|secret|token|signature|session[-_]?id|jsessionid|phpsessid|sid|sig|credential|policy|x[-_](?:amz|oss|goog|cos)[-_].+)$/i;
+    const credentialField = /^(?:(?:x[-_]?)?(?:api[-_]?key|auth[-_]?token)|(?:access|refresh|id|session|security)[-_]?token|authorization|proxy[-_]?authorization|(?:proxy[-_]?)?authentication[-_]?info|(?:www|proxy)[-_]?authenticate|x[-_](?:access[-_]?token|auth|secret|session[-_]?token)|auth|key|access[-_]?key(?:[-_]?id)?|ossaccesskeyid|(?:set[-_]?)?cookie|password|passwd|client[-_]?secret|private[-_]?key|secret|token|signature|session[-_]?id|jsessionid|phpsessid|sid|sig|credential|policy|x[-_](?:amz|oss|goog|cos)[-_].+)$/i;
     const seen = new WeakSet();
     function redact(text) {
-        for (const secret of secrets) if (secret) text = text.split(secret).join('[凭证]');
+        for (const secret of secrets) {
+            const encoded = encodeURIComponent(secret);
+            text = text.split(secret).join('[凭证]');
+            if (encoded !== secret) text = text.split(encoded).join('[凭证]');
+        }
         return text.replace(/("([^"\\\r\n]+)"\s*:\s*)"((?:\\.|[^"\\\r\n])*)"/g, (field, prefix, key) =>
             credentialField.test(key) ? prefix + '"[凭证]"' : field)
             .replace(/(^|\r?\n)([A-Za-z][\w-]*):[^\r\n]*/g, (field, prefix, key) =>
