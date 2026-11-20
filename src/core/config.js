@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.34.0',
+    VERSION: '1.21.34.1',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.34.1': [
+            '【修复】小闲 AI 网上阅卷可读取联考答题卡并按当前题目试改',
+        ],
         '1.21.34': [
             '【优化】诊断包提供模型调用、批改配置和阅卷材料，便于定位工作流及计费问题。',
         ],
