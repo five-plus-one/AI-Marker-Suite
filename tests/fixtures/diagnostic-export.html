@@ -4,7 +4,7 @@
 const storage = new Map(), menus = new Map(), now = Date.now();
 const recent = now - 3600000, earlier = now - 10800000;
 storage.set('ai-grading-history', JSON.stringify([
-    { timestamp: recent, finalScore: 2, aiScore: 1.5, studentAnswer: 'private-student-answer',
+    { id: 'diagnostic-fixture', timestamp: recent, finalScore: 2, aiScore: 1.5, studentAnswer: 'private-student-answer',
         aiComment: 'private-comment', imageUrls: ['private-image-url'], subScores: [{ label: 'private-label', score: 2 }] },
     { timestamp: earlier, finalScore: 3, studentAnswer: 'older-student-answer' },
 ]));
@@ -50,7 +50,8 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
             const filenameLength = view.getUint16(offset + 26, true);
             const data = offset + 30 + filenameLength + view.getUint16(offset + 28, true);
             const name = decoder.decode(bytes.slice(offset + 30, offset + 30 + filenameLength));
-            files[name] = JSON.parse(decoder.decode(bytes.slice(data, data + length)));
+            const content = bytes.slice(data, data + length);
+            files[name] = name.endsWith('.json') ? JSON.parse(decoder.decode(content)) : content;
             offset = data + length;
         }
         return files;
@@ -60,7 +61,23 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         return document.querySelector('#ai-diagnostic-export');
     };
     const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const waitForDownload = async () => {
+        for (let i = 0; i < 60 && !captured; i++) await nextFrame();
+        check(captured?.type === 'application/zip', '诊断包下载完成');
+    };
     try {
+        await new Promise((resolve, reject) => {
+            const request = indexedDB.open('ai-marker-images', 1);
+            request.onupgradeneeded = () => request.result.createObjectStore('images');
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                const db = request.result;
+                const tx = db.transaction('images', 'readwrite');
+                tx.objectStore('images').put(['iVBORw0KGgo='], 'diagnostic-fixture');
+                tx.oncomplete = () => { db.close(); resolve(); };
+                tx.onerror = () => { db.close(); reject(tx.error); };
+            };
+        });
         let dialog = open(), form = dialog.querySelector('form');
         check(dialog.open && dialog.getBoundingClientRect().width < innerWidth, '油猴菜单打开日期选择');
         let start = form.elements.namedItem('start'), end = form.elements.namedItem('end');
@@ -73,6 +90,7 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         start.value = validStart;
         end.value = new Date(Date.parse(validStart) + 7200000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19);
         form.requestSubmit();
+        await waitForDownload();
         check(captured?.type === 'application/zip' && filename.endsWith('.zip'), '下载 ZIP 文件');
         let files = await zipFiles();
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 2, '筛选两小时内阅卷记录');
@@ -82,14 +100,20 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         check(files['配置摘要.json'].presets[0].scoring.maxScore === 3
             && files['配置摘要.json'].providers.some(provider => provider.keyConfigured)
             && files['配置摘要.json'].workflows.some(workflow => workflow.primary.model === 'custom/vision:pro')
-            && !JSON.stringify(files).includes('private-'),
+            && files['配置详情.json'].presets.list.default.answer === 'private-reference-answer'
+            && files['阅卷记录.json'][0].studentAnswer === 'private-student-answer'
+            && files['阅卷记录.json'][0].imageFiles[0] === '答卷图片/1/1.png'
+            && files['答卷图片/1/1.png']?.[0] === 137
+            && !/private-(?:provider-key|preset-secret|token)/.test(JSON.stringify(files)),
             '评分设置与结果可用于排查');
         await nextFrame();
         dialog = open();
         form = dialog.querySelector('form');
         form.elements.namedItem('start').value = new Date(earlier - 60000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19);
         form.elements.namedItem('end').value = new Date(earlier + 60000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+        captured = undefined;
         form.requestSubmit();
+        await waitForDownload();
         files = await zipFiles();
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 3
             && files['运行日志.json'].length === 1 && files['运行日志.json'][0].at === earlier, '自选时间导出此前记录');

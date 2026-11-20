@@ -276,5 +276,9 @@ test('diagnostics preserve request models, gateway IDs and timeout retries acros
     assert.equal(success.httpStatus, 200);
     assert.equal(success.outcome, 'success');
     assert.deepEqual([success.inputTokens, success.outputTokens, success.cachedTokens], [24, 12, 8]);
-    assert.doesNotMatch(JSON.stringify(diagnostics()), /private-/);
+    assert.match(first.url, /example\.test\/private-path/);
+    assert.equal(first.body.messages[0].content[0].text, '题目');
+    assert.match(success.responseText, /private-student-answer/);
+    assert.equal(success.responseHeaders['set-cookie'], undefined);
+    assert.doesNotMatch(JSON.stringify(diagnostics()), /private-(?:user|password|query|key|cookie)/);
 });

@@ -11,7 +11,7 @@ function messageOf(node) {
     return '…';
 }
 
-// Only source-code text goes into the diagnostic log. The original values still reach the console.
+// Attach source metadata. The runtime serializes diagnostic arguments and forwards the originals to the console.
 function instrumentDiagnosticLogs(source, moduleName) {
     const edits = [];
     function visit(node) {

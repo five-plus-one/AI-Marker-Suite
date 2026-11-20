@@ -324,6 +324,11 @@ async function startAutoGrading() {
         const sourceWorkflow = workflowId ? WorkflowManager.getWorkflow(workflowId) : null;
         const workflow = sourceWorkflow ? JSON.parse(JSON.stringify(sourceWorkflow)) : null;
         const isDualEval = workflow && workflow.dualEval && workflow.dualEval.enabled;
+        const diagnosticGradingId = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog.traceId();
+        if (diagnosticGradingId) DiagnosticLog.record('core/main.js', '读取本卷批改配置', {
+            gradingId: diagnosticGradingId, taskId: runContext.taskId, paperId: runContext.paperId,
+            preset: runContext.presetName, workflowId, workflow, config, isDualEval,
+        });
 
         if (isDualEval) {
             console.log(`🔄 [诊断] 使用双评模式 — 工作流: ${workflow.name}`);
@@ -515,7 +520,7 @@ async function startAutoGrading() {
             outputLimitEnabled: config.outputLimitEnabled !== false,
             maxOutputTokens: config.maxOutputTokens || 2048
         });
-        const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey,
+        const gradingConfig = { ...config, workflowId, workflowSnapshot: workflow, outputObservation, outputLimitKey, diagnosticGradingId,
             signal: runContext.controller.signal,
             imageGateRemovedCount: window.aiGradingState.imageGateRemovedCount || 0 };
         const result = await requestGradingWithRecognitionRetry(runContext, async () => isDualEval
