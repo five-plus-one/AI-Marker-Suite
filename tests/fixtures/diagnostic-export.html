@@ -14,7 +14,11 @@ storage.set('ai-grading-presets', JSON.stringify({
 }));
 storage.set('ai-grading-providers-v2', JSON.stringify({
     providers: { 'private-provider-name': { apiKey: 'private-provider-key',
-        endpoint: 'https://host.example/private-provider-path', models: { 'private-model-name': {} } } },
+        endpoint: 'https://host.example/private-provider-path', models: { 'custom/vision:pro': {} } } },
+}));
+storage.set('ai-grading-workflows', JSON.stringify({
+    workflows: { 'private-workflow-name': { id: 'fixture-workflow', model: { provider: 'private-provider-name', model: 'custom/vision:pro' } } },
+    activeWorkflow: 'fixture-workflow',
 }));
 for (const at of [recent, earlier]) {
     storage.set('ai-marker-diagnostic-log-v1-' + at + '-fixture-0', [{ at, level: 'warn', message: '练习日志' }]);
@@ -76,7 +80,9 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
             '按同一时间筛选日志');
         check(files['运行日志.json'].some(row => row.message.includes('脚本版本')), '包含本次运行日志');
         check(files['配置摘要.json'].presets[0].scoring.maxScore === 3
-            && files['配置摘要.json'].providers.some(provider => provider.keyConfigured) && !JSON.stringify(files).includes('private-'),
+            && files['配置摘要.json'].providers.some(provider => provider.keyConfigured)
+            && files['配置摘要.json'].workflows.some(workflow => workflow.primary.model === 'custom/vision:pro')
+            && !JSON.stringify(files).includes('private-'),
             '评分设置与结果可用于排查');
         await nextFrame();
         dialog = open();

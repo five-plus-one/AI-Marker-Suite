@@ -26,8 +26,7 @@ function diagnosticConfiguration(presets, providers, workflows, builtinProviders
     const providerIndex = name => providerNames.indexOf(name) + 1 || undefined;
     const model = config => ({
         provider: providerIndex(config?.provider),
-        model: Object.prototype.hasOwnProperty.call(builtinProviders[config?.provider]?.models || {}, config?.model)
-            ? config.model : undefined,
+        model: diagnosticModelId(config?.model, providers?.providers?.[config?.provider]?.apiKey),
         reasoningEffort: diagnosticChoice(config?.reasoningEffort, ['', 'disabled', 'minimal', 'low', 'medium', 'high', 'xhigh']),
     });
     const presetList = Object.entries(presets?.list || {});
@@ -39,6 +38,7 @@ function diagnosticConfiguration(presets, providers, workflows, builtinProviders
             outputMode: diagnosticChoice(config.outputMode ?? config.scoring?.outputMode, ['detailed', 'score-only']),
             workflow: workflowList.findIndex(workflow => workflow.id === config.workflowId) + 1 || undefined,
             provider: providerIndex(config.provider),
+            model: diagnosticModelId(config.model, config.apiKey ?? providers?.providers?.[config.provider]?.apiKey),
             scoring: diagnosticScoring(config.scoring),
             batch: diagnosticFields(config.batchConfig, ['enabled', 'targetCount']),
             retries: {
@@ -106,7 +106,7 @@ function exportDiagnosticPackage(start, end) {
     const configuration = diagnosticConfiguration(PresetManager.data, ProviderManager.data, WorkflowManager.data,
         ProviderManager._getDefault().providers, window.aiGradingState);
     const metadata = {
-        formatVersion: 1,
+        formatVersion: 2,
         scriptVersion: SCRIPT_CONFIG.VERSION,
         exportedAt: new Date().toISOString(),
         range: { start: new Date(start).toISOString(), end: new Date(end).toISOString() },

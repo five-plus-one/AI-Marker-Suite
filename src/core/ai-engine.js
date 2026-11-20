@@ -834,7 +834,8 @@ function filterUsableImagesForAI(list) {
 // ========== 通用 AI 请求函数 ==========
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
     const signal = config.signal || window.aiGradingState.abortController?.signal;
-    let abortRequest, timeout;
+    let abortRequest, timeout, diagnosticRequest, diagnosticUsage;
+    let diagnosticOutcome = 'error';
     return new Promise((resolve, reject) => {
         if (signal?.aborted) return reject(new Error('用户主动暂停'));
         // 合并额外图片（来自题目/答案/评分标准）+ 学生答题卡图片
@@ -891,6 +892,10 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         }
 
         console.log(`📤 发送请求到: ${config.endpoint} (模型: ${config.model}${config.reasoningEffort ? ', 思考深度: ' + config.reasoningEffort : ''})`);
+
+        if (typeof DiagnosticLog !== 'undefined') {
+            diagnosticRequest = DiagnosticLog.request(config.diagnosticCallId, config, maxTokens);
+        }
 
         let fullText = '';
         let buffer = '';
@@ -949,6 +954,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             data: JSON.stringify(requestBody),
             timeout: 120000,
             onreadystatechange(res) {
+                if (res.readyState === 2) diagnosticRequest?.response(res);
                 if (res.readyState >= 2 && res.status >= 200 && res.status < 300) receivedHeaders = true;
             },
             onprogress: function(res) {
@@ -963,6 +969,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             onload: function(res) {
                 if (settled) return;
                 settled = true;
+                diagnosticRequest?.response(res);
                 if (config.officialApiLine && res.finalUrl && res.finalUrl !== config.endpoint) {
                     return reject(new Error('官方端点响应地址已变化，请核对线路设置'));
                 }
@@ -1026,6 +1033,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                 }
 
                 console.log('[AI响应]', { finishReason, usage, reasoningChars, contentChars: fullText.length });
+                diagnosticUsage = usage;
                 if (streamError) return reject(new Error(`API响应错误: ${streamError}`));
                 if (finishReason === 'length') {
                     const error = new Error(maxTokens === null
@@ -1037,11 +1045,13 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                 if (finishReason && finishReason !== 'stop') return reject(new Error(`AI响应未正常完成 (${finishReason})`));
                 if (sawSSE && !finishReason && !streamDone) return reject(new Error('AI响应未完整结束，请检查网络后继续批改'));
                 if (!fullText.trim()) return reject(new Error('AI未返回可用内容，请检查模型输出设置'));
+                diagnosticOutcome = 'success';
                 resolve(fullText);
             },
             onerror: function() {
                 if (settled) return;
                 settled = true;
+                diagnosticOutcome = 'network-error';
                 const error = new Error('网络请求被拦截，请检查跨域权限');
                 error.routeUnavailable = !receivedHeaders && !parsedResponseLength;
                 reject(error);
@@ -1049,6 +1059,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             ontimeout: function() {
                 if (settled) return;
                 settled = true;
+                diagnosticOutcome = 'timeout';
                 reject(new Error('请求超时'));
             }
         });
@@ -1057,6 +1068,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         if (config.officialApiLine && !settled) timeout = setTimeout(() => {
             if (settled) return;
             settled = true;
+            diagnosticOutcome = 'timeout';
             reject(new Error('请求超时'));
             request.abort();
         }, 120000);
@@ -1065,6 +1077,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             abortRequest = () => {
                 if (!settled) {
                     settled = true;
+                    diagnosticOutcome = 'cancelled';
                     request.abort();
                     reject(new Error('用户主动暂停'));
                 }
@@ -1072,6 +1085,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             signal.addEventListener('abort', abortRequest, { once: true });
         }
     }).finally(() => {
+        diagnosticRequest?.finish(diagnosticOutcome, diagnosticUsage);
         if (timeout !== undefined) clearTimeout(timeout);
         if (abortRequest) signal?.removeEventListener('abort', abortRequest);
     });
@@ -1143,6 +1157,9 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
             if (!kind || i >= policy.maxRetries) throw error;
             const delay = policy.backoffBaseMs * (i + 1);
             console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
+            if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                callId: config.diagnosticCallId, reason: kind, delayMs: delay,
+            });
             if (onStreamUpdate) onStreamUpdate(`⏳ ${kind}，${Math.round(delay / 1000)}s 后自动重试（第${i + 1}/${policy.maxRetries}次）…`);
             await abortableGradingDelay(delay, config.signal);
         }
@@ -1152,6 +1169,7 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
+    if (typeof DiagnosticLog !== 'undefined') config.diagnosticCallId = DiagnosticLog.traceId();
     const selection = config.officialApiLine || (config.provider === '5plus1官方' ? getOfficialApiLine(config) : '');
     if (selection) await refreshOfficialApiRoutes();
     const routes = selection ? officialApiRoutes : null;
@@ -1189,12 +1207,18 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 line = fallback;
                 config.endpoint = line.endpoint;
                 switched = true;
+                if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                    callId: config.diagnosticCallId, reason: '切换端点', httpStatus: error.status,
+                });
                 onStreamUpdate?.('当前端点连接失败，正在尝试另一条线路…');
                 continue;
             }
             if (error.code === 'OUTPUT_TRUNCATED' && maxTokens !== null && !upgraded && attempt < 2 && budget.remaining > 0) {
                 upgraded = true;
                 maxTokens = null;
+                if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                    callId: config.diagnosticCallId, reason: '输出达到上限',
+                });
                 if (onStreamUpdate) onStreamUpdate('回答较长，正在继续分析…');
                 continue;
             }
@@ -1204,6 +1228,9 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 serverRetried++;
                 const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
                 console.warn(`⚠️ [callAI] 服务端错误 ${error.status}，${delay}ms 后重试（第${serverRetried}次）`);
+                if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                    callId: config.diagnosticCallId, reason: 'HTTP 响应错误', httpStatus: error.status, delayMs: delay,
+                });
                 await abortableGradingDelay(delay, config.signal);
                 continue;
             }

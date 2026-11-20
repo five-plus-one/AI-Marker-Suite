@@ -3187,6 +3187,17 @@ function saveAISettings() {
         safeAlert(`⚠️ 「${activeName}」尚未保存。\n请先导出本次修改，再核对其他页面的配置或稍后重试。`);
         return;
     }
+    if (typeof DiagnosticLog !== 'undefined') {
+        const previous = WorkflowManager.getWorkflow(oldConfig.workflowId)?.model;
+        const selected = WorkflowManager.getWorkflow(config.workflowId)?.model;
+        DiagnosticLog.record('core/ui-settings.js', '保存批改方案', {
+            workflowChanged: oldConfig.workflowId !== config.workflowId,
+            previousModel: diagnosticModelId(previous?.model ?? oldConfig.model,
+                ProviderManager.getProvider(previous?.provider ?? oldConfig.provider)?.apiKey),
+            selectedModel: diagnosticModelId(selected?.model,
+                ProviderManager.getProvider(selected?.provider)?.apiKey),
+        });
+    }
     clearUnsavedChanges();
     const modeLabel = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode];
     safeAlert(`「${activeName}」已保存 — ${modeLabel}`);
