@@ -1,4 +1,6 @@
 function isTrustedOfficialEndpoint(endpoint) {
+    if (typeof endpoint !== 'string') return false;
+    if (endpoint === 'https://api.ai.five-plus-one.com/regional/shaoxing/v1/chat/completions') return true;
     try {
         const url = new URL(endpoint);
         return /^[a-z0-9][a-z0-9-]*\.ai\.five-plus-one\.com$/.test(url.hostname)
@@ -6,28 +8,49 @@ function isTrustedOfficialEndpoint(endpoint) {
     } catch (_) { return false; }
 }
 
-const officialRegionalEndpoints = Object.freeze({
-    hongKong: 'https://api-hk.ai.five-plus-one.com/v1/chat/completions',
-    shaoxing: 'https://api.ai.five-plus-one.com/regional/shaoxing/v1/chat/completions',
-});
-const officialApiLineOrder = ['primary', 'hongKong', 'shaoxing', 'backup'];
-const officialApiRoutes = {
-    primary: SCRIPT_CONFIG.DEFAULT_ENDPOINT, backup: SCRIPT_CONFIG.SHANGHAI_ENDPOINT, revision: 0,
-};
-const officialApiRoutesStorageKey = 'ai-marker-official-api-routes-v2';
+const builtInOfficialEndpoints = [
+    { id: 'primary', name: '主端点', endpoint: SCRIPT_CONFIG.DEFAULT_ENDPOINT },
+    { id: 'hongKong', name: '香港端点', endpoint: 'https://api-hk.ai.five-plus-one.com/v1/chat/completions' },
+    { id: 'shaoxing', name: '绍兴端点', endpoint: 'https://api.ai.five-plus-one.com/regional/shaoxing/v1/chat/completions' },
+    { id: 'backup', name: '上海备用端点', endpoint: SCRIPT_CONFIG.SHANGHAI_ENDPOINT },
+];
+const builtInOfficialRoutes = { revision: 0, defaultEndpointId: 'primary', fallbackEndpointId: 'backup', endpoints: builtInOfficialEndpoints };
+let officialApiRoutes = builtInOfficialRoutes;
+const officialApiRoutesStorageKey = 'ai-marker-official-api-routes-v3';
 let officialApiRoutingRequest = null;
 let officialApiRoutingChecked = 0;
 let officialApiFallback = null;
 
 function applyOfficialApiRoutes(value) {
-    const { endpoint: primary, backupEndpoint: backup, hongKongEndpoint: hongKong, shaoxingEndpoint: shaoxing } = value?.official || {};
-    if (!Number.isSafeInteger(value?.revision) || value.revision <= officialApiRoutes.revision
-        || !isTrustedOfficialEndpoint(primary) || !isTrustedOfficialEndpoint(backup)
-        || (hongKong !== undefined && hongKong !== officialRegionalEndpoints.hongKong)
-        || (shaoxing !== undefined && shaoxing !== officialRegionalEndpoints.shaoxing)) return false;
-    const addresses = [primary, hongKong, shaoxing, backup].filter(Boolean);
-    if (new Set(addresses).size !== addresses.length) return false;
-    Object.assign(officialApiRoutes, { primary, hongKong, shaoxing, backup, revision: value.revision });
+    const { revision, official } = value || {};
+    if (!Number.isSafeInteger(revision) || revision <= officialApiRoutes.revision || !official) return false;
+    let { endpoints, defaultEndpointId, fallbackEndpointId } = official;
+    if (endpoints === undefined) {
+        const legacyUrls = [official.endpoint, official.hongKongEndpoint, official.shaoxingEndpoint, official.backupEndpoint];
+        if (!legacyUrls[0] || !legacyUrls[3]
+            || (legacyUrls[1] !== undefined && legacyUrls[1] !== builtInOfficialEndpoints[1].endpoint)
+            || (legacyUrls[2] !== undefined && legacyUrls[2] !== builtInOfficialEndpoints[2].endpoint)) return false;
+        endpoints = builtInOfficialEndpoints.flatMap((entry, index) => legacyUrls[index] === undefined ? []
+            : [{ ...entry, endpoint: legacyUrls[index], name: entry.id === 'backup' && legacyUrls[index] !== SCRIPT_CONFIG.SHANGHAI_ENDPOINT
+                ? '备用端点' : entry.name }]);
+        defaultEndpointId = 'primary';
+        fallbackEndpointId = 'backup';
+    }
+    if (!Array.isArray(endpoints) || !endpoints.length || endpoints.length > 24) return false;
+    const ids = new Set();
+    const addresses = new Set();
+    const validated = [];
+    for (const entry of endpoints) {
+        const { id, name, endpoint } = entry || {};
+        if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,39}$/i.test(id) || id === 'default'
+            || typeof name !== 'string' || !name.trim() || name.length > 60 || /[\x00-\x1f\x7f]/.test(name)
+            || !isTrustedOfficialEndpoint(endpoint) || ids.has(id) || addresses.has(endpoint)) return false;
+        ids.add(id);
+        addresses.add(endpoint);
+        validated.push({ id, name: name.trim(), endpoint });
+    }
+    if (!ids.has(defaultEndpointId) || (fallbackEndpointId !== undefined && !ids.has(fallbackEndpointId))) return false;
+    officialApiRoutes = { revision, defaultEndpointId, fallbackEndpointId, endpoints: validated };
     officialApiFallback = null;
     return true;
 }
@@ -37,7 +60,11 @@ function refreshOfficialApiRoutes() {
     if (officialApiRoutingRequest) return officialApiRoutingRequest;
     if (!url || (officialApiRoutingChecked && Date.now() - officialApiRoutingChecked < 300000)) return null;
     officialApiRoutingChecked = Date.now();
-    try { applyOfficialApiRoutes(GM_getValue(officialApiRoutesStorageKey)); } catch (_) { /* 内置线路可用。 */ }
+    try {
+        applyOfficialApiRoutes(GM_getValue(officialApiRoutesStorageKey));
+        if (!officialApiRoutes.revision) applyOfficialApiRoutes(GM_getValue('ai-marker-official-api-routes-v2'));
+        if (!officialApiRoutes.revision) applyOfficialApiRoutes(GM_getValue('ai-marker-official-api-routes'));
+    } catch (_) { /* 内置线路可用。 */ }
     officialApiRoutingRequest = new Promise(resolve => {
         let request, settled = false;
         const finish = value => {
@@ -45,8 +72,7 @@ function refreshOfficialApiRoutes() {
             settled = true;
             clearTimeout(timer);
             if (applyOfficialApiRoutes(value)) {
-                const { primary, hongKong, shaoxing, backup, revision } = officialApiRoutes;
-                const official = { endpoint: primary, hongKongEndpoint: hongKong, shaoxingEndpoint: shaoxing, backupEndpoint: backup };
+                const { revision, ...official } = officialApiRoutes;
                 try { GM_setValue(officialApiRoutesStorageKey, { revision, official }); }
                 catch (_) { /* 本页仍可使用当前线路。 */ }
             }
@@ -71,22 +97,30 @@ function refreshOfficialApiRoutes() {
 }
 
 function getOfficialApiLine(provider) {
-    if (officialApiLineOrder.includes(provider?.endpointLine)) return provider.endpointLine;
-    if (!provider?.endpoint) return '';
-    if (provider.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT) return 'backup';
-    if (provider.endpoint === SCRIPT_CONFIG.DEFAULT_ENDPOINT) return 'primary';
-    return officialApiLineOrder.find(line => officialApiRoutes[line] === provider.endpoint) || '';
+    if (typeof provider?.endpointLine === 'string' && provider.endpointLine
+        && isTrustedOfficialEndpoint(provider.endpoint)) return provider.endpointLine;
+    const endpoint = provider?.endpoint;
+    if (endpoint === SCRIPT_CONFIG.DEFAULT_ENDPOINT) return 'default';
+    return officialApiRoutes.endpoints.find(line => line.endpoint === endpoint)?.id
+        || builtInOfficialEndpoints.find(line => line.endpoint === endpoint)?.id || '';
 }
 
 function isOfficialModelProvider(provider) {
-    const endpoint = provider?.endpoint;
-    return !!endpoint && ([SCRIPT_CONFIG.DEFAULT_ENDPOINT, SCRIPT_CONFIG.SHANGHAI_ENDPOINT].includes(endpoint)
-        || ((isTrustedOfficialEndpoint(endpoint) || endpoint === officialRegionalEndpoints.shaoxing) && !!getOfficialApiLine(provider)));
+    return !!getOfficialApiLine(provider);
 }
 
-function getOfficialApiEndpoint(value) {
-    const line = officialApiLineOrder.includes(value) ? value : getOfficialApiLine({ endpoint: value });
-    return officialApiRoutes[line || 'primary'] || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
+function resolveOfficialApiLine(id, routes = officialApiRoutes) {
+    return routes.endpoints.find(line => line.id === id)
+        || routes.endpoints.find(line => line.id === routes.defaultEndpointId);
+}
+
+function getOfficialApiEndpoint(id) {
+    return resolveOfficialApiLine(id).endpoint;
+}
+
+function getOfficialApiFallback(line, routes) {
+    const fallbackId = routes.fallbackEndpointId === line.id ? routes.defaultEndpointId : routes.fallbackEndpointId;
+    return routes.endpoints.find(entry => entry.id === fallbackId && entry.id !== line.id);
 }
 
 function checkOfficialApiConnection(endpoint, apiKey, signal) {
@@ -132,16 +166,20 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
 
 async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback } = {}) {
     await refreshOfficialApiRoutes();
-    const selection = officialApiLineOrder.includes(line) ? line : getOfficialApiLine({ endpoint });
-    const preferred = officialApiRoutes[selection] ? selection : 'primary';
-    const verify = async (url, route) => {
-        const reason = await checkOfficialApiConnection(url, apiKey, signal);
-        return reason === 'connected' ? { success: true, endpoint: url, line: route } : { success: false, reason };
+    const selection = line || getOfficialApiLine({ endpoint }) || 'default';
+    const routes = officialApiRoutes;
+    const preferred = resolveOfficialApiLine(selection, routes);
+    const verify = async target => {
+        const reason = await checkOfficialApiConnection(target.endpoint, apiKey, signal);
+        return reason === 'connected' ? { success: true, endpoint: target.endpoint, line: target.id,
+            selection: routes.endpoints.some(entry => entry.id === selection) ? selection : 'default',
+            preferred: preferred.id, revision: routes.revision } : { success: false, reason };
     };
-    const first = await verify(getOfficialApiEndpoint(preferred), preferred);
-    if (first.reason !== 'network' || !officialApiRoutes.backup || preferred === 'backup' || signal?.aborted) return first;
+    const first = await verify(preferred);
+    const fallback = getOfficialApiFallback(preferred, routes);
+    if (first.reason !== 'network' || !fallback || signal?.aborted) return first;
     onFallback?.();
-    return verify(officialApiRoutes.backup, 'backup');
+    return verify(fallback);
 }
 
 function isProviderDataValid(data) {
@@ -350,8 +388,9 @@ const ProviderManager = {
         const provider = this.getProvider('5plus1官方');
         if (!provider) return false;
         const previous = { endpoint: provider.endpoint, endpointLine: provider.endpointLine, apiKey: provider.apiKey };
-        const endpointLine = officialApiLineOrder.includes(endpoint) ? endpoint : getOfficialApiLine({ endpoint });
-        if (!officialApiRoutes[endpointLine] || !officialApiLineOrder.includes(endpointLine)) return false;
+        const endpointLine = endpoint === 'default' || officialApiRoutes.endpoints.some(line => line.id === endpoint)
+            ? endpoint : getOfficialApiLine({ endpoint });
+        if (endpointLine !== 'default' && !officialApiRoutes.endpoints.some(line => line.id === endpointLine)) return false;
         const connection = { endpoint: getOfficialApiEndpoint(endpointLine), endpointLine, apiKey: apiKey ?? previous.apiKey };
         Object.assign(provider, connection);
         try {
@@ -375,7 +414,9 @@ const ProviderManager = {
         return provider.models?.[this.data.activeModel] || {};
     },
     getCurrentEndpoint() {
-        return this.getCurrentProvider().endpoint || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
+        const provider = this.getCurrentProvider();
+        const line = this.data.activeProvider === '5plus1官方' ? getOfficialApiLine(provider) : '';
+        return line ? getOfficialApiEndpoint(line) : provider.endpoint || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
     },
     getCurrentApiKey() {
         return this.getCurrentProvider().apiKey || '';
@@ -1109,16 +1150,17 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
-    const selection = config.officialApiLine && officialApiLineOrder.includes(config.officialApiLine) ? config.officialApiLine
-        : config.provider === '5plus1官方' ? getOfficialApiLine(config) : '';
+    const selection = config.officialApiLine || (config.provider === '5plus1官方' ? getOfficialApiLine(config) : '');
     if (selection) await refreshOfficialApiRoutes();
-    const routes = selection ? { ...officialApiRoutes } : null;
-    const preferred = routes ? routes[selection] ? selection : 'primary' : '';
+    const routes = selection ? officialApiRoutes : null;
+    const preferred = routes ? resolveOfficialApiLine(selection, routes) : null;
     let line = preferred, switched = false;
     if (preferred) {
-        config.officialApiLine = preferred;
-        if (officialApiFallback?.preferred === preferred && officialApiFallback.expires > Date.now()) line = officialApiFallback.line;
-        config.endpoint = routes[line];
+        config.officialApiLine = preferred.id;
+        if (officialApiFallback?.preferred === preferred.id && officialApiFallback.expires > Date.now()) {
+            line = resolveOfficialApiLine(officialApiFallback.line, routes);
+        }
+        config.endpoint = line.endpoint;
     }
     const budget = config.requestBudget || { remaining: 3 };
     const policy = getOutputLimitPolicy(config.outputLimitKey);
@@ -1134,15 +1176,16 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         try {
             const result = await callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
             if (switched && !config.signal?.aborted && routes.revision === officialApiRoutes.revision) {
-                officialApiFallback = line === preferred ? null : { preferred, line, expires: Date.now() + 300000 };
+                officialApiFallback = line === preferred ? null : { preferred: preferred.id, line: line.id, expires: Date.now() + 300000 };
             }
             if (upgraded && config.outputObservation) config.outputObservation.upgraded = true;
             return result;
         } catch (error) {
-            if (line && error.routeUnavailable && !switched && !config.signal?.aborted
-                && attempt < 2 && budget.remaining > 0 && routes.backup) {
-                line = line === 'backup' ? 'primary' : 'backup';
-                config.endpoint = routes[line];
+            const fallback = line && getOfficialApiFallback(line, routes);
+            if (fallback && error.routeUnavailable && !switched && !config.signal?.aborted
+                && attempt < 2 && budget.remaining > 0) {
+                line = fallback;
+                config.endpoint = line.endpoint;
                 switched = true;
                 onStreamUpdate?.('当前端点连接失败，正在尝试另一条线路…');
                 continue;
