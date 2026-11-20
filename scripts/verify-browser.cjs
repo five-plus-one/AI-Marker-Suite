@@ -64,7 +64,7 @@ async function connect(url) {
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
             'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
             'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'zhixue', 'haofenshu', 'yuandingbang',
-            'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'youfen-ready', 'xiaoleyouyue-ready', 'xiaoleyouyue-multi', 'xiaoleyouyue-late', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa', 'huixue-ready', 'huixue-late', 'huixue-spa', 'huizhou-ready', 'huizhou-late', 'huizhou-spa', 'xiangshangxue-ready', 'xiangshangxue-multi', 'xiangshangxue-late']
+            'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'youfen-ready', 'xiaoleyouyue-ready', 'xiaoleyouyue-multi', 'xiaoleyouyue-late', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa', 'xiaoxianai-exam', 'huixue-ready', 'huixue-late', 'huixue-spa', 'huizhou-ready', 'huizhou-late', 'huizhou-spa', 'xiangshangxue-ready', 'xiangshangxue-multi', 'xiangshangxue-late']
             .filter(fixture => !selected || fixture === selected || fixture.startsWith(selected + '-'));
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
