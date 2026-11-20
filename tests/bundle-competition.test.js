@@ -110,6 +110,20 @@ test('悦卷通域名只注册一个适配器，并使用阅卷站点名称', ()
     }
 });
 
+test('百分智考试服务只在已支持的阅卷入口注册', () => {
+    for (const host of ['www.bfzks.com', 'bfzks.com']) {
+        const result = run({ host, path: '/mark/v6/view/1' });
+        assert.deepStrictEqual(result.errors, []);
+        assert.strictEqual(result.writes.length, 1);
+        assert.strictEqual(result.winner.name, '百分智考试服务');
+    }
+    for (const host of ['xy.bfzks.com', 'bfzks.com.example.org']) {
+        const result = run({ host, path: '/mark/v6/view/1' });
+        assert.deepStrictEqual(result.errors, []);
+        assert.strictEqual(result.writes.length, 0);
+    }
+});
+
 // ---------- 2. 空槽矩阵：无命中 = 注册槽为空 / 串台对正确分派 ----------
 const allLabels = new Set(M.ADAPTERS.flatMap(a => a.near.map(n => n.label)));
 for (const [label, owner] of Object.entries(NEAR_BUNDLE_OWNER)) {
