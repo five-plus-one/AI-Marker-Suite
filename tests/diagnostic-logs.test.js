@@ -29,11 +29,11 @@ function openPage(shared, at, hostname) {
     };
 }
 
-test('stores static log text across tabs within the chosen interval and preserves console arguments', () => {
+test('stores diagnostic arguments and errors across tabs while filtering credentials', () => {
     const at = 1794997905708;
     const shared = new Map([['user-setting', 'preserved']]);
     const first = openPage(shared, at - 1000, 'mark.first.example');
-    first.run('const answer = "private answer"; console.log(`已记录：${answer}`, { apiKey: "private key" });');
+    first.run('const answer = "private answer"; console.log(`已记录：${answer}`, { apiKey: "private key", link: "https://mark.example/paper?paperId=41&key=private-query-key&token=private-url-token&q-signature=private-cos-signature" });');
     first.listeners.pagehide();
     const second = openPage(shared, at, 'mark.second.example');
     second.run('console.warn("下载失败", Object.assign(new Error("private response"), { status: 403 }));');
@@ -42,10 +42,15 @@ test('stores static log text across tabs within the chosen interval and preserve
     const entries = viewer.read(at - 1000, at).entries;
     assert.deepEqual(entries.map(row => row.level), ['log', 'warn']);
     assert.deepEqual(entries.map(row => row.site), ['mark.first.example', 'mark.second.example']);
-    assert.equal(entries[0].message, '已记录：… …');
+    assert.equal(entries[0].message, '已记录：private answer');
     assert.equal(entries[1].httpStatus, 403);
     assert.equal(entries[1].version, '1.21.27.9');
-    assert.ok(!JSON.stringify([...shared]).includes('private'));
+    assert.equal(entries[0].args[0], '已记录：private answer');
+    assert.equal(entries[0].args[1].apiKey, undefined);
+    assert.equal(entries[0].args[1].link, 'https://mark.example/paper?paperId=41&key=[凭证]&token=[凭证]&q-signature=[凭证]');
+    assert.equal(entries[1].args[1].message, 'private response');
+    assert.match(entries[1].args[1].stack, /Error: private response/);
+    assert.ok(!JSON.stringify([...shared]).includes('private key'));
     assert.equal(first.shown[0][0], '已记录：private answer');
     assert.equal(first.shown[0][1].apiKey, 'private key');
     assert.deepEqual(viewer.read(at, at).entries.map(row => row.level), ['warn']);
