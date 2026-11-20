@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.33.0',
+    VERSION: '1.21.33.1',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.33.1': [
+            '【修复】兼容百分智阅卷页面的评分解析和公式显示',
+        ],
         '1.21.33.0': [
             '【新功能】5plus1API 支持跟随云控默认端点，也可在设置中选择指定端点',
             '【新平台】支持百分智考试服务的普通键盘阅卷',

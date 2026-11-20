@@ -33,6 +33,10 @@
     window.GM_registerMenuCommand = () => {};
     window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()); return { abort() {} }; };
     window.unsafeWindow = window;
+    const bfzksLegacyMap = function () {};
+    bfzksLegacyMap.prototype.get = () => undefined;
+    bfzksLegacyMap.prototype.put = () => {};
+    if (location.hostname === 'www.bfzks.com') window.Map = bfzksLegacyMap;
 </script>
 <script src="/__fixture/ai_marker.user.js"></script>
 <script>
@@ -47,7 +51,15 @@
             const bfzks = location.hostname === 'www.bfzks.com';
             const platformName = bfzks ? '百分智考试服务' : '悦卷通阅卷';
             check(adapter?.id === 'ruiya' && adapter.name === platformName, '阅卷入口与平台名称');
-            if (bfzks) check(adapter.getQuestionContext()?.question === '第56-65题', '识别百分智原生题块名称');
+            if (bfzks) {
+                check(adapter.getQuestionContext()?.question === '第56-65题', '识别百分智原生题块名称');
+                check(window.Map === bfzksLegacyMap, '保留百分智页面的原生脚本行为');
+                if (document.readyState === 'loading') {
+                    await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }));
+                }
+                const formula = window.__aiMarkdownRenderer.render('$x^2$');
+                check(formula.includes('class="katex"'), '页面使用旧版 Map 时仍可显示公式');
+            }
             check(await adapter.detectMarkingPage(), '识别阅卷页面');
             const [image] = await adapter.gatherAnswerImages();
             check(image === document.querySelector('#imageFullScreen').src, '读取当前答题图');
