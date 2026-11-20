@@ -3,12 +3,12 @@ const assert = require('node:assert/strict');
 const M = require('./_adapter-matrix.js');
 
 // 合成答卷：React 15 owner、原生输入事件、保存后追加历史与异步换卷。
-function setup() {
+function setup({ examId = 0 } = {}) {
     const sb = M.makeStub({ host: 'ls.xiaoxianai.cn', path: '/webPaper/newMarkPaper' });
     sb.setTimeout = (fn, ms) => setTimeout(fn, ms === 100 ? 0 : ms);
     const immutable = value => ({ size: value.length, toJS: () => structuredClone(value) });
     const history = [];
-    const p = { submit() {}, getQuestion() {}, location: { ruleId: 'rule', paperInfo: { paper_uuid: 'exam' },
+    const p = { submit() {}, getQuestion() {}, location: { exam_id: examId, ruleId: 'rule', paperInfo: { paper_uuid: 'exam' },
         questionsInfo: [{ number: '2.5', score: 6, question_config: { mode: 1, valid_scores: Array.from({ length: 13 }, (_, i) => i / 2), valid_step: .5 } }] },
         state: { questionNum: '2.5', questionIndex: -1, historyQuestionList: immutable(history), currentUuid: 'A',
             rotateDeg: 0, handleClip: 0, subjectiveQuestionAmount: 1, scoreInterval: 1 } };
@@ -24,9 +24,11 @@ function setup() {
     const input = owner(new Input(), p), canvas = owner(visible(), { initCanvas() {}, props: {} });
     let row, response = 'ok', onSubmit, downloads = 0, draws = [];
     function next(id) {
+        const path = examId ? `exams/answers/14000/exam/image-${id}/2.5_0_0.png`
+            : `papers/school/exam/answers/image-${id}/2.5_0_0.jpg`;
         row = { id: `answer-${id}`, uuid: id, image_uuid: `image-${id}`, rule_id: 'rule', number: '2.5', total_score: 6,
             score: 0, mark_status: 0, abnormal: 0, sub_scores_config: [], update_time: id,
-            images: [{ number: '2.5', urls: [`https://i3rx-registry.oss-cn-shanghai.aliyuncs.com/papers/school/exam/answers/image-${id}/2.5_0_0.jpg?Signature=one`],
+            images: [{ number: '2.5', urls: [`https://i3rx-registry.oss-cn-shanghai.aliyuncs.com/${path}?Signature=one`],
                 effect_range: [42, 85, 1079, 733], subject_range: [0, 1, 1421, 1206, 903] }] };
         p.state.currentUuid = id; p.state.currentQuestionList = immutable([row]);
         Object.assign(canvas.__reactInternalInstance$fixture._currentElement._owner._instance.props,
@@ -77,6 +79,32 @@ test('小闲自动提交、批量、回评、题组、异常与加载过程均�
         h => { h.p.state.showNext = true; }, h => { h.row().abnormal = 1; h.sync(); },
         h => { h.p.state.rotateDeg = 90; }, h => { h.p.location.exam_id = 'trial'; }]) {
         const h = setup(); change(h); assert.equal(h.a.getPaperIdentity(), null); assert.equal(h.a.fillScores([3]), false); assert.equal(h.input.writes, 0);
+    }
+});
+test('小闲联考读取本题 PNG 并在切换联考任务后停止沿用旧答卷', async () => {
+    const h = setup({ examId: 18000 });
+    const task = h.a.getTaskIdentifier();
+    const [url] = await h.a.gatherAnswerImages();
+    assert.match(url, /\/exams\/answers\/14000\/exam\/image-A\/2\.5_0_0\.png/);
+    assert.equal(await h.a.fetchImageAsBase64(url), 'cropped');
+    h.p.location.exam_id = 18001;
+    assert.notEqual(h.a.getTaskIdentifier(), task);
+    await assert.rejects(h.a.fetchImageAsBase64(url), /切换/);
+});
+test('小闲联考拒绝其他试卷、答卷、题块和存储路径', async () => {
+    for (const [from, to] of [
+        ['/exam/', '/other/'], ['image-A', 'image-B'], ['2.5_0_0', '2.6_0_0'],
+        ['/answers/', '/foreign/'], ['/14000/', '/unknown/'],
+        ['/exams/answers/14000/exam/', '/papers/school/exam/answers/'],
+        ['i3rx-registry.oss-cn-shanghai.aliyuncs.com', 'other.oss-cn-shanghai.aliyuncs.com'],
+    ]) {
+        const h = setup({ examId: 18000 });
+        const image = h.row().images[0];
+        image.urls[0] = image.urls[0].replace(from, to);
+        h.canvas.__reactInternalInstance$fixture._currentElement._owner._instance.props.url = image.urls[0];
+        h.sync();
+        assert.equal((await h.a.gatherAnswerImages()).length, 0, from);
+        assert.equal(h.a.fillScores([3]), false, from);
     }
 });
 test('小闲校验题块路径与原生 Canvas 归属，拒绝混卷和缺失区域', () => {
