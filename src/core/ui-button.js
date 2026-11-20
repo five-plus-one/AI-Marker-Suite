@@ -622,7 +622,11 @@ function resumeGrading(btn) {
 }
 
 // ========== 主按钮点击逻辑 ==========
-function toggleAutoGrading() {
+function toggleAutoGrading(event) {
+    if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ui-button.js', '切换批改运行状态', {
+        running: window.aiGradingState.isRunning, paused: window.aiGradingState.isPaused,
+        userEvent: event ? { type: event.type, trusted: event.isTrusted, detail: event.detail } : undefined,
+    });
     const btn = document.querySelector('.ai-grade-btn');
     btn.disabled = true;
     setTimeout(() => btn.disabled = false, 800);
