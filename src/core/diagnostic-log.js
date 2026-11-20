@@ -1,3 +1,8 @@
+function diagnosticModelId(value, apiKey) {
+    if (typeof value !== 'string' || value === apiKey || /^(?:sk-|eyJ[A-Za-z0-9_-]+\.)/.test(value)) return undefined;
+    return /^[A-Za-z0-9][A-Za-z0-9_.:/@+~-]{0,159}$/.test(value) && !value.includes('://') ? value : undefined;
+}
+
 const DiagnosticLog = (() => {
     const prefix = 'ai-marker-diagnostic-log-v1-';
     const chunkLimit = 160;
@@ -5,6 +10,7 @@ const DiagnosticLog = (() => {
     const maxAge = 7 * 24 * 60 * 60 * 1000;
     const maxChunks = 192;
     const session = Math.random().toString(36).slice(2);
+    let traceSequence = 0;
     const localChunks = new Map();
     let active, timer, storageLimited = false, nextPrune = 0;
     const storageSupported = typeof GM_listValues === 'function' && typeof GM_setValue === 'function';
@@ -43,7 +49,7 @@ const DiagnosticLog = (() => {
         }
     }
 
-    function capture(level, source, message, args = []) {
+    function capture(level, source, message, args = [], details) {
         const at = Date.now();
         if (!active || active.entries.length === chunkLimit || at - active.started >= chunkSpan) {
             const sequence = (active?.sequence ?? -1) + 1;
@@ -56,7 +62,8 @@ const DiagnosticLog = (() => {
                 storageLimited = true;
             }
         }
-        const entry = { at, level, source, message, site: window.location.hostname, version: DIAGNOSTIC_SCRIPT_VERSION };
+        const entry = { at, level, source, message, session, site: window.location.hostname, version: DIAGNOSTIC_SCRIPT_VERSION };
+        if (details) entry.details = details;
         const adapter = window.__AI_MARKER_ADAPTER__?.id;
         if (typeof adapter === 'string' && /^[a-z\d-]{1,40}$/.test(adapter)) entry.platform = adapter;
         for (const value of args) {
@@ -103,8 +110,52 @@ const DiagnosticLog = (() => {
         if (!ownScript.test(event.filename || '')) return;
         try { capture('error', 'userscript', '脚本执行错误', [event.error]); } catch (_) {}
     });
+    function record(source, message, details) {
+        try { capture('log', source, message, [], details); } catch (_) { /* 诊断存储不影响正常阅卷。 */ }
+    }
+
+    function endpointHost(value) {
+        try {
+            const url = new URL(value);
+            if (url.protocol === 'https:' || url.protocol === 'http:') return url.host;
+        } catch (_) { /* 无可记录的端点。 */ }
+    }
+
     return {
         read,
+        record,
+        traceId() {
+            return session + '-' + ++traceSequence;
+        },
+        request(callId, config, maxTokens) {
+            const attemptId = this.traceId();
+            const request = {
+                callId, attemptId, model: diagnosticModelId(config.model, config.apiKey),
+                endpoint: endpointHost(config.endpoint),
+            };
+            record('core/ai-engine.js', '发出模型请求', {
+                ...request, maxOutputTokens: maxTokens,
+                reasoningEffort: ['', 'disabled', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(config.reasoningEffort)
+                    ? config.reasoningEffort : undefined,
+            });
+            let requestId, httpStatus;
+            return {
+                response(res) {
+                    const headers = typeof res.responseHeaders === 'string' ? res.responseHeaders : '';
+                    const id = /^x-oneapi-request-id:[ \t]*([A-Za-z0-9_:-]{1,64})[ \t]*\r?$/im.exec(headers)?.[1];
+                    if (id && id !== config.apiKey) requestId = id;
+                    if (Number.isInteger(res.status) && res.status >= 100 && res.status <= 599) httpStatus = res.status;
+                },
+                finish(outcome, usage) {
+                    const tokens = Object.fromEntries(Object.entries({
+                        inputTokens: usage?.prompt_tokens,
+                        outputTokens: usage?.completion_tokens,
+                        cachedTokens: usage?.prompt_tokens_details?.cached_tokens,
+                    }).filter(([, value]) => Number.isSafeInteger(value) && value >= 0));
+                    record('core/ai-engine.js', '模型请求结束', { ...request, requestId, httpStatus, outcome, ...tokens });
+                },
+            };
+        },
         write(level, source, message, ...args) {
             try { capture(level, source, message, args); } catch (_) { /* 诊断存储不影响正常阅卷。 */ }
             return console[level](...args);
