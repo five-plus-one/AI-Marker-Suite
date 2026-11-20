@@ -36,12 +36,16 @@ const XiaoxianaiAdapter = {
     },
     _task(p = this._page()) {
         const l = p?.location, q = l?.questionsInfo?.find(q => q.number === p.state.questionNum), c = q?.question_config;
+        const examId = l?.exam_id ? this._number(l.exam_id) : null;
+        if (l?.exam_id && (!Number.isSafeInteger(examId) || examId <= 0)) return null;
         if (!l?.paperInfo?.paper_uuid || !l.ruleId || !q || !c || c.mode !== 1 || q.isGroup
-            || l.oh_id || l.exam_id || !(this._number(q.score) > 0)
+            || l.oh_id || !(this._number(q.score) > 0)
             || !Array.isArray(c.valid_scores) || !c.valid_scores.length
             || c.valid_scores.some(v => this._number(v) === null) || !(this._number(c.valid_step) > 0)) return null;
-        return { q, c, key: JSON.stringify([l.paperInfo.paper_uuid, l.ruleId, q.number, q.score, c.valid_scores, c.valid_step,
-            c.lowScoreWarning, c.lowScore, p.state.student_category]) };
+        const identity = [l.paperInfo.paper_uuid, l.ruleId, q.number, q.score, c.valid_scores, c.valid_step,
+            c.lowScoreWarning, c.lowScore, p.state.student_category];
+        if (examId !== null) identity.push(examId);
+        return { q, c, examId, key: JSON.stringify(identity) };
     },
     getTaskIdentifier() { return this._task()?.key || null; },
     isMarkingPage() {
@@ -80,14 +84,19 @@ const XiaoxianaiAdapter = {
                 try {
                     const url = new URL(image.urls[i]);
                     const parts = url.pathname.split('/');
+                    const paperId = String(p.location.paperInfo.paper_uuid);
+                    // 联考对象的目录编号与任务 exam_id 分开分配，试卷 UUID 在下一段。
+                    const samePaper = task.examId !== null
+                        ? parts[1] === 'exams' && parts[2] === 'answers' && /^\d+$/.test(parts[3]) && parts[4] === paperId
+                        : parts[1] === 'papers' && parts[3] === paperId && parts[4] === 'answers';
                     if (url.protocol !== 'https:' || url.hostname !== 'i3rx-registry.oss-cn-shanghai.aliyuncs.com' || url.port || url.username || url.password
-                        || parts.length !== 7 || parts[1] !== 'papers' || parts[3] !== String(p.location.paperInfo.paper_uuid)
-                        || parts[4] !== 'answers' || parts[5] !== String(row.image_uuid)
+                        || parts.length !== 7 || !samePaper || parts[5] !== String(row.image_uuid)
                         || !parts[6].startsWith(`${row.number}_`)) return null;
                     const effect = image.effect_range.slice(i * 4, i * 4 + 4), subject = image.subject_range.slice(i * 5, i * 5 + 5);
                     if (![...effect, ...subject].every(Number.isFinite) || effect[0] < 0 || effect[1] < 0 || effect[2] < 1 || effect[3] < 1) return null;
                     for (const key of ['OSSAccessKeyId', 'Expires', 'Signature', 'random']) url.searchParams.delete(key);
-                    images.push({ url: image.urls[i], key: url.href, effect, subject });
+                    const mediaType = /\.png$/i.test(parts[6]) ? 'image/png' : 'image/jpeg';
+                    images.push({ url: image.urls[i], key: url.href, effect, subject, mediaType });
                 } catch (_) { return null; }
             }
         }
@@ -147,7 +156,7 @@ const XiaoxianaiAdapter = {
                     resolve(canvas.toDataURL('image/png').split(',')[1]);
                 } catch (error) { reject(error); }
             };
-            img.src = `data:image/jpeg;base64,${bytes}`;
+            img.src = `data:${image.mediaType};base64,${bytes}`;
         });
         if (signal?.aborted) throw new Error('用户主动暂停');
         if (this.getPaperIdentity() !== s.identity) throw new Error('答卷已切换，请重新批改');
