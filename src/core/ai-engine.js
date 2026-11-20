@@ -6,18 +6,28 @@ function isTrustedOfficialEndpoint(endpoint) {
     } catch (_) { return false; }
 }
 
+const officialRegionalEndpoints = Object.freeze({
+    hongKong: 'https://api-hk.ai.five-plus-one.com/v1/chat/completions',
+    shaoxing: 'https://api.ai.five-plus-one.com/regional/shaoxing/v1/chat/completions',
+});
+const officialApiLineOrder = ['primary', 'hongKong', 'shaoxing', 'backup'];
 const officialApiRoutes = {
     primary: SCRIPT_CONFIG.DEFAULT_ENDPOINT, backup: SCRIPT_CONFIG.SHANGHAI_ENDPOINT, revision: 0,
 };
+const officialApiRoutesStorageKey = 'ai-marker-official-api-routes-v2';
 let officialApiRoutingRequest = null;
 let officialApiRoutingChecked = 0;
 let officialApiFallback = null;
 
 function applyOfficialApiRoutes(value) {
-    const primary = value?.official?.endpoint, backup = value?.official?.backupEndpoint;
+    const { endpoint: primary, backupEndpoint: backup, hongKongEndpoint: hongKong, shaoxingEndpoint: shaoxing } = value?.official || {};
     if (!Number.isSafeInteger(value?.revision) || value.revision <= officialApiRoutes.revision
-        || !isTrustedOfficialEndpoint(primary) || !isTrustedOfficialEndpoint(backup) || primary === backup) return false;
-    Object.assign(officialApiRoutes, { primary, backup, revision: value.revision });
+        || !isTrustedOfficialEndpoint(primary) || !isTrustedOfficialEndpoint(backup)
+        || (hongKong !== undefined && hongKong !== officialRegionalEndpoints.hongKong)
+        || (shaoxing !== undefined && shaoxing !== officialRegionalEndpoints.shaoxing)) return false;
+    const addresses = [primary, hongKong, shaoxing, backup].filter(Boolean);
+    if (new Set(addresses).size !== addresses.length) return false;
+    Object.assign(officialApiRoutes, { primary, hongKong, shaoxing, backup, revision: value.revision });
     officialApiFallback = null;
     return true;
 }
@@ -27,7 +37,7 @@ function refreshOfficialApiRoutes() {
     if (officialApiRoutingRequest) return officialApiRoutingRequest;
     if (!url || (officialApiRoutingChecked && Date.now() - officialApiRoutingChecked < 300000)) return null;
     officialApiRoutingChecked = Date.now();
-    try { applyOfficialApiRoutes(GM_getValue('ai-marker-official-api-routes')); } catch (_) { /* 内置线路可用。 */ }
+    try { applyOfficialApiRoutes(GM_getValue(officialApiRoutesStorageKey)); } catch (_) { /* 内置线路可用。 */ }
     officialApiRoutingRequest = new Promise(resolve => {
         let request, settled = false;
         const finish = value => {
@@ -35,8 +45,9 @@ function refreshOfficialApiRoutes() {
             settled = true;
             clearTimeout(timer);
             if (applyOfficialApiRoutes(value)) {
-                const { primary, backup, revision } = officialApiRoutes;
-                try { GM_setValue('ai-marker-official-api-routes', { revision, official: { endpoint: primary, backupEndpoint: backup } }); }
+                const { primary, hongKong, shaoxing, backup, revision } = officialApiRoutes;
+                const official = { endpoint: primary, hongKongEndpoint: hongKong, shaoxingEndpoint: shaoxing, backupEndpoint: backup };
+                try { GM_setValue(officialApiRoutesStorageKey, { revision, official }); }
                 catch (_) { /* 本页仍可使用当前线路。 */ }
             }
             resolve();
@@ -60,21 +71,21 @@ function refreshOfficialApiRoutes() {
 }
 
 function getOfficialApiLine(provider) {
-    if (provider?.endpointLine === 'primary' || provider?.endpointLine === 'backup') return provider.endpointLine;
+    if (officialApiLineOrder.includes(provider?.endpointLine)) return provider.endpointLine;
     if (!provider?.endpoint) return '';
     if (provider.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT) return 'backup';
     if (provider.endpoint === SCRIPT_CONFIG.DEFAULT_ENDPOINT) return 'primary';
-    return ['primary', 'backup'].find(line => officialApiRoutes[line] === provider.endpoint) || '';
+    return officialApiLineOrder.find(line => officialApiRoutes[line] === provider.endpoint) || '';
 }
 
 function isOfficialModelProvider(provider) {
     const endpoint = provider?.endpoint;
     return !!endpoint && ([SCRIPT_CONFIG.DEFAULT_ENDPOINT, SCRIPT_CONFIG.SHANGHAI_ENDPOINT].includes(endpoint)
-        || (isTrustedOfficialEndpoint(endpoint) && !!getOfficialApiLine(provider)));
+        || ((isTrustedOfficialEndpoint(endpoint) || endpoint === officialRegionalEndpoints.shaoxing) && !!getOfficialApiLine(provider)));
 }
 
 function getOfficialApiEndpoint(value) {
-    const line = ['primary', 'backup'].includes(value) ? value : getOfficialApiLine({ endpoint: value });
+    const line = officialApiLineOrder.includes(value) ? value : getOfficialApiLine({ endpoint: value });
     return officialApiRoutes[line || 'primary'] || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
 }
 
@@ -121,7 +132,8 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
 
 async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback } = {}) {
     await refreshOfficialApiRoutes();
-    const preferred = ['primary', 'backup'].includes(line) ? line : getOfficialApiLine({ endpoint }) || 'primary';
+    const selection = officialApiLineOrder.includes(line) ? line : getOfficialApiLine({ endpoint });
+    const preferred = officialApiRoutes[selection] ? selection : 'primary';
     const verify = async (url, route) => {
         const reason = await checkOfficialApiConnection(url, apiKey, signal);
         return reason === 'connected' ? { success: true, endpoint: url, line: route } : { success: false, reason };
@@ -338,7 +350,8 @@ const ProviderManager = {
         const provider = this.getProvider('5plus1官方');
         if (!provider) return false;
         const previous = { endpoint: provider.endpoint, endpointLine: provider.endpointLine, apiKey: provider.apiKey };
-        const endpointLine = ['primary', 'backup'].includes(endpoint) ? endpoint : getOfficialApiLine({ endpoint }) || 'primary';
+        const endpointLine = officialApiLineOrder.includes(endpoint) ? endpoint : getOfficialApiLine({ endpoint });
+        if (!officialApiRoutes[endpointLine] || !officialApiLineOrder.includes(endpointLine)) return false;
         const connection = { endpoint: getOfficialApiEndpoint(endpointLine), endpointLine, apiKey: apiKey ?? previous.apiKey };
         Object.assign(provider, connection);
         try {
@@ -1098,10 +1111,11 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
-    const preferred = ['primary', 'backup'].includes(config.officialApiLine) ? config.officialApiLine
+    const selection = config.officialApiLine && officialApiLineOrder.includes(config.officialApiLine) ? config.officialApiLine
         : config.provider === '5plus1官方' ? getOfficialApiLine(config) : '';
-    if (preferred) await refreshOfficialApiRoutes();
-    const routes = preferred ? { ...officialApiRoutes } : null;
+    if (selection) await refreshOfficialApiRoutes();
+    const routes = selection ? { ...officialApiRoutes } : null;
+    const preferred = routes ? routes[selection] ? selection : 'primary' : '';
     let line = preferred, switched = false;
     if (preferred) {
         config.officialApiLine = preferred;
@@ -1129,7 +1143,7 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         } catch (error) {
             if (line && error.routeUnavailable && !switched && !config.signal?.aborted
                 && attempt < 2 && budget.remaining > 0 && routes.backup) {
-                line = line === 'primary' ? 'backup' : 'primary';
+                line = line === 'backup' ? 'primary' : 'backup';
                 config.endpoint = routes[line];
                 switched = true;
                 onStreamUpdate?.('当前端点连接失败，正在尝试另一条线路…');

@@ -149,6 +149,38 @@ window.GM_xmlhttpRequest = request => {
         await callAI('评分练习', [], { ...grading, officialApiLine: undefined, endpoint: customUrl })
             .then(() => { throw Error('未识别自定义线路错误'); }, () => {});
         check(tried(customUrl), '第三方服务仍走自己的端点');
+        const hongKong = 'https://api-hk.ai.five-plus-one.com/v1/chat/completions';
+        const shaoxing = 'https://api.ai.five-plus-one.com/regional/shaoxing/v1/chat/completions';
+        storage.set('ai-marker-official-api-routes', { revision: 4, official: { endpoint: main, backupEndpoint: shanghai } });
+        cloudPolicy = { revision: 4, official: { endpoint: main, hongKongEndpoint: hongKong, shaoxingEndpoint: shaoxing, backupEndpoint: shanghai } };
+        officialApiRoutingChecked = 0;
+        await refreshOfficialApiRoutes();
+        get('ai-provider').value = '5plus1官方';
+        handleProviderChange();
+        check(Array.from(select.options, option => option.textContent).join('|') === '主端点|香港端点|绍兴端点|上海备用端点',
+            '旧脚本已缓存同修订号时仍能读取四条云控线路');
+        change('hongKong');
+        check(official().endpoint === hongKong && official().apiKey === 'fixture-key', '香港端点使用原有密钥');
+        reset('ok');
+        check(await callAI('评分练习', [], { ...grading, officialApiLine: 'hongKong' }) === '收到' && tried(hongKong), '香港端点实际用于批改');
+        change('shaoxing');
+        ProviderManager.init();
+        check(ProviderManager.getCallConfig('5plus1官方', 'aimarker-fast').endpoint === shaoxing
+            && official().endpointLine === 'shaoxing', '绍兴端点重载后继续使用');
+        reset('network', 'ok');
+        check(await callAI('评分练习', [], { ...grading, officialApiLine: 'shaoxing' }) === '收到'
+            && tried(shaoxing, shanghai), '绍兴不可达时使用上海备用端点');
+        check(!applyOfficialApiRoutes({
+            revision: 5, official: { ...cloudPolicy.official, shaoxingEndpoint: main },
+        }) && officialApiRoutes.shaoxing === shaoxing, '只接受固定到绍兴的官方路径');
+        const cacheKey = 'ai-marker-official-api-routes-v2';
+        check(storage.get(cacheKey)?.official?.shaoxingEndpoint === shaoxing, '新版云控缓存保留区域端点');
+        Object.assign(officialApiRoutes, { revision: 0, hongKong: undefined, shaoxing: undefined });
+        cloudPolicy = undefined;
+        officialApiRoutingChecked = 0;
+        await refreshOfficialApiRoutes();
+        check(getOfficialApiEndpoint('hongKong') === hongKong && getOfficialApiEndpoint('shaoxing') === shaoxing,
+            '云控短暂不可用时沿用已经验证的四条线路');
     } catch (error) { checks.push({ pass: false, label: String(error.message) }); }
     get('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, passed: checks.every(item => item.pass), checks }))));
 })();
