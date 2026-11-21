@@ -149,10 +149,16 @@ const ZhixueHomeworkAdapter = {
         try {
             await guard.verify?.();
             const target = this._paper();
-            if (guard.signal?.aborted || guard.isCurrent?.() === false || target?.identity !== filled.identity
-                || target.view.canNotEdit || target.view.topicSaving) return false;
+            if (guard.signal?.aborted || guard.isCurrent?.() === false || target?.identity !== filled.identity) return false;
+            if (target.view.canNotEdit || target.view.topicSaving) {
+                guard.onNotDispatched?.();
+                return false;
+            }
             const button = this._scoreButton(target, filled.score);
-            if (!button) return false;
+            if (!button) {
+                guard.onNotDispatched?.();
+                return false;
+            }
             const saved = await this._confirmSave(button, filled, guard);
             if (saved) this.lastSubmitError = '';
             return saved;

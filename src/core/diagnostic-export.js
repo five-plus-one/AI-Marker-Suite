@@ -42,8 +42,8 @@ function diagnosticConfiguration(presets, providers, workflows, builtinProviders
             scoring: diagnosticScoring(config.scoring),
             batch: diagnosticFields(config.batchConfig, ['enabled', 'targetCount']),
             retries: {
-                ...diagnosticFields(config.retryPolicy, ['maxRetries', 'retryOnTimeout']),
-                unattendedAnswerFailure: diagnosticChoice(config.retryPolicy?.unattendedAnswerFailure, ['recover', 'pause']),
+                ...diagnosticFields(config.retryPolicy, ['maxRetries', 'retryOnTimeout', 'unattendedRetries']),
+                unattendedAnswerFailure: diagnosticChoice(config.retryPolicy?.unattendedAnswerFailure, ['recover', 'pause', 'retry']),
             },
             paperGuard: diagnosticFields(config.paperGuard, ['enabled']),
             questionGuard: diagnosticFields(config.questionGuard, ['enabled']),
