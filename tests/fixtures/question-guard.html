@@ -37,7 +37,7 @@ try {
  document.querySelectorAll('input[name=topicTxt]').forEach(input=>input.value='');
  requireGradingQuestionContext(context);assert(true,'同题分数清空仍可继续');
  document.getElementById('totalScore').setAttribute('disptitle','18');
- let waiting=false;try{requireGradingQuestionContext(context);}catch(error){waiting=error.message.includes('暂未识别到完整题号');}
+ let waiting=false;try{requireGradingQuestionContext(context);}catch(error){waiting=error.code==='GRADING_STEP_RETRY';}
  assert(waiting,'顶部与评分栏尚未同步时等待就绪');
  document.getElementById('currentTopicIndex').textContent='第18题';
  let blocked=false;try{requireGradingQuestionContext(context);}catch(error){blocked=error.code==='GRADING_QUESTION_CHANGED';}

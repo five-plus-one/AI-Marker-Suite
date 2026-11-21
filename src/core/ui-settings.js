@@ -834,7 +834,7 @@ function createSettingsPanel(options) {
                 <div class="form-section">
                     <div class="section-header"><h4>自动重试</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
-                        <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
+                        <div class="form-group"><label>其他模式的请求重试次数</label>
                             <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
                         <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-status-check"><label for="answer-status-check">作答状态核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
@@ -843,13 +843,13 @@ function createSettingsPanel(options) {
                             <label for="unattended-answer-recovery">无人模式遇到需核对的答卷</label>
                             <select id="unattended-answer-recovery">
                                 <option value="pause">暂停，人工核对</option>
-                                <option value="recover">复查原卷后重评（实验性）</option>
+                                <option value="recover" selected>复查原卷后重评（实验性）</option>
                                 <option value="retry">直接重试评分（实验性）</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="unattended-answer-retries">最多重试次数</label>
-                            <input type="number" id="unattended-answer-retries" min="1" max="5" step="1" value="1" disabled>
+                            <label for="unattended-retries">无人模式每步最多重试次数</label>
+                            <input type="number" id="unattended-retries" min="0" max="5" step="1" value="5">
                         </div>
                         <div class="mode-desc">复查确认空白后按 0 分继续，发现作答时重评。直接重试会重新评分。无法确认原卷或重试用尽时，请人工核对。</div>
                         <div id="zhixue-quota-setting" hidden>
@@ -1565,9 +1565,6 @@ function createSettingsPanel(options) {
         input.addEventListener('input', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
         input.addEventListener('change', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
     });
-    panel.querySelector('#unattended-answer-recovery').addEventListener('change', function () {
-        panel.querySelector('#unattended-answer-retries').disabled = this.value === 'pause';
-    });
     panel.querySelector('#scoped-question-evidence').addEventListener('change', function () {
         panel.querySelector('#scoped-question-points').disabled = !this.checked;
     });
@@ -2143,11 +2140,8 @@ function fillFormFromActivePreset() {
     if (answerStatusCheckInput) answerStatusCheckInput.checked = isAnswerStatusCheckEnabled(config);
     const unattendedAnswerRecoveryInput = document.getElementById('unattended-answer-recovery');
     if (unattendedAnswerRecoveryInput) unattendedAnswerRecoveryInput.value = getUnattendedAnswerFailure(config);
-    const unattendedAnswerRetriesInput = document.getElementById('unattended-answer-retries');
-    if (unattendedAnswerRetriesInput) {
-        unattendedAnswerRetriesInput.value = getUnattendedAnswerRetries(config);
-        unattendedAnswerRetriesInput.disabled = getUnattendedAnswerFailure(config) === 'pause';
-    }
+    const unattendedRetriesInput = document.getElementById('unattended-retries');
+    if (unattendedRetriesInput) unattendedRetriesInput.value = getUnattendedRetryLimit(config);
     const scopedEvidenceInput = document.getElementById('scoped-question-evidence');
     const scopedPointsInput = document.getElementById('scoped-question-points');
     if (scopedEvidenceInput) scopedEvidenceInput.checked = config.questionEvidence?.enabled === true;
@@ -3229,8 +3223,8 @@ function saveAISettings(event) {
     const unattendedAnswerFailure = getUnattendedAnswerFailure({
         retryPolicy: { unattendedAnswerFailure: document.getElementById('unattended-answer-recovery')?.value }
     });
-    const unattendedAnswerRetries = getUnattendedAnswerRetries({
-        retryPolicy: { unattendedAnswerRetries: Number(document.getElementById('unattended-answer-retries')?.value) }
+    const unattendedRetries = getUnattendedRetryLimit({
+        retryPolicy: { unattendedRetries: document.getElementById('unattended-retries')?.valueAsNumber }
     });
     const reviewLimitText = document.getElementById('unattended-review-limit')?.value?.trim();
     const reviewLimitValue = reviewLimitText ? Number(reviewLimitText) : NaN;
@@ -3296,7 +3290,7 @@ function saveAISettings(event) {
             maxRetries: retryMaxRetries,
             retryOnTimeout: retryOnTimeout,
             unattendedAnswerFailure,
-            unattendedAnswerRetries
+            unattendedRetries
         },
         blankDetection: {
             enabled: blankDetectionEnabled,

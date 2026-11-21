@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.35.3',
+    VERSION: '1.21.35.4',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.35.4': [
+            '【优化】无人模式各环节默认最多重试 5 次，可在自动化设置中调整',
+            '【修复】评分结果无法识别时重新核对并评分，提交结果不明时复查当前答卷',
+        ],
         '1.21.35.3': [
             '【优化】从批改助手打开管理控制台，自动进入余额充值或 API 密钥管理',
             '【修复】智学网无人批改按实际时间判断换卷等待超时',

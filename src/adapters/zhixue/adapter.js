@@ -582,7 +582,16 @@ const ZhixueAdapter = {
         }
     },
 
-    submitGrade() {
+    submitGrade(guard) {
+        if (guard?.signal?.aborted || guard?.isCurrent?.() === false) return false;
+        const dispatch = button => {
+            if (button.disabled || button.isConnected === false) {
+                guard?.onNotDispatched?.();
+                return false;
+            }
+            button.click();
+            return true;
+        };
         // 获取iframe文档（新版微前端架构）
         const iframeDoc = this._getIframeDoc();
         const searchDoc = iframeDoc || document;
@@ -593,16 +602,14 @@ const ZhixueAdapter = {
         const submitBtnOld = allBtns.find(btn => btn.textContent.includes(ZHIXUE_SELECTORS.SUBMIT_BUTTON_TEXT));
         if (submitBtnOld) {
             console.log(`✅ [诊断] 旧版找到"提交分数"按钮，准备点击`);
-            submitBtnOld.click();
-            return true;
+            return dispatch(submitBtnOld);
         }
 
         // 再尝试新版：通过选择器
         const submitBtnNew = searchDoc.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW);
         if (submitBtnNew) {
             console.log(`✅ [诊断] 新版找到"提交分数"按钮，准备点击`);
-            submitBtnNew.click();
-            return true;
+            return dispatch(submitBtnNew);
         }
 
         // 如果iframe中没找到，也检查主页面
@@ -612,12 +619,12 @@ const ZhixueAdapter = {
                                  document.querySelector(ZHIXUE_SELECTORS.SUBMIT_BUTTON_NEW);
             if (submitBtnMain) {
                 console.log(`✅ [诊断] 主页面找到"提交分数"按钮，准备点击`);
-                submitBtnMain.click();
-                return true;
+                return dispatch(submitBtnMain);
             }
         }
 
         console.warn(`⚠️ [诊断] 未找到"提交分数"按钮`);
+        guard?.onNotDispatched?.();
         return false;
     },
 

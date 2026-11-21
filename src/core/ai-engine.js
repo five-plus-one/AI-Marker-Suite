@@ -1213,13 +1213,14 @@ function classifyTransientError(error, policy) {
 async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
     config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
     const policy = getRetryPolicy(config);
-    for (let i = 0; i <= policy.maxRetries; i++) {
+    const maxRetries = config.unattendedRetryBudget ? 0 : policy.maxRetries;
+    for (let i = 0; i <= maxRetries; i++) {
         try {
             if (config.signal?.aborted) throw new Error('用户主动暂停');
             return await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
         } catch (error) {
             const kind = classifyTransientError(error, policy);
-            if (!kind || i >= policy.maxRetries) throw error;
+            if (!kind || i >= maxRetries) throw error;
             const delay = policy.backoffBaseMs * (i + 1);
             console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
             if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
@@ -1247,17 +1248,17 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         }
         config.endpoint = line.endpoint;
     }
-    const budget = config.requestBudget || { remaining: 3 };
+    const unattendedBudget = config.unattendedRetryBudget;
+    const budget = unattendedBudget ? null : (config.requestBudget || { remaining: 3 });
     const policy = getOutputLimitPolicy(config.outputLimitKey);
     const configuredLimit = Number(config.maxOutputTokens);
     let maxTokens = config.outputLimitEnabled === false || policy?.useProviderDefault
         ? null : (Number.isSafeInteger(configuredLimit) && configuredLimit > 0 ? configuredLimit : 2048);
     let upgraded = false;
     let serverRetried = 0;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; ; attempt++) {
         if (config.signal?.aborted) throw new Error('用户主动暂停');
-        if (budget.remaining <= 0) throw new Error('AI请求次数已达到上限');
-        budget.remaining--;
+        if (budget && budget.remaining-- <= 0) throw new Error('AI请求次数已达到上限');
         try {
             const result = await callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
             if (switched && !config.signal?.aborted && routes.revision === officialApiRoutes.revision) {
@@ -1266,9 +1267,11 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
             if (upgraded && config.outputObservation) config.outputObservation.upgraded = true;
             return result;
         } catch (error) {
+            const canRetry = unattendedBudget ? unattendedBudget.remaining > 0 : attempt < 2 && budget.remaining > 0;
+            if (!canRetry || config.signal?.aborted) throw error;
             const fallback = line && getOfficialApiFallback(line, routes);
-            if (fallback && error.routeUnavailable && !switched && !config.signal?.aborted
-                && attempt < 2 && budget.remaining > 0) {
+            if (fallback && error.routeUnavailable && !switched) {
+                if (unattendedBudget && !await unattendedBudget.retry(undefined, 'alternate-route')) throw error;
                 line = fallback;
                 config.endpoint = line.endpoint;
                 switched = true;
@@ -1278,7 +1281,8 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 onStreamUpdate?.('当前端点连接失败，正在尝试另一条线路…');
                 continue;
             }
-            if (error.code === 'OUTPUT_TRUNCATED' && maxTokens !== null && !upgraded && attempt < 2 && budget.remaining > 0) {
+            if (error.code === 'OUTPUT_TRUNCATED' && maxTokens !== null && !upgraded) {
+                if (unattendedBudget && !await unattendedBudget.retry(undefined, 'output-limit')) throw error;
                 upgraded = true;
                 maxTokens = null;
                 if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
@@ -1289,6 +1293,12 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
             }
             // 5xx/429 可重试：最多2次，递增延迟（504等瞬态错误常需更长恢复窗口）
             const isServerError = error.status === 429 || (error.status >= 500 && error.status < 600);
+            if (unattendedBudget) {
+                const reason = classifyTransientError(error, getRetryPolicy(config));
+                if ((isServerError || reason || (error.routeUnavailable && !error.status))
+                    && await unattendedBudget.retry(undefined, error.status || reason || 'network')) continue;
+                throw error;
+            }
             if (isServerError && serverRetried < 2 && attempt < 2) {
                 serverRetried++;
                 const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
@@ -1431,15 +1441,21 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     if (onStreamUpdate) onStreamUpdate('🔄 双评模式：正在并发调用两个模型...');
 
     // 并发调用（使用带重试的包装）
-    let [resultA, resultB] = await Promise.allSettled([
+    const settled = await Promise.allSettled([
         callAIGrading(base64DataArray, { ...config, ...primaryConfig }, null),
         callAIGrading(base64DataArray, { ...config, ...secondaryConfig }, null)
     ]);
+    const [resultA, resultB] = settled;
 
     let scoreA = resultA.status === 'fulfilled' ? resultA.value.score : null;
     let scoreB = resultB.status === 'fulfilled' ? resultB.value.score : null;
     let detailA = resultA.status === 'fulfilled' ? resultA.value : null;
     let detailB = resultB.status === 'fulfilled' ? resultB.value : null;
+    if (config.unattendedRetryBudget) {
+        const failure = settled.find(result => result.status === 'rejected');
+        if (failure) throw failure.reason;
+        if (!hasUsableGradingScores(detailA) || !hasUsableGradingScores(detailB)) throw missingGradingScore();
+    }
 
     // 单侧解析为 null 时重试该侧一次（#287）：模型偶发格式漂移/漏段落不应让整批批改停摆。
     // 仅对「调用成功但解析失败」重试（rejected 的模型异常已走 callAIGrading 内部重试，不重复打）；
@@ -1455,11 +1471,11 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
             return null;
         }
     }
-    if (scoreA === null && resultA.status === 'fulfilled') {
+    if (!config.unattendedRetryBudget && scoreA === null && resultA.status === 'fulfilled') {
         detailA = await retryUnparsedSide(primaryConfig, '主模型');
         scoreA = detailA ? detailA.score : null;
     }
-    if (scoreB === null && resultB.status === 'fulfilled') {
+    if (!config.unattendedRetryBudget && scoreB === null && resultB.status === 'fulfilled') {
         detailB = await retryUnparsedSide(secondaryConfig, '副模型');
         scoreB = detailB ? detailB.score : null;
     }

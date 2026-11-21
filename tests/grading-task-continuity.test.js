@@ -56,9 +56,13 @@ test('同题换卷及暂停继续正常，未知题号不作为切题证据', as
 
 test('识别期间原生题号改变，轮询取消请求并禁止旧结果填分', async()=>{
     const e=fixture(); load(e,'src/core/main.js');
-    let resolve; e.sb.callAIGrading=()=>new Promise(r=>{resolve=r;});
+    let resolve, started;
+    const scoringStarted = new Promise(done => { started = done; });
+    e.sb.callAIGrading = () => new Promise(done => { resolve = done; started(); });
     e.sb.runNewTaskOnboardingFlow=async()=>{};
-    const run=e.sb.startAutoGrading(); await settle();
+    const run=e.sb.startAutoGrading();
+    await Promise.race([scoringStarted, run]);
+    assert.equal(typeof resolve, 'function');
     const context=e.state.activeRun; e.task('question-30');
     await [...e.intervals.values()][0]();
     assert.equal(context.controller.signal.aborted,true);

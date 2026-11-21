@@ -25,17 +25,17 @@ test('无法辨认始终暂停；默认关闭选项时沿用证据保护', async
         const e = scene(enabled, mode);
         if (enabled === undefined) delete e.cfg.answerReview;
         await e.sb.startAutoGrading();
-        assert.equal(e.requests(), 1);
+        assert.equal(e.requests(), mode === 'unattended' ? 6 : 1);
         assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0);
         assert.equal(e.records().length, 0); assert.equal(e.state.isPaused, true);
     }
 });
 
-test('开启后原图与方案先保存，普通和试改直接核对，无人只重试一次', async () => {
+test('开启后原图与方案保存待核对，无人模式用完重试预算才暂停', async () => {
     for (const mode of ['normal', 'trial', 'unattended']) {
         const e = scene(true, mode); e.cfg.apiKey = 'private-test-key';
         await e.sb.startAutoGrading();
-        assert.equal(e.requests(), mode === 'unattended' ? 2 : 1);
+        assert.equal(e.requests(), mode === 'unattended' ? 6 : 1);
         assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0);
         assert.equal(e.state.isPaused, true);
         const [record] = e.records();
@@ -59,7 +59,7 @@ test('待复核上限只挡新增记录；写入失败、图片失败、换卷�
     const capped = scene();
     capped.store['ai-grading-history'] = JSON.stringify(Array.from({ length: 5 }, (_, i) => ({ id: String(i), reviewStatus: 'pending' })));
     await capped.sb.startAutoGrading();
-    assert.equal(capped.requests(), 2);
+    assert.equal(capped.requests(), 6);
     assert.equal(capped.calls.fill.length, 0);
     assert.equal(capped.records().length, 5);
     for (const failure of ['image', 'history', 'changed', 'cancelled', 'quota']) {
