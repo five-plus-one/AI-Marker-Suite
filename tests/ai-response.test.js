@@ -23,7 +23,8 @@ function setup(responses, cfg) {
     const updates = [];
     const context = {
         console: { log() {}, warn() {}, error() {} },
-        window: { aiGradingState: { abortController: new AbortController() } },
+        URL, clearTimeout, document: {}, DIAGNOSTIC_SCRIPT_VERSION: 'test',
+        window: { location: { hostname: 'grading.example' }, aiGradingState: { abortController: new AbortController() } },
         setTimeout: callback => callback(),
         GM_xmlhttpRequest(options) {
             requests.push(JSON.parse(options.data));
@@ -34,8 +35,10 @@ function setup(responses, cfg) {
                 return { abort() {} };
             }
             queueMicrotask(() => {
-                if (response.kind === 'timeout') options.ontimeout();
-                else if (response.kind === 'network') options.onerror();
+                if (response.kind === 'timeout') {
+                    if (response.headers) options.onreadystatechange({ readyState: 2, status: 200, responseHeaders: response.headers });
+                    options.ontimeout();
+                } else if (response.kind === 'network') options.onerror();
                 else if (response.chunks) {
                     // 流式响应：逐片触发 onprogress（responseText 为累计全文），
                     // 最后 onload 收尾 —— 复现「流式增量」真实调用序列
@@ -46,7 +49,7 @@ function setup(responses, cfg) {
                     }
                     options.onload({ status: response.status || 200, responseText: acc });
                 } else {
-                    options.onload({ status: response.status || 200, responseText: response.body });
+                    options.onload({ status: response.status || 200, responseText: response.body, responseHeaders: response.headers });
                 }
             });
             return { abort() {} };
@@ -54,11 +57,13 @@ function setup(responses, cfg) {
     };
     vm.createContext(context);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src/core/runtime.js'), 'utf8'), context);
+    vm.runInContext(fs.readFileSync('src/core/diagnostic-log.js', 'utf8'), context);
     vm.runInContext(transport, context);
     return {
         call: () => context.callAI('题目', ['image'], cfg || config, (text) => updates.push(text)),
         requests,
         updates,
+        diagnostics: () => structuredClone(vm.runInContext('DiagnosticLog.read(0, Date.now()).entries', context)),
         context,
     };
 }
@@ -241,12 +246,50 @@ test('流式中断（缺结束标记）→ 瞬态退避重试后恢复（中断�
     assert.ok(updates.some(u => u.includes('响应未完整结束')), '应向 UI 通知中断并自动重试，实际: ' + JSON.stringify(updates));
 });
 
+
+test('diagnostics preserve request models, gateway IDs and timeout retries across attempts', async () => {
+    const { call, diagnostics, requests } = setup([
+        { kind: 'timeout', headers: 'X-Oneapi-Request-Id: gateway-first\r\n' },
+        {
+            body: event({ delta: { content: 'private-student-answer' }, finish_reason: 'stop' },
+                { prompt_tokens: 24, completion_tokens: 12, prompt_tokens_details: { cached_tokens: 8 } }),
+            headers: 'x-oneapi-request-id: gateway-second\r\nSet-Cookie: private-cookie\r\n',
+        },
+    ], {
+        ...config, model: 'custom/vision:pro', apiKey: 'private-key',
+        endpoint: 'https://private-user:private-password@example.test/private-path?secret=private-query',
+        retryPolicy: { retryOnTimeout: true },
+    });
+    await call();
+    const [first, timeout, retry, second, success] = diagnostics().map(entry => entry.details);
+    assert.deepEqual(requests.map(request => request.model), ['custom/vision:pro', 'custom/vision:pro']);
+    assert.equal(first.model, requests[0].model);
+    assert.equal(first.endpoint, 'example.test');
+    assert.equal(timeout.attemptId, first.attemptId);
+    assert.equal(timeout.requestId, 'gateway-first');
+    assert.equal(timeout.outcome, 'timeout');
+    assert.equal(retry.reason, '请求超时');
+    assert.equal(retry.callId, first.callId);
+    assert.equal(second.callId, first.callId);
+    assert.notEqual(first.attemptId, second.attemptId);
+    assert.equal(success.attemptId, second.attemptId);
+    assert.equal(success.requestId, 'gateway-second');
+    assert.equal(success.httpStatus, 200);
+    assert.equal(success.outcome, 'success');
+    assert.deepEqual([success.inputTokens, success.outputTokens, success.cachedTokens], [24, 12, 8]);
+    assert.match(first.url, /example\.test\/private-path/);
+    assert.equal(first.body.messages[0].content[0].text, '题目');
+    assert.match(success.responseText, /private-student-answer/);
+    assert.equal(success.responseHeaders['set-cookie'], undefined);
+    assert.doesNotMatch(JSON.stringify(diagnostics()), /private-(?:user|password|query|key|cookie)/);
+});
+
 test('批改诊断故障不改变模型返回结果，独立请求沿用原有传输流程', async () => {
     const body = event({ delta: { content: '得分：8' }, finish_reason: 'stop' });
     const controller = new AbortController();
     const { call, context } = setup([{ body }, { body }], { ...config, signal: controller.signal });
     let diagnosticCalls = 0;
-    context.DiagnosticLog = { grading() { diagnosticCalls++; throw Error('Diagnostic failure'); } };
+    vm.runInContext('DiagnosticLog', context).grading = () => { diagnosticCalls++; throw Error('Diagnostic failure'); };
     assert.equal(await call(), '得分：8');
     assert.equal(diagnosticCalls, 0);
     context.window.aiGradingState.activeRun = { controller };

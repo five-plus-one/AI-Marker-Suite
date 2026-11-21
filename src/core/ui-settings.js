@@ -1,7 +1,17 @@
+const QUESTION_ONBOARDING_DISABLED = 'ai-grading-hide-question-onboarding';
+
+function saveQuestionOnboardingPreference(disabled) {
+    try {
+        GM_setValue(QUESTION_ONBOARDING_DISABLED, disabled);
+        return GM_getValue(QUESTION_ONBOARDING_DISABLED, false) === disabled;
+    } catch (_) { return false; }
+}
+
 // ========== 创建配置面板（侧边栏） ==========
 function createSettingsPanel(options) {
     if (document.getElementById('ai-grading-settings')) return;
     if (document.getElementById('ai-settings-overlay')) return;
+    ensureModalStyles();
 
     // 遮罩层
     const overlay = document.createElement('div');
@@ -792,6 +802,15 @@ function createSettingsPanel(options) {
                 </div>
 
                 <div class="form-section">
+                    <div class="section-header"><h4>配置引导</h4></div>
+                    <div class="section-body">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="question-onboarding-enabled">
+                            <label for="question-onboarding-enabled" style="display:flex;align-items:center;min-height:44px;">切换题目时自动显示配置引导</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-section">
                     <div class="section-header"><h4>自动重试</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
                         <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
@@ -803,10 +822,15 @@ function createSettingsPanel(options) {
                             <label for="unattended-answer-recovery">无人模式遇到需核对的答卷</label>
                             <select id="unattended-answer-recovery">
                                 <option value="pause">暂停，人工核对</option>
-                                <option value="recover">自动复查一次（实验性）</option>
+                                <option value="recover">复查原卷后重评（实验性）</option>
+                                <option value="retry">直接重试评分（实验性）</option>
                             </select>
                         </div>
-                        <div class="mode-desc">自动复查确认空白后按 0 分继续，发现作答痕迹时重评一次。</div>
+                        <div class="form-group">
+                            <label for="unattended-answer-retries">最多重试次数</label>
+                            <input type="number" id="unattended-answer-retries" min="1" max="5" step="1" value="1" disabled>
+                        </div>
+                        <div class="mode-desc">复查确认空白后按 0 分继续，发现作答时重评。直接重试会重新评分。无法确认原卷或重试用尽时，请人工核对。</div>
                         <div id="zhixue-quota-setting" hidden>
                             <div class="checkbox-group" style="margin-top:12px;">
                                 <input type="checkbox" id="zhixue-continue-quota" aria-describedby="zhixue-continue-quota-desc">
@@ -816,6 +840,12 @@ function createSettingsPanel(options) {
                         </div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="scoped-question-evidence"><label for="scoped-question-evidence">分小问作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">先识别每个小问的作答，再逐问给分。平台有多个分数框时使用平台题号和满分。平台只有总分框时，在下方每行填写一个「题号=满分」。</div>
+                        <div class="form-group">
+                            <label for="scoped-question-points">总分题的小问与满分</label>
+                            <textarea id="scoped-question-points" rows="3" placeholder="（1）=4&#10;（2）=6&#10;（3）=7" disabled></textarea>
+                        </div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-review-enabled"><label for="answer-review-enabled">保存无法辨认答卷供复核 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">默认关闭。开启后，需要人工核对无法辨认的答卷时，将原图和评分方案保存到评阅历史。</div>
                         <div class="form-group" style="margin-top:12px;"><label for="unattended-review-limit">允许待复核数量</label>
@@ -912,9 +942,9 @@ function createSettingsPanel(options) {
                                 <span><span class="scoring-total-value" id="scoring-total-score">0</span> 分</span>
                             </div>
                             <div class="scoring-actions">
-                                <button class="preset-btn" id="btn-detect-inputs">检测页面输入框</button>
+                                <button class="preset-btn" id="btn-detect-inputs">${window.__AI_MARKER_ADAPTER__?.scoreDetectionLabel || '检测页面输入框'}</button>
                             </div>
-                            <div class="mode-desc" style="font-size:12px;margin-top:8px;">评分项根据页面输入框生成；如果没有正确检测，请联系作者适配。</div>
+                            <div class="mode-desc" style="font-size:12px;margin-top:8px;">${window.__AI_MARKER_ADAPTER__?.scoreDetectionLabel ? '读取智学网当前题目的满分和分值间隔。' : '评分项根据页面输入框生成；如果没有正确检测，请联系作者适配。'}</div>
                         </div>
                         <div id="scoring-units-warning" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(217,48,37,0.06);border:1px solid rgba(217,48,37,0.15);border-radius:8px;font-size:12px;color:#D93025;">
                             请为所有评分单元填写小题分后再保存
@@ -959,21 +989,18 @@ function createSettingsPanel(options) {
                             </div>
                         </div>
                         <div class="form-group" id="custom-endpoint-field"><label for="api-endpoint">服务网关 URL</label><input type="text" id="api-endpoint"></div>
-                        <div class="form-group" id="official-endpoint-field" hidden>
-                            <label for="official-endpoint">5plus1API 端点</label>
-                            <select id="official-endpoint" aria-describedby="official-endpoint-help">
-                                <option value="primary">主端点</option>
-                                <option value="backup">上海备用端点</option>
-                            </select>
-                            <p id="official-endpoint-help" style="font-size:12px;color:#86868b;margin:6px 0 0;">主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。</p>
-                        </div>
                         <div id="official-account-field" hidden>${markerAccountControls()}</div>
                         <details id="manual-api-field" class="form-group" open>
-                            <summary>或手动输入 API 密钥</summary>
+                            <summary style="line-height:44px;cursor:pointer;">手动配置 API 密钥</summary>
                             <label for="api-key">API 密钥</label>
                             <input type="password" id="api-key" autocomplete="off" placeholder="输入 API 密钥">
                             <div id="api-key-link-container" hidden><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" class="api-key-link">获取 API 密钥</a></div>
                         </details>
+                        <div class="form-group" id="official-endpoint-field" hidden>
+                            <label for="official-endpoint">批改线路</label>
+                            <select id="official-endpoint" aria-describedby="official-endpoint-help"></select>
+                            <p id="official-endpoint-help" class="mode-desc" style="margin:6px 0 0;">建议使用自动选择。连接不稳定时，可以指定线路。</p>
+                        </div>
                         <div class="form-group">
                             <label>模型列表</label>
                             <div id="model-list" style="margin-bottom:8px;"></div>
@@ -1098,7 +1125,7 @@ function createSettingsPanel(options) {
                         <div style="margin-top:10px;">
                             <button class="footer-btn danger" id="btn-reset-config" style="width:100%;">恢复默认设置</button>
                         </div>
-                        <div style="font-size:11px;color:#86868b;margin-top:4px;">将重置所有方案、供应商、工作流为默认值</div>
+                        <div style="font-size:11px;color:#86868b;margin-top:4px;">重置方案、供应商和工作流，并解除此浏览器的五加一账号连接。</div>
                     </div>
                 </div>
             </div>
@@ -1455,7 +1482,7 @@ function createSettingsPanel(options) {
 
     // 恢复默认设置
     panel.querySelector('#btn-reset-config').onclick = async () => {
-        if (await showConfirmModal('确定要恢复默认设置吗？\n\n将重置：\n• 所有配置方案\n• 供应商与模型\n• 工作流配置\n\n此操作不可撤销！')) {
+        if (await showConfirmModal('确定要恢复默认设置吗？\n\n将重置：\n• 所有配置方案\n• 供应商与模型\n• 工作流配置\n• 此浏览器的五加一账号连接\n\n此操作不可撤销！')) {
             PresetManager.data = {
                 list: { "默认配置": { question: '', answer: '', rubric: '', workflowId: 'fast', gradingMode: 'normal', scoring: { roundStep: 1, roundMethod: 'round' } } },
                 active: "默认配置",
@@ -1466,6 +1493,12 @@ function createSettingsPanel(options) {
             if (ProviderManager.save() === false) return;
             WorkflowManager.data = WorkflowManager._getDefault();
             if (WorkflowManager.save() === false) return;
+            if (!disconnectMarkerAccount() || !saveQuestionOnboardingPreference(false)) {
+                panel.dispatchEvent(new Event('marker-account-refresh'));
+                showToast('方案与工作流已重置，部分本地设置未能恢复，请重试。');
+                return;
+            }
+            panel.dispatchEvent(new Event('marker-account-refresh'));
             GM_setValue('ai-grading-show-onboarding', true);
             showToast('已恢复默认设置，正在刷新...');
             setTimeout(() => location.reload(), 800);
@@ -1487,10 +1520,23 @@ function createSettingsPanel(options) {
         });
     });
 
-    const inputs = panel.querySelectorAll('input:not([name="grading-mode"]), textarea, select:not(#preset-select):not(#settings-channel-select)');
+    const questionOnboarding = panel.querySelector('#question-onboarding-enabled');
+    questionOnboarding.checked = !GM_getValue(QUESTION_ONBOARDING_DISABLED, false);
+    questionOnboarding.onchange = () => {
+        if (saveQuestionOnboardingPreference(!questionOnboarding.checked)) return;
+        questionOnboarding.checked = !GM_getValue(QUESTION_ONBOARDING_DISABLED, false);
+        showToast('配置引导设置尚未保存，请重试。');
+    };
+    const inputs = panel.querySelectorAll('input:not([name="grading-mode"]):not(#question-onboarding-enabled), textarea, select:not(#preset-select):not(#settings-channel-select)');
     inputs.forEach(input => {
         input.addEventListener('input', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
         input.addEventListener('change', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
+    });
+    panel.querySelector('#unattended-answer-recovery').addEventListener('change', function () {
+        panel.querySelector('#unattended-answer-retries').disabled = this.value === 'pause';
+    });
+    panel.querySelector('#scoped-question-evidence').addEventListener('change', function () {
+        panel.querySelector('#scoped-question-points').disabled = !this.checked;
     });
     panel.querySelector('#answer-review-enabled').addEventListener('change', function () {
         panel.querySelector('#unattended-review-limit').disabled = !this.checked;
@@ -1520,14 +1566,15 @@ function createSettingsPanel(options) {
             if (inputs.length > 0) {
                 const list = panel.querySelector('#scoring-units-list');
                 list.innerHTML = '';
-                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`, maxScore: inp.maxScore || '', source: 'detected' }));
+                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`,
+                    maxScore: inp.maxScore || '', roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined, source: 'detected' }));
                 refreshScoringTotal();
                 validateRequiredFields({ showErrors: false });
-                showToast(`已检测到 ${inputs.length} 个输入框，请填写小题分`);
+                showToast(adapter.scoreDetectionLabel ? `已读取当前题满分 ${inputs[0].maxScore} 分` : `已检测到 ${inputs.length} 个输入框，请填写小题分`);
                 markUnsavedChanges();
                 updateSettingsNavBadges();
             } else {
-                showToast('未检测到分数输入框');
+                showToast(adapter.getScoreDetectionHint?.() || '未检测到分数输入框');
             }
         } else {
             showToast('当前平台不支持自动检测');
@@ -1641,6 +1688,7 @@ function setupSettingsMenuLayout(panel) {
     moveSection('ai', '供应商与模型');
     const apiWarning = configTab.querySelector('#api-key-warning');
     if (apiWarning) pages.ai.appendChild(apiWarning);
+    moveSection('automation', '配置引导');
     moveSection('automation', '批阅份数');
     moveSection('automation', '自动重试');
     moveSection('automation', '批改节奏');
@@ -2062,6 +2110,19 @@ function fillFormFromActivePreset() {
     if (answerStatusCheckInput) answerStatusCheckInput.checked = isAnswerStatusCheckEnabled(config);
     const unattendedAnswerRecoveryInput = document.getElementById('unattended-answer-recovery');
     if (unattendedAnswerRecoveryInput) unattendedAnswerRecoveryInput.value = getUnattendedAnswerFailure(config);
+    const unattendedAnswerRetriesInput = document.getElementById('unattended-answer-retries');
+    if (unattendedAnswerRetriesInput) {
+        unattendedAnswerRetriesInput.value = getUnattendedAnswerRetries(config);
+        unattendedAnswerRetriesInput.disabled = getUnattendedAnswerFailure(config) === 'pause';
+    }
+    const scopedEvidenceInput = document.getElementById('scoped-question-evidence');
+    const scopedPointsInput = document.getElementById('scoped-question-points');
+    if (scopedEvidenceInput) scopedEvidenceInput.checked = config.questionEvidence?.enabled === true;
+    if (scopedPointsInput) {
+        const questions = Array.isArray(config.questionEvidence?.questions) ? config.questionEvidence.questions : [];
+        scopedPointsInput.value = questions.map(question => `${question?.label ?? ''}=${question?.maxScore ?? ''}`).join('\n');
+        scopedPointsInput.disabled = config.questionEvidence?.enabled !== true;
+    }
     const referenceImageEvidenceInput = document.getElementById('reference-image-evidence-check');
     if (referenceImageEvidenceInput) referenceImageEvidenceInput.checked = config.referenceImageEvidenceCheck === true;
     const reviewLimitInput = document.getElementById('unattended-review-limit');
@@ -2085,7 +2146,8 @@ function fillFormFromActivePreset() {
             const inputs = adapter.getScoreInputs();
             if (inputs.length > 0) {
                 detected = true;
-                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`, maxScore: inp.maxScore || '', source: 'detected' }));
+                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`,
+                    maxScore: inp.maxScore || '', roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined, source: 'detected' }));
                 // 自动展开"分数设置"手风琴，引导用户填写小题分
                 const unitsSection = document.getElementById('scoring-units-list')?.closest('.form-section');
                 if (unitsSection) unitsSection.classList.remove('collapsed');
@@ -2560,20 +2622,22 @@ function handleOfficialEndpointChange() {
     const line = document.getElementById('official-endpoint').value;
     const saved = ProviderManager.saveOfficialConnection(line);
     updateUIVisibility();
-    showToast(saved ? (line === 'backup' ? '已切换到备用端点' : '已切换到主端点')
-        : '端点选择尚未保存，请刷新页面后重试');
+    showToast(saved ? `已切换到${officialApiLineLabel(line)}` : '端点选择尚未保存，请刷新页面后重试');
+}
+
+function officialApiLineLabel(line) {
+    const name = resolveOfficialApiLine(line).name;
+    return line === 'default' ? '自动选择（' + name.replace(/（自动分流）$/, '') + '）' : name;
 }
 
 function refreshOfficialEndpointOptions() {
     const select = document.getElementById('official-endpoint');
     if (!select || document.getElementById('ai-provider')?.value !== '5plus1官方') return;
-    select.value = getOfficialApiLine(ProviderManager.getProvider('5plus1官方')) || 'primary';
-    const backupInShanghai = getOfficialApiEndpoint('backup') === SCRIPT_CONFIG.SHANGHAI_ENDPOINT;
-    select.options[0].textContent = `主端点（${new URL(getOfficialApiEndpoint('primary')).hostname}）`;
-    select.options[1].textContent = `${backupInShanghai ? '上海备用端点' : '备用端点'}（${new URL(getOfficialApiEndpoint('backup')).hostname}）`;
-    document.getElementById('official-endpoint-help').textContent = backupInShanghai
-        ? '主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。'
-        : '国内部分地区访问受限时，可以切换到备用端点。';
+    const selected = getOfficialApiLine(ProviderManager.getProvider('5plus1官方'));
+    const endpoints = officialApiRoutes.endpoints;
+    select.replaceChildren(new Option(officialApiLineLabel('default'), 'default'),
+        ...endpoints.map(line => new Option(line.name, line.id)));
+    select.value = endpoints.some(line => line.id === selected) ? selected : 'default';
     document.getElementById('api-endpoint').value = getOfficialApiEndpoint(select.value);
 }
 
@@ -2974,7 +3038,7 @@ function showWorkflowEditModal(wf) {
     };
 }
 
-function saveAISettings() {
+function saveAISettings(event) {
     const checkedMode = document.querySelector('input[name="grading-mode"]:checked');
     const gradingMode = checkedMode ? checkedMode.value : 'normal';
 
@@ -2987,6 +3051,29 @@ function saveAISettings() {
         const labels = requiredValidation.missing.join('、');
         safeAlert(`⚠️ 请先完成必填项：${labels}`);
         return;
+    }
+
+    const questionEvidenceEnabled = document.getElementById('scoped-question-evidence')?.checked === true;
+    const oldQuestionEvidence = PresetManager.getCurrentConfig()?.questionEvidence;
+    const questionEvidence = { enabled: questionEvidenceEnabled, questions: oldQuestionEvidence?.questions || [] };
+    const questionPointsText = document.getElementById('scoped-question-points')?.value || '';
+    if (questionEvidenceEnabled && scoringUnits.length <= 1) {
+        questionEvidence.questions = questionPointsText.split(/\r?\n/).filter(line => line.trim()).map(line => {
+            const parts = line.split(/[=＝]/);
+            const value = parts[1]?.trim().normalize('NFKC');
+            return { label: parts[0].trim(), maxScore: parts.length === 2 && /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : NaN };
+        });
+    }
+    if (questionEvidenceEnabled) {
+        try {
+            getScopedQuestionPlan({ questionEvidence, scoring: {
+                units: scoringUnits, maxScore: Number(document.getElementById('scoring-max-score')?.value)
+            } });
+        } catch (error) {
+            switchSettingsPage('automation');
+            safeAlert(error.message);
+            return;
+        }
     }
 
     // 保存供应商配置（仅保存当前编辑的供应商，不设置"活跃"供应商）
@@ -3038,7 +3125,12 @@ function saveAISettings() {
     // 保存自动重试配置
     const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
-    const unattendedAnswerFailure = document.getElementById('unattended-answer-recovery')?.value === 'recover' ? 'recover' : 'pause';
+    const unattendedAnswerFailure = getUnattendedAnswerFailure({
+        retryPolicy: { unattendedAnswerFailure: document.getElementById('unattended-answer-recovery')?.value }
+    });
+    const unattendedAnswerRetries = getUnattendedAnswerRetries({
+        retryPolicy: { unattendedAnswerRetries: Number(document.getElementById('unattended-answer-retries')?.value) }
+    });
     const reviewLimitText = document.getElementById('unattended-review-limit')?.value?.trim();
     const reviewLimitValue = reviewLimitText ? Number(reviewLimitText) : NaN;
     const reviewLimit = Number.isInteger(reviewLimitValue) && reviewLimitValue >= 1 && reviewLimitValue <= 50 ? reviewLimitValue : 5;
@@ -3098,10 +3190,12 @@ function saveAISettings() {
         outputMode: outputMode,
         answerStatusCheck: document.getElementById('answer-status-check')?.checked === true,
         referenceImageEvidenceCheck: document.getElementById('reference-image-evidence-check')?.checked === true,
+        questionEvidence,
         retryPolicy: {
             maxRetries: retryMaxRetries,
             retryOnTimeout: retryOnTimeout,
-            unattendedAnswerFailure
+            unattendedAnswerFailure,
+            unattendedAnswerRetries
         },
         blankDetection: {
             enabled: blankDetectionEnabled,
@@ -3166,6 +3260,20 @@ function saveAISettings() {
     if (!savedOk) {
         safeAlert(`⚠️ 「${activeName}」尚未保存。\n请先导出本次修改，再核对其他页面的配置或稍后重试。`);
         return;
+    }
+    if (typeof DiagnosticLog !== 'undefined') {
+        const previous = WorkflowManager.getWorkflow(oldConfig.workflowId)?.model;
+        const selected = WorkflowManager.getWorkflow(config.workflowId)?.model;
+        DiagnosticLog.record('core/ui-settings.js', '保存批改方案', {
+            userEvent: event ? { type: event.type, trusted: event.isTrusted, detail: event.detail } : undefined,
+            preset: activeName, taskId: currentUrlId,
+            previousWorkflowId: oldConfig.workflowId, workflowId: config.workflowId,
+            workflowChanged: oldConfig.workflowId !== config.workflowId,
+            previousModel: diagnosticModelId(previous?.model ?? oldConfig.model,
+                ProviderManager.getProvider(previous?.provider ?? oldConfig.provider)?.apiKey),
+            selectedModel: diagnosticModelId(selected?.model,
+                ProviderManager.getProvider(selected?.provider)?.apiKey),
+        });
     }
     const zhixueAdapter = window.__AI_MARKER_ADAPTER__;
     const zhixueQuotaInput = document.getElementById('zhixue-continue-quota');
@@ -3274,8 +3382,8 @@ function showOnboardingDialog(forceShow, mode) {
                         <button class="ai-modal-btn-cancel" id="ob-skip">稍后设置</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">验证并继续</button>
                     ` : s.nameModeStep ? `
-                        ${s.hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : ''}
-                        <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
+                        ${s.hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : '<button class="ai-modal-btn-cancel" id="ob-skip-question" style="min-height:44px;">跳过</button>'}
+                        <button class="ai-modal-btn-confirm" id="ob-next" style="min-height:44px;">继续</button>
                     ` : s.workflowStep ? `
                         <button class="ai-modal-btn-cancel" id="ob-back">上一步</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
@@ -3298,7 +3406,7 @@ function showOnboardingDialog(forceShow, mode) {
             </p>
             ${markerAccountControls()}
             <details class="form-group" id="ob-api-manual">
-                <summary>或手动输入 API 密钥</summary>
+                <summary style="line-height:44px;cursor:pointer;">手动配置 API 密钥</summary>
                 <label for="ob-apikey">API 密钥</label>
                 <input type="password" id="ob-apikey" placeholder="请输入 5plus1 API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}" style="width:100%;">
                 <div style="margin-top:6px;">
@@ -3311,10 +3419,10 @@ function showOnboardingDialog(forceShow, mode) {
 
     function renderNameModeStep() {
         return `
-            ${connectedBackup ? `<p role="status" style="font-size:13px;margin:0 0 14px;">已连接${connectedBackup}，可在供应商与模型设置中切换。</p>` : ''}
+            ${connectedBackup ? `<p role="status" style="font-size:13px;margin:0 0 14px;">已连接${escapeSettingsHtml(connectedBackup)}，可在供应商与模型设置中切换。</p>` : ''}
             <div class="form-group">
-                <label>配置方案名称</label>
-                <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${presetName}" style="width:100%;">
+                <label for="ob-preset-name">配置方案名称</label>
+                <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${escapeSettingsHtml(presetName)}" style="width:100%;">
             </div>
             <div style="margin-top:16px;">
                 <label style="display:block;margin-bottom:8px;color:#666;font-size:12px;font-weight:500;">批改模式</label>
@@ -3340,7 +3448,11 @@ function showOnboardingDialog(forceShow, mode) {
                     </label>
                 </div>
             </div>
-            <div id="ob-status" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
+            ${mode === 'new-question' ? `<label style="display:flex;align-items:center;gap:8px;min-height:44px;margin-top:12px;cursor:pointer;">
+                <input type="checkbox" id="ob-disable-question-guidance" ${GM_getValue(QUESTION_ONBOARDING_DISABLED, false) ? 'checked' : ''}>
+                不再自动弹出配置引导
+            </label>` : ''}
+            <div id="ob-status" role="status" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
         `;
     }
 
@@ -3383,7 +3495,8 @@ function showOnboardingDialog(forceShow, mode) {
                 var inputs = adapter.getScoreInputs();
                 if (inputs.length > 0) {
                     detectedUnits = inputs.map(function (inp, i) {
-                        return { label: inp.label || ('第' + (i + 1) + '题'), maxScore: inp.maxScore || '' };
+                        return { label: inp.label || ('第' + (i + 1) + '题'), maxScore: inp.maxScore || '',
+                            roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined };
                     });
                 }
             }
@@ -3432,7 +3545,7 @@ function showOnboardingDialog(forceShow, mode) {
                 <div style="font-size:48px;margin-bottom:16px;">✅</div>
                 <div style="font-size:16px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">配置完成！</div>
                 <div style="font-size:13px;color:#666;line-height:1.8;">
-                    方案「${presetName}」已创建并绑定到当前试题。<br>
+                    方案「${escapeSettingsHtml(presetName)}」已创建并绑定到当前试题。<br>
                     <span style="color:#1d1d1f;font-weight:500;">${wfName}</span> · <span style="color:#1d1d1f;font-weight:500;">${modeName}</span>
                 </div>
                 <div style="margin-top:16px;padding:12px;background:rgba(0,82,255,0.06);border-radius:10px;font-size:12px;color:#0052FF;">
@@ -3489,7 +3602,7 @@ function showOnboardingDialog(forceShow, mode) {
                 const result = await verifyOfficialApiKey(key, {
                     line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
                     signal: controller.signal,
-                    onFallback: () => showStatus('主端点暂时无法连接，正在验证备用端点…', 'progress'),
+                    onFallback: () => showStatus('所选端点暂时无法连接，正在验证备用端点…', 'progress'),
                 });
                 if (controller !== _onboardingApiCheck) return;
                 _onboardingApiCheck = null;
@@ -3497,12 +3610,16 @@ function showOnboardingDialog(forceShow, mode) {
                 btn.disabled = false; btn.textContent = '验证并继续';
                 input.disabled = false;
                 if (result.success) {
-                    if (!ProviderManager.saveOfficialConnection(result.line, key)) {
+                    if (!ProviderManager.saveOfficialConnection(result.selection, key)) {
                         showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
                         return;
                     }
-                    connectedBackup = result.line === 'backup'
-                        ? (result.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT ? '上海备用端点' : '备用端点') : '';
+                    if (result.line !== result.preferred && result.revision === officialApiRoutes.revision) {
+                        officialApiFallback = { preferred: result.preferred, line: result.line, expires: Date.now() + 300000 };
+                        connectedBackup = resolveOfficialApiLine(result.line).name;
+                    } else {
+                        connectedBackup = '';
+                    }
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
                     showStatus('密钥无效，请检查是否正确', 'error');
@@ -3514,8 +3631,25 @@ function showOnboardingDialog(forceShow, mode) {
             };
         } else if (s.nameModeStep) {
             if (s.hasApiStep) overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
+            else {
+                overlay.querySelector('#ob-skip-question').onclick = hideOnboardingDialog;
+                const preference = overlay.querySelector('#ob-disable-question-guidance');
+                preference.onchange = () => {
+                    if (!saveQuestionOnboardingPreference(preference.checked)) {
+                        preference.checked = !preference.checked;
+                        showStatus('配置引导设置尚未保存，请重试。', 'error');
+                        return;
+                    }
+                    const toggle = document.getElementById('question-onboarding-enabled');
+                    if (toggle) toggle.checked = !preference.checked;
+                };
+            }
             overlay.querySelectorAll('input[name="ob-grading-mode"]').forEach(r => {
-                r.onchange = () => { gradingMode = r.value; render(); };
+                r.onchange = () => {
+                    presetName = overlay.querySelector('#ob-preset-name').value;
+                    gradingMode = r.value;
+                    render();
+                };
             });
             overlay.querySelector('#ob-next').onclick = () => {
                 const name = overlay.querySelector('#ob-preset-name')?.value?.trim();
@@ -3619,9 +3753,10 @@ function showOnboardingDialog(forceShow, mode) {
                 unitEls.forEach(function (inp, i) {
                     var label = detectedUnits[i] ? detectedUnits[i].label : ('第' + (i + 1) + '题');
                     var maxScore = parseFloat(inp.value) || 0;
-                    units.push({ label: label, maxScore: maxScore, index: i, roundStep: 1 });
+                    units.push({ label: label, maxScore: maxScore, index: i, roundStep: detectedUnits[i]?.roundStep || 1 });
                 });
                 newPreset.scoring.units = units;
+                newPreset.scoring.roundStep = Math.min(...units.map(unit => unit.roundStep));
                 newPreset.scoring.maxScore = units.reduce(function (sum, u) { return sum + (u.maxScore || 0); }, 0);
             }
         }

@@ -80,6 +80,7 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
             round, elapsedMs: Date.now() - startedAt, hasNext, cancelled: !!runContext?.controller.signal.aborted, ...observation,
         }, { error: waitError });
         if (hasNext) return true;
+        if (adapter.isGradingTaskComplete?.()) return false;
         if (runContext && !isGradingContextCurrent(runContext)) return true;
         // 长等待期间状态可能已变，再次检查
         if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return true;
@@ -987,7 +988,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
                 if (adapter && adapter.waitForNextPaper) {
                     waitForNextPaperWithRetry(adapter, oldImgUrl, 3, runContext).then(async (hasNext) => {
-                        if (hasNext && isGradingContextCurrent(runContext)) {
+                        if (!isGradingContextCurrent(runContext)) return;
+                        if (adapter.isGradingTaskComplete?.()) {
+                            stopAutoGrading();
+                            showToast('当前题块阅卷已完成');
+                        } else if (hasNext) {
                             // 批改节奏：随机休息（实验性）——休息放在下一份已出现之后，
                             // 平台侧会把休息时间计入下一份的「批改用时」，拟真度更高
                             await pacingRestIfNeeded();
@@ -995,7 +1000,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             console.log('继续批改...');
                             window.aiGradingState.cycleStartTime = Date.now();
                             setTimeout(() => { if (isGradingContextCurrent(runContext)) startAutoGrading(); }, 500);
-                        } else if (!hasNext && isGradingContextCurrent(runContext)) {
+                        } else {
                             // 不停止，改为暂停让用户决定
                             diagnostic?.grading('grading-paused', runContext, { reason: 'next-paper-timeout' }, { persist: true });
                             console.warn('⚠️ 加载下一份试卷超时，暂停批改');

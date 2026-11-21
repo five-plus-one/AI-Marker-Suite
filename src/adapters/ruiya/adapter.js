@@ -1,4 +1,4 @@
-// ========== OnlyETS 考试服务云平台阅卷适配器（睿芽、恒佳、悦卷通） ==========
+// ========== OnlyETS 考试服务云平台阅卷适配器（睿芽、恒佳、悦卷通、百分智） ==========
 // ASP.NET WebForms + jQuery + Bootstrap + iCheck
 // 阅卷页: /mark/v6/view/<32位GUID>
 //
@@ -31,18 +31,21 @@ const RUIYA_TENANTS = [
     ['ruiya.onlyets.com', '睿芽阅卷'],
     ['yuejuan51.com', '恒佳阅卷'],
     ['yuejuantong.com', '悦卷通阅卷'],
+    ['bfzks.com', '百分智考试服务'],
 ];
 
 function getRuiyaTenant() {
     const hostname = (window.location.hostname || '').toLowerCase();
-    return RUIYA_TENANTS.find(([domain]) => hostname === domain || hostname.endsWith(`.${domain}`));
+    return RUIYA_TENANTS.find(([domain]) => hostname === domain || (domain === 'bfzks.com'
+        ? hostname === 'www.bfzks.com' : hostname.endsWith(`.${domain}`)));
 }
 
 const RuiyaAdapter = {
     name: '睿芽阅卷',
     id: 'ruiya',
     urlPatterns: ['*://ruiya.onlyets.com/*', '*://*.yuejuan51.com/*', '*://yuejuan51.com/*',
-        '*://*.yuejuantong.com/*', '*://yuejuantong.com/*'],
+        '*://*.yuejuantong.com/*', '*://yuejuantong.com/*',
+        'https://www.bfzks.com/*', 'https://bfzks.com/*'],
     iconUrl: '',
 
     // ---------- 宿主判定 ----------
@@ -588,12 +591,11 @@ const RuiyaAdapter = {
     },
 };
 
-const YuejuantongAdapter = Object.assign(Object.create(RuiyaAdapter), {
-    name: '悦卷通阅卷',
-
+const OnlyEtsMarkviewAdapter = Object.assign(Object.create(RuiyaAdapter), {
     getGradingTaskIdentifier() { return this.isMarkingPage() ? this.getTaskIdentifier() : ''; },
     getQuestionContext() {
-        const question = document.querySelector(RUIYA_SELECTORS.QUESTION_LABEL)?.textContent.trim();
+        const question = document.querySelector(RUIYA_SELECTORS.QUESTION_LABEL)?.textContent.trim()
+            || document.querySelector('#td-rpe-title')?.textContent.match(/第\s*[\d、,，\-–—]+\s*题/)?.[0];
         const units = this.getScoreInputs().map(({ label, maxScore }) => ({ label, maxScore }));
         return question && units.length && units.every(unit => unit.maxScore > 0) ? { question, units } : null;
     },
@@ -625,10 +627,10 @@ const YuejuantongAdapter = Object.assign(Object.create(RuiyaAdapter), {
         return [];
     },
     async fetchImageAsBase64(url, signal) {
-        const adapter = YuejuantongAdapter, paper = adapter._collected;
-        if (!paper || paper.url !== url || adapter.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
+        const paper = this._collected;
+        if (!paper || paper.url !== url || this.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
         const data = url.startsWith('data:') ? url.slice(url.indexOf(',') + 1) : await fetchImageAsBase64(url, signal);
-        if (signal?.aborted || adapter.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
+        if (signal?.aborted || this.getPaperIdentity() !== paper.identity) throw Error('当前答卷已变化');
         return data;
     },
     _readyToWrite() {
@@ -675,7 +677,7 @@ const YuejuantongAdapter = Object.assign(Object.create(RuiyaAdapter), {
         if (!filled || this._saving) return false;
         this._saving = true;
         this._submitted = null;
-        this.lastSubmitError = '请在悦卷通核对当前答卷是否保存成功';
+        this.lastSubmitError = '请在原阅卷页面核对当前答卷是否保存成功';
         try {
             await guard.verify?.();
             const submit = this._visible(RUIYA_SELECTORS.SUBMIT_BUTTON);
@@ -763,11 +765,17 @@ const YuejuantongAdapter = Object.assign(Object.create(RuiyaAdapter), {
             catch (_) { cancel(); }
         });
     },
+    isGradingTaskComplete() {
+        const modal = this._visible(RUIYA_SELECTORS.DIST_MODAL);
+        return !!this._submitted && this.getGradingTaskIdentifier() === this._submitted.task
+            && !!modal && /已完成阅卷任务/.test(modal.textContent);
+    },
     async waitForNextPaper(_url, guard = {}) {
         const old = this._submitted;
         if (!old || (guard.paperId && guard.paperId !== old.identity) || (guard.taskId && guard.taskId !== old.task)) return false;
         const deadline = Date.now() + RUIYA_TIMING.NEXT_PAPER_TIMEOUT_MS;
         while (!guard.signal?.aborted && Date.now() < deadline && this.getGradingTaskIdentifier() === old.task) {
+            if (this.isGradingTaskComplete()) return false;
             const current = this._paper();
             if (current && current.number !== old.number && current.student !== old.student) return true;
             await new Promise(resolve => setTimeout(resolve, RUIYA_TIMING.NEXT_PAPER_POLL_MS));
@@ -779,7 +787,7 @@ const YuejuantongAdapter = Object.assign(Object.create(RuiyaAdapter), {
 if (RuiyaAdapter.shouldInitialize()) {
     const [domain, tenantName] = getRuiyaTenant();
     RuiyaAdapter.name = tenantName;
-    window.__AI_MARKER_ADAPTER__ = domain === 'yuejuantong.com' ? YuejuantongAdapter : RuiyaAdapter;
+    window.__AI_MARKER_ADAPTER__ = ['yuejuantong.com', 'bfzks.com'].includes(domain) ? OnlyEtsMarkviewAdapter : RuiyaAdapter;
     try {
         RuiyaAdapter._installZIndexStyle();
     } catch (e) {

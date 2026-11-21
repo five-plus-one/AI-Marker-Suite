@@ -3,6 +3,7 @@ const ZhixueHomeworkAdapter = {
     id: 'zhixue',
     name: '智学网',
     iconUrl: 'https://www.zhixue.com/favicon.ico',
+    scoreDetectionLabel: '读取当前题分值',
     urlPatterns: ['https://www.zhixue.com/*', 'https://zhixue.com/*', 'https://*.zhixue.com/*'],
 
     shouldInitialize() {
@@ -43,14 +44,32 @@ const ZhixueHomeworkAdapter = {
         return this.getTaskIdentifier();
     },
 
+    _scorePanel(view) {
+        const sidebar = view?.$el.querySelector('.sidebar-right-container');
+        return sidebar?.querySelector('.operation-panel') || sidebar;
+    },
+
     getScoreInputs() {
         const view = this._view();
-        const panel = view?.$el.querySelector('.sidebar-right-container');
+        const panel = this._scorePanel(view);
         const label = panel?.querySelector('.correct-tool-title span')?.textContent.trim();
         const maxScore = Number(view?.curTopicItem?.standardScore);
-        if (view?.markingType !== 1 || view.curBlankId || !label || !Number.isFinite(maxScore) || maxScore <= 0
-            || !panel.querySelector('.full-zero-btn-group')) return [];
-        return [{ label, maxScore }];
+        if (!view || view.curBlankId || !label || !Number.isFinite(maxScore) || maxScore <= 0
+            || !MarkingPaper.visible(panel.querySelector('button.green-btn'))
+            || !MarkingPaper.visible(panel.querySelector('button.red-btn'))) return [];
+        const interval = panel.querySelector('.score-interval-select input')?.value;
+        const roundStep = Number(/^(\d+(?:\.\d+)?)\s*分$/.exec(interval || '')?.[1]);
+        return [{ label, maxScore, roundStep: roundStep > 0 ? roundStep : undefined }];
+    },
+
+    getScoreDetectionHint() {
+        const view = this._view();
+        const panel = this._scorePanel(view);
+        if (panel?.querySelector('.score-box') && !panel.querySelector('button.green-btn')) {
+            return '本题按答案选项计分，请切换到有分值按钮的题目。';
+        }
+        if (view?.curBlankId) return '请切换到整题评分后再读取分值。';
+        return '当前题目的评分区尚未就绪，请等待作业加载后重试。';
     },
 
     getQuestionContext() {
@@ -76,9 +95,9 @@ const ZhixueHomeworkAdapter = {
     _scoreButton(target, score) {
         const unit = this.getScoreInputs()[0];
         if (!unit || !Number.isFinite(score) || score < 0 || score > unit.maxScore) return null;
-        const panel = target.view.$el.querySelector('.sidebar-right-container');
-        const selector = score === 0 ? '.full-zero-btn-group .red-btn'
-            : score === unit.maxScore ? '.full-zero-btn-group .green-btn' : '.score-btn-group .score-btn';
+        const panel = this._scorePanel(target.view);
+        const selector = score === 0 ? 'button.red-btn'
+            : score === unit.maxScore ? 'button.green-btn' : '.score-btn-group .score-btn';
         const matches = [...panel.querySelectorAll(selector)].filter(button => MarkingPaper.visible(button)
             && (score === 0 ? button.textContent.trim() === '零分'
                 : score === unit.maxScore ? button.textContent.trim() === '满分' : Number(button.textContent.trim()) === score)
@@ -88,11 +107,12 @@ const ZhixueHomeworkAdapter = {
 
     prepareGrading() {
         this._filled = null;
-        this.lastFillError = '请选择可按分数批改、且已加载答卷图片的作业题目';
-        const target = this._paper();
-        if (!target || target.view.canNotEdit || target.view.topicSaving || !this.getScoreInputs().length) return false;
+        const [unit] = this.getScoreInputs();
+        this.lastFillError = unit ? '请选择已加载答卷图片且可修改分数的作业答卷' : this.getScoreDetectionHint();
+        const target = unit && this._paper();
+        if (!target || target.view.canNotEdit || target.view.topicSaving) return false;
         const configured = PresetManager.getMaxScore();
-        if (configured !== this.getScoreInputs()[0].maxScore) {
+        if (configured !== unit.maxScore) {
             this.lastFillError = '评分方案满分与作业题目不一致，请调整后继续';
             return false;
         }

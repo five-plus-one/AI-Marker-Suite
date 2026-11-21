@@ -2,14 +2,20 @@
 <div class="smart-hw-container">
   <div class="question-viewer"><div class="image-wrapper"><img src="/__fixture/answer.svg?student=first"></div></div>
   <div class="sidebar-right-container">
-    <div class="correct-tool-title"><span>11 解答题</span></div>
-    <div class="full-zero-btn-group"><button class="green-btn">满分</button><button class="red-btn">零分</button></div>
-    <div class="score-btn-group"><div class="score-btn">6</div><div class="score-btn">7.5</div></div>
+    <div class="operation-panel"><div class="score-interval-section"><div class="score-interval">
+      <div class="correct-tool-title"><span>11 解答题</span></div>
+      <div><button class="green-btn">满分</button><button class="red-btn">零分</button></div>
+      <div class="score-interval-select"><input value="0.5分" readonly></div>
+      <div class="score-btn-group"><div class="score-btn">6</div><div class="score-btn">7.5</div></div>
+    </div></div></div>
   </div>
 </div>
 <pre id="result" hidden></pre>
 <script>
-const storage = new Map();
+const storage = new Map([
+  ['ai-grading-show-onboarding', false],
+  ['aimarker-connected-account-v1', { accountId: 1, apiKey: 'sk-' + 'a'.repeat(32) }],
+]);
 window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
 window.GM_setValue = (key, value) => storage.set(key, value);
 window.GM_deleteValue = key => storage.delete(key);
@@ -46,7 +52,18 @@ for (const button of root.querySelectorAll('.score-btn')) button.onclick = () =>
   const adapter = window.__AI_MARKER_ADAPTER__;
   const loadImage = async () => { if (!image.complete) await new Promise(resolve => image.addEventListener('load', resolve, { once: true })); };
   try {
+    const until = async (condition, label) => {
+      const deadline = Date.now() + 4500;
+      while (!condition() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 40));
+      check(condition(), label);
+    };
+    const get = id => document.getElementById(id);
     await loadImage();
+    await until(() => get('btn-detect-inputs'), '助手设置页已加载');
+    get('btn-detect-inputs').click();
+    check(get('btn-detect-inputs').textContent === '读取当前题分值'
+      && document.querySelector('.su-max-score').value === '10'
+      && document.querySelector('.su-round-step').value === '0.5', '真实评分控件的满分和步长进入设置表格');
     check(adapter?.id === 'zhixue' && adapter.isMarkingPage() && !adapter.isQuotaContinuationEnabled, '作业路由由专用适配接管');
     const taskId = adapter.getTaskIdentifier(), first = adapter.getPaperIdentity();
     check(!!first && (await adapter.gatherAnswerImages()).length === 1 && adapter.getScoreInputs()[0].maxScore === 10, '读取当前题的答卷和满分');
@@ -70,6 +87,27 @@ for (const button of root.querySelectorAll('.score-btn')) button.onclick = () =>
       '原站拒绝时保留未确认结果，避免自动重发');
     view.curTopicItem = {childQuestionId:'topic-12',standardScore:10};
     check(!await adapter.waitForNextPaper('', { paperId: first, taskId }), '平台切换到下一题时停止当前方案');
+    await until(() => get('ob-skip-question'), '首次切题保留自动配置引导');
+    get('ob-skip-question').click();
+    check(!get('ob-skip-question') && !storage.get('ai-grading-hide-question-onboarding'), '跳过只关闭当前提示');
+    view.curTopicItem = {childQuestionId:'topic-13',standardScore:3};
+    await until(() => get('ob-disable-question-guidance'), '下一题仍可显示配置引导');
+    get('ob-disable-question-guidance').click();
+    get('ob-skip-question').click();
+    check(storage.get('ai-grading-hide-question-onboarding') === true
+      && !get('question-onboarding-enabled').checked, '关闭自动引导的偏好与设置页同步');
+    const scorePanel = root.querySelector('.operation-panel');
+    scorePanel.innerHTML = '<div class="correct-tool"><div class="correct-tool-title"><span>14 单选题</span></div><div class="score-box">A B C D</div></div>';
+    view.curTopicItem = {childQuestionId:'topic-14',standardScore:3};
+    await new Promise(resolve => setTimeout(resolve, 1250));
+    check(!get('ob-skip-question'), '偏好关闭后切题不会再次弹窗');
+    get('btn-detect-inputs').click();
+    check(adapter.getScoreInputs().length === 0 && !adapter.fillScores([3])
+      && document.body.textContent.includes('本题按答案选项计分') && effects.submissions.length === 2,
+      '选项题提示原站计分方式并阻止数值写入');
+    get('question-onboarding-enabled').click();
+    view.curTopicItem = {childQuestionId:'topic-15',standardScore:3};
+    await until(() => get('ob-skip-question'), '在设置里重新开启后可再次显示配置引导');
   } catch (error) {
     document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:error.message}))));
     return;

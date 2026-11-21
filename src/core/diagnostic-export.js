@@ -26,8 +26,7 @@ function diagnosticConfiguration(presets, providers, workflows, builtinProviders
     const providerIndex = name => providerNames.indexOf(name) + 1 || undefined;
     const model = config => ({
         provider: providerIndex(config?.provider),
-        model: Object.prototype.hasOwnProperty.call(builtinProviders[config?.provider]?.models || {}, config?.model)
-            ? config.model : undefined,
+        model: diagnosticModelId(config?.model, providers?.providers?.[config?.provider]?.apiKey),
         reasoningEffort: diagnosticChoice(config?.reasoningEffort, ['', 'disabled', 'minimal', 'low', 'medium', 'high', 'xhigh']),
     });
     const presetList = Object.entries(presets?.list || {});
@@ -39,6 +38,7 @@ function diagnosticConfiguration(presets, providers, workflows, builtinProviders
             outputMode: diagnosticChoice(config.outputMode ?? config.scoring?.outputMode, ['detailed', 'score-only']),
             workflow: workflowList.findIndex(workflow => workflow.id === config.workflowId) + 1 || undefined,
             provider: providerIndex(config.provider),
+            model: diagnosticModelId(config.model, config.apiKey ?? providers?.providers?.[config.provider]?.apiKey),
             scoring: diagnosticScoring(config.scoring),
             batch: diagnosticFields(config.batchConfig, ['enabled', 'targetCount']),
             retries: {
@@ -94,50 +94,88 @@ function diagnosticRecords(records, start, end, presetNames) {
         }));
 }
 
-function diagnosticPackageData(start, end) {
+function diagnosticHistory() {
+    try { return { history: HistoryManager._readReviewRecords(), historyFromStorage: true }; }
+    catch (_) { return { history: HistoryManager.records, historyFromStorage: false }; }
+}
+
+async function exportDiagnosticPackage(start, end) {
     const logs = DiagnosticLog.read(start, end);
-    let history, historyFromStorage = true;
-    try { history = HistoryManager._readReviewRecords(); }
-    catch (_) {
-        history = HistoryManager.records;
-        historyFromStorage = false;
+    const { history, historyFromStorage } = diagnosticHistory();
+    const records = history.filter(record => Number.isFinite(record?.timestamp) && record.timestamp >= start && record.timestamp <= end)
+        .sort((a, b) => a.timestamp - b.timestamp);
+    const secrets = diagnosticSecrets();
+    const configurationDetails = diagnosticSnapshot({
+        presets: PresetManager.data, providers: ProviderManager.data, workflows: WorkflowManager.data,
+        runtime: window.aiGradingState,
+    }, { secrets, omitImageData: true });
+    const entries = [], recordImages = [];
+    const imageBudget = 64 * 1024 * 1024;
+    let imageBytes = 0, imageCount = 0, imagesLimited = false;
+    for (const [index, record] of records.entries()) {
+        const files = [];
+        try {
+            const base64s = record.imageBase64s?.length ? record.imageBase64s : record.id ? await ImageStore.get(record.id) : null;
+            for (const [imageIndex, base64] of (Array.isArray(base64s) ? base64s : []).entries()) {
+                if (typeof base64 !== 'string' || !base64) continue;
+                if (base64.length * 0.75 > imageBudget - imageBytes || entries.length >= 65530) {
+                    imagesLimited = true;
+                    continue;
+                }
+                try {
+                    const data = HistoryManager._base64ToBytes(base64);
+                    const name = `答卷图片/${index + 1}/${imageIndex + 1}.png`;
+                    entries.push({ name, data });
+                    files.push(name);
+                    imageBytes += data.length;
+                    imageCount++;
+                } catch (_) { /* 其他图片仍可导出。 */ }
+            }
+        } catch (_) { /* 图片可能存放在另一平台域名。 */ }
+        recordImages.push(files);
     }
-    const records = diagnosticRecords(history, start, end, Object.keys(PresetManager.data?.list || {}));
+    const recordDetails = records.map(({ imageBase64s, ...record }, index) => {
+        return diagnosticSnapshot({ ...record, imageFiles: recordImages[index] }, { secrets, omitImageData: true });
+    });
     const configuration = diagnosticConfiguration(PresetManager.data, ProviderManager.data, WorkflowManager.data,
         ProviderManager._getDefault().providers, window.aiGradingState);
     const metadata = {
-        formatVersion: 1,
+        formatVersion: 3,
         scriptVersion: SCRIPT_CONFIG.VERSION,
         exportedAt: new Date().toISOString(),
         range: { start: new Date(start).toISOString(), end: new Date(end).toISOString() },
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        browser: /(?:Edg|Chrome|Firefox|Version)\/[\d.]+/.exec(navigator.userAgent)?.[0],
+        browser: navigator.userAgent,
+        userscriptManager: typeof GM_info === 'undefined' ? undefined : {
+            name: GM_info.scriptHandler, version: GM_info.version, injectInto: GM_info.injectInto,
+        },
+        environment: {
+            language: navigator.language, platform: navigator.platform, viewport: [window.innerWidth, window.innerHeight],
+            devicePixelRatio: window.devicePixelRatio, online: navigator.onLine,
+        },
         platform: window.__AI_MARKER_ADAPTER__?.id,
         logCount: logs.entries.length,
         gradingEventCount: logs.gradingEvents.length,
         logCoverage: logs.coverage,
         recordCount: records.length,
+        imageCount,
+        imagesLimited,
         logRetentionDays: logs.retentionDays,
         logStorageLimited: logs.storageLimited,
         historyFromStorage,
     };
-    return { metadata, logs, records, configuration };
-}
-
-function exportDiagnosticPackage(start, end) {
-    const { metadata, logs, records, configuration } = diagnosticPackageData(start, end);
     const files = {
         '导出说明.json': metadata,
         '运行日志.json': logs.entries,
         ...(logs.gradingEvents.length ? { '批改过程.json': logs.gradingEvents } : {}),
-        '阅卷记录.json': records,
+        '阅卷记录.json': recordDetails,
         '配置摘要.json': configuration,
+        '配置详情.json': configurationDetails,
     };
-    const archive = ZipWriter.build(Object.entries(files).map(([name, value]) => ({
-        name, data: ZipWriter._utf8(JSON.stringify(value, null, 2)),
-    })));
-    HistoryManager._download(archive, 'AI批改助手诊断包_' + HistoryManager._fileTimestamp() + '.zip', 'application/zip');
-    return metadata;
+    for (const [name, value] of Object.entries(files)) {
+        entries.push({ name, data: ZipWriter._utf8(JSON.stringify(value, null, 2)) });
+    }
+    return { archive: ZipWriter.build(entries), metadata };
 }
 
 function diagnosticDateInput(timestamp) {
@@ -183,17 +221,21 @@ function setupDiagnosticUpload(dialog, button) {
                 return;
             }
             if (!pending || pending.accountId !== account.accountId) {
-                const data = diagnosticPackageData(start, end);
-                const logs = data.logs.entries.map(({ at, level, source, message, platform, version, errorType, httpStatus }) =>
-                    ({ at, level, source: diagnosticUploadText(source, 160), message: diagnosticUploadText(message, 720),
+                const logs = DiagnosticLog.read(start, end).entries.map(({ at, level, source, sourceMessage, platform, version, errorType, httpStatus }) =>
+                    ({ at, level, source: diagnosticUploadText(source, 160), message: diagnosticUploadText(sourceMessage || '运行日志', 720),
                         platform, version, errorType, httpStatus }));
+                const { history } = diagnosticHistory();
+                const records = diagnosticRecords(history, start, end, Object.keys(PresetManager.data?.list || {}));
+                const configuration = diagnosticConfiguration(PresetManager.data, ProviderManager.data, WorkflowManager.data,
+                    ProviderManager._getDefault().providers, window.aiGradingState);
                 const report = {
-                    id: markerRandomHex(16), version: data.metadata.scriptVersion, platform: data.metadata.platform,
-                    browser: data.metadata.browser, description: description.value.trim(), logs,
-                    start: data.metadata.range.start, end: data.metadata.range.end,
-                    records: data.records, configuration: data.configuration,
+                    id: markerRandomHex(16), version: SCRIPT_CONFIG.VERSION, platform: window.__AI_MARKER_ADAPTER__?.id,
+                    browser: /(?:Edg|Chrome|Firefox|Version)\/[\d.]+/.exec(navigator.userAgent)?.[0],
+                    description: description.value.trim(), logs,
+                    start: new Date(start).toISOString(), end: new Date(end).toISOString(),
+                    records, configuration,
                 };
-                if (logs.length > 32000 || data.records.length > 50000 ||
+                if (logs.length > 32000 || records.length > 50000 ||
                     new TextEncoder().encode(JSON.stringify(report)).length > 16 * 1024 * 1024) {
                     status.textContent = '这段时间的诊断资料较多，请缩短时间范围再上传。';
                     return;
@@ -242,7 +284,7 @@ function showDiagnosticExport(upload = false) {
         <form>
             <div class="ai-modal-header" id="ai-diagnostic-title">${upload ? '上传诊断包' : '导出诊断包'}</div>
             <div class="ai-modal-body">
-                <p>${upload ? '将这段时间的运行日志、阅卷结果和配置摘要发送给支持人员。' : '导出这段时间的批改过程、运行日志、阅卷记录和配置摘要。智学网换卷时出现的提示会随批改过程导出。'}密钥、答卷图片和答卷原文留在本机。</p>
+                <p>${upload ? '将运行日志摘要、阅卷结果和配置摘要发送给支持人员。' : '导出运行日志、批改过程、配置、阅卷内容和可读取的答卷图片，供问题排查。'}</p>
                 <p>默认最近 2 小时，按此设备的时间选择。</p>
                 <label style="display:block;">开始时间
                     <input class="ai-modal-input" name="start" type="datetime-local" step="1" style="min-height:44px;" required autofocus>
@@ -269,7 +311,7 @@ function showDiagnosticExport(upload = false) {
     const uploadButton = form.querySelector('[type=submit]');
     const submitUpload = upload ? setupDiagnosticUpload(dialog, uploadButton) : null;
     form.addEventListener('input', () => { status.textContent = ''; });
-    form.addEventListener('submit', event => {
+    form.addEventListener('submit', async event => {
         event.preventDefault();
         const start = new Date(startField.value).getTime(), end = new Date(endField.value).getTime() + 999;
         if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
@@ -278,13 +320,19 @@ function showDiagnosticExport(upload = false) {
             return;
         }
         if (submitUpload) { void submitUpload(start, end); return; }
+        if (uploadButton.disabled) return;
+        uploadButton.disabled = true;
         try {
-            const result = exportDiagnosticPackage(start, end);
+            const { archive, metadata } = await exportDiagnosticPackage(start, end);
+            if (!dialog.open) return;
+            HistoryManager._download(archive, 'AI批改助手诊断包_' + HistoryManager._fileTimestamp() + '.zip', 'application/zip');
             dialog.close();
-            showToast(`诊断包已下载（${result.logCount} 条日志，${result.recordCount} 条阅卷记录）`);
+            showToast(`诊断包已下载（${metadata.logCount} 条日志，${metadata.recordCount} 条阅卷记录）`);
         } catch (error) {
             console.error('[诊断导出] 下载失败:', error);
             status.textContent = '下载暂未完成，请重试。';
+        } finally {
+            uploadButton.disabled = false;
         }
     });
     dialog.querySelector('.ai-modal-btn-cancel').onclick = () => dialog.close();
