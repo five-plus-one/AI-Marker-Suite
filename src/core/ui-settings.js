@@ -807,6 +807,13 @@ function createSettingsPanel(options) {
                             </select>
                         </div>
                         <div class="mode-desc">自动复查确认空白后按 0 分继续，发现作答痕迹时重评一次。</div>
+                        <div id="zhixue-quota-setting" hidden>
+                            <div class="checkbox-group" style="margin-top:12px;">
+                                <input type="checkbox" id="zhixue-continue-quota" aria-describedby="zhixue-continue-quota-desc">
+                                <label for="zhixue-continue-quota" style="display:flex;align-items:center;min-height:44px;flex:1;">本题分配量完成后继续多阅（实验性）</label>
+                            </div>
+                            <div id="zhixue-continue-quota-desc" class="mode-desc">适用于本浏览器的智学网无人批改。平台允许多阅时继续领取本题答卷，达到批阅目标或需要换题时停下。</div>
+                        </div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-review-enabled"><label for="answer-review-enabled">保存无法辨认答卷供复核 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
@@ -2025,6 +2032,15 @@ function fillFormFromActivePreset() {
         });
     });
 
+    const zhixueQuotaSetting = document.getElementById('zhixue-quota-setting');
+    const zhixueAdapter = window.__AI_MARKER_ADAPTER__;
+    if (zhixueQuotaSetting) {
+        zhixueQuotaSetting.hidden = zhixueAdapter?.id !== 'zhixue' || !zhixueAdapter.isQuotaContinuationEnabled;
+        if (!zhixueQuotaSetting.hidden) {
+            document.getElementById('zhixue-continue-quota').checked = zhixueAdapter.isQuotaContinuationEnabled();
+        }
+    }
+
     const retryPolicyCfg = config.retryPolicy || {};
     const retryMaxInput = document.getElementById('retry-max-retries');
     if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
@@ -3128,9 +3144,14 @@ function saveAISettings() {
         safeAlert(`⚠️ 「${activeName}」尚未保存。\n请先导出本次修改，再核对其他页面的配置或稍后重试。`);
         return;
     }
-    clearUnsavedChanges();
+    const zhixueAdapter = window.__AI_MARKER_ADAPTER__;
+    const zhixueQuotaInput = document.getElementById('zhixue-continue-quota');
+    const quotaSaved = zhixueAdapter?.id !== 'zhixue' || !zhixueAdapter.saveQuotaContinuation || !zhixueQuotaInput
+        || zhixueQuotaInput.checked === zhixueAdapter.isQuotaContinuationEnabled()
+        || zhixueAdapter.saveQuotaContinuation(zhixueQuotaInput.checked);
+    if (quotaSaved) clearUnsavedChanges();
     const modeLabel = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode];
-    safeAlert(`「${activeName}」已保存 — ${modeLabel}`);
+    safeAlert(quotaSaved ? `「${activeName}」已保存 — ${modeLabel}` : '评分方案已保存，智学网续批设置未保存，请重试。');
 
     // 仅当批阅份数配置发生变化时才重置计数
     const batchConfigChanged = (batchEnabled !== oldBatchEnabled) || (batchTargetCount !== oldBatchTargetCount);
@@ -3154,7 +3175,7 @@ function saveAISettings() {
     }
 
     // 保存后自动关闭侧边栏
-    closeSettingsPanel();
+    if (quotaSaved) closeSettingsPanel();
 }
 
 // ========== 新手引导 ==========

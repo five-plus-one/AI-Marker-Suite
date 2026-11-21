@@ -2,14 +2,29 @@
 // 实现 PlatformAdapter 接口，处理智学网平台特定的 DOM 交互
 
 const ZHIXUE_DIALOG_SELECTOR = '.el-message-box__wrapper[role="dialog"]';
+const ZHIXUE_QUOTA_MESSAGE = '您该题任务量已完成，请选择继续多阅或切换到下一题?';
+const ZHIXUE_CONTINUE_QUOTA_SETTING = 'ai-zhixue-continue-same-question';
 const ZHIXUE_DIALOG_LABELS = [
     '温馨提示',
-    '您该题任务量已完成，请选择继续多阅或切换到下一题?',
+    ZHIXUE_QUOTA_MESSAGE,
     '您本题的当前任务量已完成，请切换到下一题!',
     '该题已全部阅完，请选择留在当前题或切换到下一题?',
     '您的任务量已全部完成，请及时退出界面!',
     '继续多阅', '切换下一题', '留在当前题', '确定', '取消',
 ];
+
+function isZhixueDialogElementVisible(element) {
+    return !!element?.getClientRects().length
+        && element.getAttribute('aria-hidden') !== 'true'
+        && element.ownerDocument.defaultView.getComputedStyle(element).visibility === 'visible';
+}
+
+function visibleZhixueDialogs() {
+    const frame = document.querySelector('iframe');
+    const docs = isZhixueDialogElementVisible(frame) ? [document, frame.contentDocument] : [document];
+    return docs.flatMap(doc => doc
+        ? Array.from(doc.querySelectorAll(ZHIXUE_DIALOG_SELECTOR)).filter(isZhixueDialogElementVisible) : []);
+}
 
 function readZhixueDialogTree(root) {
     let remaining = 96;
@@ -606,8 +621,54 @@ const ZhixueAdapter = {
         return false;
     },
 
+    isQuotaContinuationEnabled() {
+        try { return GM_getValue(ZHIXUE_CONTINUE_QUOTA_SETTING, false) === true; }
+        catch (_) { return false; }
+    },
+
+    saveQuotaContinuation(enabled) {
+        try {
+            GM_setValue(ZHIXUE_CONTINUE_QUOTA_SETTING, enabled === true);
+            return GM_getValue(ZHIXUE_CONTINUE_QUOTA_SETTING, false) === (enabled === true);
+        } catch (_) { return false; }
+    },
+
+    prepareQuotaContinuation(taskId, isCurrent) {
+        if (!taskId || !this.isQuotaContinuationEnabled()) return null;
+        try {
+            if (visibleZhixueDialogs().length) return null;
+        } catch (_) { return null; }
+
+        let attempted = false;
+        return currentTask => {
+            if (attempted || currentTask !== taskId) return false;
+            try {
+                const dialogs = visibleZhixueDialogs();
+                if (dialogs.length !== 1) return false;
+                const [dialog] = dialogs;
+                const text = node => node?.textContent.trim().normalize('NFKC');
+                if (text(dialog.querySelector('.el-message-box__title')) !== '温馨提示'
+                    || dialog.matches('.msgbox-fade-leave-active, .msgbox-fade-leave-to')
+                    || text(dialog.querySelector('.el-message-box__message')) !== ZHIXUE_QUOTA_MESSAGE.normalize('NFKC')) return false;
+                const buttons = Array.from(dialog.querySelectorAll('.el-message-box__btns button.el-button'))
+                    .filter(isZhixueDialogElementVisible);
+                const primary = buttons.find(button => button.classList.contains('el-button--primary'));
+                const secondary = buttons.find(button => button !== primary);
+                if (buttons.length !== 2 || text(primary) !== '继续多阅' || text(secondary) !== '切换下一题'
+                    || primary.matches(':disabled, [aria-disabled="true"], .is-loading, .is-disabled')
+                    || secondary.classList.contains('el-button--primary')) return false;
+                const rect = primary.getBoundingClientRect();
+                if (!primary.contains(primary.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))) return false;
+                if (!isCurrent() || !this.isQuotaContinuationEnabled()) return false;
+                attempted = true;
+                primary.click();
+                return true;
+            } catch (_) { return false; }
+        };
+    },
+
     async waitForNextPaper(oldImageUrl, context = {}) {
-        let checkTimes = 0;
+        let checkTimes = 0, maxChecks = 125;
         let candidate = null, stableChecks = 0;
         const oldKey = this._answerResourceKey(oldImageUrl);
         if (!context.paperId && !oldKey) return false;
@@ -647,8 +708,15 @@ const ZhixueAdapter = {
                     stableChecks = candidate === snapshot.identity ? stableChecks + 1 : 1;
                     candidate = snapshot.identity;
                     if (stableChecks >= 2) return finish(true, 'ready');
-                } else { candidate = null; stableChecks = 0; }
-                if (checkTimes >= 125) finish(false, 'poll-limit');
+                } else {
+                    candidate = null;
+                    stableChecks = 0;
+                    if (context.continueQuota?.(taskId)) {
+                        maxChecks = checkTimes + 125;
+                        context.onQuotaContinued?.();
+                    }
+                }
+                if (checkTimes >= maxChecks) finish(false, 'poll-limit');
             }, 200);
             dialogs?.sample();
             context.signal?.addEventListener('abort', abort, { once: true });
@@ -760,5 +828,6 @@ const ZhixueAdapter = {
 };
 
 if (ZhixueAdapter.shouldInitialize()) {
-    window.__AI_MARKER_ADAPTER__ = ZhixueAdapter;
+    window.__AI_MARKER_ADAPTER__ = typeof ZhixueHomeworkAdapter !== 'undefined' && ZhixueHomeworkAdapter.shouldInitialize()
+        ? ZhixueHomeworkAdapter : ZhixueAdapter;
 }

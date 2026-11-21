@@ -59,6 +59,13 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
                     onDialog: snapshot => diagnostic.grading('platform-dialog', runContext, { round, ...snapshot }, { persist: true }),
                     onWaitObserved: summary => { observation = summary; },
                 } : {}),
+                ...(runContext.continueZhixueQuota ? {
+                    continueQuota: runContext.continueZhixueQuota,
+                    onQuotaContinued: () => {
+                        diagnostic?.grading('zhixue-quota-continue-requested', runContext, { round }, { persist: true });
+                        showToast('正在继续领取本题答卷');
+                    },
+                } : {}),
             } : undefined);
         } catch (e) {
             waitError = e;
@@ -899,7 +906,15 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         if (extraInfo?.fillFailed) throw new Error('请在阅卷平台手动给分并提交，然后继续批改');
         await verifyGradingContext(runContext);
         requireGradingContextTarget(runContext);
-        diagnostic?.grading('platform-submit-started', runContext, { mode });
+        if (mode === 'unattended' && !runContext.manual && adapter?.id === 'zhixue') {
+            runContext.continueZhixueQuota = adapter.prepareQuotaContinuation?.(runContext.taskId, () =>
+                isGradingContextCurrent(runContext) && window.aiGradingState.gradingMode === 'unattended'
+                && PresetManager.data.active === runContext.presetName
+                && PresetManager.getTaskIdentifier?.() === runContext.taskId);
+        }
+        diagnostic?.grading('platform-submit-started', runContext, {
+            mode, continueSameQuestion: adapter?.id === 'zhixue' ? !!runContext.continueZhixueQuota : undefined,
+        });
         const submitted = adapter?.submitGrade ? await adapter.submitGrade({
             signal: runContext.controller.signal, isCurrent: () => {
                 try { requireGradingContextTarget(runContext); return true; } catch (_) { return false; }

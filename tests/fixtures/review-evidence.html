@@ -29,6 +29,7 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
   renderChangelog=()=>{};createSettingsPanel({deferOpen:true});
   openSettingsPanel();document.querySelector('.settings-nav-item[data-page="automation"]').click();
   assert(document.getElementById('unattended-review-limit').value==='5','允许数量显示默认上限');
+  assert(document.getElementById('zhixue-quota-setting').hidden, '其他平台隐藏智学网续批选项');
   const reviewToggle=document.getElementById('answer-review-enabled');
   assert(!reviewToggle.checked&&document.getElementById('unattended-review-limit').disabled,'状态核对默认关闭');
   reviewToggle.click();assert(!document.getElementById('unattended-review-limit').disabled,'主动开启后可设置允许数量');

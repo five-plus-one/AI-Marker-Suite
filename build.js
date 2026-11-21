@@ -84,6 +84,7 @@ const BUILD_CONFIGS = [
         legacyOutputFiles: ['zhixue_ai_marking.user.js'],
         adapterModules: [
             'adapters/zhixue/selectors.js',
+            'adapters/zhixue/homework.js',
             'adapters/zhixue/adapter.js',
             'adapters/qitian/selectors.js',
             'adapters/qitian/adapter.js',
