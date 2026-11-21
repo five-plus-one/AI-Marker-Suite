@@ -884,6 +884,17 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             }
         }
 
+        const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
+        const activeRun = typeof window === 'undefined' ? undefined : window.aiGradingState?.activeRun;
+        const diagnosticRun = signal && activeRun?.controller.signal === signal ? activeRun : undefined;
+        const requestedAt = Date.now();
+        const reportTransport = (outcome, response) => {
+            const requestId = /^x-oneapi-request-id:[ \t]*([0-9a-z_-]{1,96})[ \t]*\r?$/im.exec(response?.responseHeaders || '')?.[1];
+            diagnostic?.grading('model-transport-finished', diagnosticRun, {
+                outcome, httpStatus: response?.status, elapsedMs: Date.now() - requestedAt,
+                responseChars: response?.responseText?.length, progressCallbacks: progressCallCount, requestId,
+            });
+        };
         const request = GM_xmlhttpRequest({
             method: 'POST',
             url: config.endpoint,
@@ -909,6 +920,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             onload: function(res) {
                 if (settled) return;
                 settled = true;
+                if (diagnostic) reportTransport('response', res);
                 if (config.officialApiLine && res.finalUrl && res.finalUrl !== config.endpoint) {
                     return reject(new Error('官方端点响应地址已变化，请核对线路设置'));
                 }
@@ -988,6 +1000,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             onerror: function() {
                 if (settled) return;
                 settled = true;
+                if (diagnostic) reportTransport('network-error');
                 const error = new Error('网络请求被拦截，请检查跨域权限');
                 error.routeUnavailable = !receivedHeaders && !parsedResponseLength;
                 reject(error);
@@ -995,6 +1008,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             ontimeout: function() {
                 if (settled) return;
                 settled = true;
+                if (diagnostic) reportTransport('timeout');
                 reject(new Error('请求超时'));
             }
         });
@@ -1003,6 +1017,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         if (config.officialApiLine && !settled) timeout = setTimeout(() => {
             if (settled) return;
             settled = true;
+            if (diagnostic) reportTransport('timeout');
             reject(new Error('请求超时'));
             request.abort();
         }, 120000);
@@ -1011,6 +1026,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             abortRequest = () => {
                 if (!settled) {
                     settled = true;
+                    if (diagnostic) reportTransport('aborted');
                     request.abort();
                     reject(new Error('用户主动暂停'));
                 }

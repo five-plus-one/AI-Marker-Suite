@@ -340,6 +340,9 @@ function stopIfGradingTaskChanged(context) {
     const baseline = state.gradingTaskId || state.activeRun?.taskId;
     const taskId = readGradingTaskIdentifier();
     if (!baseline || !taskId || baseline === taskId) return false;
+    if (typeof DiagnosticLog !== 'undefined') {
+        DiagnosticLog.grading('grading-paused', context || state.activeRun, { reason: 'task-changed' }, { persist: true });
+    }
     stopAutoGrading();
     showToast('当前题目已切换，批改已停止，请核对当前题目的方案后继续');
     return true;

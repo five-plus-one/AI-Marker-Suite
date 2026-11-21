@@ -42,17 +42,24 @@ async function fillScore(score, comment, subScores, runContext = window.aiGradin
 // 等待下一份试卷（带自动重试）
 // 平台加载下一份常有瞬态失败（Promise 报错后稍后才加载出来），超时不直接暂停，自动重试几轮
 async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runContext) {
+    const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
     for (let round = 1; round <= maxRounds; round++) {
         // 用户已停止/暂停则立即退出，避免长时间等待后误重启批改
         if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return true;
         if (runContext && !isGradingContextCurrent(runContext)) return true;
         if (stopIfGradingTaskChanged(runContext)) return false;
+        const startedAt = Date.now();
+        diagnostic?.grading('next-paper-wait-started', runContext, { round, maxRounds });
         let hasNext = false;
+        let waitError, observation;
         try {
             hasNext = await adapter.waitForNextPaper(oldImgUrl, runContext ? {
-                paperId: runContext.paperId, taskId: runContext.taskId, signal: runContext.controller.signal
+                paperId: runContext.paperId, taskId: runContext.taskId, signal: runContext.controller.signal,
+                onDialog: diagnostic && (snapshot => diagnostic.grading('platform-dialog', runContext, { round, ...snapshot }, { persist: true })),
+                onWaitObserved: diagnostic && (summary => { observation = summary; }),
             } : undefined);
         } catch (e) {
+            waitError = e;
             console.warn('⚠️ 等待下一份试卷异常，将重试:', e);
         }
         if (stopIfGradingTaskChanged(runContext)) return false;
@@ -60,6 +67,9 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
             hasNext = false;
             console.warn('[答卷校验] 平台报告已换卷，但答卷标识仍相同，继续等待');
         }
+        diagnostic?.grading('next-paper-wait-finished', runContext, {
+            round, elapsedMs: Date.now() - startedAt, hasNext, cancelled: !!runContext?.controller.signal.aborted, ...observation,
+        }, { error: waitError });
         if (hasNext) return true;
         if (runContext && !isGradingContextCurrent(runContext)) return true;
         // 长等待期间状态可能已变，再次检查
@@ -876,6 +886,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
     }
 
     // 确认提交主体（原 confirmSubmitFn；重入闩见下方包装）
+    const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
     const runConfirmSubmitOnce = async () => {
         if (dialog.countdownTimer) clearInterval(dialog.countdownTimer);
         destroySubmitDialog(dialog);
@@ -886,12 +897,14 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         if (extraInfo?.fillFailed) throw new Error('请在阅卷平台手动给分并提交，然后继续批改');
         await verifyGradingContext(runContext);
         requireGradingContextTarget(runContext);
+        diagnostic?.grading('platform-submit-started', runContext, { mode });
         const submitted = adapter?.submitGrade ? await adapter.submitGrade({
             signal: runContext.controller.signal, isCurrent: () => {
                 try { requireGradingContextTarget(runContext); return true; } catch (_) { return false; }
             },
             verify: () => verifyGradingContext(runContext)
         }) : false;
+        diagnostic?.grading('platform-submit-returned', runContext, { adapterAccepted: !!submitted });
         if (submitted) {
             // 更新批阅份数进度（在历史记录之前，避免存储异常导致计数丢失）
             if (typeof updateBatchProgress === 'function' && (!runContext.taskId || runContext.taskId === (PresetManager.getTaskIdentifier?.() || ''))) {
@@ -967,6 +980,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             setTimeout(() => { if (isGradingContextCurrent(runContext)) startAutoGrading(); }, 500);
                         } else if (!hasNext && isGradingContextCurrent(runContext)) {
                             // 不停止，改为暂停让用户决定
+                            diagnostic?.grading('grading-paused', runContext, { reason: 'next-paper-timeout' }, { persist: true });
                             console.warn('⚠️ 加载下一份试卷超时，暂停批改');
                             window.aiGradingState.isRunning = false;
                             window.aiGradingState.isPaused = true;
@@ -1000,6 +1014,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 }
                 if (!isGradingContextCurrent(runContext)) return;
             }
+            diagnostic?.grading('grading-paused', runContext, { reason: 'platform-submit-rejected' }, { persist: true });
             console.warn('平台提交操作未完成，暂停等待核对');
             // 不停止，改为暂停让用户手动提交后继续
             window.aiGradingState.isRunning = false;
@@ -1026,7 +1041,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         try {
             return await runConfirmSubmitOnce();
         } catch (error) {
-            if (isGradingContextCurrent(runContext)) { stopAutoGrading(); showToast(error.message); }
+            if (isGradingContextCurrent(runContext)) {
+                diagnostic?.grading('grading-paused', runContext, { reason: 'platform-submit-error' }, { error, persist: true });
+                stopAutoGrading();
+                showToast(error.message);
+            }
         } finally {
             confirmSubmitting = false;
         }
@@ -1034,6 +1053,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
     dialog.confirmSubmit = confirmSubmitFn;
     dialog.querySelector('#confirm-submit-btn').addEventListener('click', confirmSubmitFn);
+    diagnostic?.grading('submit-confirmation-shown', runContext, {
+        mode, score: Number.isFinite(score) ? score : null, dual: !!dualEval,
+        autoSubmitAfterMs: showCountdown ? countdownSeconds * 1000 : null, fillFailed: !!extraInfo?.fillFailed,
+    });
 
     // 倒计时（环形进度）。拟人节奏抽到 0 秒时无等待直接提交
     if (showCountdown) {

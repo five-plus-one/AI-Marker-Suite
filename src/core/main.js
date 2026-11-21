@@ -239,6 +239,10 @@ function safeFillScores(adapter, scores, ctx) {
 // SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
 //「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
 function handleLeaveMarkingPage() {
+    const state = window.aiGradingState;
+    if (state.isRunning && typeof DiagnosticLog !== 'undefined') {
+        DiagnosticLog.grading('grading-paused', state.activeRun, { reason: 'left-marking-page' }, { persist: true });
+    }
     invalidateGradingRun();
     // 1. 关闭新手引导弹窗
     if (typeof hideOnboardingDialog === 'function') hideOnboardingDialog();
@@ -269,6 +273,11 @@ async function startAutoGrading() {
     if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
     if (stopIfGradingTaskChanged()) return;
     const runContext = createGradingContext();
+    const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
+    const batch = window.aiGradingState.batchProgress;
+    diagnostic?.grading('grading-started', runContext, {
+        mode: window.aiGradingState.gradingMode, currentCount: batch?.currentCount, targetCount: batch?.targetCount,
+    });
     // 批改节奏：本卷用时计时起点（开始处理 → 提交，含随机延迟）
     // 已有起点（翻卷检测时刻）时不覆盖，保住「检测到→提交」的完整窗口
     if (!window.aiGradingState.cycleStartTime) {
@@ -352,11 +361,13 @@ async function startAutoGrading() {
             console.log(`♻️ [诊断] 复用已有图片数据进行重试 (${imageUrls.length} 张)`);
         } else {
             console.log(`🔍 使用方案【${PresetManager.data.active}】查找答卷...`);
+            diagnostic?.grading('answer-image-search-started', runContext);
             imageUrls = adapter ? await adapter.gatherAnswerImages() : [];
             requireCurrentGradingContext(runContext);
             console.log(`🖼️ [诊断] 找到答题卡图片数量: ${imageUrls.length}`);
 
             if (!imageUrls || imageUrls.length === 0) {
+                diagnostic?.grading('answer-image-search-finished', runContext, { imageCount: 0 });
                 // 取图为空 ≠ 批完：复查确认是否已离开批改页（取图等待窗口内可能已导航离开）
                 const hasLeft = await confirmLeftMarkingPage(adapter);
                 requireCurrentGradingContext(runContext);
@@ -396,6 +407,7 @@ async function startAutoGrading() {
 
             console.log(`📥 [诊断] 开始下载 ${imageUrls.length} 张图片...`);
             const fetchFn = adapter?.fetchImageAsBase64?.bind(adapter) ?? fetchImageAsBase64;
+            diagnostic?.grading('answer-image-download-started', runContext, { imageCount: imageUrls.length });
             base64DataArray = await Promise.all(imageUrls.map(url => fetchFn(url, runContext.controller.signal)));
             requireCurrentGradingContext(runContext);
             // 废图闸（工单①）：942×4 裁剪残片类废图不得进 API/空白检测（进 API 会 400 整单暂停）
@@ -502,6 +514,7 @@ async function startAutoGrading() {
         }
 
         console.log('🤖 [诊断] 开始调用AI接口...');
+        diagnostic?.grading('scoring-request-started', runContext, { imageCount: base64DataArray.length, dual: !!isDualEval });
         // 根据是否启用双评，选择调用方式
         const outputObservation = { upgraded: false };
         const outputLimitKey = JSON.stringify({
@@ -528,6 +541,7 @@ async function startAutoGrading() {
         hideStreamPanel();
 
         console.log(`📊 [诊断] callAIGrading 返回 — score: ${result.score}, comment长度: ${(result.comment || '').length}字`);
+        diagnostic?.grading('scoring-request-finished', runContext, { hasScore: Number.isFinite(result.score) });
         if (result.score !== undefined && result.score !== null) {
             recordOutputLimitOutcome(gradingConfig);
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
@@ -653,6 +667,7 @@ async function startAutoGrading() {
         }
 
         console.error('❌ 打分失败:', error);
+        diagnostic?.grading('grading-paused', runContext, { reason: 'grading-error' }, { error, persist: true });
         console.error('❌ 批改失败，已暂停:', error);
         window.aiGradingState.isRunning = false;
         window.aiGradingState.isPaused = true;
@@ -710,6 +725,9 @@ function updateBatchProgress() {
 
     console.log(`📊 [批阅份数] 已批阅: ${batch.currentCount}/${batch.targetCount}`);
 
+    const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
+    const context = window.aiGradingState.activeRun;
+    diagnostic?.grading('batch-progress', context, { currentCount: batch.currentCount, targetCount: batch.targetCount });
     // 更新进度显示
     renderBatchProgress();
 
@@ -718,6 +736,9 @@ function updateBatchProgress() {
         batch.reached = true; // 标记已达到，避免重复触发
         console.log('🎯 [批阅份数] 已达到目标份数，自动暂停');
         if (window.aiGradingState.isRunning) {
+            diagnostic?.grading('grading-paused', context, {
+                reason: 'batch-target', currentCount: batch.currentCount, targetCount: batch.targetCount,
+            }, { persist: true });
             // 暂停批改（不刷新页面）
             window.aiGradingState.isPaused = true;
             window.aiGradingState.isRunning = false;

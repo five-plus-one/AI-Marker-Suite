@@ -24,7 +24,7 @@ function openPage(shared, at, hostname) {
     vm.runInContext(logger, context);
     return {
         shown, listeners,
-        run(source) { return vm.runInContext(instrumentDiagnosticLogs(source, 'core/test.js'), context); },
+        run(source, moduleName = 'core/test.js') { return vm.runInContext(instrumentDiagnosticLogs(source, moduleName), context); },
         read(start, end) { return structuredClone(vm.runInContext(`DiagnosticLog.read(${start}, ${end})`, context)); },
     };
 }
@@ -50,4 +50,25 @@ test('stores static log text across tabs within the chosen interval and preserve
     assert.equal(first.shown[0][1].apiKey, 'private key');
     assert.deepEqual(viewer.read(at, at).entries.map(row => row.level), ['warn']);
     assert.equal(shared.get('user-setting'), 'preserved');
+});
+
+test('retains grading events independently of console retention and reports the lost range', () => {
+    const at = 1794997905708;
+    const shared = new Map();
+    for (let i = 0; i < 193; i++) {
+        const time = at - 3600000 + i;
+        shared.set('ai-marker-diagnostic-log-v1-' + time + '-fixture-0', [{ at: time, level: 'log' }]);
+    }
+    const earlier = openPage(shared, at - 1800000, 'www.zhixue.com');
+    earlier.run("const run = {}; DiagnosticLog.grading('next-paper-wait-started', run, { round: 1 });");
+    earlier.run("DiagnosticLog.grading('grading-paused', run, { reason: 'batch-target', currentCount: 1600, targetCount: 1600 }, {persist: true});");
+    const later = openPage(shared, at, 'www.zhixue.com');
+    later.run('console.log(\x60📊 [批阅份数] 已批阅: \x24{1600}/\x24{1600}\x60);', 'core/main.js');
+    later.listeners.pagehide();
+    const result = later.read(at - 3600000, at);
+    assert.deepEqual(result.gradingEvents.map(entry => entry.run), [1, 1]);
+    assert.equal(result.gradingEvents[1].details.targetCount, 1600);
+    assert.equal(result.entries.at(-1).message, '📊 [批阅份数] 已批阅: 1600/1600');
+    assert.ok(result.coverage.console.prunedThrough >= at - 3600000);
+    assert.equal(result.coverage.grading.prunedThrough, null);
 });

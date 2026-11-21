@@ -604,6 +604,9 @@ function resumeGrading(btn) {
 
     const config = PresetManager.getCurrentConfig();
     window.aiGradingState.gradingMode = config.gradingMode || 'normal';
+    if (typeof DiagnosticLog !== 'undefined') {
+        DiagnosticLog.grading('grading-resumed', null, { mode: window.aiGradingState.gradingMode }, { persist: true });
+    }
 
     btn.classList.remove('paused', 'unattended', 'trial');
     btn.classList.add('running');
@@ -639,6 +642,9 @@ function toggleAutoGrading() {
     }
 
     if (window.aiGradingState.isRunning) {
+        if (typeof DiagnosticLog !== 'undefined') {
+            DiagnosticLog.grading('grading-paused', window.aiGradingState.activeRun, { reason: 'user-action' }, { persist: true });
+        }
         window.aiGradingState.isPaused = true;
         window.aiGradingState.isRunning = false;
         invalidateGradingRun();

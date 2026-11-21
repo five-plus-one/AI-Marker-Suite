@@ -106,7 +106,7 @@ function exportDiagnosticPackage(start, end) {
     const configuration = diagnosticConfiguration(PresetManager.data, ProviderManager.data, WorkflowManager.data,
         ProviderManager._getDefault().providers, window.aiGradingState);
     const metadata = {
-        formatVersion: 1,
+        formatVersion: 2,
         scriptVersion: SCRIPT_CONFIG.VERSION,
         exportedAt: new Date().toISOString(),
         range: { start: new Date(start).toISOString(), end: new Date(end).toISOString() },
@@ -114,6 +114,8 @@ function exportDiagnosticPackage(start, end) {
         browser: /(?:Edg|Chrome|Firefox|Version)\/[\d.]+/.exec(navigator.userAgent)?.[0],
         platform: window.__AI_MARKER_ADAPTER__?.id,
         logCount: logs.entries.length,
+        gradingEventCount: logs.gradingEvents.length,
+        logCoverage: logs.coverage,
         recordCount: records.length,
         logRetentionDays: logs.retentionDays,
         logStorageLimited: logs.storageLimited,
@@ -122,6 +124,7 @@ function exportDiagnosticPackage(start, end) {
     const files = {
         '导出说明.json': metadata,
         '运行日志.json': logs.entries,
+        '批改过程.json': logs.gradingEvents,
         '阅卷记录.json': records,
         '配置摘要.json': configuration,
     };
@@ -149,7 +152,7 @@ function showDiagnosticExport() {
         <form>
             <div class="ai-modal-header" id="ai-diagnostic-title">导出诊断包</div>
             <div class="ai-modal-body">
-                <p>导出这段时间的运行日志、阅卷记录和当前配置摘要，供问题排查。密钥、答卷图片和答卷原文留在本机。</p>
+                <p>导出这段时间的批改过程、运行日志、阅卷记录和配置摘要，供问题排查。批改过程包含平台弹窗的界面结构。</p>
                 <p>默认最近 2 小时，按此设备的时间选择。</p>
                 <label style="display:block;">开始时间
                     <input class="ai-modal-input" name="start" type="datetime-local" step="1" style="min-height:44px;" required autofocus>

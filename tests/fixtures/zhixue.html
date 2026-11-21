@@ -39,6 +39,25 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   assert(a.getPaperIdentity()===old,'签名更新维持同卷标识');await wait(450);assert(!changed,'签名续期不换卷');
   image.src='/__fixture/answer.svg?paper=B';await loaded();await wait(500);await pending;
   assert(changed,'完整新作答资源稳定后继续');assert((await a.gatherAnswerImages()).length===1,'取图与身份来源相同');
+  const popup = document.createElement('div');
+  popup.className = 'el-message-box__wrapper';
+  popup.setAttribute('role', 'dialog');
+  popup.setAttribute('aria-modal', 'true');
+  popup.innerHTML = '<div class="el-message-box"><div class="el-message-box__message"><p>您该题任务量已完成，请选择继续多阅或切换到下一题?</p></div><div class="el-message-box__btns"><button class="el-button">继续多阅</button><button>切换下一题</button></div><input value="private-test-value"></div>';
+  const popupRun = new AbortController(), dialogEvents = [], waitEvents = [];
+  const popupWait = a.waitForNextPaper(image.src, {
+      paperId: a.getPaperIdentity(), signal: popupRun.signal,
+      onDialog: event => dialogEvents.push(event), onWaitObserved: event => waitEvents.push(event),
+  });
+  document.body.append(popup);
+  await until(() => dialogEvents.length > 0);
+  const snapshot = JSON.stringify(dialogEvents[0]);
+  assert(dialogEvents[0].source === 'page' && dialogEvents[0].tree.role === 'dialog'
+      && snapshot.includes('el-message-box__btns') && snapshot.includes('继续多阅')
+      && snapshot.includes('切换下一题') && !snapshot.includes('private-test-value'), '保存配额弹窗结构、文案和按钮');
+  popupRun.abort();
+  assert(!await popupWait && dialogEvents.length === 1 && waitEvents[0].reason === 'aborted', '弹窗快照去重，取消时结束采集');
+  popup.remove();
   const canvas=document.createElement('canvas');canvas.width=942;canvas.height=513;
   const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,942,513);
   ctx.fillStyle='black';ctx.fillText('30. answer A',20,30);const dataA=canvas.toDataURL('image/png');
