@@ -2743,7 +2743,7 @@ function refreshOfficialEndpointOptions() {
 }
 
 async function handleNewProvider() {
-    const name = await showPromptModal("请输入新的供应商名称 (例如: 火山引擎)：");
+    const name = await showPromptModal('请输入供应商名称');
     if (!name || !name.trim()) return;
     if (ProviderManager.data.providers[name]) {
         showAlertModal("该供应商名称已存在！");

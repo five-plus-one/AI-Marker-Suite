@@ -25,6 +25,49 @@ function setup() {
     return { store, first, second, a: first.PresetManager, b: second.PresetManager };
 }
 
+test('新配置默认提供 5plus1 官方与 OpenAI 兼容供应商', () => {
+    const store = {};
+    const { ProviderManager } = page(store);
+    const names = ['5plus1官方', 'OpenAI兼容'];
+    assert.deepEqual(Object.keys(ProviderManager.data.providers), names);
+    assert.deepEqual(Object.keys(stored(store, 'ai-grading-providers-v2').providers), names);
+});
+
+test('现有火山引擎供应商保持已保存的配置和模型选择', () => {
+    const store = {};
+    const { ProviderManager } = page(store);
+    const provider = {
+        endpoint: 'https://volc.example.test/v1/chat/completions',
+        apiKey: 'local-fixture',
+        models: { vision: { label: '旧模型', tags: ['精确'] } },
+    };
+    ProviderManager.data.providers['火山引擎'] = provider;
+    ProviderManager.data.activeProvider = '火山引擎';
+    ProviderManager.data.activeModel = 'vision';
+    assert.equal(ProviderManager.save(), true);
+
+    const reloaded = page(store).ProviderManager.data;
+    assert.deepEqual(json(reloaded.providers['火山引擎']), provider);
+    assert.equal(reloaded.activeProvider, '火山引擎');
+    assert.equal(reloaded.activeModel, 'vision');
+});
+
+test('旧格式迁移恢复已保存的火山引擎供应商和可用模型', () => {
+    const legacy = {
+        active: '火山引擎',
+        list: { 火山引擎: { apiKey: 'legacy-fixture', model: 'local-vision' } },
+    };
+    const store = { 'ai-grading-providers': JSON.stringify(legacy) };
+    const { data } = page(store).ProviderManager;
+    const provider = data.providers['火山引擎'];
+    assert.match(provider.endpoint, /^https:\/\/ark\.cn-beijing\.volces\.com\//);
+    assert.equal(provider.apiKey, 'legacy-fixture');
+    assert.ok(provider.models['doubao-seed-2-0-lite-260428']);
+    assert.equal(provider.models['local-vision'].label, 'local-vision');
+    assert.equal(data.activeProvider, '火山引擎');
+    assert.equal(data.activeModel, 'local-vision');
+});
+
 test('旧页面切换方案保留另一页面新增的方案与绑定', () => {
     const { store, a, b } = setup();
     a.data.list.Physics = { answer: { text: '参考答案' } };
