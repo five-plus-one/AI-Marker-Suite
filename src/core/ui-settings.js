@@ -843,7 +843,7 @@ function createSettingsPanel(options) {
                             <label for="unattended-answer-recovery">无人模式遇到需核对的答卷</label>
                             <select id="unattended-answer-recovery">
                                 <option value="pause">暂停，人工核对</option>
-                                <option value="recover">复查原卷后重评（实验性）</option>
+                                <option value="recover" selected>复查原卷后重评（实验性）</option>
                                 <option value="retry">直接重试评分（实验性）</option>
                             </select>
                         </div>
