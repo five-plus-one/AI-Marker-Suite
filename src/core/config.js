@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.35.2',
+    VERSION: '1.21.35.3',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.35.3': [
+            '【优化】从批改助手打开管理控制台，自动进入余额充值或 API 密钥管理',
+        ],
         '1.21.35.2': [
             '【优化】连接批改服务时可进入独立的 API 密钥填写页，并打开密钥管理',
             '【优化】新配置默认提供 5plus1 官方与 OpenAI 兼容供应商',
