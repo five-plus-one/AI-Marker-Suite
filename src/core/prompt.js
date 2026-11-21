@@ -949,7 +949,7 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     if (evidence?.questions) {
         if (onStreamUpdate) onStreamUpdate('正在逐问评分…');
         const response = await callAIWithRetry(buildScopedQuestionScorePrompt(config, evidence), [],
-            { ...config, gradingRequest: true, requestBudget: { remaining: 3 } }, null, collectFieldImages(config));
+            { ...config, gradingRequest: true }, null, collectFieldImages(config));
         return parseScopedQuestionScores(response, evidence, config);
     }
     // 从 scoring.units 派生 subQuestions（唯一数据源）
@@ -964,8 +964,8 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
         : [];
     const hasSub = subQuestions.length > 0;
 
-    // 将派生的 subQuestions 注入 config 供 prompt 函数使用
-    const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: 3 } };
+    // 请求层按方案限制共享次数，解析后重试也使用同一预算。
+    const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: Infinity } };
 
     const prompt = appendStudentGradingEvidence(
         hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig), evidence);

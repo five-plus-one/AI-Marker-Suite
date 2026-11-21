@@ -12,7 +12,7 @@ const config = { endpoint: 'https://example.test/chat/completions', apiKey: 'tes
 const event = (choice, usage) => `data: ${JSON.stringify({ choices: [choice], usage })}\n\n`;
 
 // —— mock 已知盲区（审计 C1-M1/M2/M3/M4，勿当真实时序/传输语义的证明）——
-//  1. setTimeout 是同步桩：退避等待（callAIOnceWithTransientRetry / callAI 服务端重试）
+//  1. setTimeout 是同步桩：退避等待
 //     实际永不等待，延迟值与并发时序缺陷不可见 —— 只断言重试次数，不断言耗时。
 //  2. onprogress 按 Tampermonkey 语义传「累计全文 responseText」（callAIOnce 依赖
 //     累计重解析）；真实 GM_xmlhttpRequest 各版本行为差异需浏览器实测（审计 R5）。
@@ -176,9 +176,25 @@ test('关闭空响应重试时不重复发送请求', async () => {
 });
 
 test('maxRetries 可配置为 0 时等价于不重试', async () => {
-    const { call, requests } = setup([{ kind: 'timeout' }], { ...config, retryPolicy: { maxRetries: 0 } });
+    const responses = [{ kind: 'timeout' }, { status: 429, body: '限流' }, { status: 503, body: '暂时无法使用' },
+        { body: event({ delta: {}, finish_reason: 'length' }) }];
+    for (const response of responses) {
+        const requestBudget = { remaining: 3 };
+        const { call, requests } = setup([response], { ...config, requestBudget, retryPolicy: { maxRetries: 0 } });
+        await assert.rejects(call());
+        assert.equal(requests.length, 1);
+        assert.equal(requestBudget.remaining, 0);
+    }
+});
+
+test('超时与服务端错误共享重试次数', async () => {
+    const requestBudget = { remaining: Infinity };
+    const { call, requests } = setup([
+        { kind: 'timeout' }, { status: 503, body: '暂时无法使用' }, { kind: 'timeout' },
+    ], { ...config, requestBudget, retryPolicy: { maxRetries: 2 } });
     await assert.rejects(call(), /请求超时/);
-    assert.equal(requests.length, 1);
+    assert.equal(requests.length, 3);
+    assert.equal(requestBudget.remaining, 0);
 });
 
 test('明确的服务端错误退避重试（实现上限 2 次，#C1-A8 修正旧名「至多一次」）', async () => {
