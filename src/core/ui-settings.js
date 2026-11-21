@@ -596,6 +596,27 @@ function createSettingsPanel(options) {
                 color: #c2352b !important;
                 border-color: #efc5c1 !important;
             }
+            #ai-grading-settings .marker-service-setting {
+                border-top: 1px solid #e1e6ef; padding: 12px 0; margin: 0;
+            }
+            #ai-grading-settings .marker-setting-heading {
+                display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: #172033;
+            }
+            #ai-grading-settings .marker-acct-action, #ai-grading-settings .marker-balance-link {
+                min-height: 44px; display: inline-flex; align-items: center;
+            }
+            #ai-grading-settings .marker-balance-link { text-decoration: none; white-space: nowrap; }
+            #ai-grading-settings .marker-account-linked {
+                color: #16634e; background: #e8f5ef; font-size: 12px; border-radius: 12px; padding: 2px 8px;
+            }
+            #ai-grading-settings .marker-setting-note {
+                color: #506077; font-size: 13px; line-height: 1.5; margin: 6px 0 0;
+            }
+            #ai-grading-settings .marker-setting-note:empty { display: none; }
+            #ai-grading-settings .marker-route-setting summary {
+                min-height: 44px; line-height: 44px; cursor: pointer; color: #506077; font-size: 13px;
+            }
+            #ai-grading-settings .marker-route-setting select { margin-bottom: 4px; }
             #ai-grading-settings .save-btn,
             #ai-grading-settings .mode-segmented input[type="radio"]:checked + label {
                 background: #172033 !important;
@@ -981,30 +1002,34 @@ function createSettingsPanel(options) {
                     </div>
                     <div class="section-body">
                         <div class="form-group">
-                            <label>供应商</label>
+                            <label for="ai-provider">供应商</label>
                             <div class="preset-controls">
                                 <select id="ai-provider"></select>
-                                <button class="preset-btn" id="btn-new-provider">新建</button>
-                                <button class="preset-btn danger" id="btn-del-provider">删除</button>
+                                <button class="preset-btn" id="btn-new-provider">添加供应商</button>
+                                <button class="preset-btn danger" id="btn-del-provider">删除供应商</button>
                             </div>
                         </div>
                         <div class="form-group" id="custom-endpoint-field"><label for="api-endpoint">服务网关 URL</label><input type="text" id="api-endpoint"></div>
-                        <div id="official-account-field" hidden>${markerAccountControls()}</div>
+                        <div class="marker-service-setting" id="official-account-field" hidden>${markerAccountControls()}</div>
                         <details id="manual-api-field" class="form-group" open>
                             <summary style="line-height:44px;cursor:pointer;">手动配置 API 密钥</summary>
                             <label for="api-key">API 密钥</label>
                             <input type="password" id="api-key" autocomplete="off" placeholder="输入 API 密钥">
-                            <div id="api-key-link-container" hidden><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" class="api-key-link">获取 API 密钥</a></div>
+                            <div id="api-key-link-container" hidden><a href="${markerAccountPortalUrl('/keys')}" target="_blank" rel="noopener noreferrer" class="api-key-link">获取 API 密钥</a></div>
                         </details>
-                        <div class="form-group" id="official-endpoint-field" hidden>
-                            <label for="official-endpoint">批改线路</label>
-                            <select id="official-endpoint" aria-describedby="official-endpoint-help"></select>
-                            <p id="official-endpoint-help" class="mode-desc" style="margin:6px 0 0;">建议使用自动选择。连接不稳定时，可以指定线路。</p>
-                            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
-                                <button type="button" class="preset-btn" id="official-route-test">测试线路</button>
-                                <button type="button" class="preset-btn" id="official-route-use-tested" hidden>使用这条线路</button>
+                        <div class="form-group marker-service-setting" id="official-endpoint-field" hidden>
+                            <div class="fp-embedded-setting-row">
+                                <strong>批改线路</strong>
+                                <button type="button" class="preset-btn marker-acct-action" id="official-route-test">测试线路</button>
                             </div>
-                            <p class="mode-desc" id="official-route-test-status" role="status"></p>
+                            <div class="fp-embedded-action-choices">
+                                <p class="marker-setting-note" id="official-route-test-status" role="status"></p>
+                                <button type="button" class="fp-embedded-text-link" id="official-route-use-tested" hidden></button>
+                            </div>
+                            <details class="marker-route-setting">
+                                <summary>线路设置 · <span id="official-route-selection">自动选择</span></summary>
+                                <select id="official-endpoint" aria-label="批改线路"></select>
+                            </details>
                         </div>
                         <div class="form-group">
                             <label>模型列表</label>
@@ -1368,6 +1393,8 @@ function createSettingsPanel(options) {
     });
     panel.addEventListener('marker-account-refresh', () => refreshAccount());
     panel.querySelector('#official-endpoint').onchange = handleOfficialEndpointChange;
+    const tokenLink = panel.querySelector('#api-key-link-container a');
+    tokenLink.onclick = () => { tokenLink.href = markerAccountPortalUrl('/keys'); };
     bindOfficialRouteTest(panel);
     panel.querySelector('#btn-add-model').onclick = handleAddModel;
     panel.querySelector('#new-model-id').onkeydown = (e) => { if (e.key === 'Enter') handleAddModel(); };
@@ -2375,6 +2402,7 @@ function updateUIVisibility() {
     const official = provider === '5plus1官方';
     apiKeyLink.hidden = !official;
     accountField.hidden = !official;
+    document.getElementById('btn-del-provider').hidden = official;
     manual.hidden = official && hasSettingsAccount();
     if (manual.hidden) manual.open = false;
     manual.querySelector('summary').hidden = !official;
@@ -2630,7 +2658,8 @@ function handleOfficialEndpointChange() {
     const line = document.getElementById('official-endpoint').value;
     const saved = ProviderManager.saveOfficialConnection(line);
     updateUIVisibility();
-    showToast(saved ? `已切换到${officialApiLineLabel(line)}` : '端点选择尚未保存，请刷新页面后重试');
+    showToast(saved ? (line === 'default' ? '已恢复自动选线' : `已改用${officialApiLineLabel(line)}`) : '线路设置尚未保存，请重试');
+    return saved;
 }
 
 function bindOfficialRouteTest(panel) {
@@ -2664,6 +2693,7 @@ function bindOfficialRouteTest(panel) {
         try {
             result = await verifyOfficialApiKey(key, {
                 line: choice, signal: pending.signal,
+                onRetry: () => { status.textContent = '连接暂时中断，正在重试…'; },
                 onFallback: () => { status.textContent = '所选线路未连通，正在测试备用线路…'; },
             });
         } catch (_) { result = { success: false, reason: 'network' }; }
@@ -2683,14 +2713,15 @@ function bindOfficialRouteTest(panel) {
         }
         rememberVerifiedOfficialRoute(result);
         testedLine = result.line;
-        status.textContent = resolveOfficialApiLine(testedLine).name + '已通过测试。';
-        use.hidden = choice === testedLine;
+        const name = officialApiLineLabel(testedLine);
+        status.textContent = name + '可用。';
+        use.hidden = result.preferred === testedLine || result.revision !== officialApiRoutes.revision;
+        use.textContent = use.hidden ? '' : `改用${name}`;
     };
     use.onclick = () => {
         if (!testedLine || !officialApiRoutes.endpoints.some(line => line.id === testedLine)) return;
         select.value = testedLine;
-        handleOfficialEndpointChange();
-        use.hidden = true;
+        if (handleOfficialEndpointChange()) use.hidden = true;
     };
 }
 
@@ -2707,6 +2738,7 @@ function refreshOfficialEndpointOptions() {
     select.replaceChildren(new Option(officialApiLineLabel('default'), 'default'),
         ...endpoints.map(line => new Option(line.name, line.id)));
     select.value = endpoints.some(line => line.id === selected) ? selected : 'default';
+    document.getElementById('official-route-selection').textContent = select.value === 'default' ? '自动选择' : officialApiLineLabel(select.value);
     document.getElementById('api-endpoint').value = getOfficialApiEndpoint(select.value);
 }
 
@@ -3490,18 +3522,21 @@ function showOnboardingDialog(forceShow, mode) {
                 ${confirmed ? `<div class="ai-onboarding-check" aria-hidden="true">✓${pieces}</div>` : ''}
                 ${confirmed ? '<strong>批改服务已就绪</strong>' : ''}
                 <p id="ob-status">${message}</p>
-                ${result?.reason === 'balance' ? `<a class="ai-onboarding-later" href="${MARKER_BILLING_URL}" target="_blank" rel="noopener noreferrer">查看余额与充值</a>` : ''}
+                ${result?.reason === 'balance' ? `<a class="ai-onboarding-later" href="${markerAccountPortalUrl()}" target="_blank" rel="noopener noreferrer">查看余额与充值</a>` : ''}
                 ${confirmed ? '<p>接下来，为当前题目配置批改方案。</p>' : ''}
             </div>`;
         }
         return `
-            <p class="ai-onboarding-intro">使用五加一账号登录，开通并连接 5plus1API 批改服务。</p>
-            <details class="ai-onboarding-manual" id="ob-api-manual">
-                <summary>使用已有 API 密钥</summary>
+            <p class="ai-onboarding-intro">登录后即可开通批改服务。</p>
+            <div class="ai-onboarding-choices fp-embedded-action-choices">
+                <button type="button" class="ai-modal-btn-confirm" data-marker-login>登录五加一账号</button>
+                <a class="fp-embedded-text-link" id="ob-api-choice" href="#ob-api-manual" aria-controls="ob-api-manual" aria-expanded="false">或使用已有 API 密钥</a>
+            </div>
+            <div class="ai-onboarding-manual" id="ob-api-manual" hidden>
                 <label for="ob-apikey">API 密钥</label>
                 <input class="ai-modal-input" type="password" id="ob-apikey" autocomplete="off"
                     placeholder="输入 5plus1API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}">
-            </details>
+            </div>
             <p id="ob-status" data-marker-status role="status"></p>
         `;
     }
@@ -3515,8 +3550,7 @@ function showOnboardingDialog(forceShow, mode) {
         }
         return later + `
             <button type="button" class="ai-modal-btn-cancel" data-marker-cancel style="display:none">取消授权</button>
-            <button type="button" class="ai-modal-btn-confirm" data-marker-login>登录五加一账号</button>
-            <button type="button" class="ai-modal-btn-confirm" id="ob-next" style="display:none">验证并继续</button>
+            <button type="button" class="ai-modal-btn-confirm" id="ob-next" hidden>验证并继续</button>
         `;
     }
 
@@ -3704,18 +3738,24 @@ function showOnboardingDialog(forceShow, mode) {
                 return;
             }
             const manual = overlay.querySelector('#ob-api-manual');
+            const choice = overlay.querySelector('#ob-api-choice');
+            const input = overlay.querySelector('#ob-apikey');
             const login = overlay.querySelector('[data-marker-login]');
-            const refreshActions = () => {
-                if (markerManagedAccount()) { render(); return; }
-                login.style.display = manual.open ? 'none' : '';
-                next.style.display = manual.open ? '' : 'none';
+            bindMarkerAccountControls(overlay, () => {
+                if (markerManagedAccount()) render();
+            });
+            choice.onclick = event => {
+                event.preventDefault();
+                if (_onboardingApiCheck) return;
+                const expanded = manual.hidden;
+                manual.hidden = next.hidden = !expanded;
+                choice.setAttribute('aria-expanded', String(expanded));
+                choice.textContent = expanded ? '收起密钥输入' : '或使用已有 API 密钥';
+                if (expanded) input.focus();
             };
-            bindMarkerAccountControls(overlay, refreshActions);
-            manual.addEventListener('toggle', refreshActions);
             login.focus();
             next.onclick = async () => {
-                if (_onboardingApiCheck || markerConnection) return;
-                const input = overlay.querySelector('#ob-apikey');
+                if (manual.hidden || _onboardingApiCheck || markerConnection) return;
                 const key = input.value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
 
@@ -3726,6 +3766,7 @@ function showOnboardingDialog(forceShow, mode) {
                 const btn = overlay.querySelector('#ob-next');
                 btn.disabled = true;
                 input.disabled = true;
+                login.disabled = true;
                 btn.innerHTML = '<span class="upd-spinner-light"></span> 验证中...';
 
                 // 确保 spinner 样式存在（浅色版本用于深色背景）
@@ -3748,6 +3789,7 @@ function showOnboardingDialog(forceShow, mode) {
                 if (!overlay.isConnected) return;
                 btn.disabled = false; btn.textContent = '验证并继续';
                 input.disabled = false;
+                login.disabled = false;
                 if (result.success) {
                     if (!ProviderManager.saveOfficialConnection(result.selection, key)) {
                         showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
@@ -3952,7 +3994,7 @@ function showInsufficientBalanceDialog(isOfficial) {
 
     if (isOfficial) {
         overlay.querySelector('#balance-topup').onclick = () => {
-            window.open(MARKER_BILLING_URL, '_blank', 'noopener');
+            window.open(markerAccountPortalUrl(), '_blank', 'noopener');
             overlay.remove();
         };
     }
