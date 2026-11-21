@@ -327,14 +327,6 @@ const ProviderManager = {
                     },
                     isBuiltin: true
                 },
-                "火山引擎": {
-                    endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-                    apiKey: "",
-                    models: {
-                        "doubao-seed-2-0-lite-260428": { label: "豆包 Seed Lite", tags: ["轻量"] },
-                        "doubao-seed-2-0-pro-260215": { label: "豆包 Seed Pro", tags: ["专业"] }
-                    }
-                },
                 "OpenAI兼容": {
                     endpoint: "https://api.openai.com/v1/chat/completions",
                     apiKey: "",
@@ -352,6 +344,16 @@ const ProviderManager = {
         const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
         if (!record(oldData?.list) || Object.values(oldData.list).some(value => !record(value))) throw new Error('旧供应商数据格式不正确');
         const newData = this._getDefault();
+        if (Object.hasOwn(oldData.list, '火山引擎')) {
+            newData.providers['火山引擎'] = {
+                endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+                apiKey: '',
+                models: {
+                    'doubao-seed-2-0-lite-260428': { label: '豆包 Seed Lite', tags: ['轻量'] },
+                    'doubao-seed-2-0-pro-260215': { label: '豆包 Seed Pro', tags: ['专业'] },
+                },
+            };
+        }
         if (oldData.list) {
             for (const [name, config] of Object.entries(oldData.list)) {
                 if (!newData.providers[name]) {

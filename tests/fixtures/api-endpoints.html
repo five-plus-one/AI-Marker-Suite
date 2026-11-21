@@ -89,9 +89,11 @@ window.GM_xmlhttpRequest = request => {
         reset('delayed');
         const pending = start();
         await Promise.resolve();
-        get('ob-skip').click();
+        get('ob-api-back').click();
         await pending;
-        check(tried(main) && requests[0].cancelled && !get('ob-status') && !official().apiKey, '离开首次设置时取消验证且不保存');
+        check(tried(main) && requests[0].cancelled && get('ob-api-choice') && !official().apiKey,
+            '从密钥页返回时取消验证且不保存');
+        get('ob-skip').click();
         reset('timeout', 'ok');
         await start();
         check(tried(main, shanghai) && get('ob-preset-name') && official().endpointLine === 'default' && official().apiKey === 'fixture-key'
@@ -121,16 +123,25 @@ window.GM_xmlhttpRequest = request => {
             && getComputedStyle(apiChoice).textDecorationLine === 'underline'
             && apiChoice.offsetHeight >= 44,
             '登录和已有密钥入口并列，统一浅色，备选入口保留链接样式和触控区域');
-        check(get('ob-api-manual').hidden && get('ob-next').hidden && apiChoice.getAttribute('aria-expanded') === 'false',
-            '密钥输入和验证默认折叠');
+        check(!get('ob-apikey') && !get('ob-next'), '连接选择页展示登录和密钥入口');
+        const hashBefore = location.hash;
         apiChoice.click();
-        check(!get('ob-api-manual').hidden && !get('ob-next').hidden && apiChoice.getAttribute('aria-expanded') === 'true'
-            && document.activeElement === get('ob-apikey') && loginChoice.getBoundingClientRect().width > 0,
-            '打开密钥输入后聚焦字段，账号登录仍可选');
+        check(get('ob-title').textContent === '输入 API 密钥' && get('ob-next').textContent === '验证并继续'
+            && !loginChoice.isConnected && document.activeElement === get('ob-apikey') && location.hash === hashBefore,
+            '进入独立密钥页后聚焦输入框');
+        const keyLink = get('ob-get-apikey');
+        const keyUrl = new URL(keyLink.href);
+        check(keyLink.textContent === '获取 API 密钥' && keyLink.target === '_blank'
+            && keyUrl.origin === new URL(shanghai).origin && keyUrl.searchParams.get('redirect') === '/keys',
+            '密钥页可以沿已选线路打开密钥管理');
         get('ob-apikey').value = 'fixture-draft';
-        apiChoice.click();
-        apiChoice.click();
-        check(get('ob-apikey').value === 'fixture-draft', '重新展开密钥输入时保留草稿');
+        get('ob-api-back').click();
+        check(get('ob-title').textContent === '连接批改服务' && !get('ob-apikey')
+            && document.activeElement === get('ob-api-choice'), '返回连接选择页并恢复键盘焦点');
+        get('ob-api-choice').click();
+        check(get('ob-apikey').value === 'fixture-draft' && official().apiKey === 'fixture-key',
+            '再次打开密钥页时保留未保存的输入');
+        get('ob-api-back').click();
         storage.set('ai-grading-channel', 'stable');
         handleUpdateResult('99.0.0', {}, false);
         check(!get('ai-update-dialog'), '首次设置期间延迟自动更新提醒');
