@@ -53,6 +53,7 @@ window.GM_xmlhttpRequest = request => {
 (async () => {
     const runId = new URLSearchParams(location.search).get('run');
     const { DEFAULT_ENDPOINT: main, SHANGHAI_ENDPOINT: shanghai } = SCRIPT_CONFIG;
+    const accountPortal = 'https://platform.ai.five-plus-one.com';
     const official = () => ProviderManager.getProvider('5plus1官方');
     const get = id => document.getElementById(id);
     const check = (value, label) => {
@@ -132,8 +133,8 @@ window.GM_xmlhttpRequest = request => {
         const keyLink = get('ob-get-apikey');
         const keyUrl = new URL(keyLink.href);
         check(keyLink.textContent === '获取 API 密钥' && keyLink.target === '_blank'
-            && keyUrl.origin === new URL(shanghai).origin && keyUrl.searchParams.get('redirect') === '/keys',
-            '密钥页可以沿已选线路打开密钥管理');
+            && keyUrl.origin === accountPortal && keyUrl.searchParams.get('redirect') === '/keys',
+            '密钥页可以打开官方密钥管理');
         get('ob-apikey').value = 'fixture-draft';
         get('ob-api-back').click();
         check(get('ob-title').textContent === '连接批改服务' && !get('ob-apikey')
@@ -181,9 +182,9 @@ window.GM_xmlhttpRequest = request => {
             && get('official-route-use-tested').hidden && official().endpointLine === 'backup',
             '线路短暂中断时原线路重试一次，恢复后无需切换');
         const tokenEntry = new URL(markerAccountPortalUrl('/keys'));
-        check(tokenEntry.origin === new URL(shanghai).origin && tokenEntry.pathname === '/sign-in'
+        check(tokenEntry.origin === accountPortal && tokenEntry.pathname === '/sign-in'
             && tokenEntry.searchParams.get('provider') === '5plus1-account'
-            && tokenEntry.searchParams.get('redirect') === '/keys', '密钥管理沿所选线路打开五加一登录');
+            && tokenEntry.searchParams.get('redirect') === '/keys', '密钥管理通过控制台发起五加一登录');
         reset({ status: 401, responseText: '{"error":{"message":"invalid"}}' });
         await get('official-route-test').onclick();
         check(tried(shanghai) && get('official-route-test-status').textContent.includes('密钥'),
@@ -193,8 +194,8 @@ window.GM_xmlhttpRequest = request => {
         check(tried(shanghai, shanghai, main) && get('official-route-test-status').textContent.includes('主端点')
             && !get('official-route-use-tested').hidden, '已连接账号可测试线路并选择已连通的备用线路');
         const walletEntry = new URL(markerAccountPortalUrl());
-        check(walletEntry.origin === new URL(main).origin && walletEntry.searchParams.get('redirect') === '/wallet',
-            '余额入口沿最近验证通过的备用线路打开钱包');
+        check(walletEntry.origin === accountPortal && walletEntry.searchParams.get('redirect') === '/wallet',
+            '余额入口在控制台打开钱包');
         get('official-route-use-tested').click();
         check(official().endpointLine === 'primary', '用户确认后固定使用通过测试的线路');
         ProviderManager.saveOfficialConnection('backup');
