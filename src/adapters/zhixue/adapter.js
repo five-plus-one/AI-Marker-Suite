@@ -668,7 +668,9 @@ const ZhixueAdapter = {
     },
 
     async waitForNextPaper(oldImageUrl, context = {}) {
-        let checkTimes = 0, maxChecks = 125;
+        const waitMs = 25_000;
+        let deadline = Date.now() + waitMs;
+        let checkTimes = 0;
         let candidate = null, stableChecks = 0;
         const oldKey = this._answerResourceKey(oldImageUrl);
         if (!context.paperId && !oldKey) return false;
@@ -712,11 +714,11 @@ const ZhixueAdapter = {
                     candidate = null;
                     stableChecks = 0;
                     if (context.continueQuota?.(taskId)) {
-                        maxChecks = checkTimes + 125;
+                        deadline = Date.now() + waitMs;
                         context.onQuotaContinued?.();
                     }
                 }
-                if (checkTimes >= maxChecks) finish(false, 'poll-limit');
+                if (Date.now() >= deadline) finish(false, 'deadline');
             }, 200);
             dialogs?.sample();
             context.signal?.addEventListener('abort', abort, { once: true });
