@@ -129,13 +129,13 @@ function ensureModalStyles() {
         #ai-onboarding .ai-onboarding-account {
             --ob-surface: #fff; --ob-ink: #182539; --ob-muted: #506077; --ob-line: #e1e6ef;
             --ob-accent: #13795b; --ob-accent-hover: #106449; --ob-soft: #e3f3eb;
+            --fp-muted: var(--ob-muted); --fp-primary: var(--ob-accent);
             max-width: 440px; background: var(--ob-surface); border-color: var(--ob-line); color: var(--ob-ink);
         }
         .ai-onboarding-account .ai-modal-header { font-size: 20px; color: var(--ob-ink); }
         .ai-onboarding-account .ai-modal-body { color: var(--ob-muted); }
         .ai-onboarding-account .ai-modal-footer { align-items: center; flex-wrap: wrap; }
         .ai-onboarding-account :is(.ai-modal-footer, .ai-onboarding-choices) button { min-height: 44px; }
-        .ai-onboarding-choices { --fp-muted: var(--ob-muted); --fp-primary: var(--ob-accent); }
         .ai-onboarding-account .ai-modal-btn-confirm { background: var(--ob-accent); color: #fff; }
         .ai-onboarding-account .ai-modal-btn-confirm:not(:disabled):hover { background: var(--ob-accent-hover); }
         .ai-onboarding-account .ai-modal-btn-confirm:disabled { opacity: .65; cursor: default; transform: none; box-shadow: none; }
@@ -146,8 +146,6 @@ function ensureModalStyles() {
         .ai-onboarding-later:hover { text-decoration: underline; }
         .ai-onboarding-account :is(a,button,summary):focus-visible { outline: 2px solid var(--ob-accent); outline-offset: 3px; }
         .ai-onboarding-intro { margin: 0 0 16px; font-size: 14px; }
-        .ai-onboarding-manual { margin-top: 16px; }
-        .ai-onboarding-manual[hidden], .ai-onboarding-account #ob-next[hidden] { display: none !important; }
         .ai-onboarding-manual label { display: block; font-size: 13px; }
         .ai-onboarding-manual .ai-modal-input { margin-top: 4px; background: var(--ob-surface); color: var(--ob-ink); border-color: var(--ob-line); }
         .ai-onboarding-account #ob-status[data-marker-status] { margin: 8px 0 0; font-size: 13px; }

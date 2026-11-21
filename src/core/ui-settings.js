@@ -3453,6 +3453,8 @@ function showOnboardingDialog(forceShow, mode) {
     let gradingMode = 'trial';
     let selectedWorkflow = 'fast';
     let connectedBackup = '';
+    let manualKeyEntry = false;
+    let manualKeyDraft;
     let accountCheck;
     let celebrate = false;
     let detectedUnits = [];  // 检测到的小题列表
@@ -3472,12 +3474,12 @@ function showOnboardingDialog(forceShow, mode) {
     function render() {
         const s = getStepInfo();
         const account = s.apiStep && markerManagedAccount();
-        const title = s.apiStep ? account ? '五加一账号已连接' : '连接批改服务'
+        const title = s.apiStep ? account ? '五加一账号已连接' : manualKeyEntry ? '输入 API 密钥' : '连接批改服务'
             : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '批改上下文（可选）' : '配置完成！';
 
         overlay.innerHTML = `
             <div class="ai-modal-card ${s.apiStep ? 'ai-onboarding-account' : ''}" role="dialog" aria-modal="true" aria-labelledby="ob-title"
-                ${s.apiStep && !account ? 'data-marker-account-controls="onboarding"' : ''}
+                ${s.apiStep && !account && !manualKeyEntry ? 'data-marker-account-controls="onboarding"' : ''}
                 style="max-height:85vh;display:flex;flex-direction:column;">
                 <div class="ai-modal-header" style="display:flex;align-items:center;gap:10px;padding:20px 24px 12px;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
                     ${s.apiStep ? '' : '<span aria-hidden="true" style="font-size:20px;">🎓</span>'}
@@ -3526,16 +3528,20 @@ function showOnboardingDialog(forceShow, mode) {
                 ${confirmed ? '<p>接下来，为当前题目配置批改方案。</p>' : ''}
             </div>`;
         }
+        if (manualKeyEntry) return `
+            <div class="ai-onboarding-manual" id="ob-api-manual">
+                <label for="ob-apikey">API 密钥</label>
+                <input class="ai-modal-input" type="password" id="ob-apikey" autocomplete="off"
+                    placeholder="输入 5plus1API 密钥">
+                <a class="fp-embedded-text-link" id="ob-get-apikey" href="${markerAccountPortalUrl('/keys')}" target="_blank" rel="noopener noreferrer">获取 API 密钥</a>
+            </div>
+            <p id="ob-status" data-marker-status role="status"></p>
+        `;
         return `
             <p class="ai-onboarding-intro">登录后即可开通批改服务。</p>
             <div class="ai-onboarding-choices fp-embedded-action-choices">
                 <button type="button" class="ai-modal-btn-confirm" data-marker-login>登录五加一账号</button>
-                <a class="fp-embedded-text-link" id="ob-api-choice" href="#ob-api-manual" aria-controls="ob-api-manual" aria-expanded="false">或使用已有 API 密钥</a>
-            </div>
-            <div class="ai-onboarding-manual" id="ob-api-manual" hidden>
-                <label for="ob-apikey">API 密钥</label>
-                <input class="ai-modal-input" type="password" id="ob-apikey" autocomplete="off"
-                    placeholder="输入 5plus1API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}">
+                <a class="fp-embedded-text-link" id="ob-api-choice" href="#ob-api-manual">或使用已有 API 密钥</a>
             </div>
             <p id="ob-status" data-marker-status role="status"></p>
         `;
@@ -3548,10 +3554,11 @@ function showOnboardingDialog(forceShow, mode) {
             const label = result?.success ? '配置批改方案' : result ? '重试线路测试' : '正在测试…';
             return later + `<button type="button" class="ai-modal-btn-confirm" id="ob-next" ${result ? '' : 'disabled'}>${label}</button>`;
         }
-        return later + `
-            <button type="button" class="ai-modal-btn-cancel" data-marker-cancel style="display:none">取消授权</button>
-            <button type="button" class="ai-modal-btn-confirm" id="ob-next" hidden>验证并继续</button>
+        if (manualKeyEntry) return `
+            <button type="button" class="ai-modal-btn-cancel" id="ob-api-back">返回</button>
+            <button type="button" class="ai-modal-btn-confirm" id="ob-next">验证并继续</button>
         `;
+        return later + '<button type="button" class="ai-modal-btn-cancel" data-marker-cancel style="display:none">取消授权</button>';
     }
 
     async function testOnboardingAccountRoute() {
@@ -3726,7 +3733,8 @@ function showOnboardingDialog(forceShow, mode) {
 
         if (s.apiStep) {
             const next = overlay.querySelector('#ob-next');
-            overlay.querySelector('#ob-skip').onclick = event => {
+            const skip = overlay.querySelector('#ob-skip');
+            if (skip) skip.onclick = event => {
                 event.preventDefault();
                 cancelMarkerConnection();
                 hideOnboardingDialog();
@@ -3737,25 +3745,36 @@ function showOnboardingDialog(forceShow, mode) {
                 if (result) next.focus();
                 return;
             }
-            const manual = overlay.querySelector('#ob-api-manual');
-            const choice = overlay.querySelector('#ob-api-choice');
+            if (!manualKeyEntry) {
+                const login = overlay.querySelector('[data-marker-login]');
+                bindMarkerAccountControls(overlay, () => {
+                    if (login.isConnected && markerManagedAccount()) render();
+                });
+                overlay.querySelector('#ob-api-choice').onclick = event => {
+                    event.preventDefault();
+                    if (login.disabled) cancelMarkerConnection();
+                    manualKeyEntry = true;
+                    render();
+                };
+                login.focus();
+                return;
+            }
             const input = overlay.querySelector('#ob-apikey');
-            const login = overlay.querySelector('[data-marker-login]');
-            bindMarkerAccountControls(overlay, () => {
-                if (markerManagedAccount()) render();
-            });
-            choice.onclick = event => {
-                event.preventDefault();
-                if (_onboardingApiCheck) return;
-                const expanded = manual.hidden;
-                manual.hidden = next.hidden = !expanded;
-                choice.setAttribute('aria-expanded', String(expanded));
-                choice.textContent = expanded ? '收起密钥输入' : '或使用已有 API 密钥';
-                if (expanded) input.focus();
+            input.value = manualKeyDraft ?? (ProviderManager.getProvider('5plus1官方')?.apiKey || '');
+            input.focus();
+            const keyLink = overlay.querySelector('#ob-get-apikey');
+            keyLink.onclick = () => { keyLink.href = markerAccountPortalUrl('/keys'); };
+            overlay.querySelector('#ob-api-back').onclick = () => {
+                manualKeyDraft = input.value;
+                _onboardingApiCheck?.abort();
+                _onboardingApiCheck = null;
+                manualKeyEntry = false;
+                render();
+                overlay.querySelector('#ob-api-choice')?.focus();
             };
-            login.focus();
             next.onclick = async () => {
-                if (manual.hidden || _onboardingApiCheck || markerConnection) return;
+                if (_onboardingApiCheck) return;
+                if (markerConnection) { showStatus('请稍候片刻，再验证密钥。', 'progress'); return; }
                 const key = input.value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
 
@@ -3766,7 +3785,6 @@ function showOnboardingDialog(forceShow, mode) {
                 const btn = overlay.querySelector('#ob-next');
                 btn.disabled = true;
                 input.disabled = true;
-                login.disabled = true;
                 btn.innerHTML = '<span class="upd-spinner-light"></span> 验证中...';
 
                 // 确保 spinner 样式存在（浅色版本用于深色背景）
@@ -3789,13 +3807,13 @@ function showOnboardingDialog(forceShow, mode) {
                 if (!overlay.isConnected) return;
                 btn.disabled = false; btn.textContent = '验证并继续';
                 input.disabled = false;
-                login.disabled = false;
                 if (result.success) {
                     if (!ProviderManager.saveOfficialConnection(result.selection, key)) {
                         showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
                         return;
                     }
                     rememberVerifiedOfficialRoute(result);
+                    manualKeyDraft = undefined;
                     connectedBackup = result.line !== result.preferred ? resolveOfficialApiLine(result.line).name : '';
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
