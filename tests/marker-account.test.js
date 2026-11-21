@@ -17,7 +17,7 @@ function scenario(claimResponses) {
     const page = { document: { documentElement: { dataset: {} } } };
     page.window = page.top = page;
     const env = vm.createContext({
-        window: page, document: page.document, crypto: webcrypto, structuredClone, AbortSignal,
+        window: page, document: page.document, crypto: webcrypto, structuredClone, AbortSignal, AbortController,
         setTimeout: callback => setTimeout(callback, 1), clearTimeout,
         location: { origin: 'https://tools.aimarking.five-plus-one.com', pathname: '/', hash: '#script-connect=' + id },
         GM_getValue: (name, fallback) => stored.has(name) ? structuredClone(stored.get(name)) : fallback,
@@ -73,6 +73,25 @@ test('关闭授权标签页后，领取尚未就绪的连接会取消', async ()
     env.closeAuthorizationTab = () => { tabs[0].closed = true; };
     await assert.rejects(evaluate("connectMarkerAccount({ onWaiting: closeAuthorizationTab })"), /cancelled/);
     assert.equal(requests.at(-1).route, '/v1/account/script-flows/cancel');
+});
+
+test('授权服务未响应时取消立即中止请求，并可重新发起', async () => {
+    const account = { accountId: 15, apiKey, uploadToken: 'fixture-upload-token', expiresAt };
+    const { env, evaluate, stored, tabs } = scenario([account]);
+    const normalRequest = env.GM_xmlhttpRequest;
+    let aborted = false;
+    env.GM_xmlhttpRequest = request => ({
+        abort() { aborted = true; request.onabort(); },
+    });
+    const connection = evaluate('connectMarkerAccount()');
+    evaluate('cancelMarkerConnection()');
+    await assert.rejects(connection, /cancelled/);
+    assert.equal(aborted, true);
+    assert.equal(tabs.length, 0);
+    assert.equal(stored.has('aimarker-active-connection-v1'), false);
+    env.GM_xmlhttpRequest = normalRequest;
+    await evaluate('connectMarkerAccount()');
+    assert.equal(evaluate('markerManagedAccount().accountId'), account.accountId);
 });
 
 test('工具站回调只在对应的本地授权存在时提交，URL 不包含证明', async () => {

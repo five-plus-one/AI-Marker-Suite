@@ -26,27 +26,43 @@ function markerUploadCredential() {
     return typeof account?.uploadToken === 'string' && account.expiresAt * 1000 > Date.now() ? account : null;
 }
 
-function markerServiceRequest(path, body, token) {
+function markerServiceRequest(path, body, token, signal) {
     const url = MARKER_SERVICE_ORIGIN + path;
-    return new Promise((resolve, reject) => GM_xmlhttpRequest({
-        method: 'POST', url, anonymous: true, redirect: 'error', timeout: path === '/v1/diagnostics' ? 45000 : 15000,
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json',
-            ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        data: JSON.stringify(body),
-        onload(response) {
-            try {
-                if (response.finalUrl && response.finalUrl !== url) throw Error('unexpected_response');
-                const data = response.status === 204 ? null : JSON.parse(response.responseText);
-                if (response.status < 200 || response.status >= 300) {
-                    throw Object.assign(Error('service_error'), { status: response.status, code: data?.error });
-                }
-                resolve(data);
-            } catch (error) { reject(error); }
-        },
-        onerror: () => reject(Error('network')),
-        ontimeout: () => reject(Error('network')),
-        onabort: () => reject(Error('network')),
-    }));
+    return new Promise((resolve, reject) => {
+        let request;
+        const fail = error => {
+            signal?.removeEventListener('abort', cancel);
+            reject(error);
+        };
+        const cancel = () => {
+            fail(Error('cancelled'));
+            try { request?.abort?.(); } catch (_) { /* The caller is already released. */ }
+        };
+        if (signal?.aborted) return cancel();
+        signal?.addEventListener('abort', cancel, { once: true });
+        try {
+            request = GM_xmlhttpRequest({
+                method: 'POST', url, anonymous: true, redirect: 'error', timeout: path === '/v1/diagnostics' ? 45000 : 15000,
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json',
+                    ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+                data: JSON.stringify(body),
+                onload(response) {
+                    signal?.removeEventListener('abort', cancel);
+                    try {
+                        if (response.finalUrl && response.finalUrl !== url) throw Error('unexpected_response');
+                        const data = response.status === 204 ? null : JSON.parse(response.responseText);
+                        if (response.status < 200 || response.status >= 300) {
+                            throw Object.assign(Error('service_error'), { status: response.status, code: data?.error });
+                        }
+                        resolve(data);
+                    } catch (error) { fail(error); }
+                },
+                onerror: () => fail(Error('network')),
+                ontimeout: () => fail(Error('network')),
+                onabort: () => fail(Error(signal?.aborted ? 'cancelled' : 'network')),
+            });
+        } catch (error) { fail(error); }
+    });
 }
 
 function markerConnectionMessage(code) {
@@ -69,7 +85,7 @@ async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
     if (markerConnection) throw Error('pending');
     const claim = markerRandomHex(32);
     const approval = markerRandomHex(32);
-    const operation = { cancelled: false };
+    const operation = { cancelled: false, controller: new AbortController() };
     markerConnection = operation;
     let id, tab, saved = false;
     const checkCurrent = () => {
@@ -86,7 +102,7 @@ async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
             GM_setValue(MARKER_ACTIVE_CONNECTION, claim);
         } catch (_) { throw Error('storage'); }
         checkCurrent();
-        const start = await markerServiceRequest(MARKER_SCRIPT_FLOW, { claim, approval, expectedAccountId });
+        const start = await markerServiceRequest(MARKER_SCRIPT_FLOW, { claim, approval, expectedAccountId }, null, operation.controller.signal);
         if (!markerFlowID.test(start?.id || '') || !Number.isInteger(start.expiresAt)) throw Error('unexpected_response');
         id = start.id;
         checkCurrent();
@@ -107,7 +123,7 @@ async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
             if (Date.now() >= expires) break;
             const flow = GM_getValue(MARKER_CONNECTION_PREFIX + id, null);
             let account;
-            try { account = await markerServiceRequest(MARKER_SCRIPT_FLOW + '/claim', { id, proof: claim }); }
+            try { account = await markerServiceRequest(MARKER_SCRIPT_FLOW + '/claim', { id, proof: claim }, null, operation.controller.signal); }
             catch (error) {
                 checkCurrent();
                 if (flow?.failure) throw Error(flow.failure);
@@ -154,6 +170,7 @@ async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
 function cancelMarkerConnection() {
     if (!markerConnection) return;
     markerConnection.cancelled = true;
+    markerConnection.controller.abort();
     markerConnection.wake?.();
 }
 

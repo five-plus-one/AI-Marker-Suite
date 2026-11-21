@@ -21,9 +21,12 @@ const event = (choice, usage) => `data: ${JSON.stringify({ choices: [choice], us
 function setup(responses, cfg) {
     const requests = [];
     const updates = [];
+    const rechargeDialogs = [];
     const context = {
         console: { log() {}, warn() {}, error() {} },
         URL, clearTimeout, document: {}, DIAGNOSTIC_SCRIPT_VERSION: 'test',
+        isOfficialModelProvider: () => false,
+        showInsufficientBalanceDialog: official => rechargeDialogs.push(official),
         window: { location: { hostname: 'grading.example' }, aiGradingState: { abortController: new AbortController() } },
         setTimeout: callback => callback(),
         GM_xmlhttpRequest(options) {
@@ -63,6 +66,7 @@ function setup(responses, cfg) {
         call: () => context.callAI('题目', ['image'], cfg || config, (text) => updates.push(text)),
         requests,
         updates,
+        rechargeDialogs,
         diagnostics: () => structuredClone(vm.runInContext('DiagnosticLog.read(0, Date.now()).entries', context)),
         context,
     };
@@ -188,7 +192,7 @@ test('服务端错误重试耗尽后抛出（1 次原始 + 2 次退避，共 3 �
     const { call, requests } = setup([
         { status: 503, body: '忙' }, { status: 503, body: '忙' }, { status: 503, body: '忙' },
     ]);
-    await assert.rejects(call(), /API报错 \(503\)/);
+    await assert.rejects(call(), error => error.status === 503 && error.message.includes('服务暂时不可用'));
     assert.equal(requests.length, 3, 'serverRetried<2 的上限 = 最多 2 次服务端重试');
 });
 
@@ -209,6 +213,23 @@ test('限流后截断时停止请求并保留待核查状态', async () => {
     ], { ...config, outputLimitEnabled: false });
     await assert.rejects(call(), /结果不完整/);
     assert.equal(requests.length, 2);
+});
+
+test('请求频率限流自动重试，确认为账户额度不足时提示充值', async () => {
+    const network = setup([
+        { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'request quota per minute exceeded' } }) },
+        { body: event({ delta: { content: '得分：8' }, finish_reason: 'stop' }) },
+    ]);
+    assert.equal(await network.call(), '得分：8');
+    assert.equal(network.requests.length, 2);
+    assert.equal(network.rechargeDialogs.length, 0);
+
+    const billing = setup([
+        { status: 429, body: JSON.stringify({ error: { code: 'insufficient_user_quota', message: 'raw provider message' } }) },
+    ]);
+    await assert.rejects(billing.call(), error => error.code === 'BILLING_LIMIT' && error.message === '当前批改账户额度不足');
+    assert.equal(billing.requests.length, 1);
+    assert.equal(billing.rechargeDialogs.length, 1);
 });
 
 test('普通 JSON 响应的截断标记同样阻止评分', async () => {

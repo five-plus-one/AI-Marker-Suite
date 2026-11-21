@@ -157,8 +157,7 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
                     try { data = JSON.parse(response.responseText); } catch (_) { /* 上游可能返回网页。 */ }
                     const errorCode = String(data?.error?.code || data?.error?.type || '');
                     if (status >= 200 && status < 300) finish(data?.choices?.[0]?.message && !data.error ? 'connected' : 'network');
-                    else if (['insufficient_user_quota', 'insufficient_token_quota', 'insufficient_quota',
-                        'billing_hard_limit_reached'].includes(errorCode)) finish('balance');
+                    else if (isBillingLimitError(status, errorCode)) finish('balance');
                     else if (status === 401 || (status === 403 && data?.error)) finish('invalid');
                     else if (!status || status === 403 || status === 408 || status >= 500) finish('network');
                     else finish('service');
@@ -861,6 +860,19 @@ function filterUsableImagesForAI(list) {
 }
 
 // ========== 通用 AI 请求函数 ==========
+function isBillingLimitError(status, code) {
+    return status === 402 || ['insufficient_user_quota', 'insufficient_token_quota',
+        'insufficient_quota', 'billing_hard_limit_reached'].includes(code);
+}
+
+function aiHttpErrorMessage(status, billingLimit) {
+    if (billingLimit) return '当前批改账户额度不足';
+    if (status === 429) return 'AI 服务繁忙，请稍后继续批改';
+    if (status >= 500) return 'AI 服务暂时不可用，请稍后继续批改';
+    if (status === 401) return 'AI 服务连接已失效，请检查账号连接或 API 密钥';
+    return 'AI 服务暂时无法完成批改，请检查线路和模型设置';
+}
+
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
     let apiKey = config.apiKey;
     if (config.officialAccountId) {
@@ -1038,9 +1050,11 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                 console.log(`✅ [诊断] onload 触发 — HTTP状态: ${res.status}, onprogress累计触发次数: ${progressCallCount}, 响应长度: ${responseText.length} 字节`);
                 if (res.status < 200 || res.status >= 300) {
                     let errorMsg = responseText || res.statusText;
+                    let errorCode;
                     try {
                         const errObj = JSON.parse(responseText);
                         if (errObj.error?.message) errorMsg = errObj.error.message;
+                        errorCode = errObj.error?.code || errObj.error?.type;
                     } catch (e) {}
                     // 清理 HTML 错误页（如 openresty 504），只保留有意义的文案
                     if (/<html|<!doctype/i.test(errorMsg)) {
@@ -1049,20 +1063,12 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     }
                     console.error(`❌ [诊断] API返回错误: ${res.status} — ${errorMsg}`);
 
-                    // 检测余额不足
-                    const isInsufficient = /insufficient|balance|quota|余额|额度|欠费/i.test(errorMsg);
-                    if (isInsufficient) {
-                        const isOfficial = isOfficialModelProvider(config);
-                        if (isOfficial) {
-                            showInsufficientBalanceDialog(true);
-                        } else {
-                            showInsufficientBalanceDialog(false);
-                        }
-                    }
-
-                    const error = new Error(`API报错 (${res.status}): ${errorMsg}`);
+                    const billingLimit = isBillingLimitError(res.status, errorCode);
+                    if (billingLimit) showInsufficientBalanceDialog(isOfficialModelProvider(config));
+                    const error = new Error(aiHttpErrorMessage(res.status, billingLimit));
                     error.status = res.status;
-                    error.routeUnavailable = !sawSSE && ([502, 503].includes(res.status)
+                    if (billingLimit) error.code = 'BILLING_LIMIT';
+                    error.routeUnavailable = !billingLimit && !sawSSE && ([502, 503].includes(res.status)
                         || ([403, 451].includes(res.status) && /<html|<!doctype/i.test(responseText)));
                     return reject(error);
                 }
@@ -1292,7 +1298,8 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 continue;
             }
             // 5xx/429 可重试：最多2次，递增延迟（504等瞬态错误常需更长恢复窗口）
-            const isServerError = error.status === 429 || (error.status >= 500 && error.status < 600);
+            const isServerError = error.code !== 'BILLING_LIMIT' &&
+                (error.status === 429 || (error.status >= 500 && error.status < 600));
             if (unattendedBudget) {
                 const reason = classifyTransientError(error, getRetryPolicy(config));
                 if ((isServerError || reason || (error.routeUnavailable && !error.status))
