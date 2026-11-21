@@ -1,5 +1,6 @@
 const MARKER_TOOLS_ORIGIN = 'https://tools.aimarking.five-plus-one.com';
 const MARKER_SERVICE_ORIGIN = 'https://api.aimarking.five-plus-one.com';
+const MARKER_BILLING_URL = 'https://api.ai.five-plus-one.com/console/topup';
 const MARKER_ACCOUNT_KEY = 'aimarker-connected-account-v1';
 const MARKER_ACTIVE_CONNECTION = 'aimarker-active-connection-v1';
 const MARKER_CONNECTION_PREFIX = 'aimarker-portal-flow-';
@@ -162,16 +163,25 @@ function disconnectMarkerAccount() {
     try {
         GM_deleteValue(MARKER_ACTIVE_CONNECTION);
         GM_deleteValue(MARKER_ACCOUNT_KEY);
-        return !GM_getValue(MARKER_ACCOUNT_KEY, null);
+        return !GM_getValue(MARKER_ACCOUNT_KEY, null) && !GM_getValue(MARKER_ACTIVE_CONNECTION, null);
     } catch (_) { return false; }
 }
 
 function markerAccountControls() {
     return `<div class="form-group" data-marker-account-controls>
-        <button type="button" class="ai-modal-btn-confirm" data-marker-login>登录五加一账号，一键获取</button>
-        <button type="button" class="ai-modal-btn-cancel" data-marker-disconnect style="display:none">断开连接</button>
-        <button type="button" class="ai-modal-btn-cancel" data-marker-cancel style="display:none">取消授权</button>
-        <p data-marker-status role="status" style="margin:6px 0 0;"></p>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;">
+            <div style="flex:1 1 12rem;">
+                <strong>五加一账号</strong>
+                <p data-marker-status role="status" style="margin:4px 0 0;font-size:13px;"></p>
+                <a data-marker-billing hidden href="${MARKER_BILLING_URL}" target="_blank" rel="noopener noreferrer"
+                    style="align-items:center;min-height:44px;font-size:13px;">查看余额与充值</a>
+            </div>
+            <div class="ai-modal-footer" style="padding:0;flex-wrap:wrap;">
+                <button type="button" class="ai-modal-btn-confirm" style="min-height:44px;" data-marker-login>登录并连接</button>
+                <button type="button" class="ai-modal-btn-cancel" style="min-height:44px;display:none;" data-marker-disconnect>解除连接</button>
+                <button type="button" class="ai-modal-btn-cancel" style="min-height:44px;display:none;" data-marker-cancel>取消授权</button>
+            </div>
+        </div>
     </div>`;
 }
 
@@ -181,12 +191,18 @@ function bindMarkerAccountControls(container, onChange) {
     const disconnect = controls.querySelector('[data-marker-disconnect]');
     const cancel = controls.querySelector('[data-marker-cancel]');
     const status = controls.querySelector('[data-marker-status]');
+    const billing = controls.querySelector('[data-marker-billing]');
     function refresh(message) {
         if (typeof message === 'string' && !controls.isConnected) return;
         const connected = Boolean(markerManagedAccount());
         login.style.display = connected ? 'none' : '';
-        disconnect.style.display = connected ? '' : 'none';
-        status.textContent = typeof message === 'string' ? message : connected ? '已连接五加一账号' : '';
+        if (disconnect) disconnect.style.display = connected ? '' : 'none';
+        status.textContent = message ?? (controls.dataset.markerAccountControls === 'onboarding' ? ''
+            : connected ? '已连接 5plus1API 批改账户' : '登录后即可开通批改服务。');
+        if (billing) {
+            billing.hidden = !connected;
+            billing.style.display = connected ? 'inline-flex' : '';
+        }
         onChange?.();
     }
     login.onclick = async event => {
@@ -201,7 +217,9 @@ function bindMarkerAccountControls(container, onChange) {
         finally { login.disabled = false; cancel.style.display = 'none'; }
     };
     cancel.onclick = () => cancelMarkerConnection();
-    disconnect.onclick = () => refresh(disconnectMarkerAccount() ? '已断开当前脚本的账号连接。' : markerConnectionMessage('storage'));
+    if (disconnect) {
+        disconnect.onclick = () => refresh(disconnectMarkerAccount() ? '已解除本机连接，可随时重新登录。' : markerConnectionMessage('storage'));
+    }
     refresh();
     return refresh;
 }

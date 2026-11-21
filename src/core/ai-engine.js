@@ -1,4 +1,6 @@
 function isTrustedOfficialEndpoint(endpoint) {
+    if (typeof endpoint !== 'string') return false;
+    if (endpoint === 'https://api.ai.five-plus-one.com/regional/shaoxing/v1/chat/completions') return true;
     try {
         const url = new URL(endpoint);
         return /^[a-z0-9][a-z0-9-]*\.ai\.five-plus-one\.com$/.test(url.hostname)
@@ -6,18 +8,53 @@ function isTrustedOfficialEndpoint(endpoint) {
     } catch (_) { return false; }
 }
 
-const officialApiRoutes = {
-    primary: SCRIPT_CONFIG.DEFAULT_ENDPOINT, backup: SCRIPT_CONFIG.SHANGHAI_ENDPOINT, revision: 0,
-};
+const builtInOfficialEndpoints = [
+    { id: 'primary', name: '主端点', endpoint: SCRIPT_CONFIG.DEFAULT_ENDPOINT },
+    { id: 'hongKong', name: '香港端点', endpoint: 'https://api-hk.ai.five-plus-one.com/v1/chat/completions' },
+    { id: 'shaoxing', name: '绍兴端点', endpoint: 'https://api.ai.five-plus-one.com/regional/shaoxing/v1/chat/completions' },
+    { id: 'backup', name: '上海备用端点', endpoint: SCRIPT_CONFIG.SHANGHAI_ENDPOINT },
+];
+const builtInOfficialRoutes = { revision: 0, defaultEndpointId: 'primary', fallbackEndpointId: 'backup', endpoints: builtInOfficialEndpoints };
+let officialApiRoutes = builtInOfficialRoutes;
+let officialApiRoutesFromLegacyCache = false;
+const officialApiRoutesStorageKey = 'ai-marker-official-api-routes-v3';
 let officialApiRoutingRequest = null;
 let officialApiRoutingChecked = 0;
 let officialApiFallback = null;
 
-function applyOfficialApiRoutes(value) {
-    const primary = value?.official?.endpoint, backup = value?.official?.backupEndpoint;
-    if (!Number.isSafeInteger(value?.revision) || value.revision <= officialApiRoutes.revision
-        || !isTrustedOfficialEndpoint(primary) || !isTrustedOfficialEndpoint(backup) || primary === backup) return false;
-    Object.assign(officialApiRoutes, { primary, backup, revision: value.revision });
+function applyOfficialApiRoutes(value, fromLegacyCache = false) {
+    const { revision, official } = value || {};
+    if (!Number.isSafeInteger(revision) || revision < officialApiRoutes.revision || !official) return false;
+    const upgradesLegacyCache = officialApiRoutesFromLegacyCache && !fromLegacyCache && Array.isArray(official.endpoints);
+    if (revision === officialApiRoutes.revision && !upgradesLegacyCache) return false;
+    let { endpoints, defaultEndpointId, fallbackEndpointId } = official;
+    if (endpoints === undefined) {
+        const legacyUrls = [official.endpoint, official.hongKongEndpoint, official.shaoxingEndpoint, official.backupEndpoint];
+        if (!legacyUrls[0] || !legacyUrls[3]
+            || (legacyUrls[1] !== undefined && legacyUrls[1] !== builtInOfficialEndpoints[1].endpoint)
+            || (legacyUrls[2] !== undefined && legacyUrls[2] !== builtInOfficialEndpoints[2].endpoint)) return false;
+        endpoints = builtInOfficialEndpoints.flatMap((entry, index) => legacyUrls[index] === undefined ? []
+            : [{ ...entry, endpoint: legacyUrls[index], name: entry.id === 'backup' && legacyUrls[index] !== SCRIPT_CONFIG.SHANGHAI_ENDPOINT
+                ? '备用端点' : entry.name }]);
+        defaultEndpointId = 'primary';
+        fallbackEndpointId = 'backup';
+    }
+    if (!Array.isArray(endpoints) || !endpoints.length || endpoints.length > 24) return false;
+    const ids = new Set();
+    const addresses = new Set();
+    const validated = [];
+    for (const entry of endpoints) {
+        const { id, name, endpoint } = entry || {};
+        if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,39}$/i.test(id) || id === 'default'
+            || typeof name !== 'string' || !name.trim() || name.length > 60 || /[\x00-\x1f\x7f]/.test(name)
+            || !isTrustedOfficialEndpoint(endpoint) || ids.has(id) || addresses.has(endpoint)) return false;
+        ids.add(id);
+        addresses.add(endpoint);
+        validated.push({ id, name: name.trim(), endpoint });
+    }
+    if (!ids.has(defaultEndpointId) || (fallbackEndpointId !== undefined && !ids.has(fallbackEndpointId))) return false;
+    officialApiRoutes = { revision, defaultEndpointId, fallbackEndpointId, endpoints: validated };
+    officialApiRoutesFromLegacyCache = fromLegacyCache && !Array.isArray(official.endpoints);
     officialApiFallback = null;
     return true;
 }
@@ -27,7 +64,11 @@ function refreshOfficialApiRoutes() {
     if (officialApiRoutingRequest) return officialApiRoutingRequest;
     if (!url || (officialApiRoutingChecked && Date.now() - officialApiRoutingChecked < 300000)) return null;
     officialApiRoutingChecked = Date.now();
-    try { applyOfficialApiRoutes(GM_getValue('ai-marker-official-api-routes')); } catch (_) { /* 内置线路可用。 */ }
+    try {
+        applyOfficialApiRoutes(GM_getValue(officialApiRoutesStorageKey));
+        if (!officialApiRoutes.revision) applyOfficialApiRoutes(GM_getValue('ai-marker-official-api-routes-v2'), true);
+        if (!officialApiRoutes.revision) applyOfficialApiRoutes(GM_getValue('ai-marker-official-api-routes'), true);
+    } catch (_) { /* 内置线路可用。 */ }
     officialApiRoutingRequest = new Promise(resolve => {
         let request, settled = false;
         const finish = value => {
@@ -35,8 +76,8 @@ function refreshOfficialApiRoutes() {
             settled = true;
             clearTimeout(timer);
             if (applyOfficialApiRoutes(value)) {
-                const { primary, backup, revision } = officialApiRoutes;
-                try { GM_setValue('ai-marker-official-api-routes', { revision, official: { endpoint: primary, backupEndpoint: backup } }); }
+                const { revision, ...official } = officialApiRoutes;
+                try { GM_setValue(officialApiRoutesStorageKey, { revision, official }); }
                 catch (_) { /* 本页仍可使用当前线路。 */ }
             }
             resolve();
@@ -60,22 +101,30 @@ function refreshOfficialApiRoutes() {
 }
 
 function getOfficialApiLine(provider) {
-    if (provider?.endpointLine === 'primary' || provider?.endpointLine === 'backup') return provider.endpointLine;
-    if (!provider?.endpoint) return '';
-    if (provider.endpoint === SCRIPT_CONFIG.SHANGHAI_ENDPOINT) return 'backup';
-    if (provider.endpoint === SCRIPT_CONFIG.DEFAULT_ENDPOINT) return 'primary';
-    return ['primary', 'backup'].find(line => officialApiRoutes[line] === provider.endpoint) || '';
+    if (typeof provider?.endpointLine === 'string' && provider.endpointLine
+        && isTrustedOfficialEndpoint(provider.endpoint)) return provider.endpointLine;
+    const endpoint = provider?.endpoint;
+    if (endpoint === SCRIPT_CONFIG.DEFAULT_ENDPOINT) return 'default';
+    return officialApiRoutes.endpoints.find(line => line.endpoint === endpoint)?.id
+        || builtInOfficialEndpoints.find(line => line.endpoint === endpoint)?.id || '';
 }
 
 function isOfficialModelProvider(provider) {
-    const endpoint = provider?.endpoint;
-    return !!endpoint && ([SCRIPT_CONFIG.DEFAULT_ENDPOINT, SCRIPT_CONFIG.SHANGHAI_ENDPOINT].includes(endpoint)
-        || (isTrustedOfficialEndpoint(endpoint) && !!getOfficialApiLine(provider)));
+    return !!getOfficialApiLine(provider);
 }
 
-function getOfficialApiEndpoint(value) {
-    const line = ['primary', 'backup'].includes(value) ? value : getOfficialApiLine({ endpoint: value });
-    return officialApiRoutes[line || 'primary'] || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
+function resolveOfficialApiLine(id, routes = officialApiRoutes) {
+    return routes.endpoints.find(line => line.id === id)
+        || routes.endpoints.find(line => line.id === routes.defaultEndpointId);
+}
+
+function getOfficialApiEndpoint(id) {
+    return resolveOfficialApiLine(id).endpoint;
+}
+
+function getOfficialApiFallback(line, routes) {
+    const fallbackId = routes.fallbackEndpointId === line.id ? routes.defaultEndpointId : routes.fallbackEndpointId;
+    return routes.endpoints.find(entry => entry.id === fallbackId && entry.id !== line.id);
 }
 
 function checkOfficialApiConnection(endpoint, apiKey, signal) {
@@ -106,7 +155,10 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
                     const status = Number(response.status);
                     let data;
                     try { data = JSON.parse(response.responseText); } catch (_) { /* 上游可能返回网页。 */ }
+                    const errorCode = String(data?.error?.code || data?.error?.type || '');
                     if (status >= 200 && status < 300) finish(data?.choices?.[0]?.message && !data.error ? 'connected' : 'network');
+                    else if (['insufficient_user_quota', 'insufficient_token_quota', 'insufficient_quota',
+                        'billing_hard_limit_reached'].includes(errorCode)) finish('balance');
                     else if (status === 401 || (status === 403 && data?.error)) finish('invalid');
                     else if (!status || status === 403 || status === 408 || status >= 500) finish('network');
                     else finish('service');
@@ -121,15 +173,26 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
 
 async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback } = {}) {
     await refreshOfficialApiRoutes();
-    const preferred = ['primary', 'backup'].includes(line) ? line : getOfficialApiLine({ endpoint }) || 'primary';
-    const verify = async (url, route) => {
-        const reason = await checkOfficialApiConnection(url, apiKey, signal);
-        return reason === 'connected' ? { success: true, endpoint: url, line: route } : { success: false, reason };
+    const selection = line || getOfficialApiLine({ endpoint }) || 'default';
+    const routes = officialApiRoutes;
+    const preferred = resolveOfficialApiLine(selection, routes);
+    const verify = async target => {
+        const reason = await checkOfficialApiConnection(target.endpoint, apiKey, signal);
+        return reason === 'connected' ? { success: true, endpoint: target.endpoint, line: target.id,
+            selection: routes.endpoints.some(entry => entry.id === selection) ? selection : 'default',
+            preferred: preferred.id, revision: routes.revision } : { success: false, reason };
     };
-    const first = await verify(getOfficialApiEndpoint(preferred), preferred);
-    if (first.reason !== 'network' || !officialApiRoutes.backup || preferred === 'backup' || signal?.aborted) return first;
+    const first = await verify(preferred);
+    const fallback = getOfficialApiFallback(preferred, routes);
+    if (first.reason !== 'network' || !fallback || signal?.aborted) return first;
     onFallback?.();
-    return verify(officialApiRoutes.backup, 'backup');
+    return verify(fallback);
+}
+
+function rememberVerifiedOfficialRoute(result) {
+    if (!result.success || result.revision !== officialApiRoutes.revision) return;
+    officialApiFallback = result.line === result.preferred ? null
+        : { preferred: result.preferred, line: result.line, expires: Date.now() + 300000 };
 }
 
 function isProviderDataValid(data) {
@@ -338,7 +401,9 @@ const ProviderManager = {
         const provider = this.getProvider('5plus1官方');
         if (!provider) return false;
         const previous = { endpoint: provider.endpoint, endpointLine: provider.endpointLine, apiKey: provider.apiKey };
-        const endpointLine = ['primary', 'backup'].includes(endpoint) ? endpoint : getOfficialApiLine({ endpoint }) || 'primary';
+        const endpointLine = endpoint === 'default' || officialApiRoutes.endpoints.some(line => line.id === endpoint)
+            ? endpoint : getOfficialApiLine({ endpoint });
+        if (endpointLine !== 'default' && !officialApiRoutes.endpoints.some(line => line.id === endpointLine)) return false;
         const connection = { endpoint: getOfficialApiEndpoint(endpointLine), endpointLine, apiKey: apiKey ?? previous.apiKey };
         Object.assign(provider, connection);
         try {
@@ -362,7 +427,9 @@ const ProviderManager = {
         return provider.models?.[this.data.activeModel] || {};
     },
     getCurrentEndpoint() {
-        return this.getCurrentProvider().endpoint || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
+        const provider = this.getCurrentProvider();
+        const line = this.data.activeProvider === '5plus1官方' ? getOfficialApiLine(provider) : '';
+        return line ? getOfficialApiEndpoint(line) : provider.endpoint || SCRIPT_CONFIG.DEFAULT_ENDPOINT;
     },
     getCurrentApiKey() {
         return this.getCurrentProvider().apiKey || '';
@@ -798,7 +865,8 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         apiKey = account.apiKey;
     }
     const signal = config.signal || window.aiGradingState.abortController?.signal;
-    let abortRequest, timeout;
+    let abortRequest, timeout, diagnosticRequest, diagnosticUsage, diagnosticResponseText;
+    let diagnosticOutcome = 'error';
     return new Promise((resolve, reject) => {
         if (signal?.aborted) return reject(new Error('用户主动暂停'));
         // 合并额外图片（来自题目/答案/评分标准）+ 学生答题卡图片
@@ -855,6 +923,10 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         }
 
         console.log(`📤 发送请求到: ${config.endpoint} (模型: ${config.model}${config.reasoningEffort ? ', 思考深度: ' + config.reasoningEffort : ''})`);
+
+        if (typeof DiagnosticLog !== 'undefined') {
+            diagnosticRequest = DiagnosticLog.request(config.diagnosticCallId, config, requestBody);
+        }
 
         let fullText = '';
         let buffer = '';
@@ -932,6 +1004,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             data: JSON.stringify(requestBody),
             timeout: 120000,
             onreadystatechange(res) {
+                if (res.readyState === 2) diagnosticRequest?.response(res);
                 if (res.readyState >= 2 && res.status >= 200 && res.status < 300) receivedHeaders = true;
             },
             onprogress: function(res) {
@@ -940,17 +1013,22 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     if (progressCallCount === 1) {
                         console.log('✅ [诊断] onprogress 已触发，当前环境支持流式输出');
                     }
-                    if (!settled && !signal?.aborted) consumeResponse(res.responseText);
+                    if (!settled && !signal?.aborted) {
+                        if (diagnosticRequest) diagnosticResponseText = res.responseText;
+                        consumeResponse(res.responseText);
+                    }
                 }
             },
             onload: function(res) {
                 if (settled) return;
                 settled = true;
+                diagnosticRequest?.response(res);
                 if (diagnostic) reportTransport('response', res);
                 if (config.officialApiLine && res.finalUrl && res.finalUrl !== config.endpoint) {
                     return reject(new Error('官方端点响应地址已变化，请核对线路设置'));
                 }
                 const responseText = res.responseText || '';
+                if (diagnosticRequest) diagnosticResponseText = responseText;
                 console.log(`✅ [诊断] onload 触发 — HTTP状态: ${res.status}, onprogress累计触发次数: ${progressCallCount}, 响应长度: ${responseText.length} 字节`);
                 if (res.status < 200 || res.status >= 300) {
                     let errorMsg = responseText || res.statusText;
@@ -1010,6 +1088,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                 }
 
                 console.log('[AI响应]', { finishReason, usage, reasoningChars, contentChars: fullText.length });
+                diagnosticUsage = usage;
                 if (streamError) return reject(new Error(`API响应错误: ${streamError}`));
                 if (finishReason === 'length') {
                     const error = new Error(maxTokens === null
@@ -1021,11 +1100,13 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                 if (finishReason && finishReason !== 'stop') return reject(new Error(`AI响应未正常完成 (${finishReason})`));
                 if (sawSSE && !finishReason && !streamDone) return reject(new Error('AI响应未完整结束，请检查网络后继续批改'));
                 if (!fullText.trim()) return reject(new Error('AI未返回可用内容，请检查模型输出设置'));
+                diagnosticOutcome = 'success';
                 resolve(fullText);
             },
             onerror: function() {
                 if (settled) return;
                 settled = true;
+                diagnosticOutcome = 'network-error';
                 if (diagnostic) reportTransport('network-error');
                 const error = new Error('网络请求被拦截，请检查跨域权限');
                 error.routeUnavailable = !receivedHeaders && !parsedResponseLength;
@@ -1034,6 +1115,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             ontimeout: function() {
                 if (settled) return;
                 settled = true;
+                diagnosticOutcome = 'timeout';
                 if (diagnostic) reportTransport('timeout');
                 reject(new Error('请求超时'));
             }
@@ -1043,6 +1125,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         if (config.officialApiLine && !settled) timeout = setTimeout(() => {
             if (settled) return;
             settled = true;
+            diagnosticOutcome = 'timeout';
             if (diagnostic) reportTransport('timeout');
             reject(new Error('请求超时'));
             request.abort();
@@ -1052,6 +1135,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             abortRequest = () => {
                 if (!settled) {
                     settled = true;
+                    diagnosticOutcome = 'cancelled';
                     if (diagnostic) reportTransport('aborted');
                     request.abort();
                     reject(new Error('用户主动暂停'));
@@ -1060,6 +1144,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             signal.addEventListener('abort', abortRequest, { once: true });
         }
     }).finally(() => {
+        diagnosticRequest?.finish(diagnosticOutcome, diagnosticUsage, diagnosticResponseText);
         if (timeout !== undefined) clearTimeout(timeout);
         if (abortRequest) signal?.removeEventListener('abort', abortRequest);
     });
@@ -1131,6 +1216,9 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
             if (!kind || i >= policy.maxRetries) throw error;
             const delay = policy.backoffBaseMs * (i + 1);
             console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
+            if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                callId: config.diagnosticCallId, reason: kind, delayMs: delay,
+            });
             if (onStreamUpdate) onStreamUpdate(`⏳ ${kind}，${Math.round(delay / 1000)}s 后自动重试（第${i + 1}/${policy.maxRetries}次）…`);
             await abortableGradingDelay(delay, config.signal);
         }
@@ -1140,15 +1228,18 @@ async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onS
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
-    const preferred = ['primary', 'backup'].includes(config.officialApiLine) ? config.officialApiLine
-        : config.provider === '5plus1官方' ? getOfficialApiLine(config) : '';
-    if (preferred) await refreshOfficialApiRoutes();
-    const routes = preferred ? { ...officialApiRoutes } : null;
+    if (typeof DiagnosticLog !== 'undefined') config.diagnosticCallId = DiagnosticLog.traceId();
+    const selection = config.officialApiLine || (config.provider === '5plus1官方' ? getOfficialApiLine(config) : '');
+    if (selection) await refreshOfficialApiRoutes();
+    const routes = selection ? officialApiRoutes : null;
+    const preferred = routes ? resolveOfficialApiLine(selection, routes) : null;
     let line = preferred, switched = false;
     if (preferred) {
-        config.officialApiLine = preferred;
-        if (officialApiFallback?.preferred === preferred && officialApiFallback.expires > Date.now()) line = officialApiFallback.line;
-        config.endpoint = routes[line];
+        config.officialApiLine = preferred.id;
+        if (officialApiFallback?.preferred === preferred.id && officialApiFallback.expires > Date.now()) {
+            line = resolveOfficialApiLine(officialApiFallback.line, routes);
+        }
+        config.endpoint = line.endpoint;
     }
     const budget = config.requestBudget || { remaining: 3 };
     const policy = getOutputLimitPolicy(config.outputLimitKey);
@@ -1164,22 +1255,29 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         try {
             const result = await callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
             if (switched && !config.signal?.aborted && routes.revision === officialApiRoutes.revision) {
-                officialApiFallback = line === preferred ? null : { preferred, line, expires: Date.now() + 300000 };
+                officialApiFallback = line === preferred ? null : { preferred: preferred.id, line: line.id, expires: Date.now() + 300000 };
             }
             if (upgraded && config.outputObservation) config.outputObservation.upgraded = true;
             return result;
         } catch (error) {
-            if (line && error.routeUnavailable && !switched && !config.signal?.aborted
-                && attempt < 2 && budget.remaining > 0 && routes.backup) {
-                line = line === 'primary' ? 'backup' : 'primary';
-                config.endpoint = routes[line];
+            const fallback = line && getOfficialApiFallback(line, routes);
+            if (fallback && error.routeUnavailable && !switched && !config.signal?.aborted
+                && attempt < 2 && budget.remaining > 0) {
+                line = fallback;
+                config.endpoint = line.endpoint;
                 switched = true;
+                if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                    callId: config.diagnosticCallId, reason: '切换端点', httpStatus: error.status,
+                });
                 onStreamUpdate?.('当前端点连接失败，正在尝试另一条线路…');
                 continue;
             }
             if (error.code === 'OUTPUT_TRUNCATED' && maxTokens !== null && !upgraded && attempt < 2 && budget.remaining > 0) {
                 upgraded = true;
                 maxTokens = null;
+                if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                    callId: config.diagnosticCallId, reason: '输出达到上限',
+                });
                 if (onStreamUpdate) onStreamUpdate('回答较长，正在继续分析…');
                 continue;
             }
@@ -1189,6 +1287,9 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 serverRetried++;
                 const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
                 console.warn(`⚠️ [callAI] 服务端错误 ${error.status}，${delay}ms 后重试（第${serverRetried}次）`);
+                if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                    callId: config.diagnosticCallId, reason: 'HTTP 响应错误', httpStatus: error.status, delayMs: delay,
+                });
                 await abortableGradingDelay(delay, config.signal);
                 continue;
             }
@@ -1366,10 +1467,13 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     if (isAnswerStatusCheckEnabled(config) || evidence) requireCompatibleGradingEvidence(detailA, detailB);
 
     const diff = Math.abs(scoreA - scoreB);
+    const questionDiff = evidence?.questions ? Math.max(...detailA.subScores.map((unit, index) =>
+        Math.abs(unit.score - detailB.subScores[index].score))) : 0;
+    const arbitrationDiff = Math.max(diff, questionDiff);
     console.log(`🔄 [双评] 结果 — 主模型: ${scoreA}, 副模型: ${scoreB}, 分差: ${diff}`);
 
     // 分差在阈值内
-    if (diff <= threshold) {
+    if (arbitrationDiff <= threshold) {
         // 总分合并同步走 mergeMode + roundStep 吸附 + 满分钳制（工单②；缺省 round 与原平均逐值一致）
         let finalScore = mergeDualValue(scoreA, scoreB, {
             roundStep: config.scoring?.roundStep || 1,
@@ -1422,8 +1526,9 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
     }
 
     // 分差超阈值，触发三评仲裁
-    console.log(`⚠️ [双评] 分差超阈值(${diff} > ${threshold})，启动三评仲裁...`);
-    if (onStreamUpdate) onStreamUpdate(`⚠️ 分差 ${diff} 分超阈值，正在进行三评仲裁...`);
+    console.log(`⚠️ [双评] 分差超阈值(${arbitrationDiff} > ${threshold})，启动三评仲裁...`);
+    if (onStreamUpdate) onStreamUpdate(questionDiff > diff
+        ? '小问评分有分歧，正在仲裁…' : `⚠️ 分差 ${diff} 分超阈值，正在进行三评仲裁...`);
 
     const arbConfig = arbitrationSnapshot;
     if (arbConfig && dualConfig.arbitration.reasoningEffort) {
@@ -1454,15 +1559,20 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         };
     }
 
-    const arbPrompt = appendStudentGradingEvidence(buildArbitrationPrompt(config, detailA, detailB, threshold), evidence);
+    const scoped = Boolean(evidence?.questions);
+    const arbPrompt = scoped ? buildScopedQuestionScorePrompt(config, evidence, [detailA, detailB].map(detail =>
+        detail.subScores.map(({ id, score }) => ({ id, score }))))
+        : appendStudentGradingEvidence(buildArbitrationPrompt(config, detailA, detailB, threshold), evidence);
     const arbResult = await callAIWithRetry(arbPrompt, evidence ? [] : base64DataArray, { ...config, ...arbConfig, gradingRequest: true },
-        onStreamUpdate, collectFieldImages(config));
+        scoped ? null : onStreamUpdate, collectFieldImages(config));
 
     // 多小题模式下用小题解析器，单题模式用结构化解析器
     const arbUnits = config.scoring?.units || [];
     const arbHasSub = arbUnits.length > 1 && detailA?.subScores && detailA.subScores.length > 0;
     let arbParsed;
-    if (arbHasSub) {
+    if (scoped) {
+        arbParsed = parseScopedQuestionScores(arbResult, evidence, config);
+    } else if (arbHasSub) {
         const arbSubQuestions = detailA.subScores.map(sq => ({ id: sq.id, label: sq.label, maxScore: sq.maxScore }));
         arbParsed = parseSubQuestionResponse(arbResult, { ...config, subQuestions: arbSubQuestions });
     } else {
@@ -1502,7 +1612,7 @@ async function callDualEvaluation(base64DataArray, config, onStreamUpdate) {
         }
     }
 
-    arbParsed = applyStudentGradingEvidence(arbParsed, evidence, arbResult, arbFinalScore);
+    if (!scoped) arbParsed = applyStudentGradingEvidence(arbParsed, evidence, arbResult, arbFinalScore);
     if (isAnswerStatusCheckEnabled(config) || evidence) {
         requireGradingEvidence(arbParsed, [arbFinalScore, ...(arbSubScores || []).map(unit => unit.score)]);
     }
