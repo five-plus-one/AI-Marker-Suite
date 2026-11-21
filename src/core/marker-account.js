@@ -167,18 +167,7 @@ function disconnectMarkerAccount() {
 }
 
 function markerAccountPortalUrl(path = '/wallet') {
-    const choice = getOfficialApiLine(ProviderManager.getProvider('5plus1官方'));
-    const preferred = resolveOfficialApiLine(choice);
-    const route = officialApiFallback?.preferred === preferred.id && officialApiFallback.expires > Date.now()
-        ? resolveOfficialApiLine(officialApiFallback.line) : preferred;
-    const origin = new URL(route.endpoint).origin;
-    const available = [
-        'https://api.ai.five-plus-one.com',
-        'https://api-sh.ai.five-plus-one.com',
-        'https://api-hk.ai.five-plus-one.com',
-        'https://api-sx.ai.five-plus-one.com',
-    ];
-    const url = new URL('/sign-in', available.includes(origin) ? origin : available[0]);
+    const url = new URL('https://platform.ai.five-plus-one.com/sign-in');
     url.searchParams.set('provider', '5plus1-account');
     url.searchParams.set('redirect', path);
     return url.href;
