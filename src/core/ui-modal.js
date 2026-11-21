@@ -49,7 +49,7 @@ function ensureModalStyles() {
             padding: 0 28px 24px;
             display: flex; justify-content: flex-end; gap: 10px;
         }
-        .ai-modal-footer button {
+        :is(.ai-modal-footer, .ai-onboarding-choices) button {
             padding: 10px 22px; border: none; border-radius: 10px;
             font-size: 13px; font-weight: 500; cursor: pointer;
             transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -105,7 +105,7 @@ function ensureModalStyles() {
             box-shadow: 0 0 0 3px rgba(33,102,173,0.12);
         }
         .ai-modal-footer { padding: 0 24px 22px; }
-        .ai-modal-footer button {
+        :is(.ai-modal-footer, .ai-onboarding-choices) button {
             min-height: 36px;
             border-radius: 7px;
             font-weight: 700;
@@ -134,7 +134,8 @@ function ensureModalStyles() {
         .ai-onboarding-account .ai-modal-header { font-size: 20px; color: var(--ob-ink); }
         .ai-onboarding-account .ai-modal-body { color: var(--ob-muted); }
         .ai-onboarding-account .ai-modal-footer { align-items: center; flex-wrap: wrap; }
-        .ai-onboarding-account .ai-modal-footer button { min-height: 44px; }
+        .ai-onboarding-account :is(.ai-modal-footer, .ai-onboarding-choices) button { min-height: 44px; }
+        .ai-onboarding-choices { --fp-muted: var(--ob-muted); --fp-primary: var(--ob-accent); }
         .ai-onboarding-account .ai-modal-btn-confirm { background: var(--ob-accent); color: #fff; }
         .ai-onboarding-account .ai-modal-btn-confirm:not(:disabled):hover { background: var(--ob-accent-hover); }
         .ai-onboarding-account .ai-modal-btn-confirm:disabled { opacity: .65; cursor: default; transform: none; box-shadow: none; }
@@ -145,8 +146,8 @@ function ensureModalStyles() {
         .ai-onboarding-later:hover { text-decoration: underline; }
         .ai-onboarding-account :is(a,button,summary):focus-visible { outline: 2px solid var(--ob-accent); outline-offset: 3px; }
         .ai-onboarding-intro { margin: 0 0 16px; font-size: 14px; }
-        .ai-onboarding-manual { border-top: 1px solid var(--ob-line); }
-        .ai-onboarding-manual summary { min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--ob-ink); }
+        .ai-onboarding-manual { margin-top: 16px; }
+        .ai-onboarding-manual[hidden], .ai-onboarding-account #ob-next[hidden] { display: none !important; }
         .ai-onboarding-manual label { display: block; font-size: 13px; }
         .ai-onboarding-manual .ai-modal-input { margin-top: 4px; background: var(--ob-surface); color: var(--ob-ink); border-color: var(--ob-line); }
         .ai-onboarding-account #ob-status[data-marker-status] { margin: 8px 0 0; font-size: 13px; }
@@ -169,14 +170,6 @@ function ensureModalStyles() {
         }
         @media (prefers-reduced-motion: reduce) {
             .ai-onboarding-check i { display: none; }
-        }
-        @media (prefers-color-scheme: dark) {
-            #ai-onboarding .ai-onboarding-account {
-                --ob-surface: #202b3b; --ob-ink: #edf4fb; --ob-muted: #c2cfdd; --ob-line: #3b4b60; --ob-soft: #163f34;
-                color-scheme: dark;
-            }
-            .ai-onboarding-check { color: #a6e5c8; }
-            .ai-onboarding-account .ai-modal-btn-cancel { background: var(--ob-surface); color: var(--ob-ink); border-color: var(--ob-line) !important; }
         }
         .ai-modal-btn-secondary { color: #667085; }
         .ai-modal-btn-secondary:hover { color: #172033; }

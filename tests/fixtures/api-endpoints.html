@@ -44,6 +44,7 @@ window.GM_xmlhttpRequest = request => {
 <script src="../../src/core/ai-engine.js"></script>
 <script src="../../src/core/preset.js"></script>
 <script src="../../src/core/prompt.js"></script>
+<script src="../../node_modules/@fiveplusone/embedded-ui/index.cjs"></script>
 <script src="../../src/core/ui-modal.js"></script>
 <script src="../../src/core/ui-settings.js"></script>
 <script src="../../src/core/updater.js"></script>
@@ -62,9 +63,11 @@ window.GM_xmlhttpRequest = request => {
     const tried = (...urls) => requests.map(request => request.url).join() === urls.join();
     const start = () => {
         showOnboardingDialog(true);
+        get('ob-api-choice').click();
         get('ob-apikey').value = 'fixture-key';
         return get('ob-next').onclick();
     };
+    FivePlusOneEmbeddedUI.installBoundary(document, ['.ai-modal-overlay', '#ai-grading-settings']);
     try {
         reset('ok');
         check((await verifyOfficialApiKey('fixture-key')).endpoint === main && tried(main), '主端点可用时只访问主端点');
@@ -107,8 +110,27 @@ window.GM_xmlhttpRequest = request => {
         check(getChannelName() === 'preview', '尊重手动选择的更新渠道');
         storage.delete('ai-grading-channel');
         showOnboardingDialog(true, 'first-launch');
-        check(get('ob-skip').tagName === 'A' && getComputedStyle(document.querySelector('[data-marker-login]')).minHeight === '44px',
+        const loginChoice = document.querySelector('#ai-onboarding [data-marker-login]');
+        const apiChoice = get('ob-api-choice');
+        check(get('ob-skip').tagName === 'A' && getComputedStyle(loginChoice).minHeight === '44px',
             '首次使用的稍后设置是低强调链接，登录动作有完整点击区域');
+        check(getComputedStyle(loginChoice.closest('.ai-modal-card')).backgroundColor === 'rgb(255, 255, 255)'
+            && apiChoice.tagName === 'A' && apiChoice.textContent === '或使用已有 API 密钥'
+            && apiChoice.previousElementSibling === loginChoice
+            && Math.abs(apiChoice.offsetTop - loginChoice.offsetTop) < 2
+            && getComputedStyle(apiChoice).textDecorationLine === 'underline'
+            && apiChoice.offsetHeight >= 44,
+            '登录和已有密钥入口并列，统一浅色，备选入口保留链接样式和触控区域');
+        check(get('ob-api-manual').hidden && get('ob-next').hidden && apiChoice.getAttribute('aria-expanded') === 'false',
+            '密钥输入和验证默认折叠');
+        apiChoice.click();
+        check(!get('ob-api-manual').hidden && !get('ob-next').hidden && apiChoice.getAttribute('aria-expanded') === 'true'
+            && document.activeElement === get('ob-apikey') && loginChoice.getBoundingClientRect().width > 0,
+            '打开密钥输入后聚焦字段，账号登录仍可选');
+        get('ob-apikey').value = 'fixture-draft';
+        apiChoice.click();
+        apiChoice.click();
+        check(get('ob-apikey').value === 'fixture-draft', '重新展开密钥输入时保留草稿');
         storage.set('ai-grading-channel', 'stable');
         handleUpdateResult('99.0.0', {}, false);
         check(!get('ai-update-dialog'), '首次设置期间延迟自动更新提醒');
@@ -132,17 +154,36 @@ window.GM_xmlhttpRequest = request => {
         get('ai-provider').value = '5plus1官方';
         handleProviderChange();
         const select = get('official-endpoint'), custom = get('custom-endpoint-field');
-        check(!get('manual-api-field').open && !get('official-account-field').hidden &&
-            document.querySelector('[data-marker-login]').textContent.includes('登录并连接'), '官方设置优先账号登录，并折叠手填密钥');
+        check(!get('manual-api-field').open && !get('official-account-field').hidden
+            && get('btn-del-provider').hidden && !select.closest('details').open
+            && document.querySelector('[data-marker-login]').textContent.includes('登录五加一账号'),
+            '官方设置显示账号登录，手动密钥和选线按需展开');
         const fixtureAccountKey = 'sk-' + 'd'.repeat(32);
         storage.set(MARKER_ACCOUNT_KEY, { accountId: 17, apiKey: fixtureAccountKey });
         get('ai-grading-settings').dispatchEvent(new Event('marker-account-refresh'));
-        check(get('manual-api-field').hidden && !document.querySelector('[data-marker-billing]').hidden,
+        check(get('manual-api-field').hidden && !document.querySelector('[data-marker-billing]').hidden
+            && !document.querySelector('[data-marker-linked]').hidden,
             '已连接账号后设置隐藏手填密钥并提供余额入口');
         reset('network', 'ok');
         await get('official-route-test').onclick();
-        check(tried(shanghai, main) && get('official-route-test-status').textContent.includes('主端点')
+        check(tried(shanghai, shanghai) && get('official-route-test-status').textContent.includes('上海')
+            && get('official-route-use-tested').hidden && official().endpointLine === 'backup',
+            '线路短暂中断时原线路重试一次，恢复后无需切换');
+        const tokenEntry = new URL(markerAccountPortalUrl('/keys'));
+        check(tokenEntry.origin === new URL(shanghai).origin && tokenEntry.pathname === '/sign-in'
+            && tokenEntry.searchParams.get('provider') === '5plus1-account'
+            && tokenEntry.searchParams.get('redirect') === '/keys', '密钥管理沿所选线路打开五加一登录');
+        reset({ status: 401, responseText: '{"error":{"message":"invalid"}}' });
+        await get('official-route-test').onclick();
+        check(tried(shanghai) && get('official-route-test-status').textContent.includes('密钥'),
+            '密钥错误直接显示提示');
+        reset('network', 'timeout', 'ok');
+        await get('official-route-test').onclick();
+        check(tried(shanghai, shanghai, main) && get('official-route-test-status').textContent.includes('主端点')
             && !get('official-route-use-tested').hidden, '已连接账号可测试线路并选择已连通的备用线路');
+        const walletEntry = new URL(markerAccountPortalUrl());
+        check(walletEntry.origin === new URL(main).origin && walletEntry.searchParams.get('redirect') === '/wallet',
+            '余额入口沿最近验证通过的备用线路打开钱包');
         get('official-route-use-tested').click();
         check(official().endpointLine === 'primary', '用户确认后固定使用通过测试的线路');
         ProviderManager.saveOfficialConnection('backup');
@@ -179,7 +220,7 @@ window.GM_xmlhttpRequest = request => {
             '断开账号后恢复手填密钥');
         get('ai-grading-settings').dispatchEvent(new Event('marker-account-refresh'));
         check(select.value === 'backup' && custom.hidden && !get('official-endpoint-field').hidden
-            && get('official-endpoint-help').textContent.includes('自动选择'), '设置显示当前官方端点与使用提示');
+            && get('official-route-selection').textContent.includes('上海'), '线路设置入口显示当前选择');
         const change = endpoint => { select.value = endpoint; select.dispatchEvent(new Event('change')); };
         change('primary');
         check(official().endpoint === main && official().apiKey === 'fixture-key', '切换端点保留 API 密钥');

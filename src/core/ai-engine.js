@@ -171,7 +171,7 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
     });
 }
 
-async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback } = {}) {
+async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onRetry, onFallback } = {}) {
     await refreshOfficialApiRoutes();
     const selection = line || getOfficialApiLine({ endpoint }) || 'default';
     const routes = officialApiRoutes;
@@ -182,7 +182,11 @@ async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback
             selection: routes.endpoints.some(entry => entry.id === selection) ? selection : 'default',
             preferred: preferred.id, revision: routes.revision } : { success: false, reason };
     };
-    const first = await verify(preferred);
+    let first = await verify(preferred);
+    if (first.reason === 'network' && onRetry && !signal?.aborted) {
+        onRetry();
+        first = await verify(preferred);
+    }
     const fallback = getOfficialApiFallback(preferred, routes);
     if (first.reason !== 'network' || !fallback || signal?.aborted) return first;
     onFallback?.();
