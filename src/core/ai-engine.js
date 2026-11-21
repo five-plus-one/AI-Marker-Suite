@@ -155,7 +155,10 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
                     const status = Number(response.status);
                     let data;
                     try { data = JSON.parse(response.responseText); } catch (_) { /* 上游可能返回网页。 */ }
+                    const errorCode = String(data?.error?.code || data?.error?.type || '');
                     if (status >= 200 && status < 300) finish(data?.choices?.[0]?.message && !data.error ? 'connected' : 'network');
+                    else if (['insufficient_user_quota', 'insufficient_token_quota', 'insufficient_quota',
+                        'billing_hard_limit_reached'].includes(errorCode)) finish('balance');
                     else if (status === 401 || (status === 403 && data?.error)) finish('invalid');
                     else if (!status || status === 403 || status === 408 || status >= 500) finish('network');
                     else finish('service');
@@ -184,6 +187,12 @@ async function verifyOfficialApiKey(apiKey, { endpoint, line, signal, onFallback
     if (first.reason !== 'network' || !fallback || signal?.aborted) return first;
     onFallback?.();
     return verify(fallback);
+}
+
+function rememberVerifiedOfficialRoute(result) {
+    if (!result.success || result.revision !== officialApiRoutes.revision) return;
+    officialApiFallback = result.line === result.preferred ? null
+        : { preferred: result.preferred, line: result.line, expires: Date.now() + 300000 };
 }
 
 function isProviderDataValid(data) {

@@ -1,5 +1,6 @@
 const MARKER_TOOLS_ORIGIN = 'https://tools.aimarking.five-plus-one.com';
 const MARKER_SERVICE_ORIGIN = 'https://api.aimarking.five-plus-one.com';
+const MARKER_BILLING_URL = 'https://api.ai.five-plus-one.com/console/topup';
 const MARKER_ACCOUNT_KEY = 'aimarker-connected-account-v1';
 const MARKER_ACTIVE_CONNECTION = 'aimarker-active-connection-v1';
 const MARKER_CONNECTION_PREFIX = 'aimarker-portal-flow-';
@@ -172,6 +173,8 @@ function markerAccountControls() {
             <div style="flex:1 1 12rem;">
                 <strong>五加一账号</strong>
                 <p data-marker-status role="status" style="margin:4px 0 0;font-size:13px;"></p>
+                <a data-marker-billing hidden href="${MARKER_BILLING_URL}" target="_blank" rel="noopener noreferrer"
+                    style="align-items:center;min-height:44px;font-size:13px;">查看余额与充值</a>
             </div>
             <div class="ai-modal-footer" style="padding:0;flex-wrap:wrap;">
                 <button type="button" class="ai-modal-btn-confirm" style="min-height:44px;" data-marker-login>登录并连接</button>
@@ -188,12 +191,18 @@ function bindMarkerAccountControls(container, onChange) {
     const disconnect = controls.querySelector('[data-marker-disconnect]');
     const cancel = controls.querySelector('[data-marker-cancel]');
     const status = controls.querySelector('[data-marker-status]');
+    const billing = controls.querySelector('[data-marker-billing]');
     function refresh(message) {
         if (typeof message === 'string' && !controls.isConnected) return;
         const connected = Boolean(markerManagedAccount());
         login.style.display = connected ? 'none' : '';
-        disconnect.style.display = connected ? '' : 'none';
-        status.textContent = message ?? (connected ? '已连接 · 可使用五加一批改服务' : '登录后会自动配置 API 密钥。');
+        if (disconnect) disconnect.style.display = connected ? '' : 'none';
+        status.textContent = message ?? (controls.dataset.markerAccountControls === 'onboarding' ? ''
+            : connected ? '已连接 5plus1API 批改账户' : '登录后即可开通批改服务。');
+        if (billing) {
+            billing.hidden = !connected;
+            billing.style.display = connected ? 'inline-flex' : '';
+        }
         onChange?.();
     }
     login.onclick = async event => {
@@ -208,7 +217,9 @@ function bindMarkerAccountControls(container, onChange) {
         finally { login.disabled = false; cancel.style.display = 'none'; }
     };
     cancel.onclick = () => cancelMarkerConnection();
-    disconnect.onclick = () => refresh(disconnectMarkerAccount() ? '已解除本机连接，可随时重新登录。' : markerConnectionMessage('storage'));
+    if (disconnect) {
+        disconnect.onclick = () => refresh(disconnectMarkerAccount() ? '已解除本机连接，可随时重新登录。' : markerConnectionMessage('storage'));
+    }
     refresh();
     return refresh;
 }

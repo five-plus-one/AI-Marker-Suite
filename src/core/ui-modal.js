@@ -125,6 +125,59 @@ function ensureModalStyles() {
             background: #0f1726;
             box-shadow: 0 8px 18px rgba(18,28,45,0.18);
         }
+        #ai-onboarding .ai-modal-card { min-width: 0; max-width: 520px; }
+        #ai-onboarding .ai-onboarding-account {
+            --ob-surface: #fff; --ob-ink: #182539; --ob-muted: #506077; --ob-line: #e1e6ef;
+            --ob-accent: #13795b; --ob-accent-hover: #106449; --ob-soft: #e3f3eb;
+            max-width: 440px; background: var(--ob-surface); border-color: var(--ob-line); color: var(--ob-ink);
+        }
+        .ai-onboarding-account .ai-modal-header { font-size: 20px; color: var(--ob-ink); }
+        .ai-onboarding-account .ai-modal-body { color: var(--ob-muted); }
+        .ai-onboarding-account .ai-modal-footer { align-items: center; flex-wrap: wrap; }
+        .ai-onboarding-account .ai-modal-footer button { min-height: 44px; }
+        .ai-onboarding-account .ai-modal-btn-confirm { background: var(--ob-accent); color: #fff; }
+        .ai-onboarding-account .ai-modal-btn-confirm:not(:disabled):hover { background: var(--ob-accent-hover); }
+        .ai-onboarding-account .ai-modal-btn-confirm:disabled { opacity: .65; cursor: default; transform: none; box-shadow: none; }
+        .ai-onboarding-later {
+            display: inline-flex; align-items: center; min-height: 44px; margin-inline-end: auto;
+            color: var(--ob-muted); font-size: 13px; font-weight: 500; text-decoration: none;
+        }
+        .ai-onboarding-later:hover { text-decoration: underline; }
+        .ai-onboarding-account :is(a,button,summary):focus-visible { outline: 2px solid var(--ob-accent); outline-offset: 3px; }
+        .ai-onboarding-intro { margin: 0 0 16px; font-size: 14px; }
+        .ai-onboarding-manual { border-top: 1px solid var(--ob-line); }
+        .ai-onboarding-manual summary { min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--ob-ink); }
+        .ai-onboarding-manual label { display: block; font-size: 13px; }
+        .ai-onboarding-manual .ai-modal-input { margin-top: 4px; background: var(--ob-surface); color: var(--ob-ink); border-color: var(--ob-line); }
+        .ai-onboarding-account #ob-status[data-marker-status] { margin: 8px 0 0; font-size: 13px; }
+        .ai-onboarding-account #ob-status[data-marker-status]:empty { display: none; }
+        .ai-onboarding-result { text-align: center; padding: 8px 0; }
+        .ai-onboarding-result strong { display: block; color: var(--ob-ink); font-size: 17px; }
+        .ai-onboarding-result p { margin: 6px 0 0; }
+        .ai-onboarding-check {
+            position: relative; display: grid; place-items: center; width: 54px; height: 54px; margin: 0 auto 12px;
+            border-radius: 50%; color: var(--ob-accent); background: var(--ob-soft); font-size: 27px; font-weight: 700;
+        }
+        .ai-onboarding-check i {
+            position: absolute; top: 50%; left: 50%; width: 5px; height: 8px; border-radius: 2px;
+            background: var(--piece); pointer-events: none; animation: ai-onboarding-celebrate 720ms ease-out both;
+        }
+        @keyframes ai-onboarding-celebrate {
+            from { opacity: 0; transform: rotate(var(--angle)) translateX(22px); }
+            25% { opacity: 1; }
+            to { opacity: 0; transform: rotate(var(--angle)) translateX(55px) rotate(60deg); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .ai-onboarding-check i { display: none; }
+        }
+        @media (prefers-color-scheme: dark) {
+            #ai-onboarding .ai-onboarding-account {
+                --ob-surface: #202b3b; --ob-ink: #edf4fb; --ob-muted: #c2cfdd; --ob-line: #3b4b60; --ob-soft: #163f34;
+                color-scheme: dark;
+            }
+            .ai-onboarding-check { color: #a6e5c8; }
+            .ai-onboarding-account .ai-modal-btn-cancel { background: var(--ob-surface); color: var(--ob-ink); border-color: var(--ob-line) !important; }
+        }
         .ai-modal-btn-secondary { color: #667085; }
         .ai-modal-btn-secondary:hover { color: #172033; }
     `;

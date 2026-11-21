@@ -1000,6 +1000,11 @@ function createSettingsPanel(options) {
                             <label for="official-endpoint">批改线路</label>
                             <select id="official-endpoint" aria-describedby="official-endpoint-help"></select>
                             <p id="official-endpoint-help" class="mode-desc" style="margin:6px 0 0;">建议使用自动选择。连接不稳定时，可以指定线路。</p>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+                                <button type="button" class="preset-btn" id="official-route-test">测试线路</button>
+                                <button type="button" class="preset-btn" id="official-route-use-tested" hidden>使用这条线路</button>
+                            </div>
+                            <p class="mode-desc" id="official-route-test-status" role="status"></p>
                         </div>
                         <div class="form-group">
                             <label>模型列表</label>
@@ -1363,6 +1368,7 @@ function createSettingsPanel(options) {
     });
     panel.addEventListener('marker-account-refresh', () => refreshAccount());
     panel.querySelector('#official-endpoint').onchange = handleOfficialEndpointChange;
+    bindOfficialRouteTest(panel);
     panel.querySelector('#btn-add-model').onclick = handleAddModel;
     panel.querySelector('#new-model-id').onkeydown = (e) => { if (e.key === 'Enter') handleAddModel(); };
     panel.querySelector('#workflow-select').onchange = handleWorkflowChange;
@@ -2369,6 +2375,8 @@ function updateUIVisibility() {
     const official = provider === '5plus1官方';
     apiKeyLink.hidden = !official;
     accountField.hidden = !official;
+    manual.hidden = official && hasSettingsAccount();
+    if (manual.hidden) manual.open = false;
     manual.querySelector('summary').hidden = !official;
     if (manual.dataset.official !== String(official)) {
         manual.dataset.official = String(official);
@@ -2623,6 +2631,67 @@ function handleOfficialEndpointChange() {
     const saved = ProviderManager.saveOfficialConnection(line);
     updateUIVisibility();
     showToast(saved ? `已切换到${officialApiLineLabel(line)}` : '端点选择尚未保存，请刷新页面后重试');
+}
+
+function bindOfficialRouteTest(panel) {
+    const select = panel.querySelector('#official-endpoint');
+    const test = panel.querySelector('#official-route-test');
+    const use = panel.querySelector('#official-route-use-tested');
+    const status = panel.querySelector('#official-route-test-status');
+    const keyInput = panel.querySelector('#api-key');
+    let controller, testedLine;
+    const clear = () => {
+        controller?.abort();
+        controller = null;
+        testedLine = undefined;
+        use.hidden = true;
+        status.textContent = '';
+        test.disabled = false;
+    };
+    select.addEventListener('change', clear);
+    panel.querySelector('#ai-provider').addEventListener('change', clear);
+    keyInput.addEventListener('input', clear);
+    test.onclick = async () => {
+        clear();
+        const key = markerManagedAccount()?.apiKey || keyInput.value.trim();
+        if (!key) { status.textContent = '请先连接五加一账号或填写 API 密钥。'; return; }
+        const pending = new AbortController();
+        controller = pending;
+        test.disabled = true;
+        status.textContent = '正在测试所选线路…';
+        const choice = select.value;
+        let result;
+        try {
+            result = await verifyOfficialApiKey(key, {
+                line: choice, signal: pending.signal,
+                onFallback: () => { status.textContent = '所选线路未连通，正在测试备用线路…'; },
+            });
+        } catch (_) { result = { success: false, reason: 'network' }; }
+        if (controller !== pending) return;
+        test.disabled = false;
+        controller = null;
+        if ((markerManagedAccount()?.apiKey || keyInput.value.trim()) !== key) {
+            status.textContent = '连接信息已变化，请重新测试。';
+            return;
+        }
+        if (!result.success) {
+            status.textContent = result.reason === 'invalid' ? '连接未通过，请核对账号或 API 密钥。'
+                : result.reason === 'balance' ? '批改账户余额不足，请充值后再测试。'
+                    : result.reason === 'service' ? '线路可达，但批改请求未通过。请核对账户余额或模型权限。'
+                    : '暂时无法连接批改服务，请检查网络或尝试其他线路。';
+            return;
+        }
+        rememberVerifiedOfficialRoute(result);
+        testedLine = result.line;
+        status.textContent = resolveOfficialApiLine(testedLine).name + '已通过测试。';
+        use.hidden = choice === testedLine;
+    };
+    use.onclick = () => {
+        if (!testedLine || !officialApiRoutes.endpoints.some(line => line.id === testedLine)) return;
+        select.value = testedLine;
+        handleOfficialEndpointChange();
+        use.hidden = true;
+    };
 }
 
 function officialApiLineLabel(line) {
@@ -3324,7 +3393,7 @@ function hideOnboardingDialog() {
     }
     if (_onboardingDialogOpen) {
         _onboardingDialogOpen = false;
-        console.log('[OOBE] 已关闭引导弹窗');
+        if (typeof setOnboardingUpdateNoticePaused === 'function') setOnboardingUpdateNoticePaused(false);
     }
 }
 
@@ -3341,15 +3410,19 @@ function showOnboardingDialog(forceShow, mode) {
     ensureModalStyles();
 
     const overlay = document.createElement('div');
+    overlay.id = 'ai-onboarding';
     overlay.className = 'ai-modal-overlay';
     overlay.style.setProperty('z-index', '2147483647', 'important');
     _onboardingOverlayEl = overlay;
+    if (typeof setOnboardingUpdateNoticePaused === 'function') setOnboardingUpdateNoticePaused(true);
 
     let currentStep = 1;
     let presetName = '';
     let gradingMode = 'trial';
     let selectedWorkflow = 'fast';
     let connectedBackup = '';
+    let accountCheck;
+    let celebrate = false;
     let detectedUnits = [];  // 检测到的小题列表
 
     function getStepInfo() {
@@ -3366,22 +3439,23 @@ function showOnboardingDialog(forceShow, mode) {
 
     function render() {
         const s = getStepInfo();
-        const title = s.apiStep ? '欢迎使用 AI 批改助手' : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '批改上下文（可选）' : '配置完成！';
+        const account = s.apiStep && markerManagedAccount();
+        const title = s.apiStep ? account ? '五加一账号已连接' : '连接批改服务'
+            : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '批改上下文（可选）' : '配置完成！';
 
         overlay.innerHTML = `
-            <div class="ai-modal-card" style="max-width:520px;max-height:85vh;display:flex;flex-direction:column;">
+            <div class="ai-modal-card ${s.apiStep ? 'ai-onboarding-account' : ''}" role="dialog" aria-modal="true" aria-labelledby="ob-title"
+                ${s.apiStep && !account ? 'data-marker-account-controls="onboarding"' : ''}
+                style="max-height:85vh;display:flex;flex-direction:column;">
                 <div class="ai-modal-header" style="display:flex;align-items:center;gap:10px;padding:20px 24px 12px;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
-                    <span style="font-size:20px;">🎓</span>
-                    <span>${title}</span>
+                    ${s.apiStep ? '' : '<span aria-hidden="true" style="font-size:20px;">🎓</span>'}
+                    <span id="ob-title">${title}</span>
                 </div>
                 <div class="ai-modal-body" style="overflow-y:auto;flex:1;min-height:0;padding:20px 24px;">
-                    ${s.apiStep ? renderApiStep() : s.nameModeStep ? renderNameModeStep() : s.workflowStep ? renderWorkflowStep() : s.ctxStep ? renderCtxStep() : renderDoneStep()}
+                    ${s.apiStep ? renderApiStep(account) : s.nameModeStep ? renderNameModeStep() : s.workflowStep ? renderWorkflowStep() : s.ctxStep ? renderCtxStep() : renderDoneStep()}
                 </div>
                 <div class="ai-modal-footer" style="padding:12px 24px 20px;border-top:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
-                    ${s.apiStep ? `
-                        <button class="ai-modal-btn-cancel" id="ob-skip">稍后设置</button>
-                        <button class="ai-modal-btn-confirm" id="ob-next">验证并继续</button>
-                    ` : s.nameModeStep ? `
+                    ${s.apiStep ? renderApiActions(account) : s.nameModeStep ? `
                         ${s.hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : '<button class="ai-modal-btn-cancel" id="ob-skip-question" style="min-height:44px;">跳过</button>'}
                         <button class="ai-modal-btn-confirm" id="ob-next" style="min-height:44px;">继续</button>
                     ` : s.workflowStep ? `
@@ -3396,25 +3470,83 @@ function showOnboardingDialog(forceShow, mode) {
                 </div>
             </div>
         `;
-        bindEvents();
+        bindEvents(account);
+        if (s.apiStep && account && accountCheck?.accountId !== account.accountId) queueMicrotask(testOnboardingAccountRoute);
     }
 
-    function renderApiStep() {
+    function renderApiStep(account) {
+        if (account) {
+            const result = accountCheck?.result;
+            const confirmed = Boolean(result?.success);
+            const pieces = celebrate && confirmed
+                ? Array.from({length: 8}, (_, index) => `<i style="--angle:${index * 45}deg;--piece:${index % 2 ? '#FCA948' : '#348B6B'}"></i>`).join('') : '';
+            celebrate = false;
+            const message = confirmed ? `${escapeSettingsHtml(resolveOfficialApiLine(result.line).name)}已通过测试。`
+                : result?.reason === 'balance' ? '5plus1API 批改账户余额不足。'
+                    : result?.reason === 'service' ? '批改请求未通过。请核对账户余额或模型权限。'
+                    : result?.reason === 'invalid' ? '批改服务暂时无法验证，请检查五加一账号后重试。'
+                        : result ? '暂时无法连接批改线路，请检查网络后重试。' : '正在测试批改线路…';
+            return `<div class="ai-onboarding-result" role="status">
+                ${confirmed ? `<div class="ai-onboarding-check" aria-hidden="true">✓${pieces}</div>` : ''}
+                ${confirmed ? '<strong>批改服务已就绪</strong>' : ''}
+                <p id="ob-status">${message}</p>
+                ${result?.reason === 'balance' ? `<a class="ai-onboarding-later" href="${MARKER_BILLING_URL}" target="_blank" rel="noopener noreferrer">查看余额与充值</a>` : ''}
+                ${confirmed ? '<p>接下来，为当前题目配置批改方案。</p>' : ''}
+            </div>`;
+        }
         return `
-            <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
-                连接五加一账号，即可使用 AI 批改。
-            </p>
-            ${markerAccountControls()}
-            <details class="form-group" id="ob-api-manual">
-                <summary style="line-height:44px;cursor:pointer;">手动配置 API 密钥</summary>
+            <p class="ai-onboarding-intro">使用五加一账号登录，开通并连接 5plus1API 批改服务。</p>
+            <details class="ai-onboarding-manual" id="ob-api-manual">
+                <summary>使用已有 API 密钥</summary>
                 <label for="ob-apikey">API 密钥</label>
-                <input type="password" id="ob-apikey" placeholder="请输入 5plus1 API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}" style="width:100%;">
-                <div style="margin-top:6px;">
-                    <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:#0052FF;text-decoration:none;">获取 API 密钥</a>
-                </div>
+                <input class="ai-modal-input" type="password" id="ob-apikey" autocomplete="off"
+                    placeholder="输入 5plus1API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}">
             </details>
-            <div id="ob-status" role="status" aria-live="polite" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
+            <p id="ob-status" data-marker-status role="status"></p>
         `;
+    }
+
+    function renderApiActions(account) {
+        const later = '<a class="ai-onboarding-later" href="#" id="ob-skip">稍后设置</a>';
+        if (account) {
+            const result = accountCheck?.result;
+            const label = result?.success ? '配置批改方案' : result ? '重试线路测试' : '正在测试…';
+            return later + `<button type="button" class="ai-modal-btn-confirm" id="ob-next" ${result ? '' : 'disabled'}>${label}</button>`;
+        }
+        return later + `
+            <button type="button" class="ai-modal-btn-cancel" data-marker-cancel style="display:none">取消授权</button>
+            <button type="button" class="ai-modal-btn-confirm" data-marker-login>登录五加一账号</button>
+            <button type="button" class="ai-modal-btn-confirm" id="ob-next" style="display:none">验证并继续</button>
+        `;
+    }
+
+    async function testOnboardingAccountRoute() {
+        const account = markerManagedAccount();
+        if (!overlay.isConnected || !account || _onboardingApiCheck) return;
+        const controller = new AbortController();
+        _onboardingApiCheck = controller;
+        accountCheck = { accountId: account.accountId };
+        render();
+        let result;
+        try {
+            result = await verifyOfficialApiKey(account.apiKey, {
+                line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
+                signal: controller.signal,
+                onFallback: () => { overlay.querySelector('#ob-status').textContent = '正在测试备用线路…'; },
+            });
+        } catch (_) { result = { success: false, reason: 'network' }; }
+        if (controller !== _onboardingApiCheck || !overlay.isConnected) return;
+        _onboardingApiCheck = null;
+        const current = markerManagedAccount();
+        if (current?.accountId !== account.accountId || current.apiKey !== account.apiKey) {
+            accountCheck = null;
+            render();
+            return;
+        }
+        accountCheck.result = result;
+        rememberVerifiedOfficialRoute(result);
+        celebrate = result.success;
+        render();
     }
 
     function renderNameModeStep() {
@@ -3555,27 +3687,34 @@ function showOnboardingDialog(forceShow, mode) {
         `;
     }
 
-    function bindEvents() {
+    function bindEvents(account) {
         const s = getStepInfo();
 
         if (s.apiStep) {
             const next = overlay.querySelector('#ob-next');
-            const manual = overlay.querySelector('#ob-api-manual');
-            const refreshActions = () => {
-                const connected = Boolean(markerManagedAccount());
-                next.style.display = connected || manual.open ? '' : 'none';
-                if (!_onboardingApiCheck) next.textContent = connected ? '继续设置' : '验证并继续';
-            };
-            bindMarkerAccountControls(overlay, refreshActions);
-            refreshActions();
-            manual.addEventListener('toggle', refreshActions);
-            overlay.querySelector('#ob-skip').onclick = () => {
+            overlay.querySelector('#ob-skip').onclick = event => {
+                event.preventDefault();
                 cancelMarkerConnection();
                 hideOnboardingDialog();
             };
+            if (account) {
+                const result = accountCheck?.result;
+                next.onclick = result?.success ? () => { currentStep++; render(); } : testOnboardingAccountRoute;
+                if (result) next.focus();
+                return;
+            }
+            const manual = overlay.querySelector('#ob-api-manual');
+            const login = overlay.querySelector('[data-marker-login]');
+            const refreshActions = () => {
+                if (markerManagedAccount()) { render(); return; }
+                login.style.display = manual.open ? 'none' : '';
+                next.style.display = manual.open ? '' : 'none';
+            };
+            bindMarkerAccountControls(overlay, refreshActions);
+            manual.addEventListener('toggle', refreshActions);
+            login.focus();
             next.onclick = async () => {
                 if (_onboardingApiCheck || markerConnection) return;
-                if (markerManagedAccount()) { currentStep++; render(); return; }
                 const input = overlay.querySelector('#ob-apikey');
                 const key = input.value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
@@ -3614,15 +3753,13 @@ function showOnboardingDialog(forceShow, mode) {
                         showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
                         return;
                     }
-                    if (result.line !== result.preferred && result.revision === officialApiRoutes.revision) {
-                        officialApiFallback = { preferred: result.preferred, line: result.line, expires: Date.now() + 300000 };
-                        connectedBackup = resolveOfficialApiLine(result.line).name;
-                    } else {
-                        connectedBackup = '';
-                    }
+                    rememberVerifiedOfficialRoute(result);
+                    connectedBackup = result.line !== result.preferred ? resolveOfficialApiLine(result.line).name : '';
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
                     showStatus('密钥无效，请检查是否正确', 'error');
+                } else if (result.reason === 'balance') {
+                    showStatus('批改账户余额不足，请充值后重试。', 'error');
                 } else if (result.reason === 'service') {
                     showStatus('已连接服务，但验证未完成。请检查账户余额和模型权限后重试。', 'error');
                 } else {
@@ -3717,8 +3854,7 @@ function showOnboardingDialog(forceShow, mode) {
             overlay.querySelector('#ob-next').onclick = function () { saveAndFinish(true); };
         } else if (s.doneStep) {
             overlay.querySelector('#ob-start').onclick = () => {
-                _onboardingDialogOpen = false;
-                overlay.remove();
+                hideOnboardingDialog();
                 GM_setValue('ai-grading-show-onboarding', false);
                 setTimeout(() => openSettingsPanel(), 300);
             };
@@ -3816,7 +3952,7 @@ function showInsufficientBalanceDialog(isOfficial) {
 
     if (isOfficial) {
         overlay.querySelector('#balance-topup').onclick = () => {
-            window.open('https://api.ai.five-plus-one.com/console/topup', '_blank');
+            window.open(MARKER_BILLING_URL, '_blank', 'noopener');
             overlay.remove();
         };
     }

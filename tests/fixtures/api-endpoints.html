@@ -46,6 +46,7 @@ window.GM_xmlhttpRequest = request => {
 <script src="../../src/core/prompt.js"></script>
 <script src="../../src/core/ui-modal.js"></script>
 <script src="../../src/core/ui-settings.js"></script>
+<script src="../../src/core/updater.js"></script>
 <body><pre id="result"></pre>
 <script>
 (async () => {
@@ -99,6 +100,25 @@ window.GM_xmlhttpRequest = request => {
         check(ProviderManager.saveOfficialConnection('backup'), '可以固定选择上海备用端点');
         reset('ok');
         check((await verifyOfficialApiKey('fixture-key', { endpoint: official().endpoint })).endpoint === shanghai && tried(shanghai), '已选备用端点重新验证时直接使用');
+        SCRIPT_CONFIG.CHANNEL = 'dev';
+        check(getChannelName() === 'dev' && getChannelUrls().manifestUrl === SCRIPT_CONFIG.CHANNELS.dev.manifestUrl,
+            '安装开发版后默认检查开发渠道');
+        storage.set('ai-grading-channel', 'preview');
+        check(getChannelName() === 'preview', '尊重手动选择的更新渠道');
+        storage.delete('ai-grading-channel');
+        showOnboardingDialog(true, 'first-launch');
+        check(get('ob-skip').tagName === 'A' && getComputedStyle(document.querySelector('[data-marker-login]')).minHeight === '44px',
+            '首次使用的稍后设置是低强调链接，登录动作有完整点击区域');
+        storage.set('ai-grading-channel', 'stable');
+        handleUpdateResult('99.0.0', {}, false);
+        check(!get('ai-update-dialog'), '首次设置期间延迟自动更新提醒');
+        get('ob-skip').click();
+        check(get('ai-update-dialog') && !get('ai-update-dialog').hidden, '离开引导后展示待处理更新');
+        showOnboardingDialog(true, 'first-launch');
+        check(get('ai-update-dialog').hidden, '新引导打开时隐藏已显示的自动更新提醒');
+        get('ob-skip').click();
+        get('ai-update-dialog').remove();
+        storage.delete('ai-grading-channel');
         window.getChannelName = window.getBuildChannel = window.getBuildChannelLabel = () => 'dev';
         window.markUnsavedChanges = () => {};
         setupSettingsMenuLayout = () => {};
@@ -117,6 +137,36 @@ window.GM_xmlhttpRequest = request => {
         const fixtureAccountKey = 'sk-' + 'd'.repeat(32);
         storage.set(MARKER_ACCOUNT_KEY, { accountId: 17, apiKey: fixtureAccountKey });
         get('ai-grading-settings').dispatchEvent(new Event('marker-account-refresh'));
+        check(get('manual-api-field').hidden && !document.querySelector('[data-marker-billing]').hidden,
+            '已连接账号后设置隐藏手填密钥并提供余额入口');
+        reset('network', 'ok');
+        await get('official-route-test').onclick();
+        check(tried(shanghai, main) && get('official-route-test-status').textContent.includes('主端点')
+            && !get('official-route-use-tested').hidden, '已连接账号可测试线路并选择已连通的备用线路');
+        get('official-route-use-tested').click();
+        check(official().endpointLine === 'primary', '用户确认后固定使用通过测试的线路');
+        ProviderManager.saveOfficialConnection('backup');
+        refreshOfficialEndpointOptions();
+        reset('network', 'ok');
+        showOnboardingDialog(true, 'first-launch');
+        const until = async predicate => {
+            const deadline = Date.now() + 2000;
+            while (!predicate() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+        };
+        check(get('ob-next').disabled && !get('ob-apikey'), '已授权的引导直接进入线路检测，不出现密钥框');
+        await until(() => get('ob-next')?.textContent === '配置批改方案');
+        check(tried(shanghai, main) && get('ob-status').textContent.includes('主端点') && officialApiFallback?.line === 'primary'
+            && document.activeElement === get('ob-next') && !get('ob-api-manual'),
+            '备用线路通过后启用并聚焦配置批改方案');
+        get('ob-next').click();
+        check(get('ob-preset-name'), '成功页主操作进入方案配置');
+        hideOnboardingDialog();
+        reset('network', 'network');
+        showOnboardingDialog(true, 'first-launch');
+        await until(() => get('ob-next')?.textContent === '重试线路测试');
+        check(get('ob-next').textContent === '重试线路测试' && !get('ob-apikey'),
+            '连接失败时保留账号状态和重试动作');
+        hideOnboardingDialog();
         const accountCall = ProviderManager.getCallConfig('5plus1官方', 'aimarker-fast');
         check(accountCall.officialAccountId === 17 && !accountCall.apiKey &&
             !document.documentElement.innerHTML.includes(fixtureAccountKey) && get('api-key').value === 'fixture-key',
