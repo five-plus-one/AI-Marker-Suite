@@ -367,6 +367,16 @@ const ProviderManager = {
     getCurrentApiKey() {
         return this.getCurrentProvider().apiKey || '';
     },
+    getCredentialConfig(providerName) {
+        const provider = this.getProvider(providerName);
+        const account = providerName === '5plus1官方' && getOfficialApiLine(provider) &&
+            typeof markerManagedAccount === 'function' ? markerManagedAccount() : null;
+        return account ? { apiKey: '', officialAccountId: account.accountId } : { apiKey: provider?.apiKey || '' };
+    },
+    hasApiKey(providerName) {
+        const credentials = this.getCredentialConfig(providerName);
+        return Boolean(credentials.apiKey || credentials.officialAccountId);
+    },
     getCurrentModelId() {
         return this.data.activeModel || '';
     },
@@ -378,7 +388,7 @@ const ProviderManager = {
         return {
             endpoint: officialApiLine ? getOfficialApiEndpoint(officialApiLine) : provider.endpoint,
             ...(officialApiLine ? { officialApiLine } : {}),
-            apiKey: provider.apiKey,
+            ...this.getCredentialConfig(providerName),
             model: modelId
         };
     },
@@ -779,6 +789,14 @@ function filterUsableImagesForAI(list) {
 
 // ========== 通用 AI 请求函数 ==========
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
+    let apiKey = config.apiKey;
+    if (config.officialAccountId) {
+        const account = markerManagedAccount();
+        if (!account || account.accountId !== config.officialAccountId || !isTrustedOfficialEndpoint(config.endpoint)) {
+            return Promise.reject(Error('五加一账号连接已变化，请确认账号后继续'));
+        }
+        apiKey = account.apiKey;
+    }
     const signal = config.signal || window.aiGradingState.abortController?.signal;
     let abortRequest, timeout;
     return new Promise((resolve, reject) => {
@@ -905,10 +923,11 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         const request = GM_xmlhttpRequest({
             method: 'POST',
             url: config.endpoint,
-            ...(config.officialApiLine ? { redirect: 'error' } : {}),
+            ...(config.officialApiLine || config.officialAccountId ? { redirect: 'error' } : {}),
+            ...(config.officialAccountId ? { anonymous: true } : {}),
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.apiKey}`
+                'Authorization': `Bearer ${apiKey}`
             },
             data: JSON.stringify(requestBody),
             timeout: 120000,

@@ -957,7 +957,6 @@ function createSettingsPanel(options) {
                                 <button class="preset-btn" id="btn-new-provider">新建</button>
                                 <button class="preset-btn danger" id="btn-del-provider">删除</button>
                             </div>
-                            <div id="api-key-link-container" style="display:none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">获取访问凭证</a></div>
                         </div>
                         <div class="form-group" id="custom-endpoint-field"><label for="api-endpoint">服务网关 URL</label><input type="text" id="api-endpoint"></div>
                         <div class="form-group" id="official-endpoint-field" hidden>
@@ -968,7 +967,13 @@ function createSettingsPanel(options) {
                             </select>
                             <p id="official-endpoint-help" style="font-size:12px;color:#86868b;margin:6px 0 0;">主端点带宽较大。国内部分地区访问受限时，可以切换到上海备用端点。</p>
                         </div>
-                        <div class="form-group"><label>通信密钥 (Token) *</label><input type="password" id="api-key" placeholder="必填，否则无法使用 AI 批改"></div>
+                        <div id="official-account-field" hidden>${markerAccountControls()}</div>
+                        <details id="manual-api-field" class="form-group" open>
+                            <summary>或手动输入 API 密钥</summary>
+                            <label for="api-key">API 密钥</label>
+                            <input type="password" id="api-key" autocomplete="off" placeholder="输入 API 密钥">
+                            <div id="api-key-link-container" hidden><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" class="api-key-link">获取 API 密钥</a></div>
+                        </details>
                         <div class="form-group">
                             <label>模型列表</label>
                             <div id="model-list" style="margin-bottom:8px;"></div>
@@ -981,7 +986,7 @@ function createSettingsPanel(options) {
                 </div>
                 <div class="api-key-warning hidden" id="api-key-warning">
                     <span class="warn-icon">!</span>
-                    <span>尚未填写通信密钥，AI 批改功能将无法使用。请在上方填入 API Key。</span>
+                    <span>请连接五加一账号或填写所选供应商的 API 密钥。</span>
                 </div>
 
                 <!-- 勤勉加分 -->
@@ -1126,6 +1131,12 @@ function createSettingsPanel(options) {
                                     <span class="about-link-desc" style="display:block;">汇集运行日志、阅卷记录和配置摘要</span>
                                 </span>
                             </button>
+                            <button type="button" id="btn-upload-diagnostics" class="about-link" style="text-align:left;">
+                                <span class="about-link-text">
+                                    <span>上传诊断包</span>
+                                    <span class="about-link-desc" style="display:block;">登录五加一账号后提交给支持人员</span>
+                                </span>
+                            </button>
                             <a href="https://aimarking.five-plus-one.com/" target="_blank" class="about-link">
                                 <span class="about-link-icon">📖</span>
                                 <div class="about-link-text">
@@ -1262,13 +1273,8 @@ function createSettingsPanel(options) {
                 if (wf) {
                     var pName = wf.model?.provider || ProviderManager.data.activeProvider;
                     var mName = wf.model?.model || ProviderManager.data.activeModel;
-                    var prov = ProviderManager.getProvider(pName);
-                    callConfig = {
-                        endpoint: prov?.endpoint || '',
-                        apiKey: prov?.apiKey || '',
-                        model: mName,
-                        reasoningEffort: wf.model?.reasoningEffort || '',
-                    };
+                    const call = ProviderManager.getCallConfig(pName, mName);
+                    if (call) callConfig = { ...call, reasoningEffort: wf.model?.reasoningEffort || '' };
                 }
             } catch (e) { /* ignore */ }
             if (typeof openMarkdownEditor === 'function') {
@@ -1325,6 +1331,10 @@ function createSettingsPanel(options) {
     panel.querySelector('#btn-new-provider').onclick = handleNewProvider;
     panel.querySelector('#btn-del-provider').onclick = handleDeleteProvider;
     panel.querySelector('#ai-provider').onchange = handleProviderChange;
+    const refreshAccount = bindMarkerAccountControls(panel, () => {
+        if (panel.isConnected) updateUIVisibility();
+    });
+    panel.addEventListener('marker-account-refresh', () => refreshAccount());
     panel.querySelector('#official-endpoint').onchange = handleOfficialEndpointChange;
     panel.querySelector('#btn-add-model').onclick = handleAddModel;
     panel.querySelector('#new-model-id').onkeydown = (e) => { if (e.key === 'Enter') handleAddModel(); };
@@ -1334,6 +1344,7 @@ function createSettingsPanel(options) {
     panel.querySelector('#btn-new-workflow').onclick = handleNewWorkflow;
 
     panel.querySelector('#btn-export-diagnostics').onclick = () => showDiagnosticExport();
+    panel.querySelector('#btn-upload-diagnostics').onclick = event => { if (event.isTrusted) showDiagnosticExport(true); };
 
     // 配置导出
     panel.querySelector('#btn-export-config').onclick = () => {
@@ -1489,7 +1500,7 @@ function createSettingsPanel(options) {
     const apiKeyInput = panel.querySelector('#api-key');
     if (apiKeyInput) {
         apiKeyInput.addEventListener('input', () => {
-            const hasKey = apiKeyInput.value.trim().length > 0;
+            const hasKey = apiKeyInput.value.trim().length > 0 || hasSettingsAccount();
             const warning = document.getElementById('api-key-warning');
             const badge = document.getElementById('api-key-badge');
             if (warning) warning.classList.toggle('hidden', hasKey);
@@ -1744,6 +1755,7 @@ function openSettingsPanel() {
     const overlay = document.getElementById('ai-settings-overlay');
     if (panel) {
         panel.style.setProperty('display', 'flex', 'important');
+        panel.dispatchEvent(new Event('marker-account-refresh'));
         requestAnimationFrame(() => panel.classList.add('open'));
     }
     if (overlay) {
@@ -2286,13 +2298,20 @@ function switchSettingsPage(pageId) {
 function updateUIVisibility() {
     const provider = document.getElementById('ai-provider').value;
     const apiKeyLink = document.getElementById('api-key-link-container');
-    const endpointInput = document.getElementById('api-endpoint');
+    const manual = document.getElementById('manual-api-field');
+    const accountField = document.getElementById('official-account-field');
     const apiKeyInput = document.getElementById('api-key');
     const apiKeyWarning = document.getElementById('api-key-warning');
     const apiKeyBadge = document.getElementById('api-key-badge');
 
     const official = provider === '5plus1官方';
-    apiKeyLink.style.display = official ? 'block' : 'none';
+    apiKeyLink.hidden = !official;
+    accountField.hidden = !official;
+    manual.querySelector('summary').hidden = !official;
+    if (manual.dataset.official !== String(official)) {
+        manual.dataset.official = String(official);
+        manual.open = !official;
+    }
     document.getElementById('official-endpoint-field').hidden = !official;
     document.getElementById('custom-endpoint-field').hidden = official;
     if (official) {
@@ -2301,7 +2320,7 @@ function updateUIVisibility() {
     }
 
     // API 密钥未填写时显示警告
-    const hasKey = apiKeyInput.value.trim().length > 0;
+    const hasKey = apiKeyInput.value.trim().length > 0 || hasSettingsAccount();
     if (apiKeyWarning) {
         apiKeyWarning.classList.toggle('hidden', hasKey);
     }
@@ -2315,9 +2334,13 @@ function updateUIVisibility() {
     updateSettingsHeaderStatus();
 }
 
+function hasSettingsAccount() {
+    return document.getElementById('ai-provider')?.value === '5plus1官方' && Boolean(markerManagedAccount());
+}
+
 function updateGroupHints() {
     const apiKeyInput = document.getElementById('api-key');
-    const hasKey = apiKeyInput && apiKeyInput.value.trim().length > 0;
+    const hasKey = apiKeyInput?.value.trim() || hasSettingsAccount();
     const required = validateRequiredFields({ showErrors: false });
 
     const groupAI = document.getElementById('group-ai');
@@ -2330,7 +2353,7 @@ function updateGroupHints() {
             if (!existingWarn) {
                 const warn = document.createElement('span');
                 warn.className = 'config-warn';
-                warn.textContent = '请填写密钥';
+                warn.textContent = '请连接 AI 服务';
                 groupAI.appendChild(warn);
             }
         } else if (existingWarn) {
@@ -2392,7 +2415,7 @@ function updateSettingsNavBadges() {
         plan: !document.getElementById('preset-select')?.value,
         grading: !_answerText || !_rubricText ||
             scoringUnits.some(u => !u.maxScore || u.maxScore <= 0),
-        ai: !apiKeyInput?.value.trim() || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
+        ai: (!apiKeyInput?.value.trim() && !hasSettingsAccount()) || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
         automation: !!batchEnabled && batchTarget <= 0,
         data: false,
         about: false,
@@ -2570,7 +2593,7 @@ async function handleNewProvider() {
     document.getElementById('ai-provider').value = name;
     handleProviderChange();
     renderModelList();
-    document.getElementById('api-key-link-container').style.display = 'none';
+    document.getElementById('api-key-link-container').hidden = true;
     showToast(`供应商「${name}」创建成功`);
 }
 
@@ -3202,7 +3225,7 @@ function showOnboardingDialog(forceShow, mode) {
     _onboardingDialogOpen = true;
 
     mode = mode || 'first-launch';
-    if (!forceShow && ProviderManager.getProvider('5plus1官方')?.apiKey && mode !== 'new-question') {
+    if (!forceShow && ProviderManager.hasApiKey('5plus1官方') && mode !== 'new-question') {
         _onboardingDialogOpen = false;
         return;
     }
@@ -3271,15 +3294,17 @@ function showOnboardingDialog(forceShow, mode) {
     function renderApiStep() {
         return `
             <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
-                AI 批改助手可以帮助你自动批改试卷。首先，请配置你的 API 密钥。
+                连接五加一账号，即可使用 AI 批改。
             </p>
-            <div class="form-group">
+            ${markerAccountControls()}
+            <details class="form-group" id="ob-api-manual">
+                <summary>或手动输入 API 密钥</summary>
                 <label for="ob-apikey">API 密钥</label>
                 <input type="password" id="ob-apikey" placeholder="请输入 5plus1 API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}" style="width:100%;">
                 <div style="margin-top:6px;">
-                    <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" style="font-size:12px;color:#0052FF;text-decoration:none;">点击获取访问凭证 →</a>
+                    <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:#0052FF;text-decoration:none;">获取 API 密钥</a>
                 </div>
-            </div>
+            </details>
             <div id="ob-status" role="status" aria-live="polite" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
         `;
     }
@@ -3421,9 +3446,23 @@ function showOnboardingDialog(forceShow, mode) {
         const s = getStepInfo();
 
         if (s.apiStep) {
-            overlay.querySelector('#ob-skip').onclick = hideOnboardingDialog;
-            overlay.querySelector('#ob-next').onclick = async () => {
-                if (_onboardingApiCheck) return;
+            const next = overlay.querySelector('#ob-next');
+            const manual = overlay.querySelector('#ob-api-manual');
+            const refreshActions = () => {
+                const connected = Boolean(markerManagedAccount());
+                next.style.display = connected || manual.open ? '' : 'none';
+                if (!_onboardingApiCheck) next.textContent = connected ? '继续设置' : '验证并继续';
+            };
+            bindMarkerAccountControls(overlay, refreshActions);
+            refreshActions();
+            manual.addEventListener('toggle', refreshActions);
+            overlay.querySelector('#ob-skip').onclick = () => {
+                cancelMarkerConnection();
+                hideOnboardingDialog();
+            };
+            next.onclick = async () => {
+                if (_onboardingApiCheck || markerConnection) return;
+                if (markerManagedAccount()) { currentStep++; render(); return; }
                 const input = overlay.querySelector('#ob-apikey');
                 const key = input.value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
@@ -3512,8 +3551,8 @@ function showOnboardingDialog(forceShow, mode) {
                             if (_wf) {
                                 var _pName = _wf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
                                 var _mName = _wf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
-                                var _prov = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_pName) : null;
-                                _callConfig = { endpoint: _prov?.endpoint || '', apiKey: _prov?.apiKey || '', model: _mName, reasoningEffort: _wf.model?.reasoningEffort || '' };
+                                const call = ProviderManager.getCallConfig(_pName, _mName);
+                                if (call) _callConfig = { ...call, reasoningEffort: _wf.model?.reasoningEffort || '' };
                             }
                         } catch (e) { /* ignore */ }
                         openMarkdownEditor({

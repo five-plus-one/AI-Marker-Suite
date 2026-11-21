@@ -298,7 +298,7 @@ async function startAutoGrading() {
     try {
         // 使用新的配置获取方式（优先工作流，回退直接配置）
         const config = JSON.parse(JSON.stringify(PresetManager.getActiveCallConfig()));
-        if (!config.apiKey) {
+        if (!config.apiKey && !config.officialAccountId) {
             openSettingsPanel();
             showToast('请先配置 AI 密钥');
             window.aiGradingState.isRunning = false;
@@ -839,6 +839,10 @@ function recoverMarkingUIIfReady() {
 
 async function runInitBody() {
     if (window !== window.top) return; // 跳过 iframe
+    if (typeof MARKER_TOOLS_ORIGIN !== 'undefined' && window.location.origin === MARKER_TOOLS_ORIGIN) {
+        await finishMarkerAccount();
+        return;
+    }
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // 检测是否在工具页面
@@ -1051,9 +1055,7 @@ async function runNewTaskOnboardingFlow(currentUrlId) {
     }
 
     // 检查 API KEY 是否配置
-    const apiKey = ProviderManager.getProvider('5plus1官方')?.apiKey || '';
-    console.log('🔍 [OOBE调试] apiKey存在:', !!apiKey);
-    if (!apiKey) {
+    if (!ProviderManager.hasApiKey('5plus1官方')) {
         console.log('🔍 [OOBE调试] 无API Key，弹出首次启动OOBE');
         showOnboardingDialog(true, 'first-launch');
         return;

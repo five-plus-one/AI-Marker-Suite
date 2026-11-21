@@ -7,6 +7,7 @@ const storage = new Map(), checks = [], requests = [];
 let outcomes = [], failStorage = false, cloudPolicy;
 const cloudRequests = [];
 window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
+window.GM_deleteValue = key => storage.delete(key);
 window.GM_setValue = (key, value) => {
     if (failStorage && key === 'ai-grading-providers-v2') throw Error('storage unavailable');
     storage.set(key, value);
@@ -39,6 +40,7 @@ window.GM_xmlhttpRequest = request => {
 <script src="../../src/core/state.js"></script>
 <script src="../../src/core/runtime.js"></script>
 <script src="../../src/core/score.js"></script>
+<script src="../../src/core/marker-account.js"></script>
 <script src="../../src/core/ai-engine.js"></script>
 <script src="../../src/core/preset.js"></script>
 <script src="../../src/core/prompt.js"></script>
@@ -109,6 +111,22 @@ window.GM_xmlhttpRequest = request => {
         get('ai-provider').value = '5plus1官方';
         handleProviderChange();
         const select = get('official-endpoint'), custom = get('custom-endpoint-field');
+        check(!get('manual-api-field').open && !get('official-account-field').hidden &&
+            document.querySelector('[data-marker-login]').textContent.includes('五加一账号'), '官方设置优先账号登录，并折叠手填密钥');
+        const fixtureAccountKey = 'sk-' + 'd'.repeat(32);
+        storage.set(MARKER_ACCOUNT_KEY, { accountId: 17, apiKey: fixtureAccountKey });
+        get('ai-grading-settings').dispatchEvent(new Event('marker-account-refresh'));
+        const accountCall = ProviderManager.getCallConfig('5plus1官方', 'aimarker-fast');
+        check(accountCall.officialAccountId === 17 && !accountCall.apiKey &&
+            !document.documentElement.innerHTML.includes(fixtureAccountKey) && get('api-key').value === 'fixture-key',
+            '账号密钥仅在实际请求时读取，手填密钥独立保留');
+        const beforeBlockedCall = requests.length;
+        await callAIOnce('模拟请求', [], { ...accountCall, endpoint: 'https://other.example/v1/chat/completions' })
+            .then(() => { throw Error('账号密钥必须限定在官方端点'); }, () => {});
+        check(requests.length === beforeBlockedCall, '第三方端点无法使用五加一账号密钥');
+        check(disconnectMarkerAccount() && ProviderManager.getCallConfig('5plus1官方','aimarker-fast').apiKey === 'fixture-key',
+            '断开账号后恢复手填密钥');
+        get('ai-grading-settings').dispatchEvent(new Event('marker-account-refresh'));
         check(select.value === 'backup' && custom.hidden && !get('official-endpoint-field').hidden
             && get('official-endpoint-help').textContent.includes('国内部分地区'), '设置显示当前官方端点与使用提示');
         const change = endpoint => { select.value = endpoint; select.dispatchEvent(new Event('change')); };
@@ -123,6 +141,7 @@ window.GM_xmlhttpRequest = request => {
         get('ai-provider').value = 'OpenAI兼容';
         handleProviderChange();
         check(get('official-endpoint-field').hidden && !custom.hidden && get('api-endpoint').value.includes('api.openai.com'), '自定义服务保持网关配置');
+        check(get('manual-api-field').open && get('official-account-field').hidden, '自定义服务直接展示手填设置');
         check(cloudRequests.length === 1 && cloudRequests[0].url === SCRIPT_CONFIG.API_ROUTING_URL
             && cloudRequests[0].anonymous && !cloudRequests[0].headers, '云控读取独立于密钥与答卷');
         const cloudMain = 'https://regional-fixture.ai.five-plus-one.com/v1/chat/completions';
