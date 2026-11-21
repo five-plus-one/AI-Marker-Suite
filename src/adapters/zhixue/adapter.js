@@ -634,7 +634,7 @@ const ZhixueAdapter = {
             const abort = () => finish(false, 'aborted');
             const checkNextTimer = setInterval(() => {
                 checkTimes++;
-                dialogs?.sample();
+                if (checkTimes % 10 === 0) dialogs?.sample();
                 const taskId = this.getGradingTaskIdentifier();
                 if (context.signal?.aborted) return abort();
                 if (context.taskId && taskId && taskId !== context.taskId) return finish(false, 'task-changed');

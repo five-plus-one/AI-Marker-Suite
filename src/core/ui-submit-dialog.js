@@ -55,8 +55,10 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         try {
             hasNext = await adapter.waitForNextPaper(oldImgUrl, runContext ? {
                 paperId: runContext.paperId, taskId: runContext.taskId, signal: runContext.controller.signal,
-                onDialog: diagnostic && (snapshot => diagnostic.grading('platform-dialog', runContext, { round, ...snapshot }, { persist: true })),
-                onWaitObserved: diagnostic && (summary => { observation = summary; }),
+                ...(diagnostic && adapter.id === 'zhixue' ? {
+                    onDialog: snapshot => diagnostic.grading('platform-dialog', runContext, { round, ...snapshot }, { persist: true }),
+                    onWaitObserved: summary => { observation = summary; },
+                } : {}),
             } : undefined);
         } catch (e) {
             waitError = e;

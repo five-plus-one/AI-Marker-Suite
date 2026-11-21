@@ -92,6 +92,8 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         files = await zipFiles();
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 3
             && files['运行日志.json'].length === 1 && files['运行日志.json'][0].at === earlier, '自选时间导出此前记录');
+        check(files['导出说明.json'].formatVersion === 1 && Object.keys(files).length === 4,
+            '只有旧日志的时间段沿用原有诊断包结构');
     } catch (error) {
         checks.push({ pass: false, label: error.message });
     }

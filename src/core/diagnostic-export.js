@@ -106,7 +106,7 @@ function exportDiagnosticPackage(start, end) {
     const configuration = diagnosticConfiguration(PresetManager.data, ProviderManager.data, WorkflowManager.data,
         ProviderManager._getDefault().providers, window.aiGradingState);
     const metadata = {
-        formatVersion: 2,
+        formatVersion: 1,
         scriptVersion: SCRIPT_CONFIG.VERSION,
         exportedAt: new Date().toISOString(),
         range: { start: new Date(start).toISOString(), end: new Date(end).toISOString() },
@@ -124,7 +124,7 @@ function exportDiagnosticPackage(start, end) {
     const files = {
         '导出说明.json': metadata,
         '运行日志.json': logs.entries,
-        '批改过程.json': logs.gradingEvents,
+        ...(logs.gradingEvents.length ? { '批改过程.json': logs.gradingEvents } : {}),
         '阅卷记录.json': records,
         '配置摘要.json': configuration,
     };
@@ -152,7 +152,7 @@ function showDiagnosticExport() {
         <form>
             <div class="ai-modal-header" id="ai-diagnostic-title">导出诊断包</div>
             <div class="ai-modal-body">
-                <p>导出这段时间的批改过程、运行日志、阅卷记录和配置摘要，供问题排查。批改过程包含平台弹窗的界面结构。</p>
+                <p>导出这段时间的批改过程、运行日志、阅卷记录和配置摘要。智学网换卷时出现的提示会随批改过程导出。</p>
                 <p>默认最近 2 小时，按此设备的时间选择。</p>
                 <label style="display:block;">开始时间
                     <input class="ai-modal-input" name="start" type="datetime-local" step="1" style="min-height:44px;" required autofocus>

@@ -84,7 +84,40 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
   window.showSaveFilePicker = async () => { throw new DOMException('Cancelled', 'AbortError'); };
   await exportButton.onclick();
   assert(!exportButton.disabled && notices.includes('已取消导出'), '取消保存后可以再次导出');
+  let aborted = false;
+  window.showSaveFilePicker = async () => ({ async createWritable() {
+      return { async write() { throw new DOMException('Disk write failed', 'QuotaExceededError'); },
+          async close() { throw new Error('failed file should not be committed'); },
+          async abort() { aborted = true; } };
+  } });
+  await exportButton.onclick();
+  assert(aborted && !exportButton.disabled && notices.some(note => note.includes('导出失败')), '写文件失败时结束写入并释放导出按钮');
+  window.showSaveFilePicker = async () => { throw new DOMException('Policy', 'SecurityError'); };
+  htmlBlob = null;
+  await exportButton.onclick();
+  assert(htmlBlob?.type.startsWith('text/html') && !exportButton.disabled, '站点策略阻止文件选择时仍能走原来的下载');
+  window.showSaveFilePicker = undefined;
+  htmlBlob = null;
+  await exportButton.onclick();
+  assert(htmlBlob?.type.startsWith('text/html'), '浏览器缺少文件选择接口时仍能导出');
   window.showSaveFilePicker = originalPicker;
+  for (const format of ['json', 'csv', 'zip']) {
+      document.querySelector('.hist-export-fmt[data-fmt="' + format + '"]').click();
+      htmlBlob = null;
+      downloadName = '';
+      exportButton.click();
+      for (let i = 0; i < 10 && !htmlBlob; i++) await new Promise(resolve => setTimeout(resolve, 10));
+      assert(downloadName.endsWith('.' + format) && !exportButton.disabled, format + ' 保留原有下载入口');
+      if (format === 'json') {
+          const rows = JSON.parse(await htmlBlob.text());
+          assert(rows.length === 1 && rows[0].reviewStatus === 'pending', 'JSON 评阅记录保持原格式');
+      } else if (format === 'csv') {
+          assert((await htmlBlob.text()).includes('时间,配置方案,模式,AI分数,最终分数'), 'CSV 保留已有列');
+      } else {
+          const bytes = new Uint8Array(await htmlBlob.arrayBuffer());
+          assert(new DataView(bytes.buffer).getUint32(0, true) === 0x04034b50, '材料包 ZIP 保留原格式');
+      }
+  }
   const panel=document.getElementById('ai-history-panel').getBoundingClientRect();assert(panel.width<=innerWidth&&panel.left>=-1,'评阅历史适配窗口宽度');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:String(error),stack:error.stack}))));}

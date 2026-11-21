@@ -59,6 +59,7 @@ function setup(responses, cfg) {
         call: () => context.callAI('题目', ['image'], cfg || config, (text) => updates.push(text)),
         requests,
         updates,
+        context,
     };
 }
 
@@ -238,4 +239,17 @@ test('流式中断（缺结束标记）→ 瞬态退避重试后恢复（中断�
     assert.equal(await call(), '得分：9', '中断重试成功后应返回第二次的完整结果');
     assert.equal(requests.length, 2, '中断应触发 1 次瞬态退避重试');
     assert.ok(updates.some(u => u.includes('响应未完整结束')), '应向 UI 通知中断并自动重试，实际: ' + JSON.stringify(updates));
+});
+
+test('批改诊断故障不改变模型返回结果，独立请求沿用原有传输流程', async () => {
+    const body = event({ delta: { content: '得分：8' }, finish_reason: 'stop' });
+    const controller = new AbortController();
+    const { call, context } = setup([{ body }, { body }], { ...config, signal: controller.signal });
+    let diagnosticCalls = 0;
+    context.DiagnosticLog = { grading() { diagnosticCalls++; throw Error('Diagnostic failure'); } };
+    assert.equal(await call(), '得分：8');
+    assert.equal(diagnosticCalls, 0);
+    context.window.aiGradingState.activeRun = { controller };
+    assert.equal(await call(), '得分：8');
+    assert.equal(diagnosticCalls, 1);
 });

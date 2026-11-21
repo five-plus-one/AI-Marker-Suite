@@ -5,11 +5,11 @@ const DiagnosticLog = (() => {
     const runIds = new WeakMap();
     let runSequence = 0;
 
-    function createJournal(prefix, maxChunks, chunkLimit) {
+    function createJournal(prefix, maxChunks, chunkLimit, deferWrites = false) {
         const chunkSpan = 20 * 60 * 1000;
         const prunedKey = prefix + 'pruned-through';
         const localChunks = new Map();
-        let active, timer, storageLimited = false, nextPrune = 0;
+        let active, timer, storageLimited = false, nextPrune = 0, urgent = false;
 
         function storedKeys() {
             return GM_listValues().filter(key => key.startsWith(prefix) && /^\d{13}-[a-z\d]+-\d+$/.test(key.slice(prefix.length)))
@@ -41,6 +41,7 @@ const DiagnosticLog = (() => {
         function flush() {
             clearTimeout(timer);
             timer = undefined;
+            urgent = false;
             if (!storageSupported || !localChunks.size) return;
             try {
                 for (const [key, chunk] of localChunks) {
@@ -61,7 +62,7 @@ const DiagnosticLog = (() => {
             if (!active || active.entries.length === chunkLimit || at - active.started >= chunkSpan) {
                 const previous = active;
                 active = { started: at, sequence: (previous?.sequence ?? -1) + 1, entries: [], saved: 0 };
-                if (previous) flush();
+                if (previous && !deferWrites) flush();
                 localChunks.set(prefix + at + '-' + session + '-' + active.sequence, active);
                 if (localChunks.size > 8) {
                     localChunks.delete(localChunks.keys().next().value);
@@ -69,8 +70,14 @@ const DiagnosticLog = (() => {
                 }
             }
             active.entries.push(entry);
-            if (persist) flush();
-            else if (storageSupported && timer === undefined) timer = setTimeout(flush, 1000);
+            if (!storageSupported) return;
+            if (persist && !urgent) {
+                clearTimeout(timer);
+                urgent = true;
+                timer = setTimeout(flush, 0);
+            } else if (timer === undefined) {
+                timer = setTimeout(flush, 1000);
+            }
         }
 
         function read(start, end) {
@@ -111,7 +118,7 @@ const DiagnosticLog = (() => {
     }
 
     const consoleJournal = createJournal('ai-marker-diagnostic-log-v1-', 192, 160);
-    const gradingJournal = createJournal('ai-marker-diagnostic-grading-v1-', 512, 240);
+    const gradingJournal = createJournal('ai-marker-diagnostic-grading-v1-', 512, 240, true);
 
     function identity() {
         const entry = { at: Date.now(), site: window.location.hostname, version: DIAGNOSTIC_SCRIPT_VERSION };
@@ -184,7 +191,8 @@ const DiagnosticLog = (() => {
 
     function lifecycle(event) {
         const state = window.aiGradingState;
-        if (!state?.activeRun && !state?.isRunning && !state?.isPaused && !event.persisted && !document.wasDiscarded) return;
+        if (!state?.activeRun && !state?.isRunning && !state?.isPaused
+            && !(window.__AI_MARKER_ADAPTER__ && (event.persisted || document.wasDiscarded))) return;
         grading('page-lifecycle', state?.activeRun, {
             transition: event.type, visibility: document.visibilityState, online: navigator.onLine,
             persisted: event.persisted, wasDiscarded: document.wasDiscarded,
@@ -196,6 +204,7 @@ const DiagnosticLog = (() => {
 
     // Persist before navigating away. Only this script's logging calls are collected.
     window.addEventListener?.('pagehide', flush);
+    document.addEventListener?.('freeze', flush);
     document.addEventListener?.('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
     const ownScript = /(?:AI-Marker-Suite|ai_marker|zhixue_ai_marking)\.user\.js/i;
     window.addEventListener?.('error', event => {

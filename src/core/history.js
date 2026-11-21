@@ -58,7 +58,6 @@ const ImageStore = {
                 resolve(this._db);
             };
             req.onerror = (e) => reject(e.target.error);
-            req.onblocked = () => reject(new Error('图片缓存正由另一个页面使用'));
         });
     },
 
@@ -767,7 +766,7 @@ const HistoryManager = {
                 const rows = batch.map(r => renderRow(r, images.get(r.id) || loaded.get(r.id) || []));
                 await writePart(writable ? rows.join('') : new Blob(rows));
                 onProgress?.(offset + batch.length, records.length);
-                if (offset + batch.length < records.length) await new Promise(resolve => setTimeout(resolve, 0));
+                if (!writable && offset + batch.length < records.length) await new Promise(resolve => setTimeout(resolve, 0));
             }
 
             await writePart('</body></html>');
@@ -791,13 +790,17 @@ const HistoryManager = {
         // 二进制（Uint8Array）直接入 Blob，不加 BOM、不字符串化
         const isBinary = content instanceof Uint8Array;
         const BOM = (!isBinary && type.includes('csv')) ? '﻿' : '';
-        const blob = content instanceof Blob ? content : new Blob(isBinary ? [content] : [BOM + content], { type });
+        const isBlob = content instanceof Blob;
+        const blob = isBlob ? content : new Blob(isBinary ? [content] : [BOM + content], { type });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
         try { a.click(); }
-        finally { setTimeout(() => URL.revokeObjectURL(url), 30000); }
+        finally {
+            if (isBlob) setTimeout(() => URL.revokeObjectURL(url), 30000);
+            else URL.revokeObjectURL(url);
+        }
     },
 
     startRegrade(id) {
@@ -1271,31 +1274,39 @@ function showHistoryPanel() {
     imageHelpButton.addEventListener('click', () => setImageHelpOpen(imageHelp.style.display === 'none'));
 
     const exportButton = panel.querySelector('#hist-export-btn');
-    exportButton.onclick = async () => {
-        if (HistoryManager.exportInProgress) {
+    exportButton.onclick = () => {
+        if (exportFormat === 'html') return exportHistoryHTML();
+        const records = getFilteredRecords();
+        if (exportFormat === 'json') HistoryManager.exportJSON(records);
+        else if (exportFormat === 'csv') HistoryManager.exportCSV(records);
+        else if (exportFormat === 'zip') HistoryManager.exportMaterialsPackage(records, { includeImages: imageOption === 'with' });
+    };
+
+    async function exportHistoryHTML() {
+        if (HistoryManager.htmlExportInProgress) {
             showToast('评阅历史正在导出，请稍候');
             return;
         }
 
-        const format = exportFormat;
-        const includeImages = isImageAwareFormat() && imageOption === 'with';
+        const format = 'html';
+        const includeImages = imageOption === 'with';
         const startedAt = Date.now();
         const exportRun = {};
         const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
         let recordCount = 0;
         let processed = 0;
         let nextProgressReport = 500;
-        HistoryManager.exportInProgress = true;
+        HistoryManager.htmlExportInProgress = true;
         exportButton.disabled = true;
         exportButton.textContent = '正在导出…';
         try {
             const records = getFilteredRecords();
             recordCount = records.length;
-            const imageBytes = format === 'html' && includeImages ? records.reduce((total, record) => {
+            const imageBytes = includeImages ? records.reduce((total, record) => {
                 const image = ImageStore.getImageStatus(record.id);
-                return total + (image.status === 'local' ? image.size || 0 : 0);
+                return total + (image.status === 'local' && Number.isFinite(image.size) ? image.size : 0);
             }, 0) : 0;
-            const saveDirectly = imageBytes >= 128 * 1024 * 1024 && window.top === window && typeof window.showSaveFilePicker === 'function';
+            const saveDirectly = imageBytes >= 128 * 1024 * 1024 && typeof window.showSaveFilePicker === 'function';
             diagnostic?.grading('history-export-started', exportRun, {
                 format, includeImages, recordCount, imageBytes, saveDirectly,
             }, { persist: true });
@@ -1307,16 +1318,17 @@ function showHistoryPanel() {
                         types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
                     });
                 } catch (error) {
-                    if (error?.name !== 'AbortError') throw error;
-                    diagnostic?.grading('history-export-finished', exportRun, { format, outcome: 'cancelled' }, { persist: true });
-                    showToast('已取消导出');
-                    return;
+                    if (error?.name === 'AbortError') {
+                        diagnostic?.grading('history-export-finished', exportRun, { format, outcome: 'cancelled' }, { persist: true });
+                        showToast('已取消导出');
+                        return;
+                    }
+                    if (error?.name !== 'SecurityError' && error?.name !== 'NotSupportedError') throw error;
+                    diagnostic?.grading('history-export-picker-unavailable', exportRun, { format }, { error });
                 }
             }
             await new Promise(resolve => setTimeout(resolve, 0));
-            if (format === 'json') HistoryManager.exportJSON(records);
-            else if (format === 'csv') HistoryManager.exportCSV(records);
-            else if (format === 'html') await HistoryManager.exportHTML(records, {
+            await HistoryManager.exportHTML(records, {
                 includeImages,
                 fileHandle,
                 onProgress(done, total) {
@@ -1328,7 +1340,6 @@ function showHistoryPanel() {
                     exportButton.textContent = `正在导出 ${done}/${total}`;
                 },
             });
-            else if (format === 'zip') await HistoryManager.exportMaterialsPackage(records, { includeImages });
 
             diagnostic?.grading('history-export-finished', exportRun, {
                 format, includeImages, recordCount, elapsedMs: Date.now() - startedAt,
@@ -1342,11 +1353,11 @@ function showHistoryPanel() {
             console.error('导出评阅历史失败', error);
             showToast('评阅历史导出失败，请减少导出的记录后重试');
         } finally {
-            HistoryManager.exportInProgress = false;
+            HistoryManager.htmlExportInProgress = false;
             exportButton.disabled = false;
             exportButton.textContent = '导出当前视图';
         }
-    };
+    }
 
     // 批量管理
     const selectedIds = new Set();

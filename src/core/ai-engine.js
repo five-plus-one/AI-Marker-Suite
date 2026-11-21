@@ -884,16 +884,23 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             }
         }
 
-        const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
         const activeRun = typeof window === 'undefined' ? undefined : window.aiGradingState?.activeRun;
         const diagnosticRun = signal && activeRun?.controller.signal === signal ? activeRun : undefined;
-        const requestedAt = Date.now();
+        const diagnostic = diagnosticRun && typeof DiagnosticLog !== 'undefined' ? DiagnosticLog : undefined;
+        const requestedAt = diagnostic ? Date.now() : 0;
         const reportTransport = (outcome, response) => {
-            const requestId = /^x-oneapi-request-id:[ \t]*([0-9a-z_-]{1,96})[ \t]*\r?$/im.exec(response?.responseHeaders || '')?.[1];
-            diagnostic?.grading('model-transport-finished', diagnosticRun, {
-                outcome, httpStatus: response?.status, elapsedMs: Date.now() - requestedAt,
-                responseChars: response?.responseText?.length, progressCallbacks: progressCallCount, requestId,
-            });
+            try {
+                const headers = config.officialApiLine && typeof response?.responseHeaders === 'string'
+                    ? response.responseHeaders : '';
+                const requestId = /^x-oneapi-request-id:[ \t]*([0-9a-z_-]{1,96})[ \t]*\r?$/im.exec(headers)?.[1];
+                diagnostic.grading('model-transport-finished', diagnosticRun, {
+                    outcome, httpStatus: Number.isInteger(response?.status) ? response.status : undefined,
+                    elapsedMs: Date.now() - requestedAt,
+                    responseChars: typeof response?.responseText === 'string' ? response.responseText.length : undefined,
+                    progressCallbacks: progressCallCount,
+                    requestId: requestId !== config.apiKey && !requestId?.startsWith('sk-') ? requestId : undefined,
+                });
+            } catch (_) { /* 诊断信息与模型请求结果独立。 */ }
         };
         const request = GM_xmlhttpRequest({
             method: 'POST',
