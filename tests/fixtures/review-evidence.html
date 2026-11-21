@@ -41,6 +41,50 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
   button.click();assert(HistoryManager.getPendingReviewCount()===0,'完成复核后数量减少');
   filter.value='';filter.dispatchEvent(new Event('change'));document.querySelector('.hist-review-btn').click();assert(HistoryManager.getPendingReviewCount()===1,'可以重新标为待复核');
   document.querySelector('.hist-detail-btn').click();assert(document.body.textContent.includes('本卷评分方案'),'可查看评分方案');document.getElementById('detail-close').click();
+  const htmlButton = document.querySelector('.hist-export-fmt[data-fmt="html"]');
+  htmlButton.click();
+  const withImages = document.querySelector('[data-img="with"]');
+  const noImages = document.querySelector('[data-img="without"]');
+  const help = document.getElementById('hist-img-help');
+  const exportButton = document.getElementById('hist-export-btn');
+  help.click();
+  assert(help.getAttribute('aria-expanded') === 'true', '可以打开图片说明');
+  noImages.click();
+  assert(noImages.getAttribute('aria-pressed') === 'true' && help.getAttribute('aria-expanded') === 'false', '可以切换无图并收起说明');
+  withImages.click();
+  assert(withImages.getAttribute('aria-pressed') === 'true', '可以切回有图');
+  let htmlBlob, downloadName;
+  URL.createObjectURL = blob => { htmlBlob = blob; return 'blob:history-fixture'; };
+  URL.revokeObjectURL = () => {};
+  HTMLAnchorElement.prototype.click = function () { downloadName = this.download; };
+  const pending = exportButton.onclick();
+  assert(exportButton.disabled && exportButton.textContent.includes('正在导出'), '导出开始时按钮显示进度');
+  await pending;
+  const exported = await htmlBlob.text();
+  assert(downloadName.endsWith('.html') && exported.includes('data:image/png;base64,') && !exportButton.disabled, '有图 HTML 下载后恢复按钮');
+  noImages.click();
+  await exportButton.onclick();
+  assert(!(await htmlBlob.text()).includes('data:image/png;base64,'), '无图 HTML 按选项导出');
+  const originalPicker = window.showSaveFilePicker;
+  const metadata = ImageStore._getMeta();
+  metadata[id].size = 150 * 1024 * 1024;
+  const fileParts = [];
+  let saved = false, picked = false;
+  window.showSaveFilePicker = async options => {
+      picked = options.suggestedName.endsWith('.html');
+      return { async createWritable() {
+          return { async write(part) { fileParts.push(part); }, async close() { saved = true; }, async abort() {} };
+      } };
+  };
+  withImages.click();
+  htmlBlob = null;
+  await exportButton.onclick();
+  assert(picked && saved && htmlBlob === null && (await new Blob(fileParts).text()).includes('data:image/png;base64,'),
+      '大份有图 HTML 逐批写入所选文件');
+  window.showSaveFilePicker = async () => { throw new DOMException('Cancelled', 'AbortError'); };
+  await exportButton.onclick();
+  assert(!exportButton.disabled && notices.includes('已取消导出'), '取消保存后可以再次导出');
+  window.showSaveFilePicker = originalPicker;
   const panel=document.getElementById('ai-history-panel').getBoundingClientRect();assert(panel.width<=innerWidth&&panel.left>=-1,'评阅历史适配窗口宽度');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:String(error),stack:error.stack}))));}

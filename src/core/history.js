@@ -58,6 +58,7 @@ const ImageStore = {
                 resolve(this._db);
             };
             req.onerror = (e) => reject(e.target.error);
+            req.onblocked = () => reject(new Error('图片缓存正由另一个页面使用'));
         });
     },
 
@@ -84,6 +85,22 @@ const ImageStore = {
             const req = tx.objectStore(this.STORE_NAME).get(recordId);
             req.onsuccess = () => resolve(req.result || null);
             req.onerror = (e) => reject(e.target.error);
+        });
+    },
+
+    async getMany(recordIds) {
+        if (!recordIds.length) return new Map();
+        const db = await this.getDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(this.STORE_NAME, 'readonly');
+            const store = tx.objectStore(this.STORE_NAME);
+            const images = new Map();
+            tx.oncomplete = () => resolve(images);
+            tx.onabort = () => reject(tx.error || new Error('图片读取已中断'));
+            for (const id of new Set(recordIds)) {
+                const req = store.get(id);
+                req.onsuccess = () => images.set(id, req.result || []);
+            }
         });
     },
 
@@ -639,36 +656,20 @@ const HistoryManager = {
     },
 
     async exportHTML(records, options = {}) {
-        const { includeImages = true } = options;
+        const { includeImages = true, onProgress, fileHandle } = options;
         records = records || this.records;
         const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' };
         const renderMd = window.__aiMarkdownRenderer
             ? function (t) { return window.__aiMarkdownRenderer.render(t || ''); }
             : function (t) { return (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); };
 
-        // 加载可导出的图片（仅当前 origin 的 IndexedDB）
-        const imageMap = {};
-        let remoteCount = 0;
-        if (includeImages) {
-            for (const r of records) {
-                const imgStatus = ImageStore.getImageStatus(r.id);
-                if (imgStatus.status === 'local') {
-                    const base64s = r.imageBase64s?.length ? r.imageBase64s : await ImageStore.get(r.id);
-                    if (base64s) imageMap[r.id] = base64s;
-                } else if (imgStatus.status === 'remote') {
-                    remoteCount++;
-                }
-            }
-        }
-
-        const rows = records.map(r => {
+        const renderRow = (r, base64s) => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const mode = modeLabel[r.gradingMode] || r.gradingMode;
             const scoreText = r.isCorrected ? `${r.aiScore} → ${historyScoreText(r)} ✓` : historyScoreText(r);
             const correctedRow = r.isCorrected ? `<div style="color:#0052FF;font-size:12px;margin-top:4px;">纠错理由：${r.correctionReason || '无'}</div>` : '';
             const markedRow = r.reviewStatus === 'pending' ? '<span style="color:#D93025;margin-left:8px;">待复核</span>'
                 : r.status === 'marked' ? `<span style="color:#D93025;font-size:11px;margin-left:8px;">⚠ 待回评</span>` : '';
-            const base64s = imageMap[r.id] || [];
             const images = (r.imageUrls || []).map((url, j) => {
                 const b64 = base64s[j];
                 return b64 ? `<img src="data:image/png;base64,${b64}" style="max-width:100%;border-radius:6px;margin-top:8px;">` : '';
@@ -715,9 +716,11 @@ const HistoryManager = {
                     ${images ? `<div style="margin-top:8px;">${images}</div>` : ''}
                 </div>
             `;
-        }).join('\n');
+        };
 
-        const html = `<!DOCTYPE html>
+        const imageStatuses = new Map(includeImages ? records.map(r => [r.id, ImageStore.getImageStatus(r.id).status]) : []);
+        const remoteCount = records.filter(r => imageStatuses.get(r.id) === 'remote').length;
+        const header = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><title>评阅历史</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -739,10 +742,43 @@ const HistoryManager = {
     <h1>评阅历史</h1>
     <div class="meta">导出时间：${new Date().toLocaleString('zh-CN')} · 共 ${records.length} 条记录</div>
     ${remoteCount > 0 ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:#856404;">⚠ ${remoteCount} 条记录的图片存储在其他阅卷平台，如需包含图片请在对应平台导出。</div>` : ''}
-    ${rows || '<div style="color:#aaa;text-align:center;padding:40px;">暂无记录</div>'}
-</body></html>`;
-        this._download(html, '评阅历史_' + this._fileTimestamp() + '.html', 'text/html;charset=utf-8');
-        showToast('HTML导出完成');
+    `;
+        const type = 'text/html;charset=utf-8';
+        const parts = [];
+        const writable = fileHandle ? await fileHandle.createWritable() : null;
+        const writePart = part => writable ? writable.write(part) : parts.push(part);
+        try {
+            await writePart(header);
+            if (!records.length) await writePart('<div style="color:#aaa;text-align:center;padding:40px;">暂无记录</div>');
+            const batchSize = 24;
+            for (let offset = 0; offset < records.length; offset += batchSize) {
+                const batch = records.slice(offset, offset + batchSize);
+                const toLoad = [];
+                const images = new Map();
+                if (includeImages) {
+                    for (const r of batch) {
+                        const status = imageStatuses.get(r.id);
+                        if (status !== 'local') continue;
+                        if (r.imageBase64s?.length) images.set(r.id, r.imageBase64s);
+                        else toLoad.push(r.id);
+                    }
+                }
+                const loaded = toLoad.length ? await ImageStore.getMany(toLoad) : new Map();
+                const rows = batch.map(r => renderRow(r, images.get(r.id) || loaded.get(r.id) || []));
+                await writePart(writable ? rows.join('') : new Blob(rows));
+                onProgress?.(offset + batch.length, records.length);
+                if (offset + batch.length < records.length) await new Promise(resolve => setTimeout(resolve, 0));
+            }
+
+            await writePart('</body></html>');
+            if (writable) await writable.close();
+            else this._download(new Blob(parts, { type }), '评阅历史_' + this._fileTimestamp() + '.html', type);
+        } catch (error) {
+            if (writable) {
+                try { await writable.abort(); } catch (_) { /* 写入失败时流可能已关闭。 */ }
+            }
+            throw error;
+        }
     },
 
     _fileTimestamp() {
@@ -755,11 +791,13 @@ const HistoryManager = {
         // 二进制（Uint8Array）直接入 Blob，不加 BOM、不字符串化
         const isBinary = content instanceof Uint8Array;
         const BOM = (!isBinary && type.includes('csv')) ? '﻿' : '';
-        const blob = new Blob(isBinary ? [content] : [BOM + content], { type });
+        const blob = content instanceof Blob ? content : new Blob(isBinary ? [content] : [BOM + content], { type });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = filename; a.click();
-        URL.revokeObjectURL(url);
+        a.href = url;
+        a.download = filename;
+        try { a.click(); }
+        finally { setTimeout(() => URL.revokeObjectURL(url), 30000); }
     },
 
     startRegrade(id) {
@@ -1057,9 +1095,9 @@ function showHistoryPanel() {
                 </div>
                 <div class="hist-tools-right">
                     <div class="hist-html-opts" id="hist-html-opts" style="display:none;">
-                        <button class="hist-html-img active" data-img="with">有图</button>
-                        <button class="hist-html-img" data-img="without">无图</button>
-                        <span id="hist-img-help" class="hist-img-help-btn">图片说明</span>
+                        <button class="hist-html-img active" data-img="with" aria-pressed="true">有图</button>
+                        <button class="hist-html-img" data-img="without" aria-pressed="false">无图</button>
+                        <button type="button" id="hist-img-help" class="hist-img-help-btn" aria-controls="hist-img-help-content" aria-expanded="false">图片说明</button>
                     </div>
                     <button class="hist-export-btn" id="hist-export-btn">导出当前视图</button>
                 </div>
@@ -1193,13 +1231,13 @@ function showHistoryPanel() {
         }
     }
 
-    document.querySelectorAll('.hist-export-fmt').forEach(btn => {
+    panel.querySelectorAll('.hist-export-fmt').forEach(btn => {
         btn.onclick = () => {
-            document.querySelectorAll('.hist-export-fmt').forEach(b => b.classList.remove('active'));
+            panel.querySelectorAll('.hist-export-fmt').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             exportFormat = btn.dataset.fmt;
-            document.getElementById('hist-html-opts').style.display = isImageAwareFormat() ? 'flex' : 'none';
-            if (!isImageAwareFormat()) document.getElementById('hist-img-help-content').style.display = 'none';
+            panel.querySelector('#hist-html-opts').style.display = isImageAwareFormat() ? 'flex' : 'none';
+            if (!isImageAwareFormat()) setImageHelpOpen(false);
             updateImageFilterVisibility();
             currentFilteredRecords = getFilteredRecords();
             updateCount(currentFilteredRecords);
@@ -1207,12 +1245,14 @@ function showHistoryPanel() {
         };
     });
 
-    document.querySelectorAll('.hist-html-img').forEach(btn => {
+    panel.querySelectorAll('.hist-html-img').forEach(btn => {
         btn.onclick = () => {
-            document.querySelectorAll('.hist-html-img').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+            panel.querySelectorAll('.hist-html-img').forEach(item => {
+                item.classList.toggle('active', item === btn);
+                item.setAttribute('aria-pressed', String(item === btn));
+            });
             imageOption = btn.dataset.img;
-            if (imageOption === 'without') document.getElementById('hist-img-help-content').style.display = 'none';
+            if (imageOption === 'without') setImageHelpOpen(false);
             updateImageFilterVisibility();
             currentFilteredRecords = getFilteredRecords();
             updateCount(currentFilteredRecords);
@@ -1220,17 +1260,92 @@ function showHistoryPanel() {
         };
     });
 
-    document.getElementById('hist-img-help')?.addEventListener('click', () => {
-        const el = document.getElementById('hist-img-help-content');
-        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-    });
+    const imageHelpButton = panel.querySelector('#hist-img-help');
+    const imageHelp = panel.querySelector('#hist-img-help-content');
 
-    document.getElementById('hist-export-btn').onclick = () => {
-        const records = getFilteredRecords();
-        if (exportFormat === 'json') HistoryManager.exportJSON(records);
-        else if (exportFormat === 'csv') HistoryManager.exportCSV(records);
-        else if (exportFormat === 'html') HistoryManager.exportHTML(records, { includeImages: imageOption === 'with' });
-        else if (exportFormat === 'zip') HistoryManager.exportMaterialsPackage(records, { includeImages: imageOption === 'with' });
+    function setImageHelpOpen(open) {
+        imageHelp.style.display = open ? 'block' : 'none';
+        imageHelpButton.setAttribute('aria-expanded', String(open));
+    }
+
+    imageHelpButton.addEventListener('click', () => setImageHelpOpen(imageHelp.style.display === 'none'));
+
+    const exportButton = panel.querySelector('#hist-export-btn');
+    exportButton.onclick = async () => {
+        if (HistoryManager.exportInProgress) {
+            showToast('评阅历史正在导出，请稍候');
+            return;
+        }
+
+        const format = exportFormat;
+        const includeImages = isImageAwareFormat() && imageOption === 'with';
+        const startedAt = Date.now();
+        const exportRun = {};
+        const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
+        let recordCount = 0;
+        let processed = 0;
+        let nextProgressReport = 500;
+        HistoryManager.exportInProgress = true;
+        exportButton.disabled = true;
+        exportButton.textContent = '正在导出…';
+        try {
+            const records = getFilteredRecords();
+            recordCount = records.length;
+            const imageBytes = format === 'html' && includeImages ? records.reduce((total, record) => {
+                const image = ImageStore.getImageStatus(record.id);
+                return total + (image.status === 'local' ? image.size || 0 : 0);
+            }, 0) : 0;
+            const saveDirectly = imageBytes >= 128 * 1024 * 1024 && window.top === window && typeof window.showSaveFilePicker === 'function';
+            diagnostic?.grading('history-export-started', exportRun, {
+                format, includeImages, recordCount, imageBytes, saveDirectly,
+            }, { persist: true });
+            let fileHandle;
+            if (saveDirectly) {
+                try {
+                    fileHandle = await window.showSaveFilePicker({
+                        suggestedName: '评阅历史_' + HistoryManager._fileTimestamp() + '.html',
+                        types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
+                    });
+                } catch (error) {
+                    if (error?.name !== 'AbortError') throw error;
+                    diagnostic?.grading('history-export-finished', exportRun, { format, outcome: 'cancelled' }, { persist: true });
+                    showToast('已取消导出');
+                    return;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 0));
+            if (format === 'json') HistoryManager.exportJSON(records);
+            else if (format === 'csv') HistoryManager.exportCSV(records);
+            else if (format === 'html') await HistoryManager.exportHTML(records, {
+                includeImages,
+                fileHandle,
+                onProgress(done, total) {
+                    processed = done;
+                    if (done >= nextProgressReport || done === total) {
+                        nextProgressReport = done + 500;
+                        diagnostic?.grading('history-export-progress', exportRun, { processed, total }, { persist: true });
+                    }
+                    exportButton.textContent = `正在导出 ${done}/${total}`;
+                },
+            });
+            else if (format === 'zip') await HistoryManager.exportMaterialsPackage(records, { includeImages });
+
+            diagnostic?.grading('history-export-finished', exportRun, {
+                format, includeImages, recordCount, elapsedMs: Date.now() - startedAt,
+                outcome: fileHandle ? 'saved' : 'download-started',
+            });
+            showToast(fileHandle ? '已保存评阅历史' : '已开始下载评阅历史');
+        } catch (error) {
+            diagnostic?.grading('history-export-finished', exportRun, {
+                format, includeImages, recordCount, processed, elapsedMs: Date.now() - startedAt, outcome: 'failed',
+            }, { error, persist: true });
+            console.error('导出评阅历史失败', error);
+            showToast('评阅历史导出失败，请减少导出的记录后重试');
+        } finally {
+            HistoryManager.exportInProgress = false;
+            exportButton.disabled = false;
+            exportButton.textContent = '导出当前视图';
+        }
     };
 
     // 批量管理
