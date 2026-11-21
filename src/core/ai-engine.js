@@ -367,6 +367,16 @@ const ProviderManager = {
     getCurrentApiKey() {
         return this.getCurrentProvider().apiKey || '';
     },
+    getCredentialConfig(providerName) {
+        const provider = this.getProvider(providerName);
+        const account = providerName === '5plus1官方' && getOfficialApiLine(provider) &&
+            typeof markerManagedAccount === 'function' ? markerManagedAccount() : null;
+        return account ? { apiKey: '', officialAccountId: account.accountId } : { apiKey: provider?.apiKey || '' };
+    },
+    hasApiKey(providerName) {
+        const credentials = this.getCredentialConfig(providerName);
+        return Boolean(credentials.apiKey || credentials.officialAccountId);
+    },
     getCurrentModelId() {
         return this.data.activeModel || '';
     },
@@ -378,7 +388,7 @@ const ProviderManager = {
         return {
             endpoint: officialApiLine ? getOfficialApiEndpoint(officialApiLine) : provider.endpoint,
             ...(officialApiLine ? { officialApiLine } : {}),
-            apiKey: provider.apiKey,
+            ...this.getCredentialConfig(providerName),
             model: modelId
         };
     },
@@ -779,6 +789,14 @@ function filterUsableImagesForAI(list) {
 
 // ========== 通用 AI 请求函数 ==========
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
+    let apiKey = config.apiKey;
+    if (config.officialAccountId) {
+        const account = markerManagedAccount();
+        if (!account || account.accountId !== config.officialAccountId || !isTrustedOfficialEndpoint(config.endpoint)) {
+            return Promise.reject(Error('五加一账号连接已变化，请确认账号后继续'));
+        }
+        apiKey = account.apiKey;
+    }
     const signal = config.signal || window.aiGradingState.abortController?.signal;
     let abortRequest, timeout;
     return new Promise((resolve, reject) => {
@@ -884,13 +902,32 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             }
         }
 
+        const activeRun = typeof window === 'undefined' ? undefined : window.aiGradingState?.activeRun;
+        const diagnosticRun = signal && activeRun?.controller.signal === signal ? activeRun : undefined;
+        const diagnostic = diagnosticRun && typeof DiagnosticLog !== 'undefined' ? DiagnosticLog : undefined;
+        const requestedAt = diagnostic ? Date.now() : 0;
+        const reportTransport = (outcome, response) => {
+            try {
+                const headers = config.officialApiLine && typeof response?.responseHeaders === 'string'
+                    ? response.responseHeaders : '';
+                const requestId = /^x-oneapi-request-id:[ \t]*([0-9a-z_-]{1,96})[ \t]*\r?$/im.exec(headers)?.[1];
+                diagnostic.grading('model-transport-finished', diagnosticRun, {
+                    outcome, httpStatus: Number.isInteger(response?.status) ? response.status : undefined,
+                    elapsedMs: Date.now() - requestedAt,
+                    responseChars: typeof response?.responseText === 'string' ? response.responseText.length : undefined,
+                    progressCallbacks: progressCallCount,
+                    requestId: requestId !== config.apiKey && !requestId?.startsWith('sk-') ? requestId : undefined,
+                });
+            } catch (_) { /* 诊断信息与模型请求结果独立。 */ }
+        };
         const request = GM_xmlhttpRequest({
             method: 'POST',
             url: config.endpoint,
-            ...(config.officialApiLine ? { redirect: 'error' } : {}),
+            ...(config.officialApiLine || config.officialAccountId ? { redirect: 'error' } : {}),
+            ...(config.officialAccountId ? { anonymous: true } : {}),
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.apiKey}`
+                'Authorization': `Bearer ${apiKey}`
             },
             data: JSON.stringify(requestBody),
             timeout: 120000,
@@ -909,6 +946,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             onload: function(res) {
                 if (settled) return;
                 settled = true;
+                if (diagnostic) reportTransport('response', res);
                 if (config.officialApiLine && res.finalUrl && res.finalUrl !== config.endpoint) {
                     return reject(new Error('官方端点响应地址已变化，请核对线路设置'));
                 }
@@ -988,6 +1026,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             onerror: function() {
                 if (settled) return;
                 settled = true;
+                if (diagnostic) reportTransport('network-error');
                 const error = new Error('网络请求被拦截，请检查跨域权限');
                 error.routeUnavailable = !receivedHeaders && !parsedResponseLength;
                 reject(error);
@@ -995,6 +1034,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             ontimeout: function() {
                 if (settled) return;
                 settled = true;
+                if (diagnostic) reportTransport('timeout');
                 reject(new Error('请求超时'));
             }
         });
@@ -1003,6 +1043,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
         if (config.officialApiLine && !settled) timeout = setTimeout(() => {
             if (settled) return;
             settled = true;
+            if (diagnostic) reportTransport('timeout');
             reject(new Error('请求超时'));
             request.abort();
         }, 120000);
@@ -1011,6 +1052,7 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
             abortRequest = () => {
                 if (!settled) {
                     settled = true;
+                    if (diagnostic) reportTransport('aborted');
                     request.abort();
                     reject(new Error('用户主动暂停'));
                 }

@@ -8,7 +8,7 @@
 const storage={
  'ai-grading-show-onboarding':false,
  'ai-grading-presets':JSON.stringify({list:{Fixture:{question:'第31题',answer:'参考答案',rubric:'逐项给分',workflowId:'fixture',gradingMode:'unattended',
-  scoring:{maxScore:10,roundStep:1,roundMethod:'round'},blankDetection:{enabled:false}}},active:'Fixture',bindings:{}}),
+  scoring:{maxScore:10,roundStep:1,roundMethod:'round'},blankDetection:{enabled:false}}},active:'Fixture',bindings:{[location.pathname+'___第31题']:'Fixture',[location.pathname+'___第30题']:'Fixture'}}),
  'ai-grading-providers-v2':JSON.stringify({providers:{'5plus1官方':{apiKey:'fixture'},Fixture:{endpoint:'https://ai.fixture.invalid/v1/chat/completions',apiKey:'fixture',models:{fixture:{}}}},activeProvider:'Fixture',activeModel:'fixture'}),
  'ai-grading-workflows':JSON.stringify({workflows:{Fixture:{id:'fixture',model:{provider:'Fixture',model:'fixture'},dualEval:null}},activeWorkflow:'fixture'})
 };
@@ -39,10 +39,66 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   assert(a.getPaperIdentity()===old,'签名更新维持同卷标识');await wait(450);assert(!changed,'签名续期不换卷');
   image.src='/__fixture/answer.svg?paper=B';await loaded();await wait(500);await pending;
   assert(changed,'完整新作答资源稳定后继续');assert((await a.gatherAnswerImages()).length===1,'取图与身份来源相同');
+  const popup = document.createElement('div');
+  popup.className = 'el-message-box__wrapper';
+  popup.setAttribute('role', 'dialog');
+  popup.setAttribute('aria-modal', 'true');
+  popup.innerHTML = '<div class="el-message-box"><div class="el-message-box__message"><p>您该题任务量已完成，请选择继续多阅或切换到下一题?</p></div><div class="el-message-box__btns"><button class="el-button">继续多阅</button><button>切换下一题</button></div><input value="private-test-value"></div>';
+  const popupRun = new AbortController(), dialogEvents = [], waitEvents = [];
+  const popupWait = a.waitForNextPaper(image.src, {
+      paperId: a.getPaperIdentity(), signal: popupRun.signal,
+      onDialog: event => dialogEvents.push(event), onWaitObserved: event => waitEvents.push(event),
+  });
+  document.body.append(popup);
+  await until(() => dialogEvents.length > 0);
+  const snapshot = JSON.stringify(dialogEvents[0]);
+  assert(dialogEvents[0].source === 'page' && dialogEvents[0].tree.role === 'dialog'
+      && snapshot.includes('el-message-box__btns') && snapshot.includes('继续多阅')
+      && snapshot.includes('切换下一题') && !snapshot.includes('private-test-value'), '保存配额弹窗结构、文案和按钮');
+  popupRun.abort();
+  assert(!await popupWait && dialogEvents.length === 1 && waitEvents[0].reason === 'aborted', '弹窗快照去重，取消时结束采集');
+  popup.remove();
+  const taskId = a.getGradingTaskIdentifier();
+  popup.innerHTML = '<div class="el-message-box"><div class="el-message-box__title">温馨提示</div><div class="el-message-box__message"><p>您该题任务量已完成，请选择继续多阅或切换到下一题?</p></div><div class="el-message-box__btns"><button class="el-button">切换下一题</button><button class="el-button el-button--primary">继续多阅</button></div></div>';
+  popup.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;z-index:100;background:#fff8';
+  const moreButton = popup.querySelector('.el-button--primary');
+  let quotaClicks = 0, otherClicks = 0;
+  popup.querySelector('button').onclick = () => { otherClicks++; };
+  moreButton.onclick = () => { quotaClicks++; };
+  assert(!a.isQuotaContinuationEnabled() && a.prepareQuotaContinuation(taskId, () => true) === null, '旧用户默认手动处理配额提示');
+  assert(a.saveQuotaContinuation(true) && a.isQuotaContinuationEnabled(), '智学网续批设置可本地保存');
+  document.body.append(popup);
+  assert(a.prepareQuotaContinuation(taskId, () => true) === null, '提交前已经打开的弹窗不参与自动续领');
+  popup.remove();
+  let canAct = true;
+  const continuation = a.prepareQuotaContinuation(taskId, () => canAct);
+  document.body.append(popup);
+  assert(!continuation('另一题') && quotaClicks === 0, '题号不一致时保留原站选择');
+  const message = popup.querySelector('.el-message-box__message p');
+  const originalMessage = message.textContent;
+  message.textContent = '您本题的当前任务量已完成，请切换到下一题!';
+  assert(!continuation(taskId) && quotaClicks === 0, '只允许切题的配额提示保持待处理');
+  message.textContent = originalMessage;
+  moreButton.disabled = true;
+  assert(!continuation(taskId), '按钮禁用时等待平台');
+  moreButton.disabled = false;
+  const otherPopup = popup.cloneNode(true);
+  document.body.append(otherPopup);
+  assert(!continuation(taskId), '出现多个原站提示时保留人工处理');
+  otherPopup.remove();
+  canAct = false;
+  assert(!continuation(taskId), '暂停后不触发原站操作');
+  canAct = true;
+  assert(a.saveQuotaContinuation(false) && !continuation(taskId), '关闭设置后当前等待也停止自动续领');
+  a.saveQuotaContinuation(true);
+  assert(continuation(taskId) && !continuation(taskId) && quotaClicks === 1 && otherClicks === 0, '命中已知弹窗时只点击一次继续多阅');
+  popup.remove();
+  a.saveQuotaContinuation(false);
   const canvas=document.createElement('canvas');canvas.width=942;canvas.height=513;
   const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,942,513);
   ctx.fillStyle='black';ctx.fillText('30. answer A',20,30);const dataA=canvas.toDataURL('image/png');
   ctx.fillText('answer B',20,70);const dataB=canvas.toDataURL('image/png');
+  ctx.fillText('answer C',20,105);const dataC=canvas.toDataURL('image/png');
   image.src=dataA;await loaded();const inlineId=a.getPaperIdentity();assert(!!inlineId,'内嵌增强图拥有答卷身份');
   assert(await a.fetchImageAsBase64(dataA)===dataA.split(',')[1],'增强图取图保留完整字节');
   let inlineChanged=false;const inlinePending=a.waitForNextPaper(dataA,{paperId:inlineId}).then(v=>inlineChanged=v);
@@ -62,6 +118,9 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   assert(a.getGradingTaskIdentifier().endsWith('___第31题'),'原生题号作为批改基准');
   assert(a.prepareGrading(),'平台满分与方案匹配');
   await until(()=>document.querySelector('.ai-grade-btn'));
+  const quotaSetting = document.getElementById('zhixue-quota-setting');
+  const quotaInput = document.getElementById('zhixue-continue-quota');
+  assert(quotaSetting?.hidden === false && quotaInput?.checked === false, '考试阅卷设置显示默认关闭的续批选项');
   document.querySelector('.ai-grade-btn').click();await until(()=>effects.requests===1);
   const run=window.aiGradingState.activeRun;
   document.getElementById('currentTopicIndex').textContent='第30题';
@@ -71,6 +130,36 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   await until(()=>!window.aiGradingState.isRunning&&run.controller.signal.aborted);
   effects.complete();await wait(150);
   assert(effects.submits===0&&score.value===''&&effects.requests===1,'原生切题取消识别，迟到0分结果不得填入或提交');
+  document.getElementById('currentTopicIndex').textContent='第31题';
+  score.setAttribute('disptitle','31'); score.setAttribute('score','10');
+  document.querySelector('#containter_topicTxt .label').textContent='31';
+  assert(a.prepareGrading(), '续批场景使用同一题的评分方案');
+  a.saveQuotaContinuation(true);
+  quotaClicks = 0;
+  document.getElementById('bnt_save').onclick = () => { effects.submits++; document.body.append(popup); };
+  let releaseNewPaper;
+  moreButton.onclick = () => {
+      quotaClicks++;
+      popup.remove();
+      releaseNewPaper = () => { image.src=dataC; };
+  };
+  await wait(900);
+  document.querySelector('.ai-grade-btn').click();
+  await until(() => effects.requests === 2);
+  effects.complete();
+  await until(() => quotaClicks === 1);
+  await wait(350);
+  assert(effects.requests === 2 && effects.submits === 1 && otherClicks === 0, '点继续多阅后等待当前题新卷就绪');
+  releaseNewPaper();
+  await until(() => effects.requests === 3);
+  assert(!!window.aiGradingState.activeRun && quotaClicks === 1, '确认同题新卷后启动下一次评分');
+  Object.assign(window.aiGradingState.batchProgress, {enabled:true, currentCount:1, targetCount:2, reached:false, limitExempt:false});
+  effects.complete();
+  await until(() => effects.submits === 2 && window.aiGradingState.isPaused);
+  await wait(350);
+  assert(quotaClicks === 1 && effects.requests === 3 && otherClicks === 0 && popup.isConnected, '达到批阅目标后留在原站提示，等待用户决定');
+  popup.remove();
+  a.saveQuotaContinuation(false);
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:error.message}))));}
 })();

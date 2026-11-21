@@ -94,7 +94,7 @@ function diagnosticRecords(records, start, end, presetNames) {
         }));
 }
 
-function exportDiagnosticPackage(start, end) {
+function diagnosticPackageData(start, end) {
     const logs = DiagnosticLog.read(start, end);
     let history, historyFromStorage = true;
     try { history = HistoryManager._readReviewRecords(); }
@@ -114,14 +114,22 @@ function exportDiagnosticPackage(start, end) {
         browser: /(?:Edg|Chrome|Firefox|Version)\/[\d.]+/.exec(navigator.userAgent)?.[0],
         platform: window.__AI_MARKER_ADAPTER__?.id,
         logCount: logs.entries.length,
+        gradingEventCount: logs.gradingEvents.length,
+        logCoverage: logs.coverage,
         recordCount: records.length,
         logRetentionDays: logs.retentionDays,
         logStorageLimited: logs.storageLimited,
         historyFromStorage,
     };
+    return { metadata, logs, records, configuration };
+}
+
+function exportDiagnosticPackage(start, end) {
+    const { metadata, logs, records, configuration } = diagnosticPackageData(start, end);
     const files = {
         '导出说明.json': metadata,
         '运行日志.json': logs.entries,
+        ...(logs.gradingEvents.length ? { '批改过程.json': logs.gradingEvents } : {}),
         '阅卷记录.json': records,
         '配置摘要.json': configuration,
     };
@@ -137,7 +145,92 @@ function diagnosticDateInput(timestamp) {
     return new Date(timestamp - date.getTimezoneOffset() * 60 * 1000).toISOString().slice(0, 19);
 }
 
-function showDiagnosticExport() {
+function diagnosticUploadText(value, maxBytes) {
+    if (typeof value !== 'string') return '';
+    const { read } = new TextEncoder().encodeInto(value, new Uint8Array(maxBytes));
+    return value.slice(0, read);
+}
+
+function setupDiagnosticUpload(dialog, button) {
+    const form = dialog.querySelector('form');
+    const status = form.querySelector('[data-export-status]');
+    const description = form.elements.namedItem('description');
+    let confirmed = false, pending, authorization;
+    button.addEventListener('click', event => { confirmed = event.isTrusted; });
+    form.addEventListener('input', () => { pending = null; });
+    dialog.addEventListener('close', () => {
+        if (authorization && authorization === markerConnection) cancelMarkerConnection();
+    }, { once: true });
+    return async (start, end) => {
+        if (!confirmed || button.disabled) return;
+        confirmed = false;
+        if (end - start > 7 * 86400000) {
+            status.textContent = '请选择七天以内的时间范围。';
+            return;
+        }
+        button.disabled = true;
+        let account;
+        try {
+            account = markerUploadCredential();
+            if (!account) {
+                if (markerConnection) throw Error('pending');
+                button.textContent = '等待授权…';
+                status.textContent = '请在新标签页登录五加一账号。授权完成后，再确认上传。';
+                const connection = connectMarkerAccount({ expectedAccountId: markerManagedAccount()?.accountId });
+                authorization = markerConnection;
+                await connection;
+                status.textContent = '已连接五加一账号，请确认上传。';
+                return;
+            }
+            if (!pending || pending.accountId !== account.accountId) {
+                const data = diagnosticPackageData(start, end);
+                const logs = data.logs.entries.map(({ at, level, source, message, platform, version, errorType, httpStatus }) =>
+                    ({ at, level, source: diagnosticUploadText(source, 160), message: diagnosticUploadText(message, 720),
+                        platform, version, errorType, httpStatus }));
+                const report = {
+                    id: markerRandomHex(16), version: data.metadata.scriptVersion, platform: data.metadata.platform,
+                    browser: data.metadata.browser, description: description.value.trim(), logs,
+                    start: data.metadata.range.start, end: data.metadata.range.end,
+                    records: data.records, configuration: data.configuration,
+                };
+                if (logs.length > 32000 || data.records.length > 50000 ||
+                    new TextEncoder().encode(JSON.stringify(report)).length > 16 * 1024 * 1024) {
+                    status.textContent = '这段时间的诊断资料较多，请缩短时间范围再上传。';
+                    return;
+                }
+                pending = { accountId: account.accountId, report };
+            }
+            status.textContent = '正在上传诊断包…';
+            const report = pending.report;
+            const result = await markerServiceRequest('/v1/diagnostics', report, account.uploadToken);
+            const code = result?.code;
+            if (!/^[a-f0-9]{40}$/.test(code || '') || result.receipt !== report.id ||
+                result.url !== MARKER_TOOLS_ORIGIN + '/#diagnostic=' + code) throw Error('receipt');
+            const link = dialog.querySelector('[data-report-link]');
+            link.href = result.url;
+            link.hidden = false;
+            status.textContent = '诊断包已上传。问题编号 ' + code;
+            button.style.display = 'none';
+            for (const field of [form.elements.namedItem('start'), form.elements.namedItem('end'), description]) field.disabled = true;
+            form.querySelector('.ai-modal-btn-cancel').textContent = '完成';
+        } catch (error) {
+            if (error.status === 401 && account) {
+                const current = markerManagedAccount();
+                if (current?.uploadToken === account.uploadToken) {
+                    try { GM_setValue(MARKER_ACCOUNT_KEY, { ...current, uploadToken: '', expiresAt: 0 }); }
+                    catch (_) { /* 当前凭证仍会按服务器时效拒绝。 */ }
+                }
+                status.textContent = '上传授权已过期，请重新授权后再试。';
+            } else if (error.status === 413) {
+                status.textContent = '这段时间的诊断资料较多，请缩短时间范围再上传。';
+            } else {
+                status.textContent = account ? '上传暂未完成，请稍后重试。' : markerConnectionMessage(error.code || error.message);
+            }
+        } finally { authorization = null; button.disabled = false; button.textContent = '确认上传'; }
+    };
+}
+
+function showDiagnosticExport(upload = false) {
     if (document.getElementById('ai-diagnostic-export')) return;
     ensureModalStyles();
     const dialog = document.createElement('dialog');
@@ -147,9 +240,9 @@ function showDiagnosticExport() {
     dialog.style.cssText = 'padding:0;min-width:0;width:min(92vw,460px);max-height:90vh;overflow:auto;';
     dialog.innerHTML = `
         <form>
-            <div class="ai-modal-header" id="ai-diagnostic-title">导出诊断包</div>
+            <div class="ai-modal-header" id="ai-diagnostic-title">${upload ? '上传诊断包' : '导出诊断包'}</div>
             <div class="ai-modal-body">
-                <p>导出这段时间的运行日志、阅卷记录和当前配置摘要，供问题排查。密钥、答卷图片和答卷原文留在本机。</p>
+                <p>${upload ? '将这段时间的运行日志、阅卷结果和配置摘要发送给支持人员。' : '导出这段时间的批改过程、运行日志、阅卷记录和配置摘要。智学网换卷时出现的提示会随批改过程导出。'}密钥、答卷图片和答卷原文留在本机。</p>
                 <p>默认最近 2 小时，按此设备的时间选择。</p>
                 <label style="display:block;">开始时间
                     <input class="ai-modal-input" name="start" type="datetime-local" step="1" style="min-height:44px;" required autofocus>
@@ -157,11 +250,12 @@ function showDiagnosticExport() {
                 <label style="display:block;margin-top:12px;">结束时间
                     <input class="ai-modal-input" name="end" type="datetime-local" step="1" style="min-height:44px;" required>
                 </label>
+                ${upload ? '<label style="display:block;margin-top:12px;">问题说明（选填）<textarea class="ai-modal-input" name="description" rows="3" maxlength="900"></textarea></label><a data-report-link hidden target="_blank" rel="noopener noreferrer">查看诊断报告</a>' : ''}
                 <p data-export-status role="status" style="margin-bottom:0;"></p>
             </div>
             <div class="ai-modal-footer">
                 <button type="button" class="ai-modal-btn-cancel" style="min-height:44px;">取消</button>
-                <button type="submit" class="ai-modal-btn-confirm" style="min-height:44px;">下载 ZIP</button>
+                <button type="submit" class="ai-modal-btn-confirm" style="min-height:44px;">${upload ? '确认上传' : '下载 ZIP'}</button>
             </div>
         </form>
     `;
@@ -172,6 +266,8 @@ function showDiagnosticExport() {
     const now = Date.now();
     startField.value = diagnosticDateInput(now - DIAGNOSTIC_DEFAULT_RANGE);
     endField.value = diagnosticDateInput(now);
+    const uploadButton = form.querySelector('[type=submit]');
+    const submitUpload = upload ? setupDiagnosticUpload(dialog, uploadButton) : null;
     form.addEventListener('input', () => { status.textContent = ''; });
     form.addEventListener('submit', event => {
         event.preventDefault();
@@ -181,6 +277,7 @@ function showDiagnosticExport() {
             endField.focus();
             return;
         }
+        if (submitUpload) { void submitUpload(start, end); return; }
         try {
             const result = exportDiagnosticPackage(start, end);
             dialog.close();
@@ -197,5 +294,5 @@ function showDiagnosticExport() {
 }
 
 if (window === window.top && typeof GM_registerMenuCommand === 'function') {
-    GM_registerMenuCommand('导出诊断包', showDiagnosticExport);
+    GM_registerMenuCommand('导出诊断包', () => showDiagnosticExport());
 }
