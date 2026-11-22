@@ -3403,8 +3403,9 @@ function saveAISettings(event) {
         });
     }
     const zhixueAdapter = getZhixueQuotaSettingsAdapter();
+    const zhixueQuotaSection = document.getElementById('zhixue-quota-setting');
     const zhixueQuotaInput = document.getElementById('zhixue-continue-quota');
-    const quotaSaved = !zhixueAdapter || !zhixueQuotaInput
+    const quotaSaved = !zhixueAdapter || zhixueQuotaSection?.hidden !== false || !zhixueQuotaInput
         || zhixueQuotaInput.checked === zhixueAdapter.isQuotaContinuationEnabled()
         || zhixueAdapter.saveQuotaContinuation(zhixueQuotaInput.checked);
     if (quotaSaved) clearUnsavedChanges();

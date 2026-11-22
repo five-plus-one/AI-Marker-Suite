@@ -3,6 +3,7 @@
 // 不引入第三方依赖，仅实现 STORE 方式（无压缩），图片本身已压缩，体积可控。
 
 const ZipWriter = {
+    maxEntries: 0xffff,
     // CRC32 查表
     _crcTable: null,
     _crc32(bytes) {
@@ -33,6 +34,7 @@ const ZipWriter = {
      * @returns {Uint8Array}
      */
     build(entries) {
+        if (entries.length > this.maxEntries) throw new RangeError('ZIP 条目数量超过上限');
         const localParts = [];   // local file header + data
         const centralParts = []; // central directory entries
         let offset = 0;
