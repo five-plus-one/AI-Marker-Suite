@@ -5,13 +5,25 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const {execFileSync}=require('node:child_process');
-const {publish,advanceTag,downloadAsset}=require('./release.cjs');
+const {publish,advanceTag,downloadAsset,renderNotes}=require('./release.cjs');
 const {digest}=require('./common.cjs');
 const sha='a'.repeat(40);
 const ctx={repository:'fiveplusone-dev/AI-Marker-Suite',name:'AI-Marker-Suite',sha,
   eventName:'workflow_dispatch',ref:'refs/heads/preview',server:'https://git.example.test'};
 const metadata={repository:ctx.name,commit:sha,target:'preview',version:'1.2.3.1-preview.123'};
 const files=Object.fromEntries(['ai_marker.user.js','manifest.json','delivery.json'].map(name=>[name,Buffer.from('new '+name)]));
+
+test('preview notes include milestone changes since the published stable version',()=>{
+  const notes=renderNotes({version:'1.21.35.6-preview.123',changelog:{
+    '1.21.36.0':['【新功能】计划功能'],
+    '1.21.35.6':['【修复】改进作业换卷'],
+    '1.21.35.0':['【新功能】支持智学网作业'],
+    '1.21.34.1':['【修复】现行稳定版'],
+  }},'preview','1.21.34.1');
+  assert.match(notes,/改进作业换卷/);
+  assert.match(notes,/支持智学网作业/);
+  assert.doesNotMatch(notes,/计划功能|现行稳定版/);
+});
 
 function fixture({existing=true,stable=false}={}) {
   let nextId=100,tagCommit=sha;

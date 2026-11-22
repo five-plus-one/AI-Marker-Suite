@@ -60,6 +60,7 @@ const CORE_MODULES = [
     'ui-modal.js',
     'ui-stream.js',
     'ui-button.js',
+    'marker-account.js',
     'ai-engine.js',      // ProviderManager + callAI (需在 ui-settings 之前)
     'prompt.js',          // buildPrompt + parse 函数 (需在 ui-settings 之前)
     'ui-markdown.js',     // Markdown 渲染器 + 全屏编辑器 (需在 ui-settings 之前)
@@ -84,6 +85,7 @@ const BUILD_CONFIGS = [
         legacyOutputFiles: ['zhixue_ai_marking.user.js'],
         adapterModules: [
             'adapters/zhixue/selectors.js',
+            'adapters/zhixue/homework.js',
             'adapters/zhixue/adapter.js',
             'adapters/qitian/selectors.js',
             'adapters/qitian/adapter.js',
@@ -191,6 +193,7 @@ const BUILD_CONFIGS = [
             description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊、酷鱼、A佳教育、云阅卷(开州)、正确阅卷、精斗云、小帆智能阅卷、睿芽、恒佳、悦卷通、云阅卷(华翰云)、懂你系统、学科网 e卷通、学科网云阅卷、启光优测、诊学网、焦作精准教学、文通云、园丁邦云阅卷、小闲 AI 网上阅卷、丽升阅卷、天喻慧学（含惠州）、优分优学、小乐优阅、享尚学、韬普教育云阅卷、百师联盟、爱多分、百分智考试服务等57个平台。识别手写答案、按标准评分，支持双评仲裁、分小题评分与评阅历史导出。',
             author: '5plus1',
             match: [
+                'https://tools.aimarking.five-plus-one.com/',
                 'https://ui.eiduo.com/exam-webapp/*',
                 '*://www.zhixue.com/*',
                 '*://zhixue.com/*',
@@ -274,10 +277,11 @@ const BUILD_CONFIGS = [
                 '/^https?:\/\/\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+\\//',  // IP:端口 部署（光大阅卷等）
             ],
             icon: 'https://www.zhixue.com/favicon.ico',
-            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_listValues', 'GM_deleteValue', 'GM_registerMenuCommand', 'unsafeWindow'],
+            grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue', 'GM_listValues', 'GM_deleteValue', 'GM_registerMenuCommand', 'GM_openInTab', 'unsafeWindow'],
             connect: [
                 'api.ai.five-plus-one.com',
                 'api-hk.ai.five-plus-one.com',
+                'api-sx.ai.five-plus-one.com',
                 'api-sh.ai.five-plus-one.com',
                 'api.aimarking.five-plus-one.com',
                 'zhixue-sc.oss-cn-hangzhou.aliyuncs.com',

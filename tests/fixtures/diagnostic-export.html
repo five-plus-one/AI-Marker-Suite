@@ -23,6 +23,9 @@ storage.set('ai-grading-workflows', JSON.stringify({
 for (const at of [recent, earlier]) {
     storage.set('ai-marker-diagnostic-log-v1-' + at + '-fixture-0', [{ at, level: 'warn', message: '练习日志' }]);
 }
+storage.set('ai-marker-diagnostic-grading-v1-' + recent + '-fixture-0', [{
+    at: recent, event: 'grading-paused', details: { reason: 'batch-target', currentCount: 1600, targetCount: 1600 },
+}]);
 window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
 window.GM_setValue = (key, value) => storage.set(key, structuredClone(value));
 window.GM_listValues = () => Array.from(storage.keys());
@@ -96,6 +99,8 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 2, '筛选两小时内阅卷记录');
         check(files['运行日志.json'].some(row => row.at === recent) && !files['运行日志.json'].some(row => row.at === earlier),
             '按同一时间筛选日志');
+        check(files['批改过程.json'][0]?.details.currentCount === 1600
+            && files['导出说明.json'].logCoverage.grading.firstAt === recent, '保存真实批阅份数和事件覆盖范围');
         check(files['运行日志.json'].some(row => row.message.includes('脚本版本')), '包含本次运行日志');
         check(files['配置摘要.json'].presets[0].scoring.maxScore === 3
             && files['配置摘要.json'].providers.some(provider => provider.keyConfigured)
@@ -117,6 +122,8 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         files = await zipFiles();
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 3
             && files['运行日志.json'].length === 1 && files['运行日志.json'][0].at === earlier, '自选时间导出此前记录');
+        check(files['导出说明.json'].formatVersion === 3 && files['配置详情.json'] && !files['批改过程.json'],
+            '旧日志可与详细配置一起导出，没有批改事件时省略该文件');
     } catch (error) {
         checks.push({ pass: false, label: error.message });
     }

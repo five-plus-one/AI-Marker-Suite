@@ -949,7 +949,7 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     if (evidence?.questions) {
         if (onStreamUpdate) onStreamUpdate('正在逐问评分…');
         const response = await callAIWithRetry(buildScopedQuestionScorePrompt(config, evidence), [],
-            { ...config, gradingRequest: true, requestBudget: { remaining: 3 } }, null, collectFieldImages(config));
+            { ...config, gradingRequest: true }, null, collectFieldImages(config));
         return parseScopedQuestionScores(response, evidence, config);
     }
     // 从 scoring.units 派生 subQuestions（唯一数据源）
@@ -964,8 +964,8 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
         : [];
     const hasSub = subQuestions.length > 0;
 
-    // 将派生的 subQuestions 注入 config 供 prompt 函数使用
-    const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: 3 } };
+    // 请求层按方案限制共享次数，解析后重试也使用同一预算。
+    const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: Infinity } };
 
     const prompt = appendStudentGradingEvidence(
         hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig), evidence);
@@ -980,25 +980,33 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
         console.log(`📋 [诊断] 评分单元配置 — 共 ${subQuestions.length} 个: ${subQuestions.map(sq => `${sq.label}(满分${sq.maxScore ?? '未设置'})`).join(', ')}`);
     }
 
-    for (let parseAttempt = 0; parseAttempt < 2; parseAttempt++) {
-            const fullText = await callAIWithRetry(prompt, evidence ? [] : base64DataArray, callConfig, onStreamUpdate, fieldImages);
-            console.log('📝 [诊断] AI返回内容长度:', fullText.length);
+    for (let parseAttempt = 0; ; parseAttempt++) {
+        const fullText = await callAIWithRetry(prompt, evidence ? [] : base64DataArray, callConfig, onStreamUpdate, fieldImages);
+        console.log('📝 [诊断] AI返回内容长度:', fullText.length);
 
-            const parsed = hasSub
-                ? parseSubQuestionResponse(fullText, callConfig)
-                : parseStructuredResponse(fullText, maxScore);
-            console.log(`🧠 [诊断] AI响应解析结果 — 分数: ${parsed.score}, 满分: ${maxScore}, 识别答案长度: ${(parsed.studentAnswer || '').length}字, 原始文本长度: ${fullText.length}字`);
-            if (parsed._sections) {
-                const sectionKeys = Object.keys(parsed._sections);
-                console.log(`📋 [诊断] 解析到 ${sectionKeys.length} 个段落: ${sectionKeys.join(', ')}`);
-            }
-            if (parsed.score === null) {
-                console.warn('⚠️ [诊断] 分数解析为 null');
-            }
-            if (parsed.score !== null || callConfig.requestBudget.remaining === 0 || parseAttempt === 1 || callConfig.outputObservation?.upgraded) {
+        const parsed = hasSub
+            ? parseSubQuestionResponse(fullText, callConfig)
+            : parseStructuredResponse(fullText, maxScore);
+        console.log(`🧠 [诊断] AI响应解析结果 — 分数: ${parsed.score}, 满分: ${maxScore}, 识别答案长度: ${(parsed.studentAnswer || '').length}字, 原始文本长度: ${fullText.length}字`);
+        if (parsed._sections) {
+            const sectionKeys = Object.keys(parsed._sections);
+            console.log(`📋 [诊断] 解析到 ${sectionKeys.length} 个段落: ${sectionKeys.join(', ')}`);
+        }
+        if (parsed.score === null) {
+            console.warn('⚠️ [诊断] 分数解析为 null');
+        }
+        if (callConfig.unattendedRetryBudget) {
+            if (hasUsableGradingScores(parsed)) return applyStudentGradingEvidence(parsed, evidence, fullText);
+            if (!await callConfig.unattendedRetryBudget.retry(undefined, 'score-format')) {
                 return applyStudentGradingEvidence(parsed, evidence, fullText);
             }
-            console.warn('⚠️ [诊断] 正在重新获取可识别的评分结果');
+            continue;
+        }
+        if (parsed.score !== null || callConfig.requestBudget.remaining === 0
+            || parseAttempt === 1 || callConfig.outputObservation?.upgraded) {
+            return applyStudentGradingEvidence(parsed, evidence, fullText);
+        }
+        console.warn('⚠️ [诊断] 正在重新获取可识别的评分结果');
     }
 }
 

@@ -392,11 +392,15 @@ const PresetManager = {
         // 回退到直接配置（兼容旧版）
         const provider = ProviderManager.getProvider(config.provider);
         if (provider) {
+            const model = config.model || Object.keys(provider.models)[0];
+            const credentials = ProviderManager.getCredentialConfig(config.provider);
+            const officialApiLine = credentials.officialAccountId ? getOfficialApiLine(provider) : '';
             return {
-                ...config,
-                endpoint: provider.endpoint,
-                apiKey: provider.apiKey || config.apiKey,
-                model: config.model || Object.keys(provider.models)[0]
+                ...config, model,
+                endpoint: officialApiLine ? getOfficialApiEndpoint(officialApiLine) : provider.endpoint,
+                ...(officialApiLine ? { officialApiLine } : {}),
+                ...credentials,
+                apiKey: credentials.officialAccountId ? '' : credentials.apiKey || config.apiKey,
             };
         }
 
@@ -404,7 +408,7 @@ const PresetManager = {
         return {
             ...config,
             endpoint: ProviderManager.getCurrentEndpoint(),
-            apiKey: ProviderManager.getCurrentApiKey(),
+            ...ProviderManager.getCredentialConfig(ProviderManager.data.activeProvider),
             model: ProviderManager.getCurrentModelId()
         };
     }

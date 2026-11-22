@@ -381,7 +381,7 @@ function clearUnsavedChanges() {
 // ========== 配置完整性检查 ==========
 function checkConfigReady() {
     const config = PresetManager.getActiveCallConfig();
-    if (!config.apiKey) return { ready: false, message: '请先配置 AI 密钥' };
+    if (!config.apiKey && !config.officialAccountId) return { ready: false, message: '请先配置 AI 密钥' };
     const validation = PresetManager.validateScoringUnits();
     if (!validation.valid) {
         const labels = validation.missingMaxScore.map(u => u.label).join('、');
@@ -604,6 +604,9 @@ function resumeGrading(btn) {
 
     const config = PresetManager.getCurrentConfig();
     window.aiGradingState.gradingMode = config.gradingMode || 'normal';
+    if (typeof DiagnosticLog !== 'undefined') {
+        DiagnosticLog.grading('grading-resumed', null, { mode: window.aiGradingState.gradingMode }, { persist: true });
+    }
 
     btn.classList.remove('paused', 'unattended', 'trial');
     btn.classList.add('running');
@@ -643,6 +646,9 @@ function toggleAutoGrading(event) {
     }
 
     if (window.aiGradingState.isRunning) {
+        if (typeof DiagnosticLog !== 'undefined') {
+            DiagnosticLog.grading('grading-paused', window.aiGradingState.activeRun, { reason: 'user-action' }, { persist: true });
+        }
         window.aiGradingState.isPaused = true;
         window.aiGradingState.isRunning = false;
         invalidateGradingRun();

@@ -341,6 +341,7 @@ test('平台延迟确认在暂停、换卷或校验失败后均不会点击', as
 
 test('服务端退避等待使用原轮次取消信号，完成请求释放监听器', async () => {
     const e=configurationStore();let requests=0;
+    e.sb.abortableGradingDelay=e.waitWithTimers;
     const controller=new AbortController();e.state.abortController=controller;
     e.sb.GM_xmlhttpRequest=options=>{requests++;queueMicrotask(()=>options.onload({status:503,responseText:'{"error":{"message":"unavailable"}}'}));return{abort(){}}};
     const pending=e.sb.callAI('prompt',[],{endpoint:'https://test',apiKey:'fake',model:'test',signal:controller.signal});
