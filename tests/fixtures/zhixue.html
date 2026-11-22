@@ -206,6 +206,25 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
       '续批关闭时在首轮等待内提示用户处理原站配额弹窗');
   assert(quotaClicks === 1 && otherClicks === 0 && effects.requests === 4 && popup.isConnected,
       '配额暂停保留原站选择且不继续评分');
+  popup.remove();
+  const quotaKey = 'ai-zhixue-continue-same-question';
+  const examURL = location.href;
+  storage[quotaKey] = true;
+  await openAutomation();
+  history.replaceState(null, '', '/');
+  await until(() => quotaSetting.hidden);
+  assert(settingsPanel.classList.contains('open'), '离开考试阅卷后已打开的设置面板隐藏续批设置');
+  settingsButton.click();
+  settingsButton.click();
+  await until(() => settingsPanel.classList.contains('open'));
+  assert(quotaSetting.hidden && getComputedStyle(quotaSetting).display === 'none', '智学网首页隐藏考试续批设置');
+  quotaInput.checked = false;
+  document.getElementById('save-config-btn').click();
+  assert(!settingsPanel.classList.contains('open') && storage[quotaKey] === true,
+      '非考试阅卷页成功保存方案后保留原有续批偏好');
+  history.replaceState(null, '', examURL);
+  await openAutomation();
+  assert(!quotaSetting.hidden && quotaInput.checked === true, '恢复考试页后从旧版存储键读取已开启的偏好');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:error.message}))));}
 })();

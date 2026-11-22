@@ -239,6 +239,7 @@ function safeFillScores(adapter, scores, ctx) {
 // SPA 导航（如退回列表页）不销毁 DOM：OOBE 弹窗会残留、批改循环会把
 //「离开页面」误当成「所有试卷已批改完成」。离开时统一清理、中性停止
 function handleLeaveMarkingPage() {
+    syncZhixueQuotaSetting();
     const state = window.aiGradingState;
     if (state.isRunning && typeof DiagnosticLog !== 'undefined') {
         DiagnosticLog.grading('grading-paused', state.activeRun, { reason: 'left-marking-page' }, { persist: true });

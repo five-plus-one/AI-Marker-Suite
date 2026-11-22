@@ -1849,6 +1849,7 @@ function openSettingsPanel() {
     const panel = document.getElementById('ai-grading-settings');
     const overlay = document.getElementById('ai-settings-overlay');
     if (panel) {
+        syncZhixueQuotaSetting();
         panel.style.setProperty('display', 'flex', 'important');
         panel.dispatchEvent(new Event('marker-account-refresh'));
         requestAnimationFrame(() => panel.classList.add('open'));
@@ -1870,6 +1871,26 @@ function closeSettingsPanel() {
     undockFloatingButtons();
     // 等动画结束后隐藏
     setTimeout(() => { if (panel && !panel.classList.contains('open')) panel.style.setProperty('display', 'none', 'important'); }, 350);
+}
+
+function getZhixueQuotaSettingsAdapter() {
+    const host = window.location.hostname;
+    if (host !== 'zhixue.com' && !host.endsWith('.zhixue.com')) return null;
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    return adapter?.id === 'zhixue' && typeof adapter.isQuotaContinuationEnabled === 'function'
+        && typeof adapter.saveQuotaContinuation === 'function' && adapter.isMarkingPage?.()
+        ? adapter : null;
+}
+
+function syncZhixueQuotaSetting(loadValue = false) {
+    const section = document.getElementById('zhixue-quota-setting');
+    if (!section) return;
+    const adapter = getZhixueQuotaSettingsAdapter();
+    const shouldLoad = loadValue || section.hidden;
+    section.hidden = !adapter;
+    if (adapter && shouldLoad) {
+        document.getElementById('zhixue-continue-quota').checked = adapter.isQuotaContinuationEnabled();
+    }
 }
 
 // ========== 加载与切换方案 ==========
@@ -2139,14 +2160,7 @@ function fillFormFromActivePreset() {
         });
     });
 
-    const zhixueQuotaSetting = document.getElementById('zhixue-quota-setting');
-    const zhixueAdapter = window.__AI_MARKER_ADAPTER__;
-    if (zhixueQuotaSetting) {
-        zhixueQuotaSetting.hidden = zhixueAdapter?.id !== 'zhixue' || !zhixueAdapter.isQuotaContinuationEnabled;
-        if (!zhixueQuotaSetting.hidden) {
-            document.getElementById('zhixue-continue-quota').checked = zhixueAdapter.isQuotaContinuationEnabled();
-        }
-    }
+    syncZhixueQuotaSetting(true);
 
     const retryPolicyCfg = config.retryPolicy || {};
     const retryMaxInput = document.getElementById('retry-max-retries');
@@ -3388,9 +3402,9 @@ function saveAISettings(event) {
                 ProviderManager.getProvider(selected?.provider)?.apiKey),
         });
     }
-    const zhixueAdapter = window.__AI_MARKER_ADAPTER__;
+    const zhixueAdapter = getZhixueQuotaSettingsAdapter();
     const zhixueQuotaInput = document.getElementById('zhixue-continue-quota');
-    const quotaSaved = zhixueAdapter?.id !== 'zhixue' || !zhixueAdapter.saveQuotaContinuation || !zhixueQuotaInput
+    const quotaSaved = !zhixueAdapter || !zhixueQuotaInput
         || zhixueQuotaInput.checked === zhixueAdapter.isQuotaContinuationEnabled()
         || zhixueAdapter.saveQuotaContinuation(zhixueQuotaInput.checked);
     if (quotaSaved) clearUnsavedChanges();
