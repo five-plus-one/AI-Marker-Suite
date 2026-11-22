@@ -447,3 +447,86 @@ test('旧方案及关闭配图核对的方案使用一次评分请求', async ()
         assert.equal(requests[0].messages[0].content.filter(item => item.type === 'image_url').length, 2);
     }
 });
+
+function scopedScoringCase(totalOnly = false) {
+    const { sandbox, requests } = loadEngineForRequest();
+    sandbox.PresetManager = { getMaxScore: () => 17 };
+    sandbox.__students = [png(1517, 246), png(1040, 2066)];
+    const questions = [{ label: '（1）', maxScore: 4 }, { label: '（2）', maxScore: 6 }, { label: '（3）', maxScore: 7 }];
+    sandbox.__config = {
+        question: '有三个小问的第19题', answer: '参考解答中的第三问', rubric: '逐问给分',
+        endpoint: 'https://e.test', apiKey: 'k', model: 'primary',
+        scoring: { maxScore: 17, roundStep: 1, units: totalOnly ? [{ label: '19', maxScore: 17 }] : questions },
+        questionEvidence: { enabled: true, questions: totalOnly ? questions : [] }
+    };
+    const recognized = [
+        { id: 'q1', status: '可辨认', answer: "f(1)=f'(1)=0" },
+        { id: 'q2', status: '部分不清', answer: 'g(m)=0' },
+        { id: 'q3', status: '未作答', answer: '' }
+    ];
+    const answer = (scores, lastEvidence = []) => JSON.stringify({ questions: [
+        { id: 'q3', score: scores[2], evidence: lastEvidence },
+        { id: 'q1', score: scores[0], evidence: scores[0] ? ['q1:1'] : [] },
+        { id: 'q2', score: scores[1], evidence: scores[1] ? ['q2:1'] : [] }
+    ] });
+    return { sandbox, requests, recognized, answer };
+}
+
+test('逐问核对适用纯文字方案，按题号合计并拒绝给空白问挪用原文', async () => {
+    for (const mode of ['detailed', 'score-only']) for (const totalOnly of [false, true]) {
+        const { sandbox, requests, recognized, answer } = scopedScoringCase(totalOnly);
+        sandbox.__config.outputMode = mode;
+        respondWith(sandbox, requests, () => requests.length === 1 ? JSON.stringify(recognized) : answer([4, 1, 0]));
+        const result = await vm.runInContext('callAIGrading(__students, __config)', sandbox);
+        assert.equal(result.score, 5);
+        assert.equal(result.answerLength, recognized[0].answer.length + recognized[1].answer.length);
+        assert.deepEqual(Array.from(result.subScores, unit => unit.score), [4, 1, 0]);
+        assert.equal(result.scopedQuestionsTotalOnly, totalOnly);
+        const first = requests[0].messages[0].content;
+        assert.equal(first.filter(item => item.type === 'image_url').length, 2);
+        assert.doesNotMatch(first[0].text, /参考解答中的第三问/);
+        const second = requests[1].messages[0].content;
+        assert.equal(second.filter(item => item.type === 'image_url').length, 0);
+        assert.match(second[0].text, /参考解答中的第三问/);
+        assert.equal(!!result.comment, mode === 'detailed');
+    }
+    const { sandbox, requests, recognized, answer } = scopedScoringCase(true);
+    respondWith(sandbox, requests, () => requests.length === 1 ? JSON.stringify(recognized) : answer([4, 1, 7], ['q1:1']));
+    await assert.rejects(() => vm.runInContext('callAIGrading(__students, __config)', sandbox),
+        { code: 'GRADING_EVIDENCE_REVIEW', message: /（3）的评分/ });
+});
+
+test('逐问核对拒绝小问缺失、无法定位、仅有占位文字和超出上限', async () => {
+    for (const fault of ['missing', 'unlocated', 'placeholder', 'over-max']) {
+        const { sandbox, requests, recognized, answer } = scopedScoringCase();
+        if (fault === 'missing') recognized.pop();
+        if (fault === 'unlocated') recognized[2].status = '无法定位';
+        if (fault === 'placeholder') recognized[1].answer = '【无法辨认】。';
+        respondWith(sandbox, requests, () => requests.length === 1 ? JSON.stringify(recognized) : answer([4, 7, 0]));
+        await assert.rejects(() => vm.runInContext('callAIGrading(__students, __config)', sandbox), { code: 'GRADING_EVIDENCE_REVIEW' });
+        assert.equal(requests.length, fault === 'over-max' ? 2 : 1);
+    }
+});
+
+test('逐问双评共用一次转录，总分相同的小问分歧进入仲裁', async () => {
+    const { sandbox, requests, recognized, answer } = scopedScoringCase(true);
+    sandbox.__provider = (_provider, model) => ({ endpoint: 'https://e.test', apiKey: 'k', model });
+    vm.runInContext('ProviderManager.getCallConfig = __provider;', sandbox);
+    sandbox.__config.workflowSnapshot = {
+        model: { provider: 'p', model: 'primary' },
+        dualEval: { enabled: true, threshold: 1, secondary: { provider: 'p', model: 'secondary' },
+            arbitration: { provider: 'p', model: 'arbitration' } }
+    };
+    respondWith(sandbox, requests, request => {
+        if (requests.length === 1) return JSON.stringify(recognized);
+        if (request.model === 'secondary') return answer([1, 4, 0]);
+        return answer([4, 1, 0]);
+    });
+    const result = await vm.runInContext('callDualEvaluation(__students, __config)', sandbox);
+    assert.equal(result.score, 5);
+    assert.equal(result.scopedQuestionsTotalOnly, true);
+    assert.equal(result.dualEval.result, 'arbitration');
+    assert.equal(result.dualEval.diff, 0);
+    assert.equal(requests.length, 4);
+    assert.ok(requests.slice(1).every(request => request.messages[0].content.every(item => item.type !== 'image_url')));
+});

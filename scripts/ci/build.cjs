@@ -47,6 +47,8 @@ async function main() {
     C.invariant(ctx.ref === 'refs/tags/v' + version, 'Tag differs from source version');
   }
   C.npm(args);
+  const installationURL = target.startsWith('pr-')
+    ? require('./install.cjs').configure(Number(pr.number ?? ctx.event.number)) : undefined;
   C.npm(['run','verify:bundle']);
   C.run(process.execPath,[C.path.join(__dirname,'browser.cjs')]);
   const manifest = C.json('dist/manifest.json');
@@ -58,7 +60,7 @@ async function main() {
     C.fs.copyFileSync('dist/' + name,C.path.join(C.OUTPUT,name));
   }
   C.packageDelivery(stage,{repository:ctx.name,commit,target,version:manifest.version,build}, {
-    run:ctx.run, event:ctx.eventName, pr:pr ? Number(pr.number ?? ctx.event.number) : undefined,
+    run:ctx.run, event:ctx.eventName, installationURL, pr:pr ? Number(pr.number ?? ctx.event.number) : undefined,
     headRepository:pr?.head.repo.full_name, headRepositoryId:pr?.head.repo.id
   });
   require('./release.cjs').writeNotes(manifest,target);

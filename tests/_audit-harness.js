@@ -61,8 +61,13 @@ function env() {
     sb.window = sb; sb.top = sb;
     vm.createContext(sb);
     vm.runInContext(read('src/core/runtime.js'), sb);
+    const waitWithTimers = sb.abortableGradingDelay;
+    sb.abortableGradingDelay = async (_ms, signal) => {
+        await Promise.resolve();
+        if (signal?.aborted) throw new Error('用户主动暂停');
+    };
     sb.PresetManager.data.list.test = cfg;
-    return { sb, state, cfg, calls, adapter, intervals, timeouts, ids, setPaper: p => { paper = p; } };
+    return { sb, state, cfg, calls, adapter, intervals, timeouts, ids, waitWithTimers, setPaper: p => { paper = p; } };
 }
 function load(e, p) { vm.runInContext(read(p), e.sb, { filename: p }); }
 

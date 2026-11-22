@@ -304,13 +304,7 @@ const KzeduAdapter = {
         return true;
     },
 
-    onPageLoad() {
-        console.log('🚀 [诊断] 云阅卷(开州) — 页面加载完成');
-    },
 
-    onGradingComplete() {
-        console.log('✅ [诊断] 云阅卷(开州) — 本轮批改完成');
-    },
 };
 
 // 注册适配器

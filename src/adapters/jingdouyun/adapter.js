@@ -288,13 +288,7 @@ const JingdouyunAdapter = {
         }
     },
 
-    onPageLoad() {
-        console.log('🚀 [诊断] 精斗云 — 页面加载完成');
-    },
 
-    onGradingComplete() {
-        console.log('✅ [诊断] 精斗云 — 本轮批改完成');
-    },
 };
 
 // 注册适配器

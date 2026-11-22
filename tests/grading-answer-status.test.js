@@ -7,6 +7,7 @@ async function runResponse(text, outputMode = 'detailed') {
     e.cfg.answerStatusCheck = true; e.cfg.outputMode = outputMode; e.sb.response = text;
     const parsed = vm.runInContext('parseStructuredResponse(response, 10)', e.sb);
     let calls = 0; e.sb.callAIGrading = async () => { calls++; return parsed; };
+    e.sb.confirmStudentAnswerStatus = async () => 'unknown';
     await e.sb.startAutoGrading();
     return { e, parsed, calls };
 }

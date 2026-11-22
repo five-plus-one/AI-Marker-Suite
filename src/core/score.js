@@ -71,7 +71,7 @@ const ScoreCalculator = {
      */
     distributeBonus(unitScores, bonus, roundFn, scoringConfig) {
         if (!bonus || bonus <= 0 || !unitScores || unitScores.length === 0) return unitScores;
-        const totalMax = unitScores.reduce((s, u) => s + (u.maxScore || 1), 0);
+        const totalMax = unitScores.reduce((s, u) => s + (u.confirmedBlank ? 0 : (u.maxScore || 1)), 0);
         if (totalMax <= 0) return unitScores;
         const clean = n => Math.round(n * 1e8) / 1e8;
         const out = unitScores.map(u => ({ ...u }));
@@ -81,7 +81,7 @@ const ScoreCalculator = {
         for (let count = 0; count < 100000; count++) {
             let best = -1, bestDelta = 0, bestNeed = -Infinity;
             out.forEach((u, i) => {
-                if (u.score == null) return;
+                if (u.score == null || u.confirmedBlank) return;
                 const step = u.roundStep || scoringConfig?.roundStep || 0.01;
                 const max = u.maxScore ?? Infinity;
                 const next = Math.min(clean((Math.floor(u.score / step + 1e-9) + 1) * step), max);
@@ -107,11 +107,12 @@ const ScoreCalculator = {
      * @param {number} params.maxScore - 总满分
      * @param {Object} params.scoringConfig - preset.scoring 配置
      * @param {Array<{score, maxScore, label, id, comment}>} [params.aiUnitScores] - AI 给每个评分单元的原始分数
+     * @param {boolean} [params.totalOnly] - 仅将合计填入平台的总分框
      * @returns {{ finalScore, finalUnitScores, bonus, breakdown }}
      */
-    calculate({ aiScore, diligenceLevel, maxScore, scoringConfig, aiUnitScores }) {
+    calculate({ aiScore, diligenceLevel, maxScore, scoringConfig, aiUnitScores, totalOnly }) {
         // 1. 准确性分数取整（传满分启用吸附+钳制，#273）
-        const accuracyScore = this.round(aiScore, scoringConfig, maxScore);
+        let accuracyScore = this.round(aiScore, scoringConfig, maxScore);
         if (accuracyScore !== aiScore) {
             console.log(`📐 [分数计算] 取整: ${aiScore} → ${accuracyScore} (步长: ${scoringConfig.roundStep}, 方式: ${scoringConfig.roundMethod})`);
         }
@@ -149,7 +150,19 @@ const ScoreCalculator = {
             // 校验：各单元之和应等于总分；不一致时以小题之和为准（小题是明细、最终按小题填入平台）
             const unitSum = Math.round(finalUnitScores.reduce((s, u) => s + (u.score || 0), 0) * 1e8) / 1e8;
             const allScored = finalUnitScores.every(u => u.score !== null && u.score !== undefined);
-            if (allScored) {
+            if (allScored && totalOnly) {
+                const totalConfig = { ...scoringConfig, roundStep: scoringConfig.units?.[0]?.roundStep || scoringConfig.roundStep };
+                const answeredMax = Math.round(rounded.reduce((sum, unit) => sum + (unit.confirmedBlank ? 0 : unit.maxScore), 0) * 1e8) / 1e8;
+                const roundTotal = score => {
+                    const total = this.round(score, totalConfig, maxScore);
+                    // 总分吸附也须遵守有作答的小问满分之和。
+                    return total <= answeredMax ? total : this.round(answeredMax, { ...totalConfig, roundMethod: 'floor' }, maxScore);
+                };
+                const roundedSum = Math.round(rounded.reduce((sum, unit) => sum + unit.score, 0) * 1e8) / 1e8;
+                accuracyScore = roundTotal(roundedSum);
+                finalScore = roundTotal(unitSum);
+                roundedBonus = Math.round((finalScore - accuracyScore) * 100) / 100;
+            } else if (allScored) {
                 if (Math.abs(unitSum - finalScore) > 1e-8) console.warn(`⚠️ [分数计算] 各单元之和(${unitSum})与总分(${finalScore})不一致，以小题之和为准`);
                 finalScore = Math.min(unitSum, maxScore);
             } else if (Math.abs(unitSum - finalScore) > 0.01) {

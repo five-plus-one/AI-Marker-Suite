@@ -5,10 +5,11 @@
 
 /**
  * @typedef {Object} ScoreInputInfo
- * @property {HTMLInputElement} element - 分数输入框 DOM 元素
+ * @property {HTMLInputElement} [element] - 分数输入框 DOM 元素
  * @property {string} label - 输入框标签（如 "第1题(a)"）
  * @property {number} index - 输入框序号
- * @property {number} [maxScore] - 从 DOM 检测到的满分（可能为 0 或 undefined，核心层会强制用户填写）
+ * @property {number} [maxScore] - 从页面检测到的满分（可能为 0 或 undefined，核心层会强制用户填写）
+ * @property {number} [roundStep] - 当前平台评分步长
  */
 
 /**
@@ -59,7 +60,7 @@
  *
  * === 分数输入（核心层据此构建评分单元配置）===
  * @property {() => ScoreInputInfo[]} getScoreInputs
- *   返回当前页面上所有分数输入框的信息数组。
+ *   返回当前页面上可写入的评分单元（可通过输入框或分值按钮给分）。
  *   - 返回 1 个元素 → 单题模式
  *   - 返回 N 个元素 → N 个评分单元
  *   - maxScore 如果无法从 DOM 检测，返回 0 或 undefined，核心层会强制用户填写。
@@ -93,6 +94,7 @@
  *   旧接口，保留向后兼容。新 adapter 应使用 getScoreInputs() 替代。
  *
  * === 可选钩子 ===
- * @property {() => void} [onPageLoad] - init() 完成后的平台特定页面设置
- * @property {() => void} [onGradingComplete] - 每次批改循环完成后的回调
+ * @property {() => {question: string, units: {label: string, maxScore: number}[]} | null} [getQuestionContext]
+ *   从已确认的原生评分栏读取题号与小题满分；未就绪返回 null。
+ *   不使用答卷编号、评分值、阅卷份数或生成的输入框下标代替题号。
  */

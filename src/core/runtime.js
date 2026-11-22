@@ -154,6 +154,8 @@ function requireGradingEvidence(result, scores = [result?.score]) {
     if (message) {
         const error = new Error(message);
         error.code = 'GRADING_EVIDENCE_REVIEW';
+        error.answerStatus = status;
+        error.gradingResult = result;
         throw error;
     }
 }
@@ -169,31 +171,224 @@ function requireCompatibleGradingEvidence(resultA, resultB) {
     }
 }
 
+function isAnswerReviewEnabled(config) {
+    return config?.answerReview?.enabled === true;
+}
+
+function getPendingReviewLimit(config) {
+    const limit = config?.answerReview?.maxPending;
+    return Number.isInteger(limit) && limit >= 1 && limit <= 50 ? limit : 5;
+}
+
 function isAnswerStatusCheckEnabled(config) {
     return config?.answerStatusCheck === true;
 }
 
 function getUnattendedAnswerFailure(config) {
-    return config?.retryPolicy?.unattendedAnswerFailure === 'recover' ? 'recover' : 'pause';
+    const policy = config?.retryPolicy?.unattendedAnswerFailure;
+    return policy === 'recover' || policy === 'retry' ? policy : 'pause';
+}
+
+function getUnattendedRetryLimit(config) {
+    const policy = config?.retryPolicy;
+    const value = policy?.unattendedRetries;
+    if (Number.isInteger(value) && value >= 0 && value <= 5) return value;
+    const legacy = policy?.unattendedAnswerRetries;
+    return policy?.unattendedAnswerFailure !== 'pause' && Number.isInteger(legacy) && legacy >= 1 && legacy <= 5
+        ? legacy : 5;
+}
+
+function isUnattendedRun(context) {
+    return !!context && !context.manual && window.aiGradingState.gradingMode === 'unattended';
+}
+
+function createUnattendedRetryBudget(context, stage, verify = checkGradingRetryTarget) {
+    let remaining = isUnattendedRun(context) ? getUnattendedRetryLimit(context.configuration) : 0;
+    let attempt = 0;
+    return {
+        get remaining() { return remaining; },
+        async retry(delay, reason) {
+            while (remaining) {
+                requireCurrentGradingContext(context);
+                remaining--;
+                attempt++;
+                if (typeof DiagnosticLog !== 'undefined') {
+                    DiagnosticLog.grading('grading-retry', context, { stage, attempt, remaining, reason });
+                }
+                await abortableGradingDelay(delay ?? 5000 * attempt, context.controller.signal);
+                requireCurrentGradingContext(context);
+                try {
+                    await verify(context);
+                    return true;
+                } catch (error) {
+                    if (error?.code !== 'GRADING_STEP_RETRY' || !remaining) throw error;
+                }
+            }
+            return false;
+        }
+    };
+}
+
+async function retryUnattendedStep(context, stage, operation, verify) {
+    const budget = createUnattendedRetryBudget(context, stage, verify);
+    for (;;) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (error?.code !== 'GRADING_STEP_RETRY' || !await budget.retry(undefined, error.code)) throw error;
+        }
+    }
+}
+
+function gradingStepRetry(message) {
+    const error = new Error(message);
+    error.code = 'GRADING_STEP_RETRY';
+    return error;
+}
+
+function missingGradingScore() {
+    const error = new Error('AI未返回可识别的分数，请检查模型回答后继续批改');
+    error.code = 'GRADING_SCORE_INVALID';
+    return error;
+}
+
+function hasUsableGradingScores(result) {
+    return Number.isFinite(result?.score) && result.score >= 0
+        && (!Array.isArray(result.subScores) || result.subScores.every(item =>
+            Number.isFinite(item?.score) && item.score >= 0));
+}
+
+async function fillGradingScoreValues(context, total, units, label) {
+    const adapter = context.adapter;
+    const scores = units?.length ? units.map(unit => unit.score) : [total];
+    if (!validateScoresForFill([total, ...scores], label)) throw new Error('分数填入失败，请核对评分结果后继续');
+    return retryUnattendedStep(context, 'fill', async () => {
+        requireGradingContextTarget(context);
+        let filled;
+        try {
+            filled = adapter?.fillScores
+                ? adapter.fillScores(scores)
+                : adapter?.fillScore?.({ total, subScores: units });
+        } catch (error) {
+            throw gradingStepRetry(error.message || '暂时未能填入分数，请核对后继续');
+        }
+        if (!filled) throw gradingStepRetry(adapter?.lastFillError || '暂时未能填入分数，请核对后继续');
+        context.inputSnapshot = snapshotScoreInputs(adapter);
+    });
+}
+
+
+function rememberPendingGradingPaper(context, submitted = false) {
+    const protectSubmittedPaper = submitted && !context.manual && context.adapter?.id === 'zhixue';
+    if (!protectSubmittedPaper && !isUnattendedRun(context)) return;
+    window.aiGradingState.pendingGradingPaper = {
+        adapter: context.adapter, taskId: context.taskId, presetName: context.presetName,
+        paperId: context.paperId, imageUrls: context.imageUrls, protectSubmittedPaper
+    };
+}
+
+async function verifyNextGradingPaper(context) {
+    const state = window.aiGradingState;
+    const previous = state.pendingGradingPaper;
+    if (!previous) return;
+    if (previous.adapter !== context.adapter || (!previous.protectSubmittedPaper
+        && (previous.taskId !== context.taskId || previous.presetName !== context.presetName))) {
+        state.pendingGradingPaper = null;
+        return;
+    }
+    await retryUnattendedStep(context, 'next-paper', async () => {
+        requireCurrentGradingContext(context);
+        if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后继续');
+        requireGradingQuestionContext(context);
+        const current = readGradingPaperIdentity(context.adapter);
+        if (previous.protectSubmittedPaper) {
+            // 题号或答卷尚未就绪时保留已提交的基线。换卷仍由适配器确认。
+            const taskId = readGradingTaskIdentifier();
+            const stillWaiting = () => gradingStepRetry('仍在等待下一份答卷，请核对阅卷记录');
+            if (!taskId || !current || current === previous.paperId) throw stillWaiting();
+            captureInitialZhixueTask(context, taskId);
+            const ready = await context.adapter.waitForNextPaper(previous.imageUrls[0], {
+                paperId: previous.paperId, taskId, signal: context.controller.signal
+            });
+            requireCurrentGradingContext(context);
+            if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后继续');
+            if (!ready || readGradingTaskIdentifier() !== taskId || readGradingPaperIdentity(context.adapter) !== current) {
+                throw stillWaiting();
+            }
+        } else if (previous.paperId && current) {
+            if (current === previous.paperId) throw gradingStepRetry('仍在等待下一份答卷，请核对阅卷记录');
+        } else {
+            const check = await verifyPaperUnchanged(context.adapter, previous.imageUrls, [], previous.paperId);
+            requireCurrentGradingContext(context);
+            if (check.unchanged !== false) throw gradingStepRetry('仍在等待下一份答卷，请核对阅卷记录');
+        }
+        context.paperId = current;
+        state.pendingGradingPaper = null;
+    }, requireCurrentGradingContext);
+}
+
+function getScopedQuestionPlan(config) {
+    if (config?.questionEvidence?.enabled !== true) return null;
+    const nativeUnits = config.scoring?.units || [];
+    const totalOnly = nativeUnits.length <= 1;
+    const units = totalOnly ? config.questionEvidence.questions : nativeUnits;
+    if (!Array.isArray(units) || units.length < 2 || units.length > 50) {
+        throw new Error('请在本方案中设置 2 至 50 个小问及其满分');
+    }
+
+    const questions = units.map((unit, index) => ({
+        id: 'q' + (index + 1),
+        label: typeof unit?.label === 'string' ? unit.label.trim() : '',
+        maxScore: unit?.maxScore,
+        roundStep: unit?.roundStep || config.scoring?.roundStep || 1
+    }));
+    const labels = new Set(questions.map(question => question.label.normalize('NFKC').replace(/\s/g, '')));
+    if (labels.size !== questions.length || questions.some(question =>
+        !question.label || !Number.isFinite(question.maxScore) || question.maxScore <= 0)) {
+        throw new Error('请为每个小问填写不同的题号和有效满分');
+    }
+    if (totalOnly) {
+        const maxScore = nativeUnits[0]?.maxScore ?? config.scoring?.maxScore ?? config.maxScore;
+        const sum = questions.reduce((total, question) => total + question.maxScore, 0);
+        if (questions.some(question => Math.abs(question.maxScore * 100 - Math.round(question.maxScore * 100)) > 1e-8)) {
+            throw new Error('小问满分最多保留两位小数');
+        }
+        if (!Number.isFinite(maxScore) || Math.abs(sum - maxScore) > 1e-8) {
+            throw new Error('各小问满分之和须等于本题满分');
+        }
+    }
+    return { questions, totalOnly };
 }
 
 async function requestGradingWithAnswerRecovery(context, request, recoverAnswerStatus, retryUnreadable = false) {
-    const recover = window.aiGradingState.gradingMode === 'unattended'
-        && getUnattendedAnswerFailure(context.configuration) === 'recover';
-    for (let attempt = 0; ; attempt++) {
+    const unattended = isUnattendedRun(context);
+    const policy = unattended ? getUnattendedAnswerFailure(context.configuration) : 'pause';
+    const configuredPolicy = context.configuration.retryPolicy?.unattendedAnswerFailure;
+    const checkEvidence = isAnswerStatusCheckEnabled(context.configuration)
+        || (unattended && (configuredPolicy === 'recover' || configuredPolicy === 'retry'));
+    const budget = unattended ? createUnattendedRetryBudget(context, 'score') : null;
+    for (;;) {
         requireCurrentGradingContext(context);
-        if (attempt) await verifyGradingContext(context);
         try {
-            const result = await request();
+            const result = await request(budget);
             requireCurrentGradingContext(context);
-            if (isAnswerStatusCheckEnabled(context.configuration) || recover
-                || (retryUnreadable && getGradingAnswerStatus(result) === 'unreadable')) {
+            if (checkEvidence || (retryUnreadable && getGradingAnswerStatus(result) === 'unreadable')) {
                 requireGradingEvidence(result, [result?.score, ...(result?.subScores || []).map(unit => unit.score)]);
             }
+            if (unattended && !hasUsableGradingScores(result)) throw missingGradingScore();
             return result;
         } catch (error) {
             requireCurrentGradingContext(context);
-            if (!recover || attempt || error.code !== 'GRADING_EVIDENCE_REVIEW') throw error;
+            if (!budget?.remaining) throw error;
+            if (error.code === 'GRADING_SCORE_INVALID') {
+                if (await budget.retry(undefined, error.code)) continue;
+                throw error;
+            }
+            if (policy === 'pause' || error.code !== 'GRADING_EVIDENCE_REVIEW') throw error;
+            if (policy === 'retry') {
+                if (await budget.retry(undefined, error.code)) continue;
+                throw error;
+            }
             let status;
             if (recoverAnswerStatus) {
                 await verifyGradingContext(context);
@@ -208,8 +403,27 @@ async function requestGradingWithAnswerRecovery(context, request, recoverAnswerS
                 requireGradingContextTarget(context);
                 if (status === 'blank') return makeBlankGradingResult(context.configuration);
             }
-            if (status !== 'written' && !(retryUnreadable && error.answerStatus === 'unreadable')) throw error;
+            if (status !== 'written') throw error;
+            if (!await budget.retry(undefined, error.code)) throw error;
         }
+    }
+}
+
+async function requestGradingWithRecognitionRetry(context, request, recoverAnswerStatus) {
+    const enabled = isAnswerReviewEnabled(context.configuration);
+    try {
+        return await requestGradingWithAnswerRecovery(context, request, recoverAnswerStatus, enabled);
+    } catch (error) {
+        requireCurrentGradingContext(context);
+        if (error.code === 'GRADING_EVIDENCE_REVIEW' && error.answerStatus === 'unreadable') {
+            window.aiGradingState.currentStudentAnswer = error.gradingResult?.studentAnswer || '无法辨认';
+            if (enabled) {
+                await HistoryManager.savePendingReview(context, error.gradingResult);
+                requireCurrentGradingContext(context);
+                error.message = '本卷需要教师评分，原图与评分方案已保存到评阅历史的待复核记录';
+            }
+        }
+        throw error;
     }
 }
 
@@ -221,8 +435,17 @@ function createGradingContext(manual = false) {
     configuration.scoring = { ...configuration.scoring,
         maxScore: PresetManager.getMaxScore?.() ?? configuration.scoring?.maxScore,
         units: JSON.parse(JSON.stringify(PresetManager.getScoringUnits?.() || configuration.scoring?.units || [])) };
+    const questionGuardEnabled = configuration.questionGuard?.enabled === true;
+    const observedQuestion = questionGuardEnabled ? readGradingQuestionContext(adapter) : null;
+    const sessionQuestion = state.questionGuardSession;
+    const questionBaseline = !manual && sessionQuestion?.adapter === adapter && sessionQuestion.presetName === PresetManager.data.active
+        ? sessionQuestion.snapshot : observedQuestion;
+    if (questionGuardEnabled && !manual && !sessionQuestion && observedQuestion) {
+        state.questionGuardSession = { adapter, presetName: PresetManager.data.active, snapshot: observedQuestion };
+    }
     const context = {
         controller: new AbortController(), adapter, manual, configuration,
+        questionGuardEnabled, questionBaseline,
         taskId: readGradingTaskIdentifier(), presetName: PresetManager.data.active,
         pageUrl: (window.location?.pathname || '') + (window.location?.hash || ''),
         paperGuardEnabled: PresetManager.getCurrentConfig?.()?.paperGuard?.enabled !== false,
@@ -257,6 +480,44 @@ function gradingContextError(message) {
     return error;
 }
 
+// 只消费适配器确认过的题号来源；分数、份数与 DOM 下标不构成题号证据。
+function readGradingQuestionContext(adapter) {
+    try {
+        const value = adapter?.getQuestionContext?.();
+        if (!value || typeof value.question !== 'string' || !Array.isArray(value.units) || !value.units.length) return null;
+        const normalize = text => String(text ?? '').normalize('NFKC').replace(/\s+/g, '').trim();
+        const question = normalize(value.question);
+        const units = value.units.map(unit => ({ label: normalize(unit.label), maxScore: Number(unit.maxScore) }));
+        if (!question || units.some(unit => !unit.label || !Number.isFinite(unit.maxScore) || unit.maxScore <= 0)) return null;
+        return { question, units, key: JSON.stringify([question, units.map(unit => [unit.label, unit.maxScore])]) };
+    } catch (_) { return null; }
+}
+
+function captureInitialGradingQuestion(context) {
+    if (!context.questionGuardEnabled || context.questionBaseline) return;
+    requireGradingContextTarget(context, false);
+    const page = (window.location?.pathname || '') + (window.location?.hash || '');
+    if (page !== context.pageUrl) throw gradingContextError('当前题目已变化，请核对后重新批改');
+    const snapshot = readGradingQuestionContext(context.adapter);
+    if (snapshot) {
+        context.questionBaseline = snapshot;
+        window.aiGradingState.questionGuardSession = {
+            adapter: context.adapter, presetName: context.presetName, snapshot
+        };
+    }
+}
+
+function requireGradingQuestionContext(context) {
+    if (context?.questionGuardEnabled !== true) return;
+    const current = readGradingQuestionContext(context.adapter);
+    if (!context.questionBaseline || !current) throw gradingStepRetry('暂未读取到完整题号，请核对阅卷页面后继续');
+    if (context.questionBaseline.key !== current.key) {
+        const error = gradingContextError('题号或小题满分已变化，请核对当前题目和评分方案后继续');
+        error.code = 'GRADING_QUESTION_CHANGED';
+        throw error;
+    }
+}
+
 function readGradingTaskIdentifier() {
     const adapter = window.__AI_MARKER_ADAPTER__;
     try {
@@ -265,6 +526,12 @@ function readGradingTaskIdentifier() {
         console.warn('[题目校验] 暂时无法读取当前题目:', error);
         return '';
     }
+}
+
+function captureInitialZhixueTask(context, taskId = readGradingTaskIdentifier()) {
+    if (context.taskId || !taskId) return;
+    context.taskId = taskId;
+    window.aiGradingState.gradingTaskId ||= taskId;
 }
 
 function stopIfGradingTaskChanged(context) {
@@ -276,14 +543,18 @@ function stopIfGradingTaskChanged(context) {
     const baseline = state.gradingTaskId || state.activeRun?.taskId;
     const taskId = readGradingTaskIdentifier();
     if (!baseline || !taskId || baseline === taskId) return false;
+    if (typeof DiagnosticLog !== 'undefined') {
+        DiagnosticLog.grading('grading-paused', context || state.activeRun, { reason: 'task-changed' }, { persist: true });
+    }
     stopAutoGrading();
     showToast('当前题目已切换，批改已停止，请核对当前题目的方案后继续');
     return true;
 }
 
-function requireGradingContextTarget(context) {
+function requireGradingContextTarget(context, checkQuestion = true) {
     requireCurrentGradingContext(context);
     if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后重新批改');
+    if (checkQuestion) requireGradingQuestionContext(context);
     if (PresetManager.data.active !== context.presetName) throw gradingContextError('配置方案已切换，请重新批改');
     const taskId = readGradingTaskIdentifier();
     if (context.taskId && taskId && context.taskId !== taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
@@ -291,19 +562,31 @@ function requireGradingContextTarget(context) {
     if (context.paperGuardEnabled !== false && context.paperId && paperId && context.paperId !== paperId) throw gradingContextError('答卷已切换，请核对后重新批改');
 }
 
-async function verifyGradingContext(context) {
+async function verifyGradingContext(context, requirePaperMatch = false) {
     requireCurrentGradingContext(context);
+    requireGradingQuestionContext(context);
     const taskId = readGradingTaskIdentifier();
     if (context.taskId && taskId && taskId !== context.taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
-    if (await confirmLeftMarkingPage(context.adapter)) throw gradingContextError('已离开批改页面，请返回后继续');
+    if (await confirmLeftMarkingPage(context.adapter)) {
+        const pageUrl = (window.location?.pathname || '') + (window.location?.hash || '');
+        if (pageUrl === context.pageUrl) throw gradingStepRetry('阅卷页面暂时未就绪，请核对后继续');
+        throw gradingContextError('已离开批改页面，请返回后继续');
+    }
     requireCurrentGradingContext(context);
-    if (context.paperGuardEnabled !== false) {
+    if (requirePaperMatch || context.paperGuardEnabled !== false) {
         const check = await verifyPaperUnchanged(context.adapter, context.imageUrls, context.inputSnapshot, context.paperId);
         requireCurrentGradingContext(context);
         if (check.unchanged === false) throw gradingContextError('答卷已切换，请核对后重新批改');
-        if (check.unchanged === null) console.warn('[答卷校验] 无法判定:', check.reason);
+        if (check.unchanged === null) {
+            if (requirePaperMatch) throw gradingStepRetry('暂未确认当前答卷，请核对后继续');
+            console.warn('[答卷校验] 无法判定:', check.reason);
+        }
     }
     requireGradingContextTarget(context);
+}
+
+function checkGradingRetryTarget(context) {
+    return verifyGradingContext(context, true);
 }
 
 // 把降级期间相对默认快照的编辑合并到恢复的数据；未编辑的默认值不覆盖原值。

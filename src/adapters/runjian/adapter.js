@@ -387,24 +387,7 @@ const RunjianAdapter = {
         return false;
     },
 
-    onPageLoad() {
-        console.log('🚀 [润建] 页面加载完成，执行初始化...');
 
-        // 确保"自动提交"未勾选（避免点击分数按钮时自动提交）
-        const autoSubmitCheckbox = document.querySelector(RUNJIAN_SELECTORS.AUTO_SUBMIT_CHECKBOX);
-        if (autoSubmitCheckbox && autoSubmitCheckbox.checked) {
-            // 通过点击其父 label 来取消勾选
-            const label = autoSubmitCheckbox.closest('label.el-checkbox');
-            if (label) {
-                label.click();
-                console.log('📝 [润建] 已取消"自动提交"勾选');
-            }
-        }
-    },
-
-    onGradingComplete() {
-        console.log('✅ [润建] 本轮批改完成');
-    },
 };
 
 // 注册适配器

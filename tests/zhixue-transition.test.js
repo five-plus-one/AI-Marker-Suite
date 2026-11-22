@@ -4,6 +4,8 @@ const { env, load, vm } = require('./_audit-harness');
 
 function fixture({ iframe = false, oldUI = false } = {}) {
     const e = env();
+    let now = 0;
+    e.sb.Date = class extends Date { static now() { return now; } };
     e.sb.location.href = 'https://www.zhixue.com/webmarking/marking/personal/';
     let images = [image('https://oss.test/paper-A.png?Expires=1&Signature=old')];
     const score = { value: '' };
@@ -13,13 +15,19 @@ function fixture({ iframe = false, oldUI = false } = {}) {
         querySelector: selector => selector === 'iframe' ? (iframe ? { contentDocument: doc } : null) : doc.querySelector(selector) };
     e.sb.document = mainDoc; load(e, 'src/adapters/zhixue/selectors.js'); load(e, 'src/adapters/zhixue/adapter.js');
     const a = vm.runInContext('ZhixueAdapter', e.sb); a.getTaskIdentifier = () => 'task'; a.getGradingTaskIdentifier = () => 'task';
-    const tick = async (count = 1) => { for (let i=0;i<count;i++) { for (const fn of [...e.intervals.values()]) fn(); await Promise.resolve(); } };
+    const tick = async (count = 1) => {
+        for (let i = 0; i < count; i++) {
+            now += 200;
+            for (const fn of [...e.intervals.values()]) fn();
+            await Promise.resolve();
+        }
+    };
     const gather = async () => {
         const result = a.gatherAnswerImages();
         for (const [id, fn] of [...e.timeouts]) { e.timeouts.delete(id); fn(); }
         return result;
     };
-    return { e, a, score, tick, gather, setImages: next => { images = next; } };
+    return { e, a, score, tick, gather, advance: elapsed => { now += elapsed; }, setImages: next => { images = next; } };
 }
 function image(src, extra = {}) { return { src, complete: true, naturalWidth: 1000, naturalHeight: 800, getClientRects: () => [{}], ...extra }; }
 
@@ -28,6 +36,40 @@ test('复现#394：同图清空分数框持续50轮也不报告换卷', async ()
     const pending = f.a.waitForNextPaper('https://oss.test/paper-A.png?Expires=1&Signature=old', { paperId: old, taskId: 'task' }).then(value => { done = true; return value; });
     await f.tick(50); assert.equal(done, false);
     await f.tick(75); assert.equal(await pending, false); assert.equal(f.e.intervals.size, 0);
+});
+
+test('后台长时间未执行检查时，恢复后的检查按实际经过时间结束等待', async () => {
+    const f = fixture();
+    let observation;
+    const pending = f.a.waitForNextPaper('', {
+        paperId: f.a.getPaperIdentity(),
+        onWaitObserved: summary => { observation = summary; },
+    });
+    f.advance(3 * 60 * 60 * 1000);
+    await f.tick();
+    assert.equal(await pending, false);
+    assert.equal(observation.reason, 'deadline');
+    assert.equal(observation.checks, 1);
+    assert.equal(f.e.intervals.size, 0);
+});
+
+test('智学网接受继续多阅后，为同题的新答卷重新留出完整加载时间', async () => {
+    const f = fixture();
+    let continued = 0;
+    const pending = f.a.waitForNextPaper('', {
+        paperId: f.a.getPaperIdentity(),
+        taskId: 'task',
+        continueQuota: taskId => taskId === 'task' && continued === 0,
+        onQuotaContinued: () => { continued++; },
+    });
+    f.advance(25_000);
+    await f.tick();
+    assert.equal(continued, 1);
+    f.advance(24_000);
+    f.setImages([image('https://oss.test/paper-B.png')]);
+    await f.tick(2);
+    assert.equal(await pending, true);
+    assert.equal(f.e.intervals.size, 0);
 });
 
 test('智学网新旧界面及iframe均等待整组图片加载，换签名不换卷', async () => {
