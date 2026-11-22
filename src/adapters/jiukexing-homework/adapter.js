@@ -416,7 +416,7 @@ const JiukexingHomeworkAdapter = {
         return bodyText.includes('回评') || bodyText.includes('复核');
     },
 
-    onPageLoad() {
+    initializePage() {
         // Element Plus / qiankun 层叠上下文可能遮挡脚本 UI，统一拉高 z-index
         const style = document.createElement('style');
         style.id = 'jiukexing-hw-zindex-fix';
@@ -580,6 +580,6 @@ function OBS_REG_TEST(url) {
 // 注册适配器
 if (JiukexingHomeworkAdapter.shouldInitialize() && !window.__AI_MARKER_ADAPTER__) {
     window.__AI_MARKER_ADAPTER__ = JiukexingHomeworkAdapter;
-    JiukexingHomeworkAdapter.onPageLoad();
+    JiukexingHomeworkAdapter.initializePage();
     console.log('🚀 [九科星作业] 适配器已注册');
 }

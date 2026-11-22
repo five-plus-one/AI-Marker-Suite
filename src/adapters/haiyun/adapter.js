@@ -220,15 +220,6 @@ const HaiyunAdapter = {
                     }
                 }
 
-                // 输入框被清空（提交后平台会清空）
-                const input = document.querySelector(HAIYUN_SELECTORS.SCORE_INPUT);
-                if (input && input.value === '' && checkTimes > 3) {
-                    clearInterval(timer);
-                    console.log('✅ [海云智评] 新试卷已加载（输入框清空）');
-                    resolve(true);
-                    return;
-                }
-
                 if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
                     clearInterval(timer);
                     console.warn('⚠️ [海云智评] 等待下一份试卷超时');

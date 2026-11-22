@@ -474,7 +474,6 @@ const C30Adapter = {
     async waitForNextPaper() {
         console.log('⏳ [C30] waitForNextPaper...');
         const state = this._state;
-        const startTs = state.latestApiTimestamp;
         const startUrl = state.latestImageUrl;
         const start = Date.now();
 
@@ -482,20 +481,9 @@ const C30Adapter = {
             const iv = setInterval(() => {
                 const sec = ((Date.now() - start) / 1000).toFixed(0);
 
-                if (state.latestApiTimestamp > startTs) {
-                    clearInterval(iv);
-                    console.log(`✅ [C30] 新卷 (API) ${sec}s`);
-                    return resolve(true);
-                }
                 if (startUrl && state.latestImageUrl && state.latestImageUrl !== startUrl) {
                     clearInterval(iv);
                     console.log(`✅ [C30] 新卷 (URL) ${sec}s`);
-                    return resolve(true);
-                }
-                const inp = document.querySelector(C30_SELECTORS.SCORE_INPUT);
-                if (inp?.value === '' && Date.now() - start > 1500) {
-                    clearInterval(iv);
-                    console.log(`✅ [C30] 新卷 (input清空) ${sec}s`);
                     return resolve(true);
                 }
                 if (Date.now() - start > 30000) {
@@ -512,79 +500,9 @@ const C30Adapter = {
         return d.isReview === 1 || d.isReview === '1';
     },
 
-    onPageLoad() {
-        console.log('🚀 [C30] onPageLoad');
-        const d = this._getUrlParams();
-        console.log(`  workId=${d.workId}, title=${d.workTitle}, isReview=${d.isReview}`);
 
-        setTimeout(() => this._logPageState(), 2000);
 
-        // 自动检测满分（带重试）
-        this._autoDetectMaxScoreWithRetry(0);
-    },
 
-    // 带重试的满分自动检测
-    _autoDetectMaxScoreWithRetry(attempt) {
-        const MAX_RETRIES = 3;
-        const DELAYS = [3000, 5000, 8000]; // 3s, 5s, 8s
-
-        setTimeout(() => {
-            const success = this._autoDetectMaxScore();
-            if (!success && attempt < MAX_RETRIES - 1) {
-                console.log(`📝 [C30] 满分检测未成功，${attempt + 2}/${MAX_RETRIES} 次重试...`);
-                this._autoDetectMaxScoreWithRetry(attempt + 1);
-            }
-        }, DELAYS[attempt]);
-    },
-
-    // 返回 true = 检测成功并写入，false = 未检测到或已配置
-    _autoDetectMaxScore() {
-        const pm = window.PresetManager;
-        if (!pm) {
-            console.log('📝 [C30] PresetManager 未就绪');
-            return false;
-        }
-
-        const config = pm.getCurrentConfig();
-        const currentMax = config.scoring?.maxScore || 0;
-        const units = config.scoring?.units || [];
-        const unitsHaveScore = units.length > 0 && units.some(u => u.maxScore > 0);
-
-        if (currentMax > 0 || unitsHaveScore) {
-            console.log(`📝 [C30] 满分已配置 (${currentMax || units[0]?.maxScore})，跳过`);
-            return true;
-        }
-
-        const inputs = this.getScoreInputs();
-        if (inputs.length === 0 || inputs[0].maxScore <= 0) {
-            console.log('📝 [C30] 页面未检测到满分值');
-            return false;
-        }
-
-        const detected = inputs[0].maxScore;
-        console.log(`📝 [C30] 检测到满分: ${detected}，写入配置...`);
-
-        const activeKey = pm.data.active;
-        const preset = pm.data.list[activeKey];
-        if (!preset) return false;
-
-        if (!preset.scoring) preset.scoring = {};
-        preset.scoring.maxScore = detected;
-        preset.scoring.units = [{
-            label: inputs[0].label || '总分',
-            maxScore: detected,
-            index: 0,
-            roundStep: 1
-        }];
-        pm.save();
-
-        console.log(`✅ [C30] 满分 ${detected} 已写入配置【${activeKey}】`);
-        return true;
-    },
-
-    onGradingComplete() {
-        console.log('✅ [C30] onGradingComplete');
-    },
 
     _getUrlParams() {
         try {

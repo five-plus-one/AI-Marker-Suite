@@ -5,10 +5,12 @@ window.GM_getValue=(k,d)=>storage[k]??d;window.GM_setValue=(k,v)=>storage[k]=v;
 window.getUIRoot=()=>document.body;window.showToast=(...x)=>notices.push(x);
 window.addEventListener('error',event=>failures.push(event.message));
 </script>
+<script src="../../node_modules/@fiveplusone/embedded-ui/index.cjs"></script>
 <script src="../../src/core/config.js"></script>
 <script src="../../src/core/state.js"></script>
 <script src="../../src/core/runtime.js"></script>
 <script src="../../src/core/score.js"></script>
+<script src="../../src/core/marker-account.js"></script>
 <script src="../../src/core/ai-engine.js"></script>
 <script src="../../src/core/preset.js"></script>
 <script src="../../src/core/ui-modal.js"></script>
@@ -55,10 +57,10 @@ window.addEventListener('error',event=>failures.push(event.message));
   const recovery=document.getElementById('unattended-answer-recovery');
   const photoCheck=document.getElementById('reference-image-evidence-check');
   const statusCheck=document.getElementById('answer-status-check');
-  assert(recovery.value==='pause' && !statusCheck.checked && !photoCheck.checked && getUnattendedAnswerFailure(PresetManager.getCurrentConfig())==='pause','旧方案默认关闭实验功能');
+  assert(recovery.value==='recover' && !statusCheck.checked && !photoCheck.checked && getUnattendedAnswerFailure(PresetManager.getCurrentConfig())==='recover','旧方案沿用核对开关并默认复查原卷');
   assert([statusCheck,photoCheck].every(input=>input.labels[0]?.textContent.includes('实验性')) && recovery.options[1].textContent.includes('实验性'),'核对与自动复查明确标为实验性');
   window.safeAlert=()=>{};
-  window.clearUnsavedChanges=()=>{};
+  window.clearUnsavedChanges=()=>{};window.markUnsavedChanges=()=>{};
   window.undockFloatingButtons=()=>{};
   validateRequiredFields=()=>({valid:true});
   recovery.value='recover';saveAISettings();
@@ -67,6 +69,24 @@ window.addEventListener('error',event=>failures.push(event.message));
   recovery.value='pause';photoCheck.checked=true;statusCheck.checked=true;saveAISettings();
   PresetManager.init();
   assert(getUnattendedAnswerFailure(PresetManager.getCurrentConfig())==='pause' && PresetManager.getCurrentConfig().referenceImageEvidenceCheck===true && PresetManager.getCurrentConfig().answerStatusCheck===true,'评分核对可与无人处理策略独立保存');
+  const scoped=document.getElementById('scoped-question-evidence');
+  const questionPoints=document.getElementById('scoped-question-points');
+  const retries=document.getElementById('unattended-retries');
+  const regularRetries=document.getElementById('retry-max-retries');
+  assert(!scoped.checked && scoped.labels[0].textContent.includes('实验性') && retries.value==='5','逐问核对默认关闭，无人模式每步默认重试五次');
+  scoped.checked=true; scoped.dispatchEvent(new Event('change'));
+  recovery.value='retry'; recovery.dispatchEvent(new Event('change'));
+  assert(!questionPoints.disabled && !retries.disabled,'开启后允许设置小问和无人重试次数');
+  questionPoints.value='（1）=4\n（2）=6\n（3）=7';
+  document.getElementById('scoring-max-score').value='17';
+  retries.value='4';
+  regularRetries.value='0';
+  saveAISettings();
+  PresetManager.init();
+  const configured=PresetManager.getCurrentConfig();
+  assert(getUnattendedAnswerFailure(configured)==='retry' && getUnattendedRetryLimit(configured)===4,'直接重试与次数一起保存');
+  assert(configured.retryPolicy.maxRetries===0,'明确关闭普通模式重试后仍保存为零');
+  assert(getScopedQuestionPlan(configured).questions.map(question=>question.maxScore).join(',')==='4,6,7','单总分小问配置保存并读回');
   document.querySelectorAll('.ai-modal-overlay').forEach(x=>x.remove());
   window.extractFieldText=field=>typeof field==='string'?field:field?.text||'';
   window.attachMarkdownEditor=()=>{};
@@ -86,7 +106,7 @@ window.addEventListener('error',event=>failures.push(event.message));
   await el('save').onclick();assert(el('save').isConnected && notices.at(-1)[0].includes('暂时无法保存'),'保存失败保留编辑窗口');
   window.GM_setValue=originalSet;el('cancel').click();
   assert(failures.length===0,failures.join(';'));
-  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,dualModel:saved.dualEval.secondary.model,threshold:saved.dualEval.threshold,checks:17,notices}))));
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,dualModel:saved.dualEval.secondary.model,threshold:saved.dualEval.threshold,checks:22,notices}))));
  } catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack,failures}))));}
 })();
 </script>

@@ -1,0 +1,171 @@
+<!doctype html><meta charset="utf-8"><title>智学网提交后换卷验收</title>
+<main></main><pre id="result" hidden></pre>
+<template id="exam">
+  <div name="topicImg"><img src="/__fixture/answer.svg?paper=A"></div>
+  <span id="currentTopicIndex">第31题</span>
+  <ul id="containter_topicTxt"><li><span class="label">31</span><input name="topicTxt" id="txt_marking_31" disptitle="31" score="10" placeholder="满分10"></li></ul>
+  <button id="bnt_save">提交分数</button>
+</template>
+<template id="homework">
+  <div class="smart-hw-container">
+    <div class="question-viewer"><div class="image-wrapper"><img src="/__fixture/answer.svg?paper=A"></div></div>
+    <div class="sidebar-right-container"><div class="operation-panel">
+      <div class="correct-tool-title"><span>11 解答题</span></div>
+      <button class="green-btn">满分</button><button class="red-btn">零分</button>
+    </div></div>
+  </div>
+</template>
+<script>
+const byId = id => document.getElementById(id);
+const homework = location.pathname === '/tfbWowbookWeb/';
+document.querySelector('main').append(byId(homework ? 'homework' : 'exam').content.cloneNode(true));
+const image = document.querySelector('main img');
+const topic = { childQuestionId: '11', standardScore: 10 };
+const homeworkTask = 'zhixue-homework:' + JSON.stringify(['homework-fixture', 'fixture-class', '11', '']);
+const examTask = location.pathname + '___第31题';
+const storage = {
+  'ai-grading-show-onboarding': false,
+  'ai-grading-hide-question-onboarding': true,
+  'ai-grading-presets': JSON.stringify({
+    active: 'Fixture', bindings: { [homework ? homeworkTask : examTask]: 'Fixture' },
+    list: { Fixture: { question: '合成题', answer: '参考答案', rubric: '按步骤给分', workflowId: 'fixture',
+      gradingMode: homework ? 'unattended' : 'normal', retryPolicy: { unattendedRetries: 0 },
+      scoring: { maxScore: 10, roundStep: 1 }, blankDetection: { enabled: false } } }
+  }),
+  'ai-grading-providers-v2': JSON.stringify({ providers: {
+    '5plus1官方': { apiKey: 'fixture' },
+    Fixture: { endpoint: 'https://ai.fixture.invalid/v1/chat/completions', apiKey: 'fixture', models: { fixture: {} } }
+  }, activeProvider: 'Fixture', activeModel: 'fixture' }),
+  'ai-grading-workflows': JSON.stringify({ workflows: {
+    Fixture: { id: 'fixture', model: { provider: 'Fixture', model: 'fixture' }, dualEval: null }
+  }, activeWorkflow: 'fixture' })
+};
+const effects = { requests: [], submits: [], nativeContinues: 0 };
+window.GM_getValue = (key, fallback) => storage[key] ?? fallback;
+window.GM_setValue = (key, value) => storage[key] = value;
+window.GM_deleteValue = key => delete storage[key];
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => {
+  const controller = new AbortController();
+  if (options.method === 'POST' && options.url === 'https://ai.fixture.invalid/v1/chat/completions') {
+    effects.requests.push(image.src);
+    effects.complete = () => options.onload({ status: 200, responseText: JSON.stringify({
+      choices: [{ message: { content: '【答案复述】\n未作答\n【得分】\n0' }, finish_reason: 'stop' }]
+    }) });
+  } else if (options.method === 'GET' && options.url.startsWith(location.origin + '/__fixture/answer.svg?')) {
+    fetch(options.url, { signal: controller.signal }).then(async response => {
+      options.onload({ status: response.status, response: await response.arrayBuffer() });
+    }).catch(() => options.onerror?.());
+  } else queueMicrotask(() => options.onerror?.());
+  return { abort() { controller.abort(); } };
+};
+let view, popup, moreButton;
+if (homework) {
+  const root = document.querySelector('.smart-hw-container');
+  view = root.__vue__ = {
+    $options: { name: 'ShuzhiCorrect' }, $el: root, hwId: 'homework-fixture', curClassId: 'fixture-class',
+    curStudentItem: { studentId: 'A' }, curTopicItem: { standardScore: 10 }, curBlankId: '', cutImageList: [image.src]
+  };
+  root.querySelector('.red-btn').onclick = () => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', 'https://pyj.zhixue.com/api-dihw-marking/online/sz/marking/modifyScore');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    effects.submits.push(view.curStudentItem.studentId);
+    xhr.send(JSON.stringify({ homeworkId: view.hwId, classId: view.curClassId,
+      studentId: view.curStudentItem.studentId, childQuestionId: view.curTopicItem.childQuestionId, modifyScore: 0, blankId: null }));
+  };
+} else {
+  popup = document.createElement('div');
+  popup.className = 'el-message-box__wrapper';
+  popup.setAttribute('role', 'dialog');
+  popup.innerHTML = '<div class="el-message-box"><div class="el-message-box__title">温馨提示</div><div class="el-message-box__message"><p>您该题任务量已完成，请选择继续多阅或切换到下一题?</p></div><div class="el-message-box__btns"><button class="el-button">切换下一题</button><button class="el-button el-button--primary">继续多阅</button></div></div>';
+  moreButton = popup.querySelector('.el-button--primary');
+  moreButton.onclick = () => { effects.nativeContinues++; popup.remove(); };
+  byId('bnt_save').onclick = () => {
+    effects.submits.push(new URL(image.src).searchParams.get('paper'));
+    document.body.append(popup);
+  };
+}
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+(async () => {
+  const runId = new URLSearchParams(location.search).get('run');
+  const checks = [];
+  const check = (value, label) => { if (!value) throw Error(label); checks.push(label); };
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const until = async (predicate, label, attempts = 100) => {
+    for (let i = 0; i < attempts && !predicate(); i++) await delay(40);
+    check(predicate(), label);
+  };
+  const result = data => {
+    byId('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, width: innerWidth, checks, ...data }))));
+  };
+  try {
+    const state = window.aiGradingState;
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    const button = () => document.querySelector('.ai-grade-btn');
+    const clickGrade = async () => {
+      await until(() => button() && !button().disabled, '批改按钮可用', 400);
+      button().click();
+    };
+    const guards = [];
+    if (homework) {
+      const nativeWait = adapter.waitForNextPaper;
+      adapter.waitForNextPaper = function (url, guard) {
+        guards.push(guard.taskId);
+        // 让首轮等待到期，避免浏览器验收固定等待 25 秒。
+        return guards.length === 1 ? Promise.resolve(false) : nativeWait.call(this, url, guard);
+      };
+    } else {
+      check(!adapter.isQuotaContinuationEnabled(), '考试同题续批关闭');
+    }
+    await clickGrade();
+    if (homework) {
+      await until(() => state.activeRun, '题号未到时已开始等待作业');
+      check(!state.activeRun.taskId && !effects.requests.length, '题号缺失时尚未请求评分');
+      view.curTopicItem = topic;
+    }
+    await until(() => effects.requests.length === 1, '首次答卷进入评分');
+    effects.complete();
+    await until(() => byId('confirm-submit-btn'), '首次答卷可确认提交');
+    byId('confirm-submit-btn').click();
+    await until(() => state.isPaused && effects.submits.length === 1, '首次提交后因等待换卷暂停');
+    if (homework) {
+      check(guards[0] === homeworkTask, '保存后等待使用迟到的正确题号');
+      view.curTopicItem = { standardScore: 10 };
+    } else {
+      check(popup.isConnected && effects.nativeContinues === 0, '配额提示由用户处理');
+      moreButton.click();
+    }
+    await clickGrade();
+    await until(() => state.isPaused, '旧卷仍可见时保持暂停');
+    check(effects.requests.length === 1 && effects.submits.join() === 'A', '旧卷只评分并提交一次');
+    if (homework) {
+      view.curTopicItem = topic;
+      view.curStudentItem = { studentId: 'B' };
+      view.cutImageList = [new URL('/__fixture/answer.svg?paper=B', location.href).href];
+      await clickGrade();
+      await until(() => state.isPaused, '学生已经切换但图片仍旧时保持暂停');
+      check(effects.requests.length === 1, '旧答卷图未进入下一轮评分');
+    }
+    image.src = '/__fixture/answer.svg?paper=B';
+    await until(() => image.complete && image.naturalWidth && adapter.getPaperIdentity(), '新答卷图片就绪');
+    await clickGrade();
+    await until(() => effects.requests.length === 2, '收到同题新卷后恢复评分');
+    check(effects.requests[1].endsWith('paper=B') && effects.submits.join() === 'A', '只对新答卷开始下一轮评分');
+    const run = state.activeRun;
+    if (homework) {
+      view.curTopicItem = { childQuestionId: '12', standardScore: 10 };
+    } else {
+      byId('currentTopicIndex').textContent = '第32题';
+      document.querySelector('input[name="topicTxt"]').setAttribute('disptitle', '32');
+    }
+    await until(() => !state.isRunning && run.controller.signal.aborted, '切题后停止当前轮次');
+    effects.complete();
+    await delay(150);
+    check(effects.submits.join() === 'A' && effects.requests.length === 2, '切题后迟到评分不触发提交');
+    result({ passed: true });
+  } catch (error) { result({ passed: false, error: error.message }); }
+})();
+</script>

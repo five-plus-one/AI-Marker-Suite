@@ -17,6 +17,10 @@ function escHistDeep(obj) {
     return walk(obj);
 }
 
+function historyScoreText(record) {
+    return typeof record.finalScore === 'number' && Number.isFinite(record.finalScore) ? String(record.finalScore) : record.reviewStatus === 'reviewed' ? '已复核' : '待教师评分';
+}
+
 // ========== IndexedDB 图片存储 ==========
 const ImageStore = {
     DB_NAME: 'ai-marker-images',
@@ -83,7 +87,26 @@ const ImageStore = {
         });
     },
 
+    async getMany(recordIds) {
+        if (!recordIds.length) return new Map();
+        const db = await this.getDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(this.STORE_NAME, 'readonly');
+            const store = tx.objectStore(this.STORE_NAME);
+            const images = new Map();
+            tx.oncomplete = () => resolve(images);
+            tx.onabort = () => reject(tx.error || new Error('图片读取已中断'));
+            for (const id of new Set(recordIds)) {
+                const req = store.get(id);
+                req.onsuccess = () => images.set(id, req.result || []);
+            }
+        });
+    },
+
     async delete(recordId) {
+        if (HistoryManager._readReviewRecords().some(r => r.id === recordId && r.reviewStatus === 'pending')) {
+            throw new Error('请先完成本卷复核，再清理答卷图片');
+        }
         const db = await this.getDB();
         await new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
@@ -115,6 +138,7 @@ const ImageStore = {
     },
 
     async clear() {
+        if (HistoryManager.getPendingReviewCount() > 0) throw new Error('请先完成待复核记录，再清理图片');
         const db = await this.getDB();
         await new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, 'readwrite');
@@ -175,6 +199,105 @@ const ImageStore = {
 const HistoryManager = {
     records: [],
     returnUrl: null,
+
+    _readReviewRecords() {
+        if (this._writeDisabled) throw new Error('评阅历史暂时无法保存，请恢复后继续批改');
+        try {
+            const raw = GM_getValue('ai-grading-history');
+            const records = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(records) || records.some(r => !r || typeof r !== 'object' || Array.isArray(r))) throw new Error('invalid history');
+            return records;
+        } catch (error) {
+            console.error('[待复核] 读取历史失败:', error);
+            throw new Error('待复核记录暂时无法读取，请恢复后继续批改');
+        }
+    },
+
+    _persistReviewRecords(records) {
+        try {
+            const json = JSON.stringify(records);
+            if (json.length > 50 * 1024 * 1024) throw new Error('review history capacity');
+            GM_setValue('ai-grading-history', json);
+            if (GM_getValue('ai-grading-history') !== json) throw new Error('history readback mismatch');
+            this.records = records;
+        } catch (error) {
+            console.error('[待复核] 保存历史失败:', error);
+            throw new Error('待复核记录尚未保存，请恢复后继续批改');
+        }
+    },
+
+    getPendingReviewCount() {
+        return new Set(this._readReviewRecords().filter(r => r.reviewStatus === 'pending').map(r => r.id)).size;
+    },
+
+    async savePendingReview(context, result) {
+        requireCurrentGradingContext(context);
+        const images = context.base64DataArray.slice();
+        if (!images.length || images.some(image => typeof image !== 'string' || !image.trim())) throw new Error('待复核答卷图片未保存，请核对本卷');
+        const prefix = JSON.stringify([location.origin, context.adapter?.id || '', context.taskId]);
+        let records = this._readReviewRecords();
+        let existing = null;
+        // 没有原生答卷编号时，逐字比较已经保存的图片，不用有碰撞可能的短摘要代替卷号。
+        {
+            for (const record of records.filter(r => r.reviewOrigin === location.origin && r.taskIdentifier === context.taskId && r.reviewStatus === 'pending'
+                && (!context.paperId || r.paperId === context.paperId))) {
+                const saved = await ImageStore.get(record.id);
+                requireCurrentGradingContext(context);
+                if (JSON.stringify(saved) === JSON.stringify(images)) { existing = record; break; }
+            }
+        }
+        const id = existing?.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        const checkCapacity = current => {
+            if (!existing && current.filter(record => record.reviewStatus === 'pending').length >= getPendingReviewLimit(context.configuration)) {
+                throw new Error('待复核记录已达到允许数量，请先完成复核');
+            }
+        };
+        checkCapacity(records);
+        const bytes = images.reduce((total, value) => total + String(value).length, 0);
+        if (bytes > 8 * 1024 * 1024 || (await ImageStore.getSize()).totalBytes + bytes > 50 * 1024 * 1024) {
+            throw new Error('答卷图片缓存空间不足，请先导出并清理已复核记录');
+        }
+        requireCurrentGradingContext(context);
+        try {
+            await ImageStore.save(id, images);
+            if (JSON.stringify(await ImageStore.get(id)) !== JSON.stringify(images)) throw new Error('image readback mismatch');
+        } catch (error) {
+            console.error('[待复核] 保存答卷图片失败:', error);
+            throw new Error('待复核答卷图片尚未保存，请恢复后继续批改');
+        }
+        requireCurrentGradingContext(context);
+        requireGradingContextTarget(context);
+        records = this._readReviewRecords();
+        checkCapacity(records);
+        const record = {
+            id, timestamp: existing?.timestamp || Date.now(),
+            aiScore: Number.isFinite(result?.score) ? result.score : null,
+            aiComment: result?.comment || '', studentAnswer: result?.studentAnswer || '无法辨认',
+            scoringDetails: result?._sections || null,
+            status: 'pending', finalScore: null,
+            reviewStatus: 'pending', reviewReason: '作答无法辨认，需要教师核对原图并评分',
+            reviewKey: context.paperId ? prefix + ':' + context.paperId : existing?.reviewKey || prefix + ':' + id,
+            reviewOrigin: location.origin, paperId: context.paperId, platformName: context.adapter?.name || '',
+            taskIdentifier: context.taskId, pageUrl: context.pageUrl, presetName: context.presetName,
+            gradingMode: window.aiGradingState.gradingMode, outputMode: getGradingOutputMode(context.configuration), scriptVersion: SCRIPT_CONFIG.VERSION,
+            imageUrls: context.imageUrls.slice(),
+            configurationSnapshot: JSON.parse(JSON.stringify({ question: context.configuration.question, answer: context.configuration.answer,
+                rubric: context.configuration.rubric, scoring: context.configuration.scoring, outputMode: context.configuration.outputMode }))
+        };
+        this._stripDataUrls(record);
+        this._persistReviewRecords([record, ...records.filter(r => r.id !== id)]);
+        return id;
+    },
+
+    markReviewed(id, reviewed = true) {
+        const records = this._readReviewRecords();
+        const record = records.find(r => r.id === id);
+        if (!record) return false;
+        record.reviewStatus = reviewed ? 'reviewed' : 'pending';
+        record.reviewedAt = Date.now();
+        this._persistReviewRecords(records);
+        return true;
+    },
 
     /** 将 imageUrls 中的 data:URL 替换为占位符，避免 base64 泄漏到 GM_setValue */
     _stripDataUrls(record) {
@@ -252,7 +375,7 @@ const HistoryManager = {
         }
     },
 
-    save() {
+    save(removedReviewIds = []) {
         const unavailable = () => {
             if (typeof showToast === 'function') showToast('历史记录暂时无法保存，请先导出评阅历史');
             return false;
@@ -272,7 +395,18 @@ const HistoryManager = {
             }
             return c;
         }));
-        let candidate = this.records;
+        // 新标签页仍需保留其他页面保存的待复核卷；复核状态以最新持久化记录为准。
+        let candidate;
+        try {
+            const remoteReviews = this._readReviewRecords().filter(r => r.reviewKey);
+            const removed = new Set(removedReviewIds);
+            candidate = this.records.filter(r => !r.reviewKey).concat(remoteReviews.filter(r => r.reviewStatus === 'pending' || !removed.has(r.id)));
+            candidate.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        } catch (_) { return unavailable(); }
+        const trim = (records, count) => {
+            const keep = new Set(records.filter(r => r.reviewStatus === 'pending').map(r => r.id));
+            return records.filter((r, i) => i < count || keep.has(r.id));
+        };
         let json = ser(candidate);
         const completeJson = json;
         const sizeKB = (json.length / 1024).toFixed(1);
@@ -287,7 +421,9 @@ const HistoryManager = {
             const before = candidate.length;
             while (json.length > SAFE_LIMIT && candidate.length > 10) {
                 const cutCount = Math.max(Math.floor(candidate.length * 0.2), 1);
-                candidate = candidate.slice(0, candidate.length - cutCount);
+                const next = trim(candidate, candidate.length - cutCount);
+                if (next.length === candidate.length) break;
+                candidate = next;
                 json = ser(candidate);
             }
             console.warn(`[历史] 完整备份后缩减: ${before} → ${candidate.length} 条，当前 ${(json.length / 1024 / 1024).toFixed(2)}MB`);
@@ -304,7 +440,9 @@ const HistoryManager = {
             try { GM_setValue('ai-grading-history-rescue', completeJson); }
             catch (error) { console.error('[历史] 完整备份失败，保留全部记录:', error); return unavailable(); }
             while (candidate.length > 10) {
-                candidate = candidate.slice(0, Math.max(10, Math.floor(candidate.length / 2)));
+                const next = trim(candidate, Math.max(10, Math.floor(candidate.length / 2)));
+                if (next.length === candidate.length) break;
+                candidate = next;
                 json = ser(candidate);
                 try {
                     GM_setValue('ai-grading-history', json);
@@ -357,6 +495,12 @@ const HistoryManager = {
         this._stripDataUrls(updates);
         const idx = this.records.findIndex(r => r.id === id);
         if (idx >= 0) {
+            if (this.records[idx].reviewKey) {
+                const records = this._readReviewRecords();
+                const record = records.find(r => r.id === id);
+                if (record) { Object.assign(record, updates); this._persistReviewRecords(records); }
+                return;
+            }
             Object.assign(this.records[idx], updates);
             this.save();
             const totalSize = (JSON.stringify(this.records).length / 1024).toFixed(1);
@@ -373,15 +517,20 @@ const HistoryManager = {
     },
 
     delete(id) {
+        if (this._readReviewRecords().some(r => r.id === id && r.reviewStatus === 'pending')) {
+            showToast('请先完成本卷复核，再删除记录');
+            return false;
+        }
         this.records = this.records.filter(r => r.id !== id);
-        this.save();
+        if (!this.save([id])) return false;
         ImageStore.delete(id).catch(() => {});
+        return true;
     },
 
     exportCSV(records) {
         records = records || this.records;
         // 注意：新列一律追加在末尾，避免破坏既有列序（下游按列号解析的用户不受影响）
-        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析,用时(秒),随机延迟(秒)\n';
+        const header = '时间,配置方案,模式,AI分数,最终分数,是否纠错,纠错理由,识别答案,AI评语,勤勉等级,勤勉加分,勤勉依据,双评模式,老师A得分,老师A评分依据,老师A分数计算,老师B得分,老师B评分依据,老师B分数计算,分差,双评结果,仲裁得分,仲裁分析,用时(秒),随机延迟(秒),复核状态,复核原因\n';
         const rows = records.map(r => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const esc = s => '"' + String(s || '').replace(/"/g, '""') + '"';
@@ -397,7 +546,7 @@ const HistoryManager = {
                 d?.diff ?? '',
                 d?.result === 'consensus' ? '共识' : d?.result === 'arbitration' ? '仲裁' : d?.result === 'average-fallback' ? '取平均' : '',
                 d?.arbScore ?? '', esc(d?.arbAnalysis ?? ''),
-                durSec, delaySec
+                durSec, delaySec, r.reviewStatus === 'pending' ? '待复核' : r.reviewStatus === 'reviewed' ? '已复核' : '', esc(r.reviewReason || '')
             ].join(',');
         }).join('\n');
         this._download(header + rows, '评阅历史_' + this._fileTimestamp() + '.csv', 'text/csv;charset=utf-8');
@@ -506,35 +655,20 @@ const HistoryManager = {
     },
 
     async exportHTML(records, options = {}) {
-        const { includeImages = true } = options;
+        const { includeImages = true, onProgress, fileHandle } = options;
         records = records || this.records;
         const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' };
         const renderMd = window.__aiMarkdownRenderer
             ? function (t) { return window.__aiMarkdownRenderer.render(t || ''); }
             : function (t) { return (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); };
 
-        // 加载可导出的图片（仅当前 origin 的 IndexedDB）
-        const imageMap = {};
-        let remoteCount = 0;
-        if (includeImages) {
-            for (const r of records) {
-                const imgStatus = ImageStore.getImageStatus(r.id);
-                if (imgStatus.status === 'local') {
-                    const base64s = r.imageBase64s?.length ? r.imageBase64s : await ImageStore.get(r.id);
-                    if (base64s) imageMap[r.id] = base64s;
-                } else if (imgStatus.status === 'remote') {
-                    remoteCount++;
-                }
-            }
-        }
-
-        const rows = records.map(r => {
+        const renderRow = (r, base64s) => {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const mode = modeLabel[r.gradingMode] || r.gradingMode;
-            const scoreText = r.isCorrected ? `${r.aiScore} → ${r.finalScore} ✓` : `${r.finalScore}`;
+            const scoreText = r.isCorrected ? `${r.aiScore} → ${historyScoreText(r)} ✓` : historyScoreText(r);
             const correctedRow = r.isCorrected ? `<div style="color:#0052FF;font-size:12px;margin-top:4px;">纠错理由：${r.correctionReason || '无'}</div>` : '';
-            const markedRow = r.status === 'marked' ? `<span style="color:#D93025;font-size:11px;margin-left:8px;">⚠ 待回评</span>` : '';
-            const base64s = imageMap[r.id] || [];
+            const markedRow = r.reviewStatus === 'pending' ? '<span style="color:#D93025;margin-left:8px;">待复核</span>'
+                : r.status === 'marked' ? `<span style="color:#D93025;font-size:11px;margin-left:8px;">⚠ 待回评</span>` : '';
             const images = (r.imageUrls || []).map((url, j) => {
                 const b64 = base64s[j];
                 return b64 ? `<img src="data:image/png;base64,${b64}" style="max-width:100%;border-radius:6px;margin-top:8px;">` : '';
@@ -570,7 +704,7 @@ const HistoryManager = {
                 <div style="border:1px solid #e5e5e5;border-radius:10px;padding:16px;margin-bottom:12px;page-break-inside:avoid;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                         <span style="color:#86868b;font-size:12px;">${time} · ${r.presetName} · ${mode}模式</span>
-                        <span style="font-size:16px;font-weight:600;">${scoreText}分${markedRow}</span>
+                        <span style="font-size:16px;font-weight:600;">${scoreText}${typeof r.finalScore === 'number' ? '分' : ''}${markedRow}</span>
                     </div>
                     ${correctedRow}
                     ${dualHtml}
@@ -581,9 +715,11 @@ const HistoryManager = {
                     ${images ? `<div style="margin-top:8px;">${images}</div>` : ''}
                 </div>
             `;
-        }).join('\n');
+        };
 
-        const html = `<!DOCTYPE html>
+        const imageStatuses = new Map(includeImages ? records.map(r => [r.id, ImageStore.getImageStatus(r.id).status]) : []);
+        const remoteCount = records.filter(r => imageStatuses.get(r.id) === 'remote').length;
+        const header = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><title>评阅历史</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -605,10 +741,43 @@ const HistoryManager = {
     <h1>评阅历史</h1>
     <div class="meta">导出时间：${new Date().toLocaleString('zh-CN')} · 共 ${records.length} 条记录</div>
     ${remoteCount > 0 ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:#856404;">⚠ ${remoteCount} 条记录的图片存储在其他阅卷平台，如需包含图片请在对应平台导出。</div>` : ''}
-    ${rows || '<div style="color:#aaa;text-align:center;padding:40px;">暂无记录</div>'}
-</body></html>`;
-        this._download(html, '评阅历史_' + this._fileTimestamp() + '.html', 'text/html;charset=utf-8');
-        showToast('HTML导出完成');
+    `;
+        const type = 'text/html;charset=utf-8';
+        const parts = [];
+        const writable = fileHandle ? await fileHandle.createWritable() : null;
+        const writePart = part => writable ? writable.write(part) : parts.push(part);
+        try {
+            await writePart(header);
+            if (!records.length) await writePart('<div style="color:#aaa;text-align:center;padding:40px;">暂无记录</div>');
+            const batchSize = 24;
+            for (let offset = 0; offset < records.length; offset += batchSize) {
+                const batch = records.slice(offset, offset + batchSize);
+                const toLoad = [];
+                const images = new Map();
+                if (includeImages) {
+                    for (const r of batch) {
+                        const status = imageStatuses.get(r.id);
+                        if (status !== 'local') continue;
+                        if (r.imageBase64s?.length) images.set(r.id, r.imageBase64s);
+                        else toLoad.push(r.id);
+                    }
+                }
+                const loaded = toLoad.length ? await ImageStore.getMany(toLoad) : new Map();
+                const rows = batch.map(r => renderRow(r, images.get(r.id) || loaded.get(r.id) || []));
+                await writePart(writable ? rows.join('') : new Blob(rows));
+                onProgress?.(offset + batch.length, records.length);
+                if (!writable && offset + batch.length < records.length) await new Promise(resolve => setTimeout(resolve, 0));
+            }
+
+            await writePart('</body></html>');
+            if (writable) await writable.close();
+            else this._download(new Blob(parts, { type }), '评阅历史_' + this._fileTimestamp() + '.html', type);
+        } catch (error) {
+            if (writable) {
+                try { await writable.abort(); } catch (_) { /* 写入失败时流可能已关闭。 */ }
+            }
+            throw error;
+        }
     },
 
     _fileTimestamp() {
@@ -621,11 +790,17 @@ const HistoryManager = {
         // 二进制（Uint8Array）直接入 Blob，不加 BOM、不字符串化
         const isBinary = content instanceof Uint8Array;
         const BOM = (!isBinary && type.includes('csv')) ? '﻿' : '';
-        const blob = new Blob(isBinary ? [content] : [BOM + content], { type });
+        const isBlob = content instanceof Blob;
+        const blob = isBlob ? content : new Blob(isBinary ? [content] : [BOM + content], { type });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = filename; a.click();
-        URL.revokeObjectURL(url);
+        a.href = url;
+        a.download = filename;
+        try { a.click(); }
+        finally {
+            if (isBlob) setTimeout(() => URL.revokeObjectURL(url), 30000);
+            else URL.revokeObjectURL(url);
+        }
     },
 
     startRegrade(id) {
@@ -899,7 +1074,7 @@ function showHistoryPanel() {
                     </div>
                     <div class="hist-summary" id="hist-storage">
                         <div class="hist-storage-item"><span class="label">记录</span><span class="value" id="hist-storage-count">--</span></div>
-                        <div class="hist-storage-item"><span class="label">数据库</span><span class="value" id="hist-storage-db">--</span></div>
+                        <div class="hist-storage-item"><span class="label">记录占用</span><span class="value" id="hist-storage-db">--</span></div>
                         <div class="hist-storage-item"><span class="label">图片缓存</span><span class="value" id="hist-storage-img">--</span></div>
                         <div class="hist-storage-item"><span class="label">当前视图</span><span class="value" id="hist-count">共 ${HistoryManager.records.length} 条</span></div>
                     </div>
@@ -923,9 +1098,9 @@ function showHistoryPanel() {
                 </div>
                 <div class="hist-tools-right">
                     <div class="hist-html-opts" id="hist-html-opts" style="display:none;">
-                        <button class="hist-html-img active" data-img="with">有图</button>
-                        <button class="hist-html-img" data-img="without">无图</button>
-                        <span id="hist-img-help" class="hist-img-help-btn">图片说明</span>
+                        <button class="hist-html-img active" data-img="with" aria-pressed="true">有图</button>
+                        <button class="hist-html-img" data-img="without" aria-pressed="false">无图</button>
+                        <button type="button" id="hist-img-help" class="hist-img-help-btn" aria-controls="hist-img-help-content" aria-expanded="false">图片说明</button>
                     </div>
                     <button class="hist-export-btn" id="hist-export-btn">导出当前视图</button>
                 </div>
@@ -953,7 +1128,7 @@ function showHistoryPanel() {
                 <span style="color:#aaa;font-size:12px;">~</span>
                 <input type="date" id="hist-filter-end" title="结束日期">
                 <select id="hist-filter-preset"><option value="">全部方案</option></select>
-                <select id="hist-filter-status" title="标记状态"><option value="">全部状态</option><option value="marked">仅已标记·待回评</option><option value="submitted">仅未标记</option></select>
+                <select id="hist-filter-status" aria-label="标记状态"><option value="">全部状态</option><option value="review">待复核</option><option value="marked">仅已标记·待回评</option><option value="submitted">仅未标记</option></select>
                 <div id="hist-filter-images-wrap" style="display:none;"><select id="hist-filter-images"><option value="">全部图片</option><option value="local">有图可导出</option><option value="remote">有图·无法导出</option><option value="none">无图</option></select></div>
                 <button class="primary" id="hist-filter-apply">筛选</button>
                 <button id="hist-filter-reset">重置</button>
@@ -980,7 +1155,7 @@ function showHistoryPanel() {
             if (filterState.presetName && r.presetName !== filterState.presetName) return false;
             if (filterState.markStatus) {
                 const st = r.status || 'submitted';
-                if (st !== filterState.markStatus) return false;
+                if (filterState.markStatus === 'review' ? r.reviewStatus !== 'pending' : st !== filterState.markStatus) return false;
             }
             if (filterState.startDate) {
                 if (r.timestamp < new Date(filterState.startDate).getTime()) return false;
@@ -1059,13 +1234,13 @@ function showHistoryPanel() {
         }
     }
 
-    document.querySelectorAll('.hist-export-fmt').forEach(btn => {
+    panel.querySelectorAll('.hist-export-fmt').forEach(btn => {
         btn.onclick = () => {
-            document.querySelectorAll('.hist-export-fmt').forEach(b => b.classList.remove('active'));
+            panel.querySelectorAll('.hist-export-fmt').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             exportFormat = btn.dataset.fmt;
-            document.getElementById('hist-html-opts').style.display = isImageAwareFormat() ? 'flex' : 'none';
-            if (!isImageAwareFormat()) document.getElementById('hist-img-help-content').style.display = 'none';
+            panel.querySelector('#hist-html-opts').style.display = isImageAwareFormat() ? 'flex' : 'none';
+            if (!isImageAwareFormat()) setImageHelpOpen(false);
             updateImageFilterVisibility();
             currentFilteredRecords = getFilteredRecords();
             updateCount(currentFilteredRecords);
@@ -1073,12 +1248,14 @@ function showHistoryPanel() {
         };
     });
 
-    document.querySelectorAll('.hist-html-img').forEach(btn => {
+    panel.querySelectorAll('.hist-html-img').forEach(btn => {
         btn.onclick = () => {
-            document.querySelectorAll('.hist-html-img').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+            panel.querySelectorAll('.hist-html-img').forEach(item => {
+                item.classList.toggle('active', item === btn);
+                item.setAttribute('aria-pressed', String(item === btn));
+            });
             imageOption = btn.dataset.img;
-            if (imageOption === 'without') document.getElementById('hist-img-help-content').style.display = 'none';
+            if (imageOption === 'without') setImageHelpOpen(false);
             updateImageFilterVisibility();
             currentFilteredRecords = getFilteredRecords();
             updateCount(currentFilteredRecords);
@@ -1086,18 +1263,101 @@ function showHistoryPanel() {
         };
     });
 
-    document.getElementById('hist-img-help')?.addEventListener('click', () => {
-        const el = document.getElementById('hist-img-help-content');
-        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-    });
+    const imageHelpButton = panel.querySelector('#hist-img-help');
+    const imageHelp = panel.querySelector('#hist-img-help-content');
 
-    document.getElementById('hist-export-btn').onclick = () => {
+    function setImageHelpOpen(open) {
+        imageHelp.style.display = open ? 'block' : 'none';
+        imageHelpButton.setAttribute('aria-expanded', String(open));
+    }
+
+    imageHelpButton.addEventListener('click', () => setImageHelpOpen(imageHelp.style.display === 'none'));
+
+    const exportButton = panel.querySelector('#hist-export-btn');
+    exportButton.onclick = () => {
+        if (exportFormat === 'html') return exportHistoryHTML();
         const records = getFilteredRecords();
         if (exportFormat === 'json') HistoryManager.exportJSON(records);
         else if (exportFormat === 'csv') HistoryManager.exportCSV(records);
-        else if (exportFormat === 'html') HistoryManager.exportHTML(records, { includeImages: imageOption === 'with' });
         else if (exportFormat === 'zip') HistoryManager.exportMaterialsPackage(records, { includeImages: imageOption === 'with' });
     };
+
+    async function exportHistoryHTML() {
+        if (HistoryManager.htmlExportInProgress) {
+            showToast('评阅历史正在导出，请稍候');
+            return;
+        }
+
+        const format = 'html';
+        const includeImages = imageOption === 'with';
+        const startedAt = Date.now();
+        const exportRun = {};
+        const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
+        let recordCount = 0;
+        let processed = 0;
+        let nextProgressReport = 500;
+        HistoryManager.htmlExportInProgress = true;
+        exportButton.disabled = true;
+        exportButton.textContent = '正在导出…';
+        try {
+            const records = getFilteredRecords();
+            recordCount = records.length;
+            const imageBytes = includeImages ? records.reduce((total, record) => {
+                const image = ImageStore.getImageStatus(record.id);
+                return total + (image.status === 'local' && Number.isFinite(image.size) ? image.size : 0);
+            }, 0) : 0;
+            const saveDirectly = imageBytes >= 128 * 1024 * 1024 && typeof window.showSaveFilePicker === 'function';
+            diagnostic?.grading('history-export-started', exportRun, {
+                format, includeImages, recordCount, imageBytes, saveDirectly,
+            }, { persist: true });
+            let fileHandle;
+            if (saveDirectly) {
+                try {
+                    fileHandle = await window.showSaveFilePicker({
+                        suggestedName: '评阅历史_' + HistoryManager._fileTimestamp() + '.html',
+                        types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
+                    });
+                } catch (error) {
+                    if (error?.name === 'AbortError') {
+                        diagnostic?.grading('history-export-finished', exportRun, { format, outcome: 'cancelled' }, { persist: true });
+                        showToast('已取消导出');
+                        return;
+                    }
+                    if (error?.name !== 'SecurityError' && error?.name !== 'NotSupportedError') throw error;
+                    diagnostic?.grading('history-export-picker-unavailable', exportRun, { format }, { error });
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 0));
+            await HistoryManager.exportHTML(records, {
+                includeImages,
+                fileHandle,
+                onProgress(done, total) {
+                    processed = done;
+                    if (done >= nextProgressReport || done === total) {
+                        nextProgressReport = done + 500;
+                        diagnostic?.grading('history-export-progress', exportRun, { processed, total }, { persist: true });
+                    }
+                    exportButton.textContent = `正在导出 ${done}/${total}`;
+                },
+            });
+
+            diagnostic?.grading('history-export-finished', exportRun, {
+                format, includeImages, recordCount, elapsedMs: Date.now() - startedAt,
+                outcome: fileHandle ? 'saved' : 'download-started',
+            });
+            showToast(fileHandle ? '已保存评阅历史' : '已开始下载评阅历史');
+        } catch (error) {
+            diagnostic?.grading('history-export-finished', exportRun, {
+                format, includeImages, recordCount, processed, elapsedMs: Date.now() - startedAt, outcome: 'failed',
+            }, { error, persist: true });
+            console.error('导出评阅历史失败', error);
+            showToast('评阅历史导出失败，请减少导出的记录后重试');
+        } finally {
+            HistoryManager.htmlExportInProgress = false;
+            exportButton.disabled = false;
+            exportButton.textContent = '导出当前视图';
+        }
+    }
 
     // 批量管理
     const selectedIds = new Set();
@@ -1134,12 +1394,14 @@ function showHistoryPanel() {
 
     document.getElementById('hist-batch-delete').onclick = async () => {
         if (selectedIds.size === 0) { showToast('请先选择要删除的记录'); return; }
+        if (HistoryManager._readReviewRecords().some(r => selectedIds.has(r.id) && r.reviewStatus === 'pending')) { showToast('请先完成选中记录的复核，再删除记录'); return; }
         if (await showConfirmModal(`确定要删除选中的 ${selectedIds.size} 条记录吗？`)) {
+            if (HistoryManager._readReviewRecords().some(r => selectedIds.has(r.id) && r.reviewStatus === 'pending')) { showToast('请先完成选中记录的复核，再删除记录'); return; }
             for (const id of selectedIds) {
                 await ImageStore.delete(id).catch(() => {});
             }
             HistoryManager.records = HistoryManager.records.filter(r => !selectedIds.has(r.id));
-            HistoryManager.save();
+            HistoryManager.save([...selectedIds]);
             selectedIds.clear();
             updateBatchInfo();
             currentFilteredRecords = getFilteredRecords();
@@ -1185,7 +1447,9 @@ function showHistoryPanel() {
 
     // 清理图片缓存
     document.getElementById('hist-clear-images').onclick = async () => {
+        if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清理图片'); return; }
         if (await showConfirmModal('确定要清理所有图片缓存吗？历史记录保留，但导出HTML时将无法嵌入图片。')) {
+            if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清理图片'); return; }
             await ImageStore.clear().catch(() => {});
             loadStorageInfo();
             showToast('图片缓存已清理');
@@ -1195,7 +1459,7 @@ function showHistoryPanel() {
     // 清理30天前记录
     document.getElementById('hist-clear-old').onclick = async () => {
         const cutoff = Date.now() - 30 * 86400000;
-        const oldRecords = HistoryManager.records.filter(r => r.timestamp < cutoff);
+        const oldRecords = HistoryManager.records.filter(r => r.timestamp < cutoff && r.reviewStatus !== 'pending');
         if (oldRecords.length === 0) {
             showToast('没有30天前的记录');
             return;
@@ -1204,8 +1468,8 @@ function showHistoryPanel() {
             for (const r of oldRecords) {
                 await ImageStore.delete(r.id).catch(() => {});
             }
-            HistoryManager.records = HistoryManager.records.filter(r => r.timestamp >= cutoff);
-            HistoryManager.save();
+            HistoryManager.records = HistoryManager.records.filter(r => r.timestamp >= cutoff || r.reviewStatus === 'pending');
+            HistoryManager.save(oldRecords.map(r => r.id));
             currentFilteredRecords = getFilteredRecords();
             const totalPagesAfter = Math.max(1, Math.ceil(currentFilteredRecords.length / paginationState.pageSize));
             if (paginationState.page > totalPagesAfter) paginationState.page = totalPagesAfter;
@@ -1218,9 +1482,11 @@ function showHistoryPanel() {
 
     // 清空全部
     document.getElementById('hist-clear-all').onclick = async () => {
+        if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清空历史'); return; }
         if (await showConfirmModal('确定要清空所有评阅历史和图片缓存吗？此操作不可撤销。')) {
+            if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清空历史'); return; }
             HistoryManager.records = [];
-            HistoryManager.save();
+            HistoryManager.save(HistoryManager._readReviewRecords().map(r => r.id));
             await ImageStore.clear().catch(() => {});
             currentFilteredRecords = [];
             paginationState.page = 1;
@@ -1260,8 +1526,9 @@ function showHistoryPanel() {
             const modeLabel = { normal: '普通', unattended: '无人', trial: '试改' }[r.gradingMode] || r.gradingMode;
             const scoreHtml = r.isCorrected
                 ? `<span>${r.aiScore}</span><span class="arrow">&rarr;</span><span class="corrected">${r.finalScore}</span>`
-                : `<span>${r.finalScore}</span>`;
-            const markedTag = r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
+                : `<span>${historyScoreText(r)}</span>`;
+            const markedTag = r.reviewStatus === 'pending' ? '<span class="hist-tag marked-tag">待复核</span>'
+                : r.status === 'marked' ? '<span class="hist-tag marked-tag">待回评</span>' : '';
             const correctedTag = r.isCorrected ? '<span class="hist-tag corrected">已纠错</span>' : '';
             const dualTag = r.dualEval ? `<span class="hist-tag ${r.dualEval.result === 'arbitration' ? 'arbitration' : 'dual'}">双评</span>` : '';
             const diligenceTag = r.diligenceBonus && r.diligenceBonus > 0 ? `<span class="hist-tag" style="color:#34A853;background:rgba(52,168,83,0.08);border-color:rgba(52,168,83,0.15);">+${r.diligenceBonus}勤勉</span>` : '';
@@ -1291,11 +1558,12 @@ function showHistoryPanel() {
                     <div class="hist-item-side">
                         <div class="hist-item-score">
                             <span class="hist-score-label">${r.isCorrected ? '分数修正' : '最终分数'}</span>
-                            <span class="hist-score-value">${scoreHtml}<span class="hist-score-unit">分</span></span>
+                            <span class="hist-score-value">${scoreHtml}${typeof r.finalScore === 'number' ? '<span class="hist-score-unit">分</span>' : ''}</span>
                         </div>
                         <div class="hist-item-actions">
                             <button class="hist-detail-btn primary" data-id="${r.id}">详情</button>
-                            ${r.status !== 'marked' ? `<button class="hist-mark-btn danger" data-id="${r.id}">标记</button>` : ''}
+                            ${r.reviewKey ? `<button class="hist-review-btn" data-id="${r.id}" style="min-height:44px;">${r.reviewStatus === 'pending' ? '完成复核' : '标为待复核'}</button>`
+                                : r.status !== 'marked' ? `<button class="hist-mark-btn danger" data-id="${r.id}">标记</button>` : ''}
                         </div>
                     </div>
                 </div>
@@ -1342,6 +1610,17 @@ function showHistoryPanel() {
         });
         listEl.querySelectorAll('.hist-mark-btn').forEach(btn => {
             btn.onclick = () => { HistoryManager.markIncorrect(btn.dataset.id); renderList(currentFilteredRecords); showToast('已标记为不正确'); };
+        });
+        listEl.querySelectorAll('.hist-review-btn').forEach(btn => {
+            btn.onclick = () => {
+                try {
+                    const pending = HistoryManager.getById(btn.dataset.id)?.reviewStatus === 'pending';
+                    HistoryManager.markReviewed(btn.dataset.id, pending);
+                    currentFilteredRecords = getFilteredRecords();
+                    updateCount(currentFilteredRecords); renderList(currentFilteredRecords);
+                    showToast(pending ? '已完成复核' : '已标为待复核');
+                } catch (error) { showToast(error.message); }
+            };
         });
         // 事件绑定：checkbox
         listEl.querySelectorAll('.hist-item-check input').forEach(cb => {
@@ -1436,8 +1715,8 @@ function showHistoryDetail(record) {
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">时间</div><div style="font-size:13px;">${time}</div></div>
                 <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">方案 / 模式</div><div style="font-size:13px;">${record.presetName} &middot; ${modeLabel}</div></div>
                 ${durationCell}
-                <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">AI评分</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;">${record.aiScore}</div></div>
-                <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">最终分数</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:${record.isCorrected ? '#0052FF' : '#1d1d1f'};">${record.finalScore}${record.isCorrected ? ' &#10003;' : ''}</div></div>
+                <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">${record.reviewKey ? '模型参考分（待核对）' : 'AI评分'}</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;">${record.aiScore}</div></div>
+                <div><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">${record.reviewStatus === 'pending' ? '待复核 · 提交分数' : '最终分数'}</div><div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:${record.isCorrected ? '#0052FF' : '#1d1d1f'};">${historyScoreText(record)}${record.isCorrected ? ' &#10003;' : ''}</div></div>
             </div>
             ${record.subScores && record.subScores.length > 0 ? `
             <div style="margin-bottom:16px;">
@@ -1535,6 +1814,8 @@ function showHistoryDetail(record) {
             </div>` : ''}
             <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">识别答案</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.studentAnswer, record, '识别答案', '未能识别')}</div></div>
             <div style="margin-bottom:14px;"><div style="font-size:11px;color:#86868b;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">AI评语</div><div class="hist-md-content" style="font-size:13px;line-height:1.6;font-family:'SF Mono',monospace;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;white-space:pre-wrap;border:1px solid rgba(0,0,0,0.04);">${getGradingOutputText(record.aiComment, record, '评语', '无')}</div></div>
+            ${record.reviewReason ? `<p>${record.reviewReason}。请在阅卷平台核对并修正分数，再完成复核。</p>` : ''}
+            ${record.configurationSnapshot ? `<details style="margin-bottom:14px;"><summary>本卷评分方案</summary><p>题目：${extractFieldText(record.configurationSnapshot.question)}</p><p>参考答案：${extractFieldText(record.configurationSnapshot.answer)}</p><p>评分标准：${extractFieldText(record.configurationSnapshot.rubric)}</p></details>` : ''}
             <div id="detail-images-container"><div style="color:#aaa;font-size:12px;">加载图片中...</div></div>
         </div>
     `;

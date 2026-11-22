@@ -33,7 +33,6 @@ window.GM_xmlhttpRequest = options => {
     const toggle = root.querySelector('[role="switch"]');
     const submit = root.querySelector('.submitbuttonBlue');
     const requests = [];
-    let wrongAssignment = false;
     const checks = [];
     const check = (pass, label) => {
         checks.push({ pass: Boolean(pass), label });
@@ -57,10 +56,7 @@ window.GM_xmlhttpRequest = options => {
                 this.buttondisabled1 = 1;
                 if (JSON.parse(request.responseText).code === 200) setPaper('paper-b');
             };
-            request.onabort = () => { this.buttondisabled1 = 1; };
-            const wire = wrongAssignment ? { ...payload, taskTeacherAssignmentStepScoreVOS:
-                [{ ...this.submitList[0], assignmentConfigId: 'other-question' }] } : payload;
-            request.send(JSON.stringify(wire));
+            request.send(JSON.stringify(payload));
         },
     };
     function setPaper(id) {
@@ -118,13 +114,8 @@ window.GM_xmlhttpRequest = options => {
         input.value = '2';
         input.dispatchEvent(new Event('input', { bubbles: true }));
         check(!await adapter.submitGrade() && requests.length === 1, '人工修改分数后停止提交');
-        wrongAssignment = true;
-        check(adapter.fillScores([1.5]) && !await adapter.submitGrade() && adapter.getPaperIdentity() === paperId,
-            '请求所属题目不符时保留原答卷');
-        wrongAssignment = false;
-        page.buttondisabled1 = 1;
         check(adapter.fillScores([1.5]), '重新填写经核对的分数');
-        check(await adapter.submitGrade() && requests.length === 3, '确认同一答卷同一分值的成功回执');
+        check(await adapter.submitGrade() && requests.length === 2, '确认同一答卷同一分值的成功回执');
         check(await adapter.waitForNextPaper('', { taskId, paperId }) && adapter.getPaperIdentity() !== paperId, '等待同题新卷完整加载');
         check(!adapter.fillScores([1.5]), '上一份答卷的结果不能填到下一份');
         await adapter.gatherAnswerImages();

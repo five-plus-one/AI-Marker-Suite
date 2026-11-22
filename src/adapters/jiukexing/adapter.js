@@ -214,7 +214,10 @@ const JiukexingAdapter = {
             const btn = document.querySelector(JIUKEXING_SELECTORS.SUBMIT_BUTTON);
             endpoint = pending.page.$api?.task;
             original = endpoint?.submitScore;
-            if (!btn || btn.disabled || typeof original !== 'function') return false;
+            if (!btn || btn.disabled || typeof original !== 'function') {
+                guard?.onNotDispatched?.();
+                return false;
+            }
             let receipt = null, calls = 0;
             capture = function (payload, ...rest) {
                 calls++;
@@ -236,6 +239,11 @@ const JiukexingAdapter = {
             this._submittedPaper = { identity: pending.identity, task: pending.task };
             try { btn.click(); } finally { if (endpoint.submitScore === capture) endpoint.submitScore = original; }
             // 本地校验拒绝或最短时长未满足时，原生函数不会发送保存请求。
+            if (!calls) {
+                this._submittedPaper = null;
+                guard?.onNotDispatched?.();
+                return false;
+            }
             if (!receipt || calls !== 1) return false;
             const result = await Promise.race([receipt, new Promise(resolve => { timer = setTimeout(() => resolve(null), 30000); })]);
             const accepted = result?.code === 0;
@@ -266,7 +274,7 @@ const JiukexingAdapter = {
         const rejected = this._recoverableRejection;
         this._recoverableRejection = null;
         if (!rejected || this._submitting) return false;
-        if ((this._refreshRecoveryCount || 0) >= 2) {
+        if ((this._refreshRecoveryCount || 0) >= (guard?.maxRetries ?? 2)) {
             this.lastSubmitError = '九科星连续提交失败，请刷新页面并核对阅卷记录后继续';
             return false;
         }
@@ -326,23 +334,6 @@ const JiukexingAdapter = {
     detectSubQuestions() { return []; },
 
     // 页面加载后设置 z-index，解决 Vue 组件遮挡问题
-    onPageLoad() {
-        if (document.getElementById('jiukexing-zindex-fix')) return;
-        const style = document.createElement('style');
-        style.id = 'jiukexing-zindex-fix';
-        style.textContent = `
-            /* 提高脚本 UI 的 z-index，避免被九科星平台元素遮挡 */
-            .ai-grade-btn, .ai-history-btn, .ai-settings-btn,
-            .ai-toast, #ai-history-panel, #ai-grading-settings,
-            .ai-modal-overlay, #correction-panel,
-            #auto-submit-dialog, #asd-minimized-bar,
-            #ai-stream-container, #ai-history-overlay {
-                z-index: 2147483640 !important;
-            }
-        `;
-        document.head.appendChild(style);
-        console.log('[九科星] 已注入 z-index 修复样式');
-    },
 };
 
 // 注册适配器

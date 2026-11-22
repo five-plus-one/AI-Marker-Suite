@@ -45,6 +45,7 @@ test('确认界面和入库模式取本次配置快照，切换方案后仍正�
 test('历史阅读型导出按记录自身模式解释缺省值，原始导出保留数据与模式', async () => {
     const e = env(), files = [];
     e.cfg.outputMode = 'score-only';
+    e.sb.Blob = Blob;
     load(e, 'src/core/history.js');
     const manager = vm.runInContext('HistoryManager', e.sb);
     manager._download = (content, name) => files.push({ content, name });
@@ -58,9 +59,10 @@ test('历史阅读型导出按记录自身模式解释缺省值，原始导出�
     assert.ok(files[0].content.includes('精简模式下不提供分数计算。'));
     assert.ok(files[0].content.split('\n').at(-1).includes('未能识别'));
     await manager.exportHTML([compact, legacy], { includeImages: false });
-    assert.ok(files[1].content.includes(notice));
-    assert.ok(files[1].content.includes('精简模式下不提供评分依据。'));
-    assert.ok(files[1].content.includes('>未能识别</div>'), '旧记录不根据当前方案推断输出模式');
+    const html = await files[1].content.text();
+    assert.ok(html.includes(notice));
+    assert.ok(html.includes('精简模式下不提供评分依据。'));
+    assert.ok(html.includes('>未能识别</div>'), '旧记录不根据当前方案推断输出模式');
     manager.exportJSON([compact, legacy]);
     assert.equal(JSON.stringify(JSON.parse(files[2].content)), original);
     assert.equal(JSON.stringify([compact, legacy]), original);

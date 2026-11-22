@@ -814,13 +814,7 @@ const Guangda2Adapter = {
     },
 
     // ========== 页面生命周期 ==========
-    onPageLoad() {
-        console.log('🚀 [诊断] 光大V2 — 页面加载完成，执行初始化...');
-    },
 
-    onGradingComplete() {
-        console.log('✅ [诊断] 光大V2 — 本轮批改完成');
-    },
 };
 
 // 注册守卫（#324 教训 + strict-a 附 A.0，X02 批两分支统一）：自查 shouldInitialize →

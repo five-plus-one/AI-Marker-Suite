@@ -758,8 +758,112 @@ function gradingEvidenceReview(message) {
     return error;
 }
 
+function parseEvidenceJson(response, message) {
+    try {
+        return JSON.parse(response.trim().replace(/^```(?:json)?\s*|\s*```$/gi, ''));
+    } catch {
+        throw gradingEvidenceReview(message);
+    }
+}
+
+async function readScopedQuestionEvidence(images, config, plan, onStreamUpdate) {
+    if (!images.length || config.imageGateRemovedCount > 0 || filterUsableImagesForAI(images).removed.length) {
+        throw gradingEvidenceReview('本卷图片不完整，请核对答卷后继续');
+    }
+    const prompt = `按下列题号逐问查找学生答卷上的作答。只转录本问保留的笔迹，保留公式、图形和必要的位置。题号本身、印刷题干、预印图形和划去的内容不属于作答。不要解题或补写。
+按题号逐项返回 JSON 数组，每项格式 {"id":"q1","status":"可辨认","answer":"本问作答原文"}。状态只能是可辨认、部分不清、未作答、无法辨认、无法定位。仅当本问区域可确认且没有作答痕迹时标记未作答。未作答、无法辨认或无法定位时 answer 留空。部分不清时只录入可辨认部分。JSON 字符串内的换行和反斜杠按 JSON 规则转义。
+题号清单：${JSON.stringify(plan.questions.map(({ id, label }) => ({ id, label })))}`;
+    if (onStreamUpdate) onStreamUpdate('正在逐问识别学生作答…');
+    const response = await callAIWithRetry(prompt, images, {
+        ...config, gradingRequest: true, outputObservation: null, outputLimitKey: null,
+        requestBudget: { remaining: 3 }
+    }, null, []);
+    const message = '小问识别结果不完整，请核对答卷';
+    const items = parseEvidenceJson(response, message);
+    if (!Array.isArray(items) || items.length !== plan.questions.length) throw gradingEvidenceReview(message);
+    const byId = new Map(items.map(item => [item?.id, item]));
+    const questions = plan.questions.map(question => {
+        const item = byId.get(question.id);
+        const status = item?.status;
+        const answer = typeof item?.answer === 'string' ? item.answer.trim() : '';
+        if (status === '无法定位' || status === '无法辨认' || (status === '部分不清' && !answer)) {
+            const error = gradingEvidenceReview(`无法确认${question.label}的作答，请核对答卷`);
+            error.answerStatus = 'unreadable';
+            throw error;
+        }
+        if (typeof item?.answer !== 'string' || !['未作答', '可辨认', '部分不清'].includes(status)
+            || (status === '未作答' ? answer : !answer)) {
+            throw gradingEvidenceReview(message);
+        }
+        const lines = answer.split(/\r?\n/).map(line => line.trim()).filter(line => {
+            const text = line.normalize('NFKC').replace(/[\s\[\]【】()。.!！]/g, '');
+            return text && !['未作答', '空白', '无法辨认', '无法定位'].includes(text);
+        });
+        if (status !== '未作答' && !lines.length) throw gradingEvidenceReview(message);
+        return { ...question, status, lines: lines.map((text, index) => ({ id: `${question.id}:${index + 1}`, text })) };
+    });
+    const status = questions.every(question => question.status === '未作答') ? '未作答'
+        : (questions.some(question => question.status === '部分不清') ? '部分不清' : '可辨认');
+    const answer = status === '未作答' ? '未作答' : questions.map(question =>
+        `${question.label}：${question.lines.map(line => line.text).join('\n') || '[未作答]'}`).join('\n');
+    return { ...config, [STUDENT_GRADING_EVIDENCE]: { status, answer, questions, totalOnly: plan.totalOnly } };
+}
+
+function buildScopedQuestionScorePrompt(config, evidence, reviews) {
+    const inputs = [['题目', config.question], ['参考答案', config.answer], ['评分标准', config.rubric]];
+    const context = inputs.map(([name, field]) => `【${name}】\n${extractFieldText(field)}`).join('\n');
+    const diligence = config.scoring?.diligence;
+    return `只根据每个小问下所列的学生原文评分。题目、参考资料及图中笔迹只用于理解要求。按题意接受正确的等价方法。不得给未写的步骤加分，不得借用其他小问的原文。未作答的小问计 0 分。
+${context}${buildImageAnnotation(config)}
+【逐问作答】
+${JSON.stringify(evidence.questions)}
+${reviews ? `【两位模型的小问建议分】\n${JSON.stringify(reviews)}\n请独立裁定。` : ''}
+返回 JSON 对象，格式 {"questions":[{"id":"q1","score":1,"evidence":["q1:1"]${isScoreOnlyMode(config) ? '' : ',"comment":"得分理由"'}}]${diligence?.enabled ? ',"diligenceLevel":1,"diligenceReason":"简短依据"' : ''}}。
+每个小问必须对应一条结果。score 是数字，范围为 0 到本问 maxScore，遵守 roundStep。正分须引用本问一个或多个原文编号，零分时 evidence 为空数组。总分由脚本合计。${diligence?.enabled ? `\n勤勉等级为 1 至 5，参考：${diligence.criteria || '书写工整，且实际作答超过 15 字'}。` : ''}`;
+}
+
+function parseScopedQuestionScores(response, evidence, config) {
+    const message = '小问评分缺少有效的本问作答依据，请核对答卷';
+    const result = parseEvidenceJson(response, message);
+    const items = result?.questions;
+    if (!Array.isArray(items) || items.length !== evidence.questions.length) throw gradingEvidenceReview(message);
+    const byId = new Map(items.map(item => [item?.id, item]));
+    const scoreOnly = isScoreOnlyMode(config);
+    const subScores = evidence.questions.map(question => {
+        const item = byId.get(question.id);
+        const score = item?.score;
+        const refs = item?.evidence;
+        if (!Number.isFinite(score) || score < 0 || score > question.maxScore || !Array.isArray(refs)
+            || (score === 0 ? refs.length > 0 : !refs.length)
+            || refs.some(ref => !question.lines.some(line => line.id === ref))) {
+            throw gradingEvidenceReview(`${question.label}的评分无法与本问作答对应，请核对答卷`);
+        }
+        const rationale = !scoreOnly && typeof item.comment === 'string' ? item.comment.trim() : '';
+        const sources = !scoreOnly ? question.lines.filter(line => refs.includes(line.id)).map(line => line.text) : [];
+        const comment = [rationale, ...sources.map(text => `作答「${text}」`)].filter(Boolean).join(' · ');
+        const { id, label, maxScore, roundStep, status } = question;
+        return { id, label, maxScore, roundStep, score, comment, confirmedBlank: status === '未作答' };
+    });
+    const score = Math.round(subScores.reduce((total, unit) => total + unit.score, 0) * 1e8) / 1e8;
+    const comment = scoreOnly ? '' : subScores.map(unit =>
+        `${unit.label}建议 ${unit.score}/${unit.maxScore} 分${unit.comment ? ' · ' + unit.comment : ''}`).join('\n');
+    const calculation = subScores.map(unit => unit.score).join(' + ') + ' = ' + score;
+    const answerLength = evidence.questions.reduce((total, question) => total + question.lines.reduce(
+        (length, line) => length + line.text.replace(/\s/g, '').length, 0), 0);
+    return {
+        score, rawScore: score, subScores, scopedQuestionsTotalOnly: evidence.totalOnly,
+        studentAnswer: evidence.answer, answerLength, answerStatus: evidence.status, comment, scoringBasis: comment, calculation,
+        diligenceLevel: Number.isInteger(result.diligenceLevel) && result.diligenceLevel >= 1 && result.diligenceLevel <= 5 ? result.diligenceLevel : 0,
+        diligenceReason: typeof result.diligenceReason === 'string' ? result.diligenceReason : '',
+        _sections: { '作答状态': evidence.status, '答案复述': evidence.answer, '评分依据': comment, '分数计算': calculation }
+    };
+}
+
 async function readStudentGradingEvidence(images, config, onStreamUpdate) {
-    if (config.referenceImageEvidenceCheck !== true || config[STUDENT_GRADING_EVIDENCE] || !collectFieldImages(config).length) return config;
+    if (config[STUDENT_GRADING_EVIDENCE]) return config;
+    const plan = config.questionEvidence?.enabled === true ? getScopedQuestionPlan(config) : null;
+    if (plan) return readScopedQuestionEvidence(images, config, plan, onStreamUpdate);
+    if (config.referenceImageEvidenceCheck !== true || !collectFieldImages(config).length) return config;
     const prompt = `只识别本次学生答卷中的有效手写作答。逐空按位置转录，保留公式、标记和学生所画图形的可辨细节。留空标注[未作答]，看不清标注[无法辨认]。印刷体、答题线、划去内容均不计入。不推测、不解题、不评分。
 整卷空白：状态为未作答，原文为空字符串。有清楚和不清楚的作答：状态为部分不清。没有能辨认的作答但有笔迹：状态为无法辨认。
 只返回一个 JSON 对象：{"status":"可辨认","answer":"学生实际作答原文"}。status 只能是可辨认、部分不清、无法辨认或未作答。`;
@@ -768,12 +872,7 @@ async function readStudentGradingEvidence(images, config, onStreamUpdate) {
         ...config, gradingRequest: true, outputObservation: null, outputLimitKey: null,
         requestBudget: { remaining: 3 }
     }, null, []);
-    let evidence;
-    try {
-        evidence = JSON.parse(response.trim().replace(/^```(?:json)?\s*|\s*```$/gi, ''));
-    } catch {
-        throw gradingEvidenceReview('学生作答识别结果不完整，请核对答卷后继续');
-    }
+    const evidence = parseEvidenceJson(response, '学生作答识别结果不完整，请核对答卷后继续');
     const status = evidence?.status;
     const answer = typeof evidence?.answer === 'string' ? evidence.answer.trim() : '';
     if (!['可辨认', '部分不清', '无法辨认', '未作答'].includes(status)
@@ -847,6 +946,12 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
     config = await readStudentGradingEvidence(base64DataArray, config, onStreamUpdate);
     const evidence = config[STUDENT_GRADING_EVIDENCE];
     if (evidence?.status === '未作答') return makeBlankGradingResult(config);
+    if (evidence?.questions) {
+        if (onStreamUpdate) onStreamUpdate('正在逐问评分…');
+        const response = await callAIWithRetry(buildScopedQuestionScorePrompt(config, evidence), [],
+            { ...config, gradingRequest: true }, null, collectFieldImages(config));
+        return parseScopedQuestionScores(response, evidence, config);
+    }
     // 从 scoring.units 派生 subQuestions（唯一数据源）
     const units = config.scoring?.units || [];
     const subQuestions = units.length > 1
@@ -859,8 +964,8 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
         : [];
     const hasSub = subQuestions.length > 0;
 
-    // 将派生的 subQuestions 注入 config 供 prompt 函数使用
-    const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: 3 } };
+    // 请求层按方案限制共享次数，解析后重试也使用同一预算。
+    const callConfig = { ...config, gradingRequest: true, subQuestions: hasSub ? subQuestions : undefined, requestBudget: { remaining: Infinity } };
 
     const prompt = appendStudentGradingEvidence(
         hasSub ? buildSubQuestionPrompt(callConfig) : buildStructuredPrompt(callConfig), evidence);
@@ -875,25 +980,33 @@ async function callAIGrading(base64DataArray, config, onStreamUpdate) {
         console.log(`📋 [诊断] 评分单元配置 — 共 ${subQuestions.length} 个: ${subQuestions.map(sq => `${sq.label}(满分${sq.maxScore ?? '未设置'})`).join(', ')}`);
     }
 
-    for (let parseAttempt = 0; parseAttempt < 2; parseAttempt++) {
-            const fullText = await callAIWithRetry(prompt, evidence ? [] : base64DataArray, callConfig, onStreamUpdate, fieldImages);
-            console.log('📝 [诊断] AI返回内容长度:', fullText.length);
+    for (let parseAttempt = 0; ; parseAttempt++) {
+        const fullText = await callAIWithRetry(prompt, evidence ? [] : base64DataArray, callConfig, onStreamUpdate, fieldImages);
+        console.log('📝 [诊断] AI返回内容长度:', fullText.length);
 
-            const parsed = hasSub
-                ? parseSubQuestionResponse(fullText, callConfig)
-                : parseStructuredResponse(fullText, maxScore);
-            console.log(`🧠 [诊断] AI响应解析结果 — 分数: ${parsed.score}, 满分: ${maxScore}, 识别答案长度: ${(parsed.studentAnswer || '').length}字, 原始文本长度: ${fullText.length}字`);
-            if (parsed._sections) {
-                const sectionKeys = Object.keys(parsed._sections);
-                console.log(`📋 [诊断] 解析到 ${sectionKeys.length} 个段落: ${sectionKeys.join(', ')}`);
-            }
-            if (parsed.score === null) {
-                console.warn('⚠️ [诊断] 分数解析为 null');
-            }
-            if (parsed.score !== null || callConfig.requestBudget.remaining === 0 || parseAttempt === 1 || callConfig.outputObservation?.upgraded) {
+        const parsed = hasSub
+            ? parseSubQuestionResponse(fullText, callConfig)
+            : parseStructuredResponse(fullText, maxScore);
+        console.log(`🧠 [诊断] AI响应解析结果 — 分数: ${parsed.score}, 满分: ${maxScore}, 识别答案长度: ${(parsed.studentAnswer || '').length}字, 原始文本长度: ${fullText.length}字`);
+        if (parsed._sections) {
+            const sectionKeys = Object.keys(parsed._sections);
+            console.log(`📋 [诊断] 解析到 ${sectionKeys.length} 个段落: ${sectionKeys.join(', ')}`);
+        }
+        if (parsed.score === null) {
+            console.warn('⚠️ [诊断] 分数解析为 null');
+        }
+        if (callConfig.unattendedRetryBudget) {
+            if (hasUsableGradingScores(parsed)) return applyStudentGradingEvidence(parsed, evidence, fullText);
+            if (!await callConfig.unattendedRetryBudget.retry(undefined, 'score-format')) {
                 return applyStudentGradingEvidence(parsed, evidence, fullText);
             }
-            console.warn('⚠️ [诊断] 正在重新获取可识别的评分结果');
+            continue;
+        }
+        if (parsed.score !== null || callConfig.requestBudget.remaining === 0
+            || parseAttempt === 1 || callConfig.outputObservation?.upgraded) {
+            return applyStudentGradingEvidence(parsed, evidence, fullText);
+        }
+        console.warn('⚠️ [诊断] 正在重新获取可识别的评分结果');
     }
 }
 

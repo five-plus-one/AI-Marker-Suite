@@ -82,65 +82,155 @@ function diagnosticSecrets() {
 }
 
 const DiagnosticLog = (() => {
-    const prefix = 'ai-marker-diagnostic-log-v1-';
-    const chunkLimit = 160;
-    const chunkSpan = 20 * 60 * 1000;
-    const maxAge = 7 * 24 * 60 * 60 * 1000;
-    const maxChunks = 192;
     const session = Math.random().toString(36).slice(2);
-    let traceSequence = 0;
-    const localChunks = new Map();
-    let active, timer, storageLimited = false, nextPrune = 0;
+    const maxAge = 7 * 24 * 60 * 60 * 1000;
     const storageSupported = typeof GM_listValues === 'function' && typeof GM_setValue === 'function';
+    const runIds = new WeakMap();
+    let runSequence = 0;
+    let traceSequence = 0;
 
-    function storedKeys() {
-        return GM_listValues().filter(key => key.startsWith(prefix) && /^\d{13}-[a-z\d]+-\d+$/.test(key.slice(prefix.length)))
-            .sort();
-    }
+    function createJournal(prefix, maxChunks, chunkLimit, deferWrites = false) {
+        const chunkSpan = 20 * 60 * 1000;
+        const prunedKey = prefix + 'pruned-through';
+        const localChunks = new Map();
+        let active, timer, storageLimited = false, nextPrune = 0, urgent = false;
 
-    function prune(now) {
-        if (now < nextPrune || typeof GM_deleteValue !== 'function') return;
-        nextPrune = now + 60 * 1000;
-        const keys = storedKeys();
-        const cutoff = now - maxAge - chunkSpan;
-        keys.forEach((key, index) => {
-            if (!localChunks.has(key) && (Number(key.slice(prefix.length, prefix.length + 13)) < cutoff
-                || index < keys.length - maxChunks)) GM_deleteValue(key);
-        });
-    }
-
-    function flush() {
-        clearTimeout(timer);
-        timer = undefined;
-        if (!storageSupported || !localChunks.size) return;
-        try {
-            for (const [key, chunk] of localChunks) {
-                if (chunk.saved !== chunk.entries.length) {
-                    GM_setValue(key, chunk.entries);
-                    chunk.saved = chunk.entries.length;
-                }
-                if (chunk !== active) localChunks.delete(key);
-            }
-            prune(Date.now());
-        } catch (_) {
-            storageLimited = true;
+        function storedKeys() {
+            return GM_listValues().filter(key => key.startsWith(prefix) && /^\d{13}-[a-z\d]+-\d+$/.test(key.slice(prefix.length)))
+                .sort();
         }
-    }
 
-    function capture(level, source, message, args = [], details) {
-        const at = Date.now();
-        if (!active || active.entries.length === chunkLimit || at - active.started >= chunkSpan) {
-            const sequence = (active?.sequence ?? -1) + 1;
-            const previous = active;
-            active = { started: at, sequence, entries: [], saved: 0 };
-            if (previous) flush();
-            localChunks.set(prefix + at + '-' + session + '-' + sequence, active);
-            if (localChunks.size > 8) {
-                localChunks.delete(localChunks.keys().next().value);
+        function chunkTime(key) {
+            return Number(key.slice(prefix.length, prefix.length + 13));
+        }
+
+        function prune(now) {
+            if (now < nextPrune || typeof GM_deleteValue !== 'function') return;
+            nextPrune = now + 60 * 1000;
+            const keys = storedKeys();
+            let prunedThrough = GM_getValue(prunedKey, 0);
+            for (const [index, key] of keys.entries()) {
+                if (localChunks.has(key)) continue;
+                const expired = chunkTime(key) + chunkSpan < now - maxAge;
+                if (!expired && index >= keys.length - maxChunks) continue;
+                if (!expired) {
+                    const removed = GM_getValue(key, []);
+                    prunedThrough = Math.max(prunedThrough, removed.at(-1)?.at || chunkTime(key));
+                    GM_setValue(prunedKey, prunedThrough);
+                }
+                GM_deleteValue(key);
+            }
+        }
+
+        function flush() {
+            clearTimeout(timer);
+            timer = undefined;
+            urgent = false;
+            if (!storageSupported || !localChunks.size) return;
+            try {
+                for (const [key, chunk] of localChunks) {
+                    if (chunk.saved !== chunk.entries.length) {
+                        GM_setValue(key, chunk.entries);
+                        chunk.saved = chunk.entries.length;
+                    }
+                    if (chunk !== active) localChunks.delete(key);
+                }
+                prune(Date.now());
+            } catch (_) {
                 storageLimited = true;
             }
         }
-        const entry = { at, level, source, message, session, site: window.location.hostname, version: DIAGNOSTIC_SCRIPT_VERSION };
+
+        function append(entry, persist = false) {
+            const at = entry.at;
+            if (!active || active.entries.length === chunkLimit || at - active.started >= chunkSpan) {
+                const previous = active;
+                active = { started: at, sequence: (previous?.sequence ?? -1) + 1, entries: [], saved: 0 };
+                if (previous && !deferWrites) flush();
+                localChunks.set(prefix + at + '-' + session + '-' + active.sequence, active);
+                if (localChunks.size > 8) {
+                    localChunks.delete(localChunks.keys().next().value);
+                    storageLimited = true;
+                }
+            }
+            active.entries.push(entry);
+            if (!storageSupported) return;
+            if (persist && !urgent) {
+                clearTimeout(timer);
+                urgent = true;
+                timer = setTimeout(flush, 0);
+            } else if (timer === undefined) {
+                timer = setTimeout(flush, 1000);
+            }
+        }
+
+        function read(start, end) {
+            flush();
+            const chunks = new Map();
+            const floor = Date.now() - maxAge;
+            const from = Math.max(start, floor);
+            let prunedThrough = 0;
+            if (storageSupported) {
+                try {
+                    prunedThrough = GM_getValue(prunedKey, 0);
+                    for (const key of storedKeys()) {
+                        if (chunkTime(key) <= end && chunkTime(key) + chunkSpan >= from) {
+                            const entries = GM_getValue(key, []);
+                            if (Array.isArray(entries)) chunks.set(key, entries);
+                        }
+                    }
+                } catch (_) {
+                    storageLimited = true;
+                }
+            }
+            for (const [key, chunk] of localChunks) chunks.set(key, chunk.entries);
+            const entries = [...chunks.values()].flat().filter(entry => entry?.at >= from && entry.at <= end)
+                .sort((a, b) => a.at - b.at);
+            return {
+                entries,
+                coverage: {
+                    firstAt: entries[0]?.at ?? null,
+                    lastAt: entries.at(-1)?.at ?? null,
+                    expiredBefore: start < floor ? floor : null,
+                    prunedThrough: prunedThrough >= from ? prunedThrough : null,
+                    storageLimited: !storageSupported || storageLimited,
+                },
+            };
+        }
+
+        return { append, flush, read };
+    }
+
+    const consoleJournal = createJournal('ai-marker-diagnostic-log-v1-', 192, 160);
+    const gradingJournal = createJournal('ai-marker-diagnostic-grading-v1-', 512, 240, true);
+
+    function identity() {
+        const entry = { at: Date.now(), site: window.location.hostname, version: DIAGNOSTIC_SCRIPT_VERSION };
+        const adapter = window.__AI_MARKER_ADAPTER__?.id;
+        if (typeof adapter === 'string' && /^[a-z\d-]{1,40}$/.test(adapter)) entry.platform = adapter;
+        return entry;
+    }
+
+    function errorFields(error) {
+        const fields = {};
+        if (['Error', 'TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'AbortError', 'NetworkError',
+            'InvalidStateError', 'NotFoundError', 'QuotaExceededError', 'DataError'].includes(error?.name)) {
+            fields.errorType = error.name;
+        }
+        if (Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599) fields.httpStatus = error.status;
+        if (['GRADING_CONTEXT_CHANGED', 'QUESTION_CONTEXT_CHANGED', 'OUTPUT_TRUNCATED', 'ECONNRESET', 'ETIMEDOUT'].includes(error?.code)) {
+            fields.errorCode = error.code;
+        }
+        if (['请求超时', '网络请求被拦截，请检查跨域权限', '图片下载超时', '答卷已切换，请核对后重新批改',
+            '当前题目已变化，请核对后重新批改', 'AI响应未完整结束，请检查网络后继续批改',
+            'AI未返回可用内容，请检查模型输出设置', 'AI未返回可识别的分数，请检查模型回答后继续批改'].includes(error?.message)) {
+            fields.errorMessage = error.message;
+        }
+        return fields;
+    }
+
+    function capture(level, source, message, args = [], details) {
+        const entry = { ...identity(), level, source, message, sourceMessage: message, session };
         const secrets = diagnosticSecrets();
         entry.page = diagnosticSnapshot(window.location.href, { limit: 4096, secrets });
         entry.frame = window === window.top ? 'top' : 'embedded';
@@ -149,46 +239,41 @@ const DiagnosticLog = (() => {
             entry.args = diagnosticSnapshot(args, { limit: 8000, depth: 5, secrets, omitImageData: true });
             if (typeof entry.args[0] === 'string' && entry.args[0]) entry.message = entry.args[0].slice(0, 800);
         }
-        const adapter = window.__AI_MARKER_ADAPTER__?.id;
-        if (typeof adapter === 'string' && /^[a-z\d-]{1,40}$/.test(adapter)) entry.platform = adapter;
-        for (const value of args) {
-            if (!(value instanceof Error)) continue;
-            if (['Error', 'TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'AbortError', 'NetworkError'].includes(value.name)) {
-                entry.errorType = value.name;
-            }
-            if (Number.isInteger(value.status) && value.status >= 100 && value.status <= 599) entry.httpStatus = value.status;
-            break;
-        }
-        active.entries.push(entry);
-        if (storageSupported && timer === undefined) timer = setTimeout(flush, 1000);
+        consoleJournal.append({ ...entry, ...errorFields(args.find(value => value instanceof Error)) });
     }
 
-    function read(start, end) {
-        flush();
-        const chunks = new Map();
-        const floor = Date.now() - maxAge;
-        if (storageSupported) {
-            try {
-                for (const key of storedKeys().slice(-maxChunks)) {
-                    const chunkStart = Number(key.slice(prefix.length, prefix.length + 13));
-                    if (chunkStart <= end && chunkStart + chunkSpan >= Math.max(floor, start)) {
-                        const entries = GM_getValue(key, []);
-                        if (Array.isArray(entries)) chunks.set(key, entries);
-                    }
-                }
-            } catch (_) {
-                storageLimited = true;
+    function grading(event, context, details, { persist = false, error } = {}) {
+        try {
+            let run;
+            if (context) {
+                if (!runIds.has(context)) runIds.set(context, ++runSequence);
+                run = runIds.get(context);
             }
-        }
-        for (const [key, chunk] of localChunks) chunks.set(key, chunk.entries);
-        const entries = Array.from(chunks.values()).flat()
-            .filter(entry => entry?.at >= Math.max(start, floor) && entry.at <= end)
-            .sort((a, b) => a.at - b.at);
-        return { entries, storageLimited: !storageSupported || storageLimited, retentionDays: 7 };
+            gradingJournal.append({ ...identity(), session, run, event, details, ...errorFields(error) }, persist);
+        } catch (_) { /* 采集失败不影响阅卷。 */ }
     }
+
+    function flush() {
+        consoleJournal.flush();
+        gradingJournal.flush();
+    }
+
+    function lifecycle(event) {
+        const state = window.aiGradingState;
+        if (!state?.activeRun && !state?.isRunning && !state?.isPaused
+            && !(window.__AI_MARKER_ADAPTER__ && (event.persisted || document.wasDiscarded))) return;
+        grading('page-lifecycle', state?.activeRun, {
+            transition: event.type, visibility: document.visibilityState, online: navigator.onLine,
+            persisted: event.persisted, wasDiscarded: document.wasDiscarded,
+        }, { persist: true });
+    }
+
+    for (const type of ['pagehide', 'pageshow', 'online', 'offline']) window.addEventListener?.(type, lifecycle);
+    for (const type of ['visibilitychange', 'freeze', 'resume']) document.addEventListener?.(type, lifecycle);
 
     // Persist before navigating away. Only this script's logging calls are collected.
     window.addEventListener?.('pagehide', flush);
+    document.addEventListener?.('freeze', flush);
     document.addEventListener?.('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
     const ownScript = /(?:AI-Marker-Suite|ai_marker|zhixue_ai_marking)\.user\.js/i;
     window.addEventListener?.('error', event => {
@@ -207,7 +292,17 @@ const DiagnosticLog = (() => {
     }
 
     return {
-        read,
+        grading,
+        read(start, end) {
+            const logs = consoleJournal.read(start, end);
+            const grading = gradingJournal.read(start, end);
+            return {
+                entries: logs.entries, gradingEvents: grading.entries,
+                coverage: { console: logs.coverage, grading: grading.coverage },
+                storageLimited: logs.coverage.storageLimited || grading.coverage.storageLimited,
+                retentionDays: 7,
+            };
+        },
         record,
         traceId() {
             return session + '-' + ++traceSequence;

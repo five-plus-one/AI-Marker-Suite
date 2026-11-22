@@ -12,6 +12,7 @@ async function coreGuard(f) {
     vm.runInContext(main.slice(main.indexOf('function normalizePaperImageUrl('), main.indexOf('// 回评图片就绪探测')), f.sb);
     f.sb.PresetManager = { data: { active: '作文练习' } };
     const context = { manual: true, adapter: a, controller: new AbortController(), presetName: '作文练习',
+        questionGuardEnabled: true, questionBaseline: f.sb.readGradingQuestionContext(a),
         taskId: a.getTaskIdentifier(), paperId: a.getPaperIdentity(), paperGuardEnabled: true,
         imageUrls: await a.gatherAnswerImages(), inputSnapshot: f.fields.map(e => e.value) };
     f.sb.aiGradingState = { activeRun: context };
@@ -113,7 +114,7 @@ test('韬普匹配本卷零分确认按钮，确认后只发送一次原生请�
     assert.equal(new URLSearchParams(f.sent[0]).get('pycj'), '0');
 });
 
-test('韬普原生确认与正式版核心答卷校验联合运行', async () => {
+test('韬普原生确认与核心题目、答卷校验联合运行', async () => {
     const f = fixture(), a = f.adapter, core = await coreGuard(f);
     f.w.tjqqr = true; assert.equal(a.fillScores([0]), true);
     assert.equal(await a.submitGrade(core.guard), true);

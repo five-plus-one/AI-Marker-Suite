@@ -333,12 +333,12 @@ test('P2-2 shouldInitialize 纯判定：调用谓词不得有副作用（不装�
     assert.strictEqual(a._interceptorInstalled, false, '谓词调用后不得安装拦截（副作用移出）');
 });
 
-test('P2-2 注册即安装（初始化钩子）+ onPageLoad 幂等不重复包装', () => {
+test('P2-2 注册即安装（初始化钩子）+ initializePage 幂等不重复包装', () => {
     const a = loadAdapter();
     assert.strictEqual(a._interceptorInstalled, true, '注册 IIFE 必须装好 API 拦截');
     const f1 = a._testSandbox.fetch;
     assert.strictEqual(typeof f1, 'function', 'fetch 应已被包装');
-    a.onPageLoad();
-    a.onPageLoad();
-    assert.strictEqual(a._testSandbox.fetch, f1, 'onPageLoad 幂等：不得重复包装 fetch');
+    a.initializePage();
+    a.initializePage();
+    assert.strictEqual(a._testSandbox.fetch, f1, 'initializePage 幂等：不得重复包装 fetch');
 });

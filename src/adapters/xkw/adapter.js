@@ -38,7 +38,7 @@ const XkwAdapter = {
     _interceptorInstalled: false,
 
     // ========== 生命周期 ==========
-    // 纯判定谓词（P3 规格）：绝不带副作用；API 拦截安装在注册 IIFE / onPageLoad
+    // 纯判定谓词（P3 规格）：绝不带副作用；API 拦截安装在注册 IIFE / initializePage
     shouldInitialize() {
         const h = window.location.hostname;
         return h === 'ejt.xkw.com' || h.endsWith('.ejt.xkw.com')
@@ -76,8 +76,8 @@ const XkwAdapter = {
         return XKW_SELECTORS.MARK_ROUTE_PATTERN.test(window.location.pathname);
     },
 
-    onPageLoad() {
-        // 幂等兜底（注：core 当前无 onPageLoad 调用点，安装主入口在注册 IIFE）
+    initializePage() {
+        // 注册入口明确初始化，重复调用复用现有拦截器。
         this._installApiInterceptor();
         console.log('🚀 [XKW] 学科网e卷通适配器已加载');
     },
@@ -485,6 +485,6 @@ const XkwAdapter = {
 // 初始化钩子副作用放这里（shouldInitialize 保持纯判定）：
 // 尽早装 API 拦截——SPA 路由切换不重载文档，装载即安装可覆盖批改页首次取题
 if (XkwAdapter.shouldInitialize()) {
-    XkwAdapter._installApiInterceptor();
+    XkwAdapter.initializePage();
     window.__AI_MARKER_ADAPTER__ = XkwAdapter;
 }
