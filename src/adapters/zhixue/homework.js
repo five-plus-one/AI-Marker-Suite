@@ -78,18 +78,30 @@ const ZhixueHomeworkAdapter = {
         return { question: units[0].label, units };
     },
 
-    _paper() {
-        const view = this._view();
+    _selection(view = this._view()) {
         const task = this.getTaskIdentifier();
         const studentId = view?.curStudentItem?.studentId;
-        if (!studentId || !task || view.loading || view.correctLoading) return null;
-        const source = view.cutImageList;
-        const elements = [...view.$el.querySelectorAll('.question-viewer .image-wrapper img')];
+        if (!studentId || !task) return null;
+        return { view, task, studentId, identity: task + ':' + JSON.stringify(studentId) };
+    },
+
+    getSelectedPaperIdentity() {
+        return this._selection()?.identity || null;
+    },
+
+    _paper(selection = this._selection()) {
+        if (!selection || selection.view.loading || selection.view.correctLoading) return null;
+        const source = selection.view.cutImageList;
+        const elements = [...selection.view.$el.querySelectorAll('.question-viewer .image-wrapper img')]
+            .filter(image => MarkingPaper.visible(image));
         if (!Array.isArray(source) || !source.length || elements.length !== source.length) return null;
-        const urls = elements.map(image => image.src);
-        if (!elements.every((image, index) => image.complete && image.naturalWidth > 0
-            && MarkingPaper.imageKey(source[index]) && MarkingPaper.imageKey(source[index]) === MarkingPaper.imageKey(image.src))) return null;
-        return { view, task, studentId, identity: task + ':' + JSON.stringify(studentId), urls };
+        const urls = elements.map(image => image.currentSrc || image.src);
+        if (!elements.every((image, index) => {
+            const expected = MarkingPaper.imageKey(source[index]);
+            return image.complete && image.naturalWidth > 0 && image.naturalHeight > 0
+                && expected && expected === MarkingPaper.imageKey(urls[index]);
+        })) return null;
+        return { ...selection, urls };
     },
 
     _scoreButton(target, score) {
@@ -105,19 +117,43 @@ const ZhixueHomeworkAdapter = {
         return matches.length === 1 ? matches[0] : null;
     },
 
-    prepareGrading() {
+    async prepareGrading({ signal, verify } = {}) {
         this._filled = null;
-        const [unit] = this.getScoreInputs();
-        this.lastFillError = unit ? '请选择已加载答卷图片且可修改分数的作业答卷' : this.getScoreDetectionHint();
-        const target = unit && this._paper();
-        if (!target || target.view.canNotEdit || target.view.topicSaving) return false;
-        const configured = PresetManager.getMaxScore();
-        if (configured !== unit.maxScore) {
-            this.lastFillError = '评分方案满分与作业题目不一致，请调整后继续';
-            return false;
+        const deadline = Date.now() + 3000;
+        for (;;) {
+            verify?.();
+            const view = this._view();
+            const [unit] = this.getScoreInputs();
+            if (!unit) {
+                this.lastFillError = this.getScoreDetectionHint();
+                const panel = this._scorePanel(view);
+                if (view?.curBlankId || (panel?.querySelector('.score-box') && !panel.querySelector('button.green-btn'))) return false;
+            } else {
+                const selection = this._selection(view);
+                if (!selection && !view.loading && !view.correctLoading) {
+                    this.lastFillError = '请先选择一份作业答卷';
+                    return false;
+                }
+                if (view.topicSaving) {
+                    this.lastFillError = '智学网仍在保存分数，请稍候';
+                } else if (view.loading || view.correctLoading) {
+                    this.lastFillError = '当前答卷图片尚未就绪，请核对图片后继续';
+                } else if (view.canNotEdit) {
+                    this.lastFillError = '当前答卷为只读，请选择可评分的答卷';
+                    return false;
+                } else if (!this._paper(selection)) {
+                    this.lastFillError = '当前答卷图片尚未就绪，请核对图片后继续';
+                } else if (PresetManager.getMaxScore() !== unit.maxScore) {
+                    this.lastFillError = '评分方案满分与作业题目不一致，请调整后继续';
+                    return false;
+                } else {
+                    this.lastFillError = '';
+                    return true;
+                }
+            }
+            if (Date.now() >= deadline) return false;
+            await abortableGradingDelay(150, signal);
         }
-        this.lastFillError = '';
-        return true;
     },
 
     getPaperIdentity() {

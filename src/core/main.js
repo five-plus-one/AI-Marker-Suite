@@ -351,16 +351,32 @@ async function startAutoGrading() {
 
         const adapter = window.__AI_MARKER_ADAPTER__;
 
+        let selectedPaper = adapter?.getSelectedPaperIdentity?.();
+        const verifyPreparation = () => {
+            requireGradingContextTarget(runContext, false);
+            const currentPaper = adapter?.getSelectedPaperIdentity?.();
+            if (selectedPaper && currentPaper && selectedPaper !== currentPaper) {
+                throw gradingContextError('答卷已切换，请核对后重新批改');
+            }
+            selectedPaper ||= currentPaper;
+        };
         await retryUnattendedStep(runContext, 'prepare', async () => {
+            verifyPreparation();
             if (adapter?.prepareGrading) {
                 let ready;
-                try { ready = await adapter.prepareGrading(); }
-                catch (error) { throw gradingStepRetry(error.message || '阅卷页面暂时未就绪'); }
+                try {
+                    ready = await adapter.prepareGrading({ signal: runContext.controller.signal, verify: verifyPreparation });
+                } catch (error) {
+                    if (error?.code === 'GRADING_CONTEXT_CHANGED' || runContext.controller.signal.aborted) throw error;
+                    throw gradingStepRetry(error?.message || '阅卷页面暂时未就绪');
+                }
                 if (ready === false) throw gradingStepRetry(adapter.lastFillError || '阅卷页面尚未就绪，请核对后继续');
             }
+            verifyPreparation();
+            if (selectedPaper) runContext.paperId ||= selectedPaper;
             captureInitialGradingQuestion(runContext);
             requireGradingQuestionContext(runContext);
-        }, context => requireGradingContextTarget(context, false));
+        }, verifyPreparation);
         requireCurrentGradingContext(runContext);
 
         requireGradingQuestionContext(runContext);

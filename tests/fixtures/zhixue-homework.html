@@ -14,6 +14,9 @@
 <script>
 const storage = new Map([
   ['ai-grading-show-onboarding', false],
+  ['ai-grading-presets', JSON.stringify({active: '作业', bindings: {}, list: {
+    作业: {answer: '参考答案', rubric: '按步骤评分', scoring: {maxScore: 10, roundStep: 0.5}},
+  }})],
   ['aimarker-connected-account-v1', { accountId: 1, apiKey: 'sk-' + 'a'.repeat(32) }],
 ]);
 window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
@@ -67,6 +70,30 @@ for (const button of root.querySelectorAll('.score-btn')) button.onclick = () =>
     check(adapter?.id === 'zhixue' && adapter.isMarkingPage() && !adapter.isQuotaContinuationEnabled, '作业路由由专用适配接管');
     const taskId = adapter.getTaskIdentifier(), first = adapter.getPaperIdentity();
     check(!!first && (await adapter.gatherAnswerImages()).length === 1 && adapter.getScoreInputs()[0].maxScore === 10, '读取当前题的答卷和满分');
+    const hiddenImage = image.cloneNode();
+    hiddenImage.hidden = true;
+    hiddenImage.src = '/__fixture/answer.svg?student=old';
+    image.after(hiddenImage);
+    check(adapter.getPaperIdentity() === first && adapter.gatherAnswerImages().length === 1, '隐藏的旧答卷图不影响当前答卷');
+    hiddenImage.remove();
+    view.correctLoading = true;
+    check(!adapter.getPaperIdentity() && adapter.getSelectedPaperIdentity() === first, '加载期间保留选中身份，等待图片就绪');
+    const ready = adapter.prepareGrading();
+    setTimeout(() => { view.correctLoading = false; }, 240);
+    check(await ready && effects.submissions.length === 0, '准备过程中图片加载完成后可以评分');
+    view.topicSaving = true;
+    const afterSave = adapter.prepareGrading();
+    setTimeout(() => { view.topicSaving = false; }, 240);
+    check(await afterSave, '平台暂时保存时等待原站完成');
+    view.canNotEdit = true;
+    check(!await adapter.prepareGrading() && adapter.lastFillError.includes('只读'), '只读答卷显示具体原因');
+    view.canNotEdit = false;
+    const controller = new AbortController();
+    view.loading = true;
+    const interrupted = adapter.prepareGrading({ signal: controller.signal }).catch(error => error.message);
+    controller.abort();
+    view.loading = false;
+    check(await interrupted === '用户主动暂停' && effects.submissions.length === 0, '等待答卷时仍可主动暂停');
     check(!adapter.fillScores([7]) && adapter.fillScores([6]) && effects.submissions.length === 0, '只暂存原站支持的分数');
     view.curStudentItem = { studentId: 'second' };
     check(!await adapter.submitGrade() && effects.submissions.length === 0, '确认前换人拦截旧卷分数');
