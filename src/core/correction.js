@@ -519,8 +519,8 @@ function showCorrectionPanel(context) {
             if (_step1Wf) {
                 var _step1PName = _step1Wf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
                 var _step1MName = _step1Wf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
-                var _step1Prov = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_step1PName) : null;
-                _step1CallConfig = { endpoint: _step1Prov?.endpoint || '', apiKey: _step1Prov?.apiKey || '', model: _step1MName, reasoningEffort: _step1Wf.model?.reasoningEffort || '' };
+                const call = ProviderManager.getCallConfig(_step1PName, _step1MName);
+                if (call) _step1CallConfig = { ...call, reasoningEffort: _step1Wf.model?.reasoningEffort || '' };
             }
         } catch (e) { /* ignore */ }
 
@@ -604,8 +604,8 @@ function showCorrectionPanel(context) {
             if (_corWf) {
                 var _corPName = _corWf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
                 var _corMName = _corWf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
-                var _corProv = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_corPName) : null;
-                _corCallConfig = { endpoint: _corProv?.endpoint || '', apiKey: _corProv?.apiKey || '', model: _corMName, reasoningEffort: _corWf.model?.reasoningEffort || '' };
+                const call = ProviderManager.getCallConfig(_corPName, _corMName);
+                if (call) _corCallConfig = { ...call, reasoningEffort: _corWf.model?.reasoningEffort || '' };
             }
         } catch (e) { /* ignore */ }
 

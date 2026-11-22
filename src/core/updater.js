@@ -5,7 +5,7 @@
  * 读取用户选择的渠道（GM_setValue），返回对应的 manifestUrl 和 scriptUrl。
  */
 function getChannelUrls() {
-    const channel = GM_getValue('ai-grading-channel', 'stable');
+    const channel = getChannelName();
     const channels = SCRIPT_CONFIG.CHANNELS || {};
     return channels[channel] || channels.stable || {
         manifestUrl: SCRIPT_CONFIG.MANIFEST_URL,
@@ -17,7 +17,10 @@ function getChannelUrls() {
  * 获取当前渠道名称标识。
  */
 function getChannelName() {
-    return GM_getValue('ai-grading-channel', 'stable');
+    const configured = GM_getValue('ai-grading-channel', '');
+    const channels = SCRIPT_CONFIG.CHANNELS || {};
+    const installed = getBuildChannel();
+    return Object.hasOwn(channels, configured) ? configured : Object.hasOwn(channels, installed) ? installed : 'stable';
 }
 
 /**
@@ -298,7 +301,20 @@ function restoreConfigIfMissing() {
 /**
  * 显示更新提示对话框（非 alert，样式与项目风格一致）。
  */
-function showUpdateDialog(remoteVersion, remoteChangelog) {
+let deferredAutomaticUpdate;
+
+function setOnboardingUpdateNoticePaused(paused) {
+    const notice = document.getElementById('ai-update-dialog');
+    if (notice?.dataset.automaticUpdate === 'true') notice.hidden = paused;
+    if (paused || !deferredAutomaticUpdate) return;
+    const { channel, version, changelog } = deferredAutomaticUpdate;
+    deferredAutomaticUpdate = null;
+    if (channel === getChannelName() && window.aiGradingState?.gradingMode !== 'unattended') {
+        handleUpdateResult(version, changelog, false);
+    }
+}
+
+function showUpdateDialog(remoteVersion, remoteChangelog, automatic = false) {
     const oldDialog = document.getElementById('ai-update-dialog');
     if (oldDialog) return; // 已经在显示了，不重复
 
@@ -308,6 +324,7 @@ function showUpdateDialog(remoteVersion, remoteChangelog) {
 
     const dialog = document.createElement('div');
     dialog.id = 'ai-update-dialog';
+    dialog.dataset.automaticUpdate = String(automatic);
     dialog.innerHTML = `
         <style>
             #ai-update-dialog {
@@ -492,7 +509,11 @@ function handleUpdateResult(remoteVersion, remoteChangelog, force, restoreBtn) {
 
     if (compareVersions(remoteVersion, SCRIPT_CONFIG.VERSION) > 0) {
         console.log(`[更新检查] 发现新版本 ${remoteVersion}，弹出提示`);
-        showUpdateDialog(remoteVersion, remoteChangelog);
+        if (!force && typeof _onboardingDialogOpen !== 'undefined' && _onboardingDialogOpen) {
+            deferredAutomaticUpdate = { channel: getChannelName(), version: remoteVersion, changelog: remoteChangelog };
+            return;
+        }
+        showUpdateDialog(remoteVersion, remoteChangelog, !force);
     } else {
         console.log('[更新检查] 当前已是最新版本');
         if (force) {

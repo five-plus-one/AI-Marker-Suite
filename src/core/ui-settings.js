@@ -1,7 +1,17 @@
+const QUESTION_ONBOARDING_DISABLED = 'ai-grading-hide-question-onboarding';
+
+function saveQuestionOnboardingPreference(disabled) {
+    try {
+        GM_setValue(QUESTION_ONBOARDING_DISABLED, disabled);
+        return GM_getValue(QUESTION_ONBOARDING_DISABLED, false) === disabled;
+    } catch (_) { return false; }
+}
+
 // ========== 创建配置面板（侧边栏） ==========
 function createSettingsPanel(options) {
     if (document.getElementById('ai-grading-settings')) return;
     if (document.getElementById('ai-settings-overlay')) return;
+    ensureModalStyles();
 
     // 遮罩层
     const overlay = document.createElement('div');
@@ -132,8 +142,10 @@ function createSettingsPanel(options) {
                 justify-content: space-between !important; align-items: center !important;
                 transition: background 0.15s !important; user-select: none !important;
             }
+            #ai-grading-settings button.section-header { width: 100%; border: 0; background: transparent; }
+            #ai-grading-settings button.section-header:focus-visible { outline: 2px solid var(--fp-primary, #2166ad); outline-offset: -2px; }
             #ai-grading-settings .section-header:hover { background: rgba(0,0,0,0.02) !important; }
-            #ai-grading-settings .section-header h4 {
+            #ai-grading-settings .section-header :is(h4, .section-title) {
                 margin: 0 !important; font-size: 12px !important; font-weight: 600 !important; color: #86868b !important;
                 text-transform: uppercase !important; letter-spacing: 0.8px !important;
                 display: flex !important; align-items: center !important; gap: 6px !important;
@@ -322,6 +334,7 @@ function createSettingsPanel(options) {
             }
             .about-link:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); }
             .about-link-icon { font-size: 16px; width: 20px; text-align: center; }
+            .about-link-icon-svg { display: grid; place-items: center; flex: none; }
             .about-link-text { flex: 1; }
             .about-link-desc { font-size: 11px; color: #86868b; margin-top: 2px; }
             .about-support {
@@ -378,6 +391,8 @@ function createSettingsPanel(options) {
             }
             #ai-grading-settings,
             #ai-grading-settings * { color: #172033 !important; }
+            #ai-grading-settings .about-link-icon-svg,
+            #ai-grading-settings .about-link-icon-svg * { color: inherit !important; }
             #ai-grading-settings .sidebar-header,
             #ai-grading-settings .save-btn-container,
             #ai-grading-settings .sidebar-footer {
@@ -586,6 +601,27 @@ function createSettingsPanel(options) {
                 color: #c2352b !important;
                 border-color: #efc5c1 !important;
             }
+            #ai-grading-settings .marker-service-setting {
+                border-top: 1px solid #e1e6ef; padding: 12px 0; margin: 0;
+            }
+            #ai-grading-settings .marker-setting-heading {
+                display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: #172033;
+            }
+            #ai-grading-settings .marker-acct-action, #ai-grading-settings .marker-balance-link {
+                min-height: 44px; display: inline-flex; align-items: center;
+            }
+            #ai-grading-settings .marker-balance-link { text-decoration: none; white-space: nowrap; }
+            #ai-grading-settings .marker-account-linked {
+                color: #16634e; background: #e8f5ef; font-size: 12px; border-radius: 12px; padding: 2px 8px;
+            }
+            #ai-grading-settings .marker-setting-note {
+                color: #506077; font-size: 13px; line-height: 1.5; margin: 6px 0 0;
+            }
+            #ai-grading-settings .marker-setting-note:empty { display: none; }
+            #ai-grading-settings .marker-route-setting summary {
+                min-height: 44px; line-height: 44px; cursor: pointer; color: #506077; font-size: 13px;
+            }
+            #ai-grading-settings .marker-route-setting select { margin-bottom: 4px; }
             #ai-grading-settings .save-btn,
             #ai-grading-settings .mode-segmented input[type="radio"]:checked + label {
                 background: #172033 !important;
@@ -624,7 +660,7 @@ function createSettingsPanel(options) {
                 border-bottom: 1px solid #e1e6ef !important;
             }
             #ai-grading-settings .section-header:hover { background: #f3f6fa !important; }
-            #ai-grading-settings .section-header h4 {
+            #ai-grading-settings .section-header :is(h4, .section-title) {
                 color: #344054 !important;
                 letter-spacing: 0.4px !important;
             }
@@ -792,9 +828,18 @@ function createSettingsPanel(options) {
                 </div>
 
                 <div class="form-section">
+                    <div class="section-header"><h4>配置引导</h4></div>
+                    <div class="section-body">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="question-onboarding-enabled">
+                            <label for="question-onboarding-enabled" style="display:flex;align-items:center;min-height:44px;">切换题目时自动显示配置引导</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-section">
                     <div class="section-header"><h4>自动重试</h4><svg class="section-arrow" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                     <div class="section-body">
-                        <div class="form-group"><label>瞬态错误最大重试次数 <span style="font-size:11px;color:#86868b;">(超时/空响应/流未结束，按 5s·10s·15s 递增退避)</span></label>
+                        <div class="form-group"><label>其他模式的请求重试次数</label>
                             <input type="number" id="retry-max-retries" min="0" max="5" step="1" value="3"></div>
                         <div class="checkbox-group"><input type="checkbox" id="retry-on-timeout" checked><label for="retry-on-timeout">超时时也重试</label></div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-status-check"><label for="answer-status-check">作答状态核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
@@ -802,14 +847,44 @@ function createSettingsPanel(options) {
                         <div class="form-group" style="margin-top:12px;">
                             <label for="unattended-answer-recovery">无人模式遇到需核对的答卷</label>
                             <select id="unattended-answer-recovery">
-                                <option value="pause">暂停，人工核对</option>
-                                <option value="recover">自动复查一次（实验性）</option>
+                                <option value="pause" selected>暂停，人工核对</option>
+                                <option value="recover">复查原卷后重评（实验性）</option>
+                                <option value="retry">直接重试评分（实验性）</option>
                             </select>
                         </div>
-                        <div class="mode-desc">自动复查确认空白后按 0 分继续，发现作答痕迹时重评一次。</div>
+                        <div class="form-group">
+                            <label for="unattended-retries">无人模式每步最多重试次数</label>
+                            <input type="number" id="unattended-retries" min="0" max="5" step="1" value="5">
+                        </div>
+                        <div class="mode-desc">复查确认空白后按 0 分继续，发现作答时重评。直接重试会重新评分。无法确认原卷或重试用尽时，请人工核对。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="scoped-question-evidence"><label for="scoped-question-evidence">分小问作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">先识别每个小问的作答，再逐问给分。平台有多个分数框时使用平台题号和满分。平台只有总分框时，在下方每行填写一个「题号=满分」。</div>
+                        <div class="form-group">
+                            <label for="scoped-question-points">总分题的小问与满分</label>
+                            <textarea id="scoped-question-points" rows="3" placeholder="（1）=4&#10;（2）=6&#10;（3）=7" disabled></textarea>
+                        </div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="answer-review-enabled"><label for="answer-review-enabled">保存无法辨认答卷供复核 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
+                        <div class="mode-desc">默认关闭。开启后，需要人工核对无法辨认的答卷时，将原图和评分方案保存到评阅历史。</div>
+                        <div class="form-group" style="margin-top:12px;"><label for="unattended-review-limit">允许待复核数量</label>
+                            <input type="number" id="unattended-review-limit" min="1" max="50" step="1" value="5" disabled></div>
+                        <div class="mode-desc">达到允许数量后，仍可批改可评分的答卷。遇到需要新增待复核记录的答卷时，请先完成已有复核。原图保留到完成复核，缓存空间不足时会提示处理。</div>
                         <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
+                    </div>
+                </div>
+
+                <div id="zhixue-quota-setting" class="form-section" hidden>
+                    <button type="button" class="section-header" aria-expanded="true" aria-controls="zhixue-quota-options">
+                        <span class="section-title">智学网</span>
+                        <svg class="section-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div class="section-body" id="zhixue-quota-options">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="zhixue-continue-quota" aria-describedby="zhixue-continue-quota-desc">
+                            <label for="zhixue-continue-quota" style="display:flex;align-items:center;min-height:44px;flex:1;">本题分配量完成后继续多阅（实验性）</label>
+                        </div>
+                        <div id="zhixue-continue-quota-desc" class="mode-desc">适用于智学网考试阅卷的无人批改，默认关闭。开启后，平台允许多阅时会继续领取本题答卷，达到批阅目标或需要换题时停止。</div>
                     </div>
                 </div>
 
@@ -821,6 +896,8 @@ function createSettingsPanel(options) {
                             AI 请求期间若翻卷，防止把旧卷分数填进新卷并误提交。<br>
                             <b>若遇到误报</b>（被「答卷已切换」拦下、但实际并未换卷），可先<b>取消勾选此项</b>继续批改，并把日志反馈给我们。
                         </div>
+                        <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="question-guard-enabled"><label for="question-guard-enabled" style="display:flex;align-items:center;min-height:44px;flex:1;">题号变化时暂停批改（实验性）</label></div>
+                        <div class="mode-desc" style="font-size:12px;margin-top:6px;">开启后核对页面题号与小题满分，换题时暂停，请先核对评分方案再继续。目前支持智学网和好分数，默认关闭。</div>
                     </div>
                 </div>
 
@@ -898,9 +975,9 @@ function createSettingsPanel(options) {
                                 <span><span class="scoring-total-value" id="scoring-total-score">0</span> 分</span>
                             </div>
                             <div class="scoring-actions">
-                                <button class="preset-btn" id="btn-detect-inputs">检测页面输入框</button>
-                                <button class="preset-btn" id="btn-add-unit">手动添加单元</button>
+                                <button class="preset-btn" id="btn-detect-inputs">${window.__AI_MARKER_ADAPTER__?.scoreDetectionLabel || '检测页面输入框'}</button>
                             </div>
+                            <div class="mode-desc" style="font-size:12px;margin-top:8px;">${window.__AI_MARKER_ADAPTER__?.scoreDetectionLabel ? '读取智学网当前题目的满分和分值间隔。' : '评分项根据页面输入框生成；如果没有正确检测，请联系作者适配。'}</div>
                         </div>
                         <div id="scoring-units-warning" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(217,48,37,0.06);border:1px solid rgba(217,48,37,0.15);border-radius:8px;font-size:12px;color:#D93025;">
                             请为所有评分单元填写小题分后再保存
@@ -937,21 +1014,35 @@ function createSettingsPanel(options) {
                     </div>
                     <div class="section-body">
                         <div class="form-group">
-                            <label>供应商</label>
+                            <label for="ai-provider">供应商</label>
                             <div class="preset-controls">
                                 <select id="ai-provider"></select>
-                                <button class="preset-btn" id="btn-new-provider">新建</button>
-                                <button class="preset-btn danger" id="btn-del-provider">删除</button>
+                                <button class="preset-btn" id="btn-new-provider">添加供应商</button>
+                                <button class="preset-btn danger" id="btn-del-provider">删除供应商</button>
                             </div>
-                            <div id="api-key-link-container" style="display:none;"><a href="https://api.ai.five-plus-one.com/console/token" target="_blank" class="api-key-link">获取访问凭证</a></div>
                         </div>
                         <div class="form-group" id="custom-endpoint-field"><label for="api-endpoint">服务网关 URL</label><input type="text" id="api-endpoint"></div>
-                        <div class="form-group" id="official-endpoint-field" hidden>
-                            <label for="official-endpoint">5plus1API 端点</label>
-                            <select id="official-endpoint" aria-describedby="official-endpoint-help"></select>
-                            <p id="official-endpoint-help" style="font-size:12px;color:#86868b;margin:6px 0 0;">可跟随云控默认设置，也可选择适合当前网络的端点。</p>
+                        <div class="marker-service-setting" id="official-account-field" hidden>${markerAccountControls()}</div>
+                        <details id="manual-api-field" class="form-group" open>
+                            <summary style="line-height:44px;cursor:pointer;">手动配置 API 密钥</summary>
+                            <label for="api-key">API 密钥</label>
+                            <input type="password" id="api-key" autocomplete="off" placeholder="输入 API 密钥">
+                            <div id="api-key-link-container" hidden><a href="${markerAccountPortalUrl('/keys')}" target="_blank" rel="noopener noreferrer" class="api-key-link">获取 API 密钥</a></div>
+                        </details>
+                        <div class="form-group marker-service-setting" id="official-endpoint-field" hidden>
+                            <div class="fp-embedded-setting-row">
+                                <strong>批改线路</strong>
+                                <button type="button" class="preset-btn marker-acct-action" id="official-route-test">测试线路</button>
+                            </div>
+                            <div class="fp-embedded-action-choices">
+                                <p class="marker-setting-note" id="official-route-test-status" role="status"></p>
+                                <button type="button" class="fp-embedded-text-link" id="official-route-use-tested" hidden></button>
+                            </div>
+                            <details class="marker-route-setting">
+                                <summary>线路设置 · <span id="official-route-selection">自动选择</span></summary>
+                                <select id="official-endpoint" aria-label="批改线路"></select>
+                            </details>
                         </div>
-                        <div class="form-group"><label>通信密钥 (Token) *</label><input type="password" id="api-key" placeholder="必填，否则无法使用 AI 批改"></div>
                         <div class="form-group">
                             <label>模型列表</label>
                             <div id="model-list" style="margin-bottom:8px;"></div>
@@ -964,7 +1055,7 @@ function createSettingsPanel(options) {
                 </div>
                 <div class="api-key-warning hidden" id="api-key-warning">
                     <span class="warn-icon">!</span>
-                    <span>尚未填写通信密钥，AI 批改功能将无法使用。请在上方填入 API Key。</span>
+                    <span>请连接五加一账号或填写所选供应商的 API 密钥。</span>
                 </div>
 
                 <!-- 勤勉加分 -->
@@ -1076,7 +1167,7 @@ function createSettingsPanel(options) {
                         <div style="margin-top:10px;">
                             <button class="footer-btn danger" id="btn-reset-config" style="width:100%;">恢复默认设置</button>
                         </div>
-                        <div style="font-size:11px;color:#86868b;margin-top:4px;">将重置所有方案、供应商、工作流为默认值</div>
+                        <div style="font-size:11px;color:#86868b;margin-top:4px;">重置方案、供应商和工作流，并解除此浏览器的五加一账号连接。</div>
                     </div>
                 </div>
             </div>
@@ -1103,28 +1194,35 @@ function createSettingsPanel(options) {
                         <div class="about-section-title">帮助与支持</div>
                         <div class="about-links">
                             <button type="button" id="btn-export-diagnostics" class="about-link" style="text-align:left;">
-                                <span class="about-link-icon" aria-hidden="true">📦</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('download')}</span>
                                 <span class="about-link-text">
                                     <span>导出诊断包</span>
                                     <span class="about-link-desc" style="display:block;">汇集运行日志、阅卷记录和配置摘要</span>
                                 </span>
                             </button>
+                            <button type="button" id="btn-upload-diagnostics" class="about-link" style="text-align:left;">
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('upload')}</span>
+                                <span class="about-link-text">
+                                    <span>上传诊断包</span>
+                                    <span class="about-link-desc" style="display:block;">登录五加一账号后提交给支持人员</span>
+                                </span>
+                            </button>
                             <a href="https://aimarking.five-plus-one.com/" target="_blank" class="about-link">
-                                <span class="about-link-icon">📖</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('book-open')}</span>
                                 <div class="about-link-text">
                                     <div>帮助文档</div>
                                     <div class="about-link-desc">查看使用教程和常见问题</div>
                                 </div>
                             </a>
                             <a href="https://github.com/five-plus-one/AI-Marker-Suite" target="_blank" class="about-link">
-                                <span class="about-link-icon">💻</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('git-branch')}</span>
                                 <div class="about-link-text">
                                     <div>GitHub 仓库</div>
                                     <div class="about-link-desc">查看源代码、提交反馈</div>
                                 </div>
                             </a>
                             <a href="https://r-l.ink/contact" target="_blank" class="about-link">
-                                <span class="about-link-icon">📧</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('mail')}</span>
                                 <div class="about-link-text">
                                     <div>联系作者</div>
                                     <div class="about-link-desc">反馈问题、请求适配更多平台</div>
@@ -1220,7 +1318,10 @@ function createSettingsPanel(options) {
 
     // 手风琴折叠
     panel.querySelectorAll('.section-header').forEach(header => {
-        header.onclick = () => header.parentElement.classList.toggle('collapsed');
+        header.onclick = () => {
+            const collapsed = header.parentElement.classList.toggle('collapsed');
+            if (header.hasAttribute('aria-expanded')) header.setAttribute('aria-expanded', String(!collapsed));
+        };
     });
 
     panel.querySelector('#btn-new-preset').onclick = handleNewPreset;
@@ -1245,13 +1346,8 @@ function createSettingsPanel(options) {
                 if (wf) {
                     var pName = wf.model?.provider || ProviderManager.data.activeProvider;
                     var mName = wf.model?.model || ProviderManager.data.activeModel;
-                    var prov = ProviderManager.getProvider(pName);
-                    callConfig = {
-                        endpoint: prov?.endpoint || '',
-                        apiKey: prov?.apiKey || '',
-                        model: mName,
-                        reasoningEffort: wf.model?.reasoningEffort || '',
-                    };
+                    const call = ProviderManager.getCallConfig(pName, mName);
+                    if (call) callConfig = { ...call, reasoningEffort: wf.model?.reasoningEffort || '' };
                 }
             } catch (e) { /* ignore */ }
             if (typeof openMarkdownEditor === 'function') {
@@ -1308,7 +1404,14 @@ function createSettingsPanel(options) {
     panel.querySelector('#btn-new-provider').onclick = handleNewProvider;
     panel.querySelector('#btn-del-provider').onclick = handleDeleteProvider;
     panel.querySelector('#ai-provider').onchange = handleProviderChange;
+    const refreshAccount = bindMarkerAccountControls(panel, () => {
+        if (panel.isConnected) updateUIVisibility();
+    });
+    panel.addEventListener('marker-account-refresh', () => refreshAccount());
     panel.querySelector('#official-endpoint').onchange = handleOfficialEndpointChange;
+    const tokenLink = panel.querySelector('#api-key-link-container a');
+    tokenLink.onclick = () => { tokenLink.href = markerAccountPortalUrl('/keys'); };
+    bindOfficialRouteTest(panel);
     panel.querySelector('#btn-add-model').onclick = handleAddModel;
     panel.querySelector('#new-model-id').onkeydown = (e) => { if (e.key === 'Enter') handleAddModel(); };
     panel.querySelector('#workflow-select').onchange = handleWorkflowChange;
@@ -1317,6 +1420,7 @@ function createSettingsPanel(options) {
     panel.querySelector('#btn-new-workflow').onclick = handleNewWorkflow;
 
     panel.querySelector('#btn-export-diagnostics').onclick = () => showDiagnosticExport();
+    panel.querySelector('#btn-upload-diagnostics').onclick = event => { if (event.isTrusted) showDiagnosticExport(true); };
 
     // 配置导出
     panel.querySelector('#btn-export-config').onclick = () => {
@@ -1427,7 +1531,7 @@ function createSettingsPanel(options) {
 
     // 恢复默认设置
     panel.querySelector('#btn-reset-config').onclick = async () => {
-        if (await showConfirmModal('确定要恢复默认设置吗？\n\n将重置：\n• 所有配置方案\n• 供应商与模型\n• 工作流配置\n\n此操作不可撤销！')) {
+        if (await showConfirmModal('确定要恢复默认设置吗？\n\n将重置：\n• 所有配置方案\n• 供应商与模型\n• 工作流配置\n• 此浏览器的五加一账号连接\n\n此操作不可撤销！')) {
             PresetManager.data = {
                 list: { "默认配置": { question: '', answer: '', rubric: '', workflowId: 'fast', gradingMode: 'normal', scoring: { roundStep: 1, roundMethod: 'round' } } },
                 active: "默认配置",
@@ -1438,6 +1542,12 @@ function createSettingsPanel(options) {
             if (ProviderManager.save() === false) return;
             WorkflowManager.data = WorkflowManager._getDefault();
             if (WorkflowManager.save() === false) return;
+            if (!disconnectMarkerAccount() || !saveQuestionOnboardingPreference(false)) {
+                panel.dispatchEvent(new Event('marker-account-refresh'));
+                showToast('方案与工作流已重置，部分本地设置未能恢复，请重试。');
+                return;
+            }
+            panel.dispatchEvent(new Event('marker-account-refresh'));
             GM_setValue('ai-grading-show-onboarding', true);
             showToast('已恢复默认设置，正在刷新...');
             setTimeout(() => location.reload(), 800);
@@ -1459,17 +1569,30 @@ function createSettingsPanel(options) {
         });
     });
 
-    const inputs = panel.querySelectorAll('input:not([name="grading-mode"]), textarea, select:not(#preset-select):not(#settings-channel-select)');
+    const questionOnboarding = panel.querySelector('#question-onboarding-enabled');
+    questionOnboarding.checked = !GM_getValue(QUESTION_ONBOARDING_DISABLED, false);
+    questionOnboarding.onchange = () => {
+        if (saveQuestionOnboardingPreference(!questionOnboarding.checked)) return;
+        questionOnboarding.checked = !GM_getValue(QUESTION_ONBOARDING_DISABLED, false);
+        showToast('配置引导设置尚未保存，请重试。');
+    };
+    const inputs = panel.querySelectorAll('input:not([name="grading-mode"]):not(#question-onboarding-enabled), textarea, select:not(#preset-select):not(#settings-channel-select)');
     inputs.forEach(input => {
         input.addEventListener('input', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
         input.addEventListener('change', () => { refreshScoringTotal(); validateRequiredFields({ showErrors: false }); markUnsavedChanges(); updateSettingsNavBadges(); updateSettingsHeaderStatus(); });
+    });
+    panel.querySelector('#scoped-question-evidence').addEventListener('change', function () {
+        panel.querySelector('#scoped-question-points').disabled = !this.checked;
+    });
+    panel.querySelector('#answer-review-enabled').addEventListener('change', function () {
+        panel.querySelector('#unattended-review-limit').disabled = !this.checked;
     });
 
     // API 密钥实时监听：输入变化时更新警告状态
     const apiKeyInput = panel.querySelector('#api-key');
     if (apiKeyInput) {
         apiKeyInput.addEventListener('input', () => {
-            const hasKey = apiKeyInput.value.trim().length > 0;
+            const hasKey = apiKeyInput.value.trim().length > 0 || hasSettingsAccount();
             const warning = document.getElementById('api-key-warning');
             const badge = document.getElementById('api-key-badge');
             if (warning) warning.classList.toggle('hidden', hasKey);
@@ -1489,25 +1612,19 @@ function createSettingsPanel(options) {
             if (inputs.length > 0) {
                 const list = panel.querySelector('#scoring-units-list');
                 list.innerHTML = '';
-                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`, maxScore: inp.maxScore || '', source: 'detected' }));
+                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`,
+                    maxScore: inp.maxScore || '', roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined, source: 'detected' }));
                 refreshScoringTotal();
                 validateRequiredFields({ showErrors: false });
-                showToast(`已检测到 ${inputs.length} 个输入框，请填写小题分`);
+                showToast(adapter.scoreDetectionLabel ? `已读取当前题满分 ${inputs[0].maxScore} 分` : `已检测到 ${inputs.length} 个输入框，请填写小题分`);
                 markUnsavedChanges();
                 updateSettingsNavBadges();
             } else {
-                showToast('未检测到分数输入框');
+                showToast(adapter.getScoreDetectionHint?.() || '未检测到分数输入框');
             }
         } else {
             showToast('当前平台不支持自动检测');
         }
-    };
-    panel.querySelector('#btn-add-unit').onclick = () => {
-        addScoringUnitItem({ source: 'manual' });
-        refreshScoringTotal();
-        validateRequiredFields({ showErrors: false });
-        markUnsavedChanges();
-        updateSettingsNavBadges();
     };
 
     loadSettings();
@@ -1582,7 +1699,7 @@ function setupSettingsMenuLayout(panel) {
 
     function findSection(title) {
         return Array.from(configTab.querySelectorAll('.form-section')).find(section => {
-            const heading = section.querySelector('.section-header h4');
+            const heading = section.querySelector('.section-header :is(h4, .section-title)');
             return heading && heading.textContent.trim().startsWith(title);
         });
     }
@@ -1617,6 +1734,8 @@ function setupSettingsMenuLayout(panel) {
     moveSection('ai', '供应商与模型');
     const apiWarning = configTab.querySelector('#api-key-warning');
     if (apiWarning) pages.ai.appendChild(apiWarning);
+    moveSection('automation', '配置引导');
+    moveSection('automation', '智学网');
     moveSection('automation', '批阅份数');
     moveSection('automation', '自动重试');
     moveSection('automation', '批改节奏');
@@ -1730,7 +1849,9 @@ function openSettingsPanel() {
     const panel = document.getElementById('ai-grading-settings');
     const overlay = document.getElementById('ai-settings-overlay');
     if (panel) {
+        syncZhixueQuotaSetting();
         panel.style.setProperty('display', 'flex', 'important');
+        panel.dispatchEvent(new Event('marker-account-refresh'));
         requestAnimationFrame(() => panel.classList.add('open'));
     }
     if (overlay) {
@@ -1750,6 +1871,26 @@ function closeSettingsPanel() {
     undockFloatingButtons();
     // 等动画结束后隐藏
     setTimeout(() => { if (panel && !panel.classList.contains('open')) panel.style.setProperty('display', 'none', 'important'); }, 350);
+}
+
+function getZhixueQuotaSettingsAdapter() {
+    const host = window.location.hostname;
+    if (host !== 'zhixue.com' && !host.endsWith('.zhixue.com')) return null;
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    return adapter?.id === 'zhixue' && typeof adapter.isQuotaContinuationEnabled === 'function'
+        && typeof adapter.saveQuotaContinuation === 'function' && adapter.isMarkingPage?.()
+        ? adapter : null;
+}
+
+function syncZhixueQuotaSetting(loadValue = false) {
+    const section = document.getElementById('zhixue-quota-setting');
+    if (!section) return;
+    const adapter = getZhixueQuotaSettingsAdapter();
+    const shouldLoad = loadValue || section.hidden;
+    section.hidden = !adapter;
+    if (adapter && shouldLoad) {
+        document.getElementById('zhixue-continue-quota').checked = adapter.isQuotaContinuationEnabled();
+    }
 }
 
 // ========== 加载与切换方案 ==========
@@ -1960,6 +2101,8 @@ function fillFormFromActivePreset() {
     const paperGuardCfg = config.paperGuard || {};
     const paperGuardInput = document.getElementById('paper-guard-enabled');
     if (paperGuardInput) paperGuardInput.checked = paperGuardCfg.enabled !== false;
+    const questionGuardInput = document.getElementById('question-guard-enabled');
+    if (questionGuardInput) questionGuardInput.checked = config.questionGuard?.enabled === true;
 
     // 批改节奏（实验性开关）
     const humanPacingCfg = config.humanPacing || {};
@@ -2017,6 +2160,8 @@ function fillFormFromActivePreset() {
         });
     });
 
+    syncZhixueQuotaSetting(true);
+
     const retryPolicyCfg = config.retryPolicy || {};
     const retryMaxInput = document.getElementById('retry-max-retries');
     if (retryMaxInput) retryMaxInput.value = Number.isInteger(retryPolicyCfg.maxRetries) ? retryPolicyCfg.maxRetries : 3;
@@ -2026,8 +2171,22 @@ function fillFormFromActivePreset() {
     if (answerStatusCheckInput) answerStatusCheckInput.checked = isAnswerStatusCheckEnabled(config);
     const unattendedAnswerRecoveryInput = document.getElementById('unattended-answer-recovery');
     if (unattendedAnswerRecoveryInput) unattendedAnswerRecoveryInput.value = getUnattendedAnswerFailure(config);
+    const unattendedRetriesInput = document.getElementById('unattended-retries');
+    if (unattendedRetriesInput) unattendedRetriesInput.value = getUnattendedRetryLimit(config);
+    const scopedEvidenceInput = document.getElementById('scoped-question-evidence');
+    const scopedPointsInput = document.getElementById('scoped-question-points');
+    if (scopedEvidenceInput) scopedEvidenceInput.checked = config.questionEvidence?.enabled === true;
+    if (scopedPointsInput) {
+        const questions = Array.isArray(config.questionEvidence?.questions) ? config.questionEvidence.questions : [];
+        scopedPointsInput.value = questions.map(question => `${question?.label ?? ''}=${question?.maxScore ?? ''}`).join('\n');
+        scopedPointsInput.disabled = config.questionEvidence?.enabled !== true;
+    }
     const referenceImageEvidenceInput = document.getElementById('reference-image-evidence-check');
     if (referenceImageEvidenceInput) referenceImageEvidenceInput.checked = config.referenceImageEvidenceCheck === true;
+    const reviewLimitInput = document.getElementById('unattended-review-limit');
+    const answerReviewInput = document.getElementById('answer-review-enabled');
+    if (answerReviewInput) answerReviewInput.checked = isAnswerReviewEnabled(config);
+    if (reviewLimitInput) { reviewLimitInput.value = getPendingReviewLimit(config); reviewLimitInput.disabled = !isAnswerReviewEnabled(config); }
 
     document.getElementById('bind-url-checkbox').checked = (PresetManager.data.bindings[currentUrlId] === PresetManager.data.active);
 
@@ -2045,7 +2204,8 @@ function fillFormFromActivePreset() {
             const inputs = adapter.getScoreInputs();
             if (inputs.length > 0) {
                 detected = true;
-                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`, maxScore: inp.maxScore || '', source: 'detected' }));
+                inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`,
+                    maxScore: inp.maxScore || '', roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined, source: 'detected' }));
                 // 自动展开"分数设置"手风琴，引导用户填写小题分
                 const unitsSection = document.getElementById('scoring-units-list')?.closest('.form-section');
                 if (unitsSection) unitsSection.classList.remove('collapsed');
@@ -2258,13 +2418,23 @@ function switchSettingsPage(pageId) {
 function updateUIVisibility() {
     const provider = document.getElementById('ai-provider').value;
     const apiKeyLink = document.getElementById('api-key-link-container');
-    const endpointInput = document.getElementById('api-endpoint');
+    const manual = document.getElementById('manual-api-field');
+    const accountField = document.getElementById('official-account-field');
     const apiKeyInput = document.getElementById('api-key');
     const apiKeyWarning = document.getElementById('api-key-warning');
     const apiKeyBadge = document.getElementById('api-key-badge');
 
     const official = provider === '5plus1官方';
-    apiKeyLink.style.display = official ? 'block' : 'none';
+    apiKeyLink.hidden = !official;
+    accountField.hidden = !official;
+    document.getElementById('btn-del-provider').hidden = official;
+    manual.hidden = official && hasSettingsAccount();
+    if (manual.hidden) manual.open = false;
+    manual.querySelector('summary').hidden = !official;
+    if (manual.dataset.official !== String(official)) {
+        manual.dataset.official = String(official);
+        manual.open = !official;
+    }
     document.getElementById('official-endpoint-field').hidden = !official;
     document.getElementById('custom-endpoint-field').hidden = official;
     if (official) {
@@ -2273,7 +2443,7 @@ function updateUIVisibility() {
     }
 
     // API 密钥未填写时显示警告
-    const hasKey = apiKeyInput.value.trim().length > 0;
+    const hasKey = apiKeyInput.value.trim().length > 0 || hasSettingsAccount();
     if (apiKeyWarning) {
         apiKeyWarning.classList.toggle('hidden', hasKey);
     }
@@ -2287,9 +2457,13 @@ function updateUIVisibility() {
     updateSettingsHeaderStatus();
 }
 
+function hasSettingsAccount() {
+    return document.getElementById('ai-provider')?.value === '5plus1官方' && Boolean(markerManagedAccount());
+}
+
 function updateGroupHints() {
     const apiKeyInput = document.getElementById('api-key');
-    const hasKey = apiKeyInput && apiKeyInput.value.trim().length > 0;
+    const hasKey = apiKeyInput?.value.trim() || hasSettingsAccount();
     const required = validateRequiredFields({ showErrors: false });
 
     const groupAI = document.getElementById('group-ai');
@@ -2302,7 +2476,7 @@ function updateGroupHints() {
             if (!existingWarn) {
                 const warn = document.createElement('span');
                 warn.className = 'config-warn';
-                warn.textContent = '请填写密钥';
+                warn.textContent = '请连接 AI 服务';
                 groupAI.appendChild(warn);
             }
         } else if (existingWarn) {
@@ -2364,7 +2538,7 @@ function updateSettingsNavBadges() {
         plan: !document.getElementById('preset-select')?.value,
         grading: !_answerText || !_rubricText ||
             scoringUnits.some(u => !u.maxScore || u.maxScore <= 0),
-        ai: !apiKeyInput?.value.trim() || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
+        ai: (!apiKeyInput?.value.trim() && !hasSettingsAccount()) || !endpointInput?.value.trim() || !workflowSelect?.value || !hasModels,
         automation: !!batchEnabled && batchTarget <= 0,
         data: false,
         about: false,
@@ -2509,12 +2683,76 @@ function handleOfficialEndpointChange() {
     const line = document.getElementById('official-endpoint').value;
     const saved = ProviderManager.saveOfficialConnection(line);
     updateUIVisibility();
-    showToast(saved ? `已切换到${officialApiLineLabel(line)}` : '端点选择尚未保存，请刷新页面后重试');
+    showToast(saved ? (line === 'default' ? '已恢复自动选线' : `已改用${officialApiLineLabel(line)}`) : '线路设置尚未保存，请重试');
+    return saved;
+}
+
+function bindOfficialRouteTest(panel) {
+    const select = panel.querySelector('#official-endpoint');
+    const test = panel.querySelector('#official-route-test');
+    const use = panel.querySelector('#official-route-use-tested');
+    const status = panel.querySelector('#official-route-test-status');
+    const keyInput = panel.querySelector('#api-key');
+    let controller, testedLine;
+    const clear = () => {
+        controller?.abort();
+        controller = null;
+        testedLine = undefined;
+        use.hidden = true;
+        status.textContent = '';
+        test.disabled = false;
+    };
+    select.addEventListener('change', clear);
+    panel.querySelector('#ai-provider').addEventListener('change', clear);
+    keyInput.addEventListener('input', clear);
+    test.onclick = async () => {
+        clear();
+        const key = markerManagedAccount()?.apiKey || keyInput.value.trim();
+        if (!key) { status.textContent = '请先连接五加一账号或填写 API 密钥。'; return; }
+        const pending = new AbortController();
+        controller = pending;
+        test.disabled = true;
+        status.textContent = '正在测试所选线路…';
+        const choice = select.value;
+        let result;
+        try {
+            result = await verifyOfficialApiKey(key, {
+                line: choice, signal: pending.signal,
+                onRetry: () => { status.textContent = '连接暂时中断，正在重试…'; },
+                onFallback: () => { status.textContent = '所选线路未连通，正在测试备用线路…'; },
+            });
+        } catch (_) { result = { success: false, reason: 'network' }; }
+        if (controller !== pending) return;
+        test.disabled = false;
+        controller = null;
+        if ((markerManagedAccount()?.apiKey || keyInput.value.trim()) !== key) {
+            status.textContent = '连接信息已变化，请重新测试。';
+            return;
+        }
+        if (!result.success) {
+            status.textContent = result.reason === 'invalid' ? '连接未通过，请核对账号或 API 密钥。'
+                : result.reason === 'balance' ? '批改账户余额不足，请充值后再测试。'
+                    : result.reason === 'service' ? '线路可达，但批改请求未通过。请核对账户余额或模型权限。'
+                    : '暂时无法连接批改服务，请检查网络或尝试其他线路。';
+            return;
+        }
+        rememberVerifiedOfficialRoute(result);
+        testedLine = result.line;
+        const name = officialApiLineLabel(testedLine);
+        status.textContent = name + '可用。';
+        use.hidden = result.preferred === testedLine || result.revision !== officialApiRoutes.revision;
+        use.textContent = use.hidden ? '' : `改用${name}`;
+    };
+    use.onclick = () => {
+        if (!testedLine || !officialApiRoutes.endpoints.some(line => line.id === testedLine)) return;
+        select.value = testedLine;
+        if (handleOfficialEndpointChange()) use.hidden = true;
+    };
 }
 
 function officialApiLineLabel(line) {
     const name = resolveOfficialApiLine(line).name;
-    return line === 'default' ? '跟随云控（' + name + '）' : name;
+    return line === 'default' ? '自动选择（' + name.replace(/（自动分流）$/, '') + '）' : name;
 }
 
 function refreshOfficialEndpointOptions() {
@@ -2525,11 +2763,12 @@ function refreshOfficialEndpointOptions() {
     select.replaceChildren(new Option(officialApiLineLabel('default'), 'default'),
         ...endpoints.map(line => new Option(line.name, line.id)));
     select.value = endpoints.some(line => line.id === selected) ? selected : 'default';
+    document.getElementById('official-route-selection').textContent = select.value === 'default' ? '自动选择' : officialApiLineLabel(select.value);
     document.getElementById('api-endpoint').value = getOfficialApiEndpoint(select.value);
 }
 
 async function handleNewProvider() {
-    const name = await showPromptModal("请输入新的供应商名称 (例如: 火山引擎)：");
+    const name = await showPromptModal('请输入供应商名称');
     if (!name || !name.trim()) return;
     if (ProviderManager.data.providers[name]) {
         showAlertModal("该供应商名称已存在！");
@@ -2544,7 +2783,7 @@ async function handleNewProvider() {
     document.getElementById('ai-provider').value = name;
     handleProviderChange();
     renderModelList();
-    document.getElementById('api-key-link-container').style.display = 'none';
+    document.getElementById('api-key-link-container').hidden = true;
     showToast(`供应商「${name}」创建成功`);
 }
 
@@ -2615,7 +2854,7 @@ function renderWorkflowInfo() {
 
     if (infoEl && wf) {
         const modelInfo = wf.model;
-        const reasoningLabel = { minimal: '最低', low: '轻度', medium: '中度', high: '深度' };
+        const reasoningLabel = { disabled: '关闭长思考（Ling）', minimal: '最低', low: '轻度', medium: '中度', high: '深度' };
         const safe = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
         let html = `<div style="margin-bottom:4px;"><strong>主模型：</strong>${safe(modelInfo.provider)} / ${safe(modelInfo.model)}${modelInfo.reasoningEffort ? ' <span style="font-size:11px;color:#86868b;">(' + safe(reasoningLabel[modelInfo.reasoningEffort] || modelInfo.reasoningEffort) + ')</span>' : ''}</div>`;
         if (wf.dualEval && wf.dualEval.enabled) {
@@ -2712,7 +2951,7 @@ function showWorkflowEditModal(wf) {
     const isDual = wf.dualEval && wf.dualEval.enabled;
 
     const reasoningEffortOptions = `<datalist id="wf-reasoning-options">
-        <option value="minimal"><option value="low"><option value="medium"><option value="high">
+        <option value="disabled" label="关闭长思考（Ling）"><option value="minimal"><option value="low"><option value="medium"><option value="high">
     </datalist>`;
 
     const modal = document.createElement('div');
@@ -2730,7 +2969,7 @@ function showWorkflowEditModal(wf) {
                     <div style="font-size:13px;font-weight:600;margin-bottom:10px;">主模型</div>
                     <div class="form-group"><label>供应商</label><select id="wf-edit-provider">${providerOptions}</select></div>
                     <div class="form-group"><label>模型</label><select id="wf-edit-model"></select></div>
-                    <div class="form-group"><label>思考参数 <span style="font-size:11px;color:#86868b;">(按接口要求填写，留空则不发送)</span></label><input id="wf-edit-reasoning" list="wf-reasoning-options" placeholder="例如 minimal、low"></div>
+                    <div class="form-group"><label>思考参数 <span style="font-size:11px;color:#86868b;">(Ling 可选 disabled 关闭长思考，留空使用模型默认设置)</span></label><input id="wf-edit-reasoning" list="wf-reasoning-options" placeholder="例如 minimal、low"></div>
                 </div>
                 <div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;margin-top:8px;">
                     <div class="checkbox-group">
@@ -2854,6 +3093,11 @@ function showWorkflowEditModal(wf) {
             showToast('请为每个模型选择有效的供应商和模型');
             return;
         }
+        const thinkingSelections = [[mainModel, mainReasoning], ...(dualEnabled ? [[secModel, secReasoning], [arbModel, arbReasoning]] : [])];
+        if (thinkingSelections.some(([model, reasoning]) => reasoning.value.trim() === 'disabled' && !/^ling(?:-|$)/i.test(model.value))) {
+            showToast('关闭长思考选项目前仅支持 Ling 模型，请调整思考参数');
+            return;
+        }
         const threshold = Number(document.getElementById('wf-edit-threshold').value);
         if (dualEnabled && (!document.getElementById('wf-edit-threshold').value.trim() || !Number.isFinite(threshold) || threshold < 0)) {
             showToast('请填写有效的分差阈值');
@@ -2935,6 +3179,29 @@ function saveAISettings(event) {
         return;
     }
 
+    const questionEvidenceEnabled = document.getElementById('scoped-question-evidence')?.checked === true;
+    const oldQuestionEvidence = PresetManager.getCurrentConfig()?.questionEvidence;
+    const questionEvidence = { enabled: questionEvidenceEnabled, questions: oldQuestionEvidence?.questions || [] };
+    const questionPointsText = document.getElementById('scoped-question-points')?.value || '';
+    if (questionEvidenceEnabled && scoringUnits.length <= 1) {
+        questionEvidence.questions = questionPointsText.split(/\r?\n/).filter(line => line.trim()).map(line => {
+            const parts = line.split(/[=＝]/);
+            const value = parts[1]?.trim().normalize('NFKC');
+            return { label: parts[0].trim(), maxScore: parts.length === 2 && /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : NaN };
+        });
+    }
+    if (questionEvidenceEnabled) {
+        try {
+            getScopedQuestionPlan({ questionEvidence, scoring: {
+                units: scoringUnits, maxScore: Number(document.getElementById('scoring-max-score')?.value)
+            } });
+        } catch (error) {
+            switchSettingsPage('automation');
+            safeAlert(error.message);
+            return;
+        }
+    }
+
     // 保存供应商配置（仅保存当前编辑的供应商，不设置"活跃"供应商）
     const provider = ProviderManager.getProvider(providerName);
     if (provider) {
@@ -2976,14 +3243,24 @@ function saveAISettings(event) {
 
     // 保存答卷校验开关
     const paperGuardEnabled = document.getElementById('paper-guard-enabled')?.checked !== false;
+    const questionGuardEnabled = document.getElementById('question-guard-enabled')?.checked === true;
 
     // 保存输出模式
     const outputMode = document.querySelector('input[name="output-mode"]:checked')?.value || 'detailed';
 
     // 保存自动重试配置
-    const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
+    const retryLimit = Number.parseInt(document.getElementById('retry-max-retries')?.value, 10);
+    const retryMaxRetries = Number.isInteger(retryLimit) ? Math.min(Math.max(retryLimit, 0), 5) : 3;
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
-    const unattendedAnswerFailure = document.getElementById('unattended-answer-recovery')?.value === 'recover' ? 'recover' : 'pause';
+    const unattendedAnswerFailure = getUnattendedAnswerFailure({
+        retryPolicy: { unattendedAnswerFailure: document.getElementById('unattended-answer-recovery')?.value }
+    });
+    const unattendedRetries = getUnattendedRetryLimit({
+        retryPolicy: { unattendedRetries: document.getElementById('unattended-retries')?.valueAsNumber }
+    });
+    const reviewLimitText = document.getElementById('unattended-review-limit')?.value?.trim();
+    const reviewLimitValue = reviewLimitText ? Number(reviewLimitText) : NaN;
+    const reviewLimit = Number.isInteger(reviewLimitValue) && reviewLimitValue >= 1 && reviewLimitValue <= 50 ? reviewLimitValue : 5;
 
     // 保存空白答题卡检测配置
     const blankDetectionEnabled = document.getElementById('blank-detection-enabled')?.checked || false;
@@ -3035,13 +3312,17 @@ function saveAISettings(event) {
             }
         },
         paperGuard: { enabled: paperGuardEnabled },
+        questionGuard: { enabled: questionGuardEnabled },
+        answerReview: { enabled: document.getElementById('answer-review-enabled')?.checked === true, maxPending: reviewLimit },
         outputMode: outputMode,
         answerStatusCheck: document.getElementById('answer-status-check')?.checked === true,
         referenceImageEvidenceCheck: document.getElementById('reference-image-evidence-check')?.checked === true,
+        questionEvidence,
         retryPolicy: {
             maxRetries: retryMaxRetries,
             retryOnTimeout: retryOnTimeout,
-            unattendedAnswerFailure
+            unattendedAnswerFailure,
+            unattendedRetries
         },
         blankDetection: {
             enabled: blankDetectionEnabled,
@@ -3080,6 +3361,7 @@ function saveAISettings(event) {
         batchConfig: { ...oldConfig?.batchConfig, ...config.batchConfig },
         retryPolicy: { ...oldConfig?.retryPolicy, ...config.retryPolicy },
         paperGuard: { ...oldConfig?.paperGuard, ...config.paperGuard },
+        questionGuard: { enabled: config.questionGuard.enabled },
         humanPacing: {
             ...oldConfig?.humanPacing,
             ...config.humanPacing,
@@ -3120,9 +3402,15 @@ function saveAISettings(event) {
                 ProviderManager.getProvider(selected?.provider)?.apiKey),
         });
     }
-    clearUnsavedChanges();
+    const zhixueAdapter = getZhixueQuotaSettingsAdapter();
+    const zhixueQuotaSection = document.getElementById('zhixue-quota-setting');
+    const zhixueQuotaInput = document.getElementById('zhixue-continue-quota');
+    const quotaSaved = !zhixueAdapter || zhixueQuotaSection?.hidden !== false || !zhixueQuotaInput
+        || zhixueQuotaInput.checked === zhixueAdapter.isQuotaContinuationEnabled()
+        || zhixueAdapter.saveQuotaContinuation(zhixueQuotaInput.checked);
+    if (quotaSaved) clearUnsavedChanges();
     const modeLabel = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode];
-    safeAlert(`「${activeName}」已保存 — ${modeLabel}`);
+    safeAlert(quotaSaved ? `「${activeName}」已保存 — ${modeLabel}` : '评分方案已保存，智学网续批设置未保存，请重试。');
 
     // 仅当批阅份数配置发生变化时才重置计数
     const batchConfigChanged = (batchEnabled !== oldBatchEnabled) || (batchTargetCount !== oldBatchTargetCount);
@@ -3146,7 +3434,7 @@ function saveAISettings(event) {
     }
 
     // 保存后自动关闭侧边栏
-    closeSettingsPanel();
+    if (quotaSaved) closeSettingsPanel();
 }
 
 // ========== 新手引导 ==========
@@ -3164,7 +3452,7 @@ function hideOnboardingDialog() {
     }
     if (_onboardingDialogOpen) {
         _onboardingDialogOpen = false;
-        console.log('[OOBE] 已关闭引导弹窗');
+        if (typeof setOnboardingUpdateNoticePaused === 'function') setOnboardingUpdateNoticePaused(false);
     }
 }
 
@@ -3173,7 +3461,7 @@ function showOnboardingDialog(forceShow, mode) {
     _onboardingDialogOpen = true;
 
     mode = mode || 'first-launch';
-    if (!forceShow && ProviderManager.getProvider('5plus1官方')?.apiKey && mode !== 'new-question') {
+    if (!forceShow && ProviderManager.hasApiKey('5plus1官方') && mode !== 'new-question') {
         _onboardingDialogOpen = false;
         return;
     }
@@ -3181,15 +3469,22 @@ function showOnboardingDialog(forceShow, mode) {
     ensureModalStyles();
 
     const overlay = document.createElement('div');
+    overlay.id = 'ai-onboarding';
     overlay.className = 'ai-modal-overlay';
     overlay.style.setProperty('z-index', '2147483647', 'important');
     _onboardingOverlayEl = overlay;
+    if (typeof setOnboardingUpdateNoticePaused === 'function') setOnboardingUpdateNoticePaused(true);
 
     let currentStep = 1;
     let presetName = '';
     let gradingMode = 'trial';
     let selectedWorkflow = 'fast';
     let connectedBackup = '';
+    let manualKeyEntry = false;
+    let manualKeyDraft;
+    let accountCheck;
+    let celebrate = false;
+    let needsGradingDetails = true;
     let detectedUnits = [];  // 检测到的小题列表
 
     function getStepInfo() {
@@ -3206,87 +3501,159 @@ function showOnboardingDialog(forceShow, mode) {
 
     function render() {
         const s = getStepInfo();
-        const title = s.apiStep ? '欢迎使用 AI 批改助手' : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '批改上下文（可选）' : '配置完成！';
+        const account = s.apiStep && markerManagedAccount();
+        const title = s.apiStep ? account ? '五加一账号已连接' : manualKeyEntry ? '输入 API 密钥' : '连接批改服务'
+            : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '填写批改资料' : '方案已保存';
 
         overlay.innerHTML = `
-            <div class="ai-modal-card" style="max-width:520px;max-height:85vh;display:flex;flex-direction:column;">
+            <div class="ai-modal-card ${s.apiStep ? 'ai-onboarding-account' : ''}" role="dialog" aria-modal="true" aria-labelledby="ob-title"
+                ${s.apiStep && !account && !manualKeyEntry ? 'data-marker-account-controls="onboarding"' : ''}
+                style="max-height:85vh;display:flex;flex-direction:column;">
                 <div class="ai-modal-header" style="display:flex;align-items:center;gap:10px;padding:20px 24px 12px;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
-                    <span style="font-size:20px;">🎓</span>
-                    <span>${title}</span>
+                    ${s.apiStep ? '' : '<span aria-hidden="true" style="font-size:20px;">🎓</span>'}
+                    <span id="ob-title">${title}</span>
                 </div>
                 <div class="ai-modal-body" style="overflow-y:auto;flex:1;min-height:0;padding:20px 24px;">
-                    ${s.apiStep ? renderApiStep() : s.nameModeStep ? renderNameModeStep() : s.workflowStep ? renderWorkflowStep() : s.ctxStep ? renderCtxStep() : renderDoneStep()}
+                    ${s.apiStep ? renderApiStep(account) : s.nameModeStep ? renderNameModeStep() : s.workflowStep ? renderWorkflowStep() : s.ctxStep ? renderCtxStep() : renderDoneStep()}
                 </div>
                 <div class="ai-modal-footer" style="padding:12px 24px 20px;border-top:1px solid rgba(0,0,0,0.06);flex-shrink:0;">
-                    ${s.apiStep ? `
-                        <button class="ai-modal-btn-cancel" id="ob-skip">稍后设置</button>
-                        <button class="ai-modal-btn-confirm" id="ob-next">验证并继续</button>
-                    ` : s.nameModeStep ? `
-                        ${s.hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : ''}
-                        <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
+                    ${s.apiStep ? renderApiActions(account) : s.nameModeStep ? `
+                        ${s.hasApiStep ? '<button class="ai-modal-btn-cancel" id="ob-back">上一步</button>' : '<button class="ai-modal-btn-cancel" id="ob-skip-question" style="min-height:44px;">跳过</button>'}
+                        <button class="ai-modal-btn-confirm" id="ob-next" style="min-height:44px;">继续</button>
                     ` : s.workflowStep ? `
                         <button class="ai-modal-btn-cancel" id="ob-back">上一步</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
                     ` : s.ctxStep ? `
-                        <button class="ai-modal-btn-cancel" id="ob-skip-ctx">跳过</button>
+                        <button class="ai-modal-btn-cancel" id="ob-skip-ctx">稍后填写</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">保存并继续</button>
                     ` : `
-                        <button class="ai-modal-btn-confirm" id="ob-start" style="flex:1;">查看配置</button>
+                        <button class="ai-modal-btn-confirm" id="ob-start" style="flex:1;">${needsGradingDetails ? '补充批改资料' : '查看方案'}</button>
                     `}
                 </div>
             </div>
         `;
-        bindEvents();
+        bindEvents(account);
+        if (s.apiStep && account && accountCheck?.accountId !== account.accountId) queueMicrotask(testOnboardingAccountRoute);
     }
 
-    function renderApiStep() {
-        return `
-            <p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">
-                AI 批改助手可以帮助你自动批改试卷。首先，请配置你的 API 密钥。
-            </p>
-            <div class="form-group">
+    function renderApiStep(account) {
+        if (account) {
+            const result = accountCheck?.result;
+            const confirmed = Boolean(result?.success);
+            const pieces = celebrate && confirmed
+                ? Array.from({length: 8}, (_, index) => `<i style="--angle:${index * 45}deg;--piece:${index % 2 ? '#FCA948' : '#348B6B'}"></i>`).join('') : '';
+            celebrate = false;
+            const message = confirmed ? `${escapeSettingsHtml(resolveOfficialApiLine(result.line).name)}已通过测试。`
+                : result?.reason === 'balance' ? '5plus1API 批改账户余额不足。'
+                    : result?.reason === 'service' ? '批改请求未通过。请核对账户余额或模型权限。'
+                    : result?.reason === 'invalid' ? '批改服务暂时无法验证，请检查五加一账号后重试。'
+                        : result ? '暂时无法连接批改线路，请检查网络后重试。' : '正在测试批改线路…';
+            return `<div class="ai-onboarding-result" role="status">
+                ${confirmed ? `<div class="ai-onboarding-check" aria-hidden="true">✓${pieces}</div>` : ''}
+                ${confirmed ? '<strong>批改服务已就绪</strong>' : ''}
+                <p id="ob-status">${message}</p>
+                ${result?.reason === 'balance' ? `<a class="ai-onboarding-later" href="${markerAccountPortalUrl()}" target="_blank" rel="noopener noreferrer">查看余额与充值</a>` : ''}
+                ${confirmed ? '<p>接下来，为当前题目配置批改方案。</p>' : ''}
+            </div>`;
+        }
+        if (manualKeyEntry) return `
+            <div class="ai-onboarding-manual" id="ob-api-manual">
                 <label for="ob-apikey">API 密钥</label>
-                <input type="password" id="ob-apikey" placeholder="请输入 5plus1 API 密钥" value="${escapeSettingsHtml(ProviderManager.getProvider('5plus1官方')?.apiKey || '')}" style="width:100%;">
-                <div style="margin-top:6px;">
-                    <a href="https://api.ai.five-plus-one.com/console/token" target="_blank" style="font-size:12px;color:#0052FF;text-decoration:none;">点击获取访问凭证 →</a>
-                </div>
+                <input class="ai-modal-input" type="password" id="ob-apikey" autocomplete="off"
+                    placeholder="输入 5plus1API 密钥">
+                <a class="fp-embedded-text-link" id="ob-get-apikey" href="${markerAccountPortalUrl('/keys')}" target="_blank" rel="noopener noreferrer">获取 API 密钥</a>
             </div>
-            <div id="ob-status" role="status" aria-live="polite" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
+            <p id="ob-status" data-marker-status role="status"></p>
         `;
+        return `
+            <p class="ai-onboarding-intro">登录后即可开通批改服务。</p>
+            <div class="ai-onboarding-choices fp-embedded-action-choices">
+                <button type="button" class="ai-modal-btn-confirm" data-marker-login>登录五加一账号</button>
+                <a class="fp-embedded-text-link" id="ob-api-choice" href="#ob-api-manual">或使用已有 API 密钥</a>
+            </div>
+            <p id="ob-status" data-marker-status role="status"></p>
+        `;
+    }
+
+    function renderApiActions(account) {
+        const later = '<a class="ai-onboarding-later" href="#" id="ob-skip">稍后设置</a>';
+        if (account) {
+            const result = accountCheck?.result;
+            const label = result?.success ? '配置批改方案' : result ? '重试线路测试' : '正在测试…';
+            return later + `<button type="button" class="ai-modal-btn-confirm" id="ob-next" ${result ? '' : 'disabled'}>${label}</button>`;
+        }
+        if (manualKeyEntry) return `
+            <button type="button" class="ai-modal-btn-cancel" id="ob-api-back">返回</button>
+            <button type="button" class="ai-modal-btn-confirm" id="ob-next">验证并继续</button>
+        `;
+        return later + '<button type="button" class="ai-modal-btn-cancel" data-marker-cancel style="display:none">取消授权</button>';
+    }
+
+    async function testOnboardingAccountRoute() {
+        const account = markerManagedAccount();
+        if (!overlay.isConnected || !account || _onboardingApiCheck) return;
+        const controller = new AbortController();
+        _onboardingApiCheck = controller;
+        accountCheck = { accountId: account.accountId };
+        render();
+        let result;
+        try {
+            result = await verifyOfficialApiKey(account.apiKey, {
+                line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
+                signal: controller.signal,
+                onFallback: () => { overlay.querySelector('#ob-status').textContent = '正在测试备用线路…'; },
+            });
+        } catch (_) { result = { success: false, reason: 'network' }; }
+        if (controller !== _onboardingApiCheck || !overlay.isConnected) return;
+        _onboardingApiCheck = null;
+        const current = markerManagedAccount();
+        if (current?.accountId !== account.accountId || current.apiKey !== account.apiKey) {
+            accountCheck = null;
+            render();
+            return;
+        }
+        accountCheck.result = result;
+        rememberVerifiedOfficialRoute(result);
+        celebrate = result.success;
+        render();
     }
 
     function renderNameModeStep() {
         return `
             ${connectedBackup ? `<p role="status" style="font-size:13px;margin:0 0 14px;">已连接${escapeSettingsHtml(connectedBackup)}，可在供应商与模型设置中切换。</p>` : ''}
             <div class="form-group">
-                <label>配置方案名称</label>
-                <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${presetName}" style="width:100%;">
+                <label for="ob-preset-name">配置方案名称</label>
+                <input type="text" id="ob-preset-name" placeholder="例如: 语文作文、数学大题" value="${escapeSettingsHtml(presetName)}" style="width:100%;">
             </div>
             <div style="margin-top:16px;">
                 <label style="display:block;margin-bottom:8px;color:#666;font-size:12px;font-weight:500;">批改模式</label>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                     <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='normal'?'#0052FF':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='normal'?'rgba(0,82,255,0.04)':'white'};text-align:center;">
-                        <input type="radio" name="ob-grading-mode" value="normal" ${gradingMode==='normal'?'checked':''} style="display:none;">
+                        <input type="radio" name="ob-grading-mode" value="normal" ${gradingMode==='normal'?'checked':''}>
                         <div style="font-size:20px;">📝</div>
                         <div style="font-size:13px;font-weight:600;color:#1d1d1f;">普通</div>
                         <div style="font-size:11px;color:#86868b;line-height:1.4;">等待确认<br>后提交</div>
                     </label>
                     <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='trial'?'#7c3aed':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='trial'?'rgba(124,58,237,0.04)':'white'};text-align:center;position:relative;">
-                        <input type="radio" name="ob-grading-mode" value="trial" ${gradingMode==='trial'?'checked':''} style="display:none;">
+                        <input type="radio" name="ob-grading-mode" value="trial" ${gradingMode==='trial'?'checked':''}>
                         <span style="position:absolute;top:-8px;right:-8px;font-size:9px;background:#7c3aed;color:white;padding:2px 6px;border-radius:4px;font-weight:600;">推荐</span>
                         <div style="font-size:20px;">🔍</div>
                         <div style="font-size:13px;font-weight:600;color:#1d1d1f;">试改</div>
                         <div style="font-size:11px;color:#86868b;line-height:1.4;">支持纠错<br>和优化</div>
                     </label>
                     <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='unattended'?'#D93025':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='unattended'?'rgba(217,48,37,0.04)':'white'};text-align:center;">
-                        <input type="radio" name="ob-grading-mode" value="unattended" ${gradingMode==='unattended'?'checked':''} style="display:none;">
+                        <input type="radio" name="ob-grading-mode" value="unattended" ${gradingMode==='unattended'?'checked':''}>
                         <div style="font-size:20px;">⚡</div>
                         <div style="font-size:13px;font-weight:600;color:#1d1d1f;">无人</div>
                         <div style="font-size:11px;color:#86868b;line-height:1.4;">全自动<br>自动重试</div>
                     </label>
                 </div>
             </div>
-            <div id="ob-status" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
+            ${mode === 'new-question' ? `<label style="display:flex;align-items:center;gap:8px;min-height:44px;margin-top:12px;cursor:pointer;">
+                <input type="checkbox" id="ob-disable-question-guidance" ${GM_getValue(QUESTION_ONBOARDING_DISABLED, false) ? 'checked' : ''}>
+                不再自动弹出配置引导
+            </label>` : ''}
+            <div id="ob-status" role="status" style="font-size:12px;padding:8px 12px;border-radius:6px;margin-top:8px;display:none;"></div>
         `;
     }
 
@@ -3303,16 +3670,13 @@ function showOnboardingDialog(forceShow, mode) {
             <div style="display:flex;flex-direction:column;gap:10px;">
                 ${workflows.map(w => `
                     <label style="display:flex;align-items:center;gap:14px;padding:16px;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${selectedWorkflow===w.id?w.color+'08':'white'};">
-                        <input type="radio" name="ob-workflow" value="${w.id}" ${selectedWorkflow===w.id?'checked':''} style="display:none;">
-                        <div style="width:40px;height:40px;border-radius:10px;background:${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;transition:all 0.2s;">
+                        <input type="radio" name="ob-workflow" value="${w.id}" ${selectedWorkflow===w.id?'checked':''}>
+                        <div aria-hidden="true" style="width:40px;height:40px;border-radius:10px;background:${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;transition:all 0.2s;">
                             ${w.icon}
                         </div>
                         <div style="flex:1 1 auto;min-width:0;">
-                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</div>
-                            <div style="font-size:12px;color:#86868b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.desc}</div>
-                        </div>
-                        <div style="width:20px;height:20px;border-radius:50%;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.15)'};display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s;">
-                            ${selectedWorkflow===w.id?`<div style="width:10px;height:10px;border-radius:50%;background:${w.id==='fast'?'#0052FF':w.id==='normal'?'#1d1d1f':'#7c3aed'};"></div>`:''}
+                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;">${w.name}</div>
+                            <div style="font-size:12px;color:#68686d;margin-top:2px;">${w.desc}</div>
                         </div>
                     </label>
                 `).join('')}
@@ -3329,13 +3693,15 @@ function showOnboardingDialog(forceShow, mode) {
                 var inputs = adapter.getScoreInputs();
                 if (inputs.length > 0) {
                     detectedUnits = inputs.map(function (inp, i) {
-                        return { label: inp.label || ('第' + (i + 1) + '题'), maxScore: inp.maxScore || '' };
+                        return { label: inp.label || ('第' + (i + 1) + '题'), maxScore: inp.maxScore || '',
+                            roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined };
                     });
                 }
             }
         } catch (e) { /* ignore */ }
 
-        var unitsHtml = '';
+        var unitsHtml = '<div class="form-group"><label for="ob-total-score">满分</label>' +
+            '<input type="number" id="ob-total-score" min="0" step="any" inputmode="decimal"></div>';
         if (detectedUnits.length > 0) {
             unitsHtml = '<div class="form-group" style="margin-top:12px;">' +
                 '<label style="font-weight:600;">检测到 ' + detectedUnits.length + ' 个小题</label>' +
@@ -3353,7 +3719,7 @@ function showOnboardingDialog(forceShow, mode) {
         }
 
         return '<p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">' +
-            '配置批改上下文可以提高评分准确性。点击下方区域可打开 Markdown 编辑器（支持公式和图片）。' +
+            '开始批改前，请填写参考答案、评分标准和满分。题目内容可按需补充。' +
             '</p>' +
             '<div class="form-group">' +
             '<label>题目内容</label>' +
@@ -3371,31 +3737,66 @@ function showOnboardingDialog(forceShow, mode) {
     }
 
     function renderDoneStep() {
-        const wfName = { fast: '快速批改', normal: '普通批改', dual: '双评模式' }[selectedWorkflow] || '快速批改';
+        const wfName = { fast: '快速批改', normal: '高精模式', dual: '双评模式' }[selectedWorkflow] || '快速批改';
         const modeName = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode] || '试改模式';
         return `
             <div style="text-align:center;padding:20px 0;">
-                <div style="font-size:48px;margin-bottom:16px;">✅</div>
-                <div style="font-size:16px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">配置完成！</div>
                 <div style="font-size:13px;color:#666;line-height:1.8;">
-                    方案「${presetName}」已创建并绑定到当前试题。<br>
+                    当前试题已使用「${escapeSettingsHtml(presetName)}」方案。<br>
                     <span style="color:#1d1d1f;font-weight:500;">${wfName}</span> · <span style="color:#1d1d1f;font-weight:500;">${modeName}</span>
                 </div>
-                <div style="margin-top:16px;padding:12px;background:rgba(0,82,255,0.06);border-radius:10px;font-size:12px;color:#0052FF;">
-                    点击下方按钮查看配置详情
-                </div>
+                ${needsGradingDetails ? '<p style="margin:16px 0 0;color:#666;font-size:13px;">请补齐批改资料，再开始批改。</p>' : ''}
             </div>
         `;
     }
 
-    function bindEvents() {
+    function bindEvents(account) {
         const s = getStepInfo();
 
         if (s.apiStep) {
-            overlay.querySelector('#ob-skip').onclick = hideOnboardingDialog;
-            overlay.querySelector('#ob-next').onclick = async () => {
+            const next = overlay.querySelector('#ob-next');
+            const skip = overlay.querySelector('#ob-skip');
+            if (skip) skip.onclick = event => {
+                event.preventDefault();
+                cancelMarkerConnection();
+                hideOnboardingDialog();
+            };
+            if (account) {
+                const result = accountCheck?.result;
+                next.onclick = result?.success ? () => { currentStep++; render(); } : testOnboardingAccountRoute;
+                if (result) next.focus();
+                return;
+            }
+            if (!manualKeyEntry) {
+                const login = overlay.querySelector('[data-marker-login]');
+                bindMarkerAccountControls(overlay, () => {
+                    if (login.isConnected && markerManagedAccount()) render();
+                });
+                overlay.querySelector('#ob-api-choice').onclick = event => {
+                    event.preventDefault();
+                    if (login.disabled) cancelMarkerConnection();
+                    manualKeyEntry = true;
+                    render();
+                };
+                login.focus();
+                return;
+            }
+            const input = overlay.querySelector('#ob-apikey');
+            input.value = manualKeyDraft ?? (ProviderManager.getProvider('5plus1官方')?.apiKey || '');
+            input.focus();
+            const keyLink = overlay.querySelector('#ob-get-apikey');
+            keyLink.onclick = () => { keyLink.href = markerAccountPortalUrl('/keys'); };
+            overlay.querySelector('#ob-api-back').onclick = () => {
+                manualKeyDraft = input.value;
+                _onboardingApiCheck?.abort();
+                _onboardingApiCheck = null;
+                manualKeyEntry = false;
+                render();
+                overlay.querySelector('#ob-api-choice')?.focus();
+            };
+            next.onclick = async () => {
                 if (_onboardingApiCheck) return;
-                const input = overlay.querySelector('#ob-apikey');
+                if (markerConnection) { showStatus('请稍候片刻，再验证密钥。', 'progress'); return; }
                 const key = input.value.trim();
                 if (!key) { showStatus('请输入 API 密钥', 'error'); return; }
 
@@ -3433,15 +3834,14 @@ function showOnboardingDialog(forceShow, mode) {
                         showStatus('连接设置尚未保存，请核对其他页面的修改', 'error');
                         return;
                     }
-                    if (result.line !== result.preferred && result.revision === officialApiRoutes.revision) {
-                        officialApiFallback = { preferred: result.preferred, line: result.line, expires: Date.now() + 300000 };
-                        connectedBackup = resolveOfficialApiLine(result.line).name;
-                    } else {
-                        connectedBackup = '';
-                    }
+                    rememberVerifiedOfficialRoute(result);
+                    manualKeyDraft = undefined;
+                    connectedBackup = result.line !== result.preferred ? resolveOfficialApiLine(result.line).name : '';
                     currentStep++; render();
                 } else if (result.reason === 'invalid') {
                     showStatus('密钥无效，请检查是否正确', 'error');
+                } else if (result.reason === 'balance') {
+                    showStatus('批改账户余额不足，请充值后重试。', 'error');
                 } else if (result.reason === 'service') {
                     showStatus('已连接服务，但验证未完成。请检查账户余额和模型权限后重试。', 'error');
                 } else {
@@ -3450,8 +3850,26 @@ function showOnboardingDialog(forceShow, mode) {
             };
         } else if (s.nameModeStep) {
             if (s.hasApiStep) overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
+            else {
+                overlay.querySelector('#ob-skip-question').onclick = hideOnboardingDialog;
+                const preference = overlay.querySelector('#ob-disable-question-guidance');
+                preference.onchange = () => {
+                    if (!saveQuestionOnboardingPreference(preference.checked)) {
+                        preference.checked = !preference.checked;
+                        showStatus('配置引导设置尚未保存，请重试。', 'error');
+                        return;
+                    }
+                    const toggle = document.getElementById('question-onboarding-enabled');
+                    if (toggle) toggle.checked = !preference.checked;
+                };
+            }
             overlay.querySelectorAll('input[name="ob-grading-mode"]').forEach(r => {
-                r.onchange = () => { gradingMode = r.value; render(); };
+                r.onchange = () => {
+                    presetName = overlay.querySelector('#ob-preset-name').value;
+                    gradingMode = r.value;
+                    render();
+                    overlay.querySelector('input[name="ob-grading-mode"]:checked')?.focus();
+                };
             });
             overlay.querySelector('#ob-next').onclick = () => {
                 const name = overlay.querySelector('#ob-preset-name')?.value?.trim();
@@ -3463,7 +3881,11 @@ function showOnboardingDialog(forceShow, mode) {
         } else if (s.workflowStep) {
             overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
             overlay.querySelectorAll('input[name="ob-workflow"]').forEach(r => {
-                r.onchange = () => { selectedWorkflow = r.value; render(); };
+                r.onchange = () => {
+                    selectedWorkflow = r.value;
+                    render();
+                    overlay.querySelector('input[name="ob-workflow"]:checked')?.focus();
+                };
             });
             overlay.querySelector('#ob-next').onclick = () => { currentStep++; render(); };
         } else if (s.ctxStep) {
@@ -3487,8 +3909,8 @@ function showOnboardingDialog(forceShow, mode) {
                             if (_wf) {
                                 var _pName = _wf.model?.provider || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeProvider : '');
                                 var _mName = _wf.model?.model || (typeof ProviderManager !== 'undefined' ? ProviderManager.data.activeModel : '');
-                                var _prov = typeof ProviderManager !== 'undefined' ? ProviderManager.getProvider(_pName) : null;
-                                _callConfig = { endpoint: _prov?.endpoint || '', apiKey: _prov?.apiKey || '', model: _mName, reasoningEffort: _wf.model?.reasoningEffort || '' };
+                                const call = ProviderManager.getCallConfig(_pName, _mName);
+                                if (call) _callConfig = { ...call, reasoningEffort: _wf.model?.reasoningEffort || '' };
                             }
                         } catch (e) { /* ignore */ }
                         openMarkdownEditor({
@@ -3519,10 +3941,12 @@ function showOnboardingDialog(forceShow, mode) {
             overlay.querySelector('#ob-next').onclick = function () { saveAndFinish(true); };
         } else if (s.doneStep) {
             overlay.querySelector('#ob-start').onclick = () => {
-                _onboardingDialogOpen = false;
-                overlay.remove();
+                hideOnboardingDialog();
                 GM_setValue('ai-grading-show-onboarding', false);
-                setTimeout(() => openSettingsPanel(), 300);
+                setTimeout(() => {
+                    openSettingsPanel();
+                    if (needsGradingDetails) switchSettingsPage('grading');
+                }, 300);
             };
         }
     }
@@ -3555,10 +3979,14 @@ function showOnboardingDialog(forceShow, mode) {
                 unitEls.forEach(function (inp, i) {
                     var label = detectedUnits[i] ? detectedUnits[i].label : ('第' + (i + 1) + '题');
                     var maxScore = parseFloat(inp.value) || 0;
-                    units.push({ label: label, maxScore: maxScore, index: i, roundStep: 1 });
+                    units.push({ label: label, maxScore: maxScore, index: i, roundStep: detectedUnits[i]?.roundStep || 1 });
                 });
                 newPreset.scoring.units = units;
+                newPreset.scoring.roundStep = Math.min(...units.map(unit => unit.roundStep));
                 newPreset.scoring.maxScore = units.reduce(function (sum, u) { return sum + (u.maxScore || 0); }, 0);
+            } else {
+                const maxScore = overlay.querySelector('#ob-total-score')?.valueAsNumber;
+                if (Number.isFinite(maxScore) && maxScore > 0) newPreset.scoring.maxScore = maxScore;
             }
         }
         PresetManager.data.list[presetName] = newPreset;
@@ -3573,6 +4001,7 @@ function showOnboardingDialog(forceShow, mode) {
         }
         renderPresetDropdown();
         fillFormFromActivePreset();
+        needsGradingDetails = !validateRequiredFields({ showErrors: false }).valid;
         currentStep = mode === 'first-launch' ? 5 : 4;
         render();
     }
@@ -3617,7 +4046,7 @@ function showInsufficientBalanceDialog(isOfficial) {
 
     if (isOfficial) {
         overlay.querySelector('#balance-topup').onclick = () => {
-            window.open('https://api.ai.five-plus-one.com/console/topup', '_blank');
+            window.open(markerAccountPortalUrl(), '_blank', 'noopener');
             overlay.remove();
         };
     }

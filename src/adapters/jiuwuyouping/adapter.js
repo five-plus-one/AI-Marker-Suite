@@ -135,7 +135,9 @@ const JiuwuyoupingAdapter = {
                 const imgs = doc.querySelectorAll(JIUWUYOUPING_SELECTORS.ANSWER_IMAGE);
                 urls = [];
                 imgs.forEach(img => {
-                    const src = img.getAttribute('src') || img.src || '';
+                    const raw = img.getAttribute('src');
+                    if (raw !== null && !String(raw).trim()) return;
+                    const src = img.src || raw || '';
                     if (src && /^https?:/i.test(src)) urls.push(src);
                 });
                 if (urls.length > 0) break;
