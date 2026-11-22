@@ -10,8 +10,9 @@ const compare = (a,b) => {
 function renderNotes(manifest,target,stableVersion) {
   const preview=target==='preview', keys=Object.keys(manifest.changelog).sort((a,b)=>compare(b,a));
   const version=manifest.version.split('-')[0];
-  const selected=preview ? keys.filter(key=>compare(key,stableVersion)>0 && compare(key,version)<=0)
-    : [keys.find(key=>compare(key,manifest.version)===0)].filter(Boolean);
+  const selected=stableVersion && (preview || target==='stable')
+    ? keys.filter(key=>compare(key,stableVersion)>0 && compare(key,version)<=0)
+    : [keys.find(key=>compare(key,version)===0)].filter(Boolean);
   const grouped = new Map();
   for(const item of selected.flatMap(key=>manifest.changelog[key]||[])) {
     const match=item.match(/^【(.+?)】(.+)/),category=match?.[1]||'其他';
@@ -25,9 +26,14 @@ function renderNotes(manifest,target,stableVersion) {
     '推荐浏览器：Microsoft Edge + Tampermonkey。',''].join('\n').replace(/@([A-Za-z][A-Za-z0-9_-]*)/g,'＠$1');
 }
 function writeNotes(manifest,target) {
-  const stableVersion=target==='preview' ? execFileSync('git',['tag','--list','v*'],{encoding:'utf8'})
-    .split(/\r?\n/).filter(tag=>/^v\d+\.\d+\.\d+(?:\.\d+)?$/.test(tag))
-    .map(tag=>tag.slice(1)).sort((a,b)=>compare(b,a))[0] || '0.0.0' : undefined;
+  let stableVersion;
+  if(target==='preview' || target==='stable') {
+    const version=manifest.version.split('-')[0];
+    const tags=execFileSync('git',['tag','--list','v*'],{encoding:'utf8'}).split(/\r?\n/)
+      .filter(tag=>/^v\d+\.\d+\.\d+(?:\.\d+)?$/.test(tag)).map(tag=>tag.slice(1));
+    stableVersion=tags.filter(tag=>target==='preview' || compare(tag,version)<0)
+      .sort((a,b)=>compare(b,a))[0];
+  }
   C.fs.writeFileSync(C.path.join(C.OUTPUT,'RELEASE_NOTES.md'),renderNotes(manifest,target,stableVersion));
 }
 const FILES = ['ai_marker.user.js','manifest.json','delivery.json'];

@@ -25,6 +25,17 @@ test('preview notes include milestone changes since the published stable version
   assert.doesNotMatch(notes,/计划功能|现行稳定版/);
 });
 
+test('stable release notes cover changes since the previous stable release',()=>{
+  const notes=renderNotes({version:'1.21.35.6',changelog:{
+    '1.21.35.6':['【修复】改进作业换卷'],
+    '1.21.35.0':['【新功能】支持智学网作业'],
+    '1.21.34.1':['【修复】上一稳定版'],
+  }},'stable','1.21.34.1');
+  assert.match(notes,/改进作业换卷/);
+  assert.match(notes,/支持智学网作业/);
+  assert.doesNotMatch(notes,/上一稳定版/);
+});
+
 function fixture({existing=true,stable=false}={}) {
   let nextId=100,tagCommit=sha;
   let release=existing?{id:27,tag_name:stable?'v1.2.3.0':'preview-latest',draft:false,prerelease:!stable,name:'previous',body:'previous'}:null;
