@@ -25,17 +25,17 @@ test('无法辨认始终暂停；默认关闭选项时沿用证据保护', async
         const e = scene(enabled, mode);
         if (enabled === undefined) delete e.cfg.answerReview;
         await e.sb.startAutoGrading();
-        assert.equal(e.requests(), mode === 'unattended' ? 6 : 1);
+        assert.equal(e.requests(), 1);
         assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0);
         assert.equal(e.records().length, 0); assert.equal(e.state.isPaused, true);
     }
 });
 
-test('开启后原图与方案保存待核对，无人模式用完重试预算才暂停', async () => {
+test('无法确认作答时暂停并保存原图和方案供复核', async () => {
     for (const mode of ['normal', 'trial', 'unattended']) {
         const e = scene(true, mode); e.cfg.apiKey = 'private-test-key';
         await e.sb.startAutoGrading();
-        assert.equal(e.requests(), mode === 'unattended' ? 6 : 1);
+        assert.equal(e.requests(), 1);
         assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0);
         assert.equal(e.state.isPaused, true);
         const [record] = e.records();
@@ -50,6 +50,7 @@ test('开启后原图与方案保存待核对，无人模式用完重试预算�
 test('无人识别重试恢复可辨认后正常填分，保持本轮答卷基准', async () => {
     const e = scene(); let requests = 0;
     e.sb.callAIGrading = async () => ++requests === 1 ? { score: 7, answerStatus: '无法辨认' } : { score: 7, answerStatus: '可辨认', studentAnswer: 'I=3A' };
+    e.sb.confirmStudentAnswerStatus = async () => 'written';
     e.sb.showAutoSubmitDialog = () => {};
     await e.sb.startAutoGrading();
     assert.equal(requests, 2); assert.equal(e.calls.fill.length, 1); assert.equal(e.records().length, 0);
@@ -59,7 +60,7 @@ test('待复核上限只挡新增记录；写入失败、图片失败、换卷�
     const capped = scene();
     capped.store['ai-grading-history'] = JSON.stringify(Array.from({ length: 5 }, (_, i) => ({ id: String(i), reviewStatus: 'pending' })));
     await capped.sb.startAutoGrading();
-    assert.equal(capped.requests(), 6);
+    assert.equal(capped.requests(), 1);
     assert.equal(capped.calls.fill.length, 0);
     assert.equal(capped.records().length, 5);
     for (const failure of ['image', 'history', 'changed', 'cancelled', 'quota']) {
@@ -125,6 +126,25 @@ test('无人模式单次复查发现作答后重评，复查期间换卷则停�
         assert.equal(recoveries, 1);
         assert.equal(requests, changed ? 1 : 2);
         assert.deepEqual(e.calls.fill.map(call => call.scores), changed ? [] : [[2]]);
+    }
+});
+
+test('无人模式复查异常或无法确认作答时，不重新评分或提交', async () => {
+    for (const failed of [false, true]) {
+        const e = scene(false);
+        let requests = 0;
+        e.sb.callAIGrading = async () => ++requests === 1
+            ? { score: 0, answerStatus: '无法辨认' }
+            : { score: 7, answerStatus: '可辨认', studentAnswer: '示例作答' };
+        e.sb.confirmStudentAnswerStatus = async () => {
+            if (failed) throw new Error('示例复查请求失败');
+            return 'unknown';
+        };
+        await e.sb.startAutoGrading();
+        assert.equal(requests, 1);
+        assert.equal(e.calls.fill.length, 0);
+        assert.equal(e.calls.submit.length, 0);
+        assert.equal(e.state.isPaused, true);
     }
 });
 

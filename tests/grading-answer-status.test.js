@@ -14,14 +14,14 @@ async function runResponse(text, outputMode = 'detailed') {
 
 test('叙述式整卷空白正分在真实主流程填分前暂停', async () => {
     const { e, calls } = await runResponse('【答案复述】该学生未作答，图中只有印刷题干和预印电路图。\n【得分】10');
-    assert.equal(e.calls.fill.length, 0); assert.equal(e.state.isPaused, true); assert.equal(calls, 6);
+    assert.equal(e.calls.fill.length, 0); assert.equal(e.state.isPaused, true); assert.equal(calls, 1);
 });
 
 test('明确无法辨认的零分与正分均交教师核对，详细和精简模式一致', async () => {
     for (const mode of ['detailed', 'score-only']) for (const score of [0, 10]) {
         const { e, calls } = await runResponse(`【作答状态】无法辨认\n【得分】${score}`, mode);
         assert.equal(e.calls.fill.length, 0); assert.equal(e.calls.submit.length, 0);
-        assert.equal(e.state.isPaused, true); assert.equal(calls, 6);
+        assert.equal(e.state.isPaused, true); assert.equal(calls, 1);
     }
     const { e } = await runResponse('【答案复述】未能识别\n【得分】10');
     assert.equal(e.calls.fill.length, 0);
@@ -85,7 +85,7 @@ test('普通、精简和多小题评分要求状态，详细模式逐字转录�
 
 test('按方案控制无人模式的复查，试改和普通模式保持人工核对', async () => {
     for (const [policy, mode, expected] of [
-        [undefined, 'unattended', true],
+        [undefined, 'unattended', false],
         ['recover', 'unattended', true],
         ['pause', 'unattended', false],
         ['recover', 'trial', false],

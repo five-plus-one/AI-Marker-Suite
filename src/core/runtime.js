@@ -186,7 +186,7 @@ function isAnswerStatusCheckEnabled(config) {
 
 function getUnattendedAnswerFailure(config) {
     const policy = config?.retryPolicy?.unattendedAnswerFailure;
-    return policy === 'pause' || policy === 'retry' ? policy : 'recover';
+    return policy === 'recover' || policy === 'retry' ? policy : 'pause';
 }
 
 function getUnattendedRetryLimit(config) {
@@ -403,8 +403,7 @@ async function requestGradingWithAnswerRecovery(context, request, recoverAnswerS
                 requireGradingContextTarget(context);
                 if (status === 'blank') return makeBlankGradingResult(context.configuration);
             }
-            if (status !== 'written' && status !== undefined && status !== 'unknown'
-                && !(retryUnreadable && error.answerStatus === 'unreadable')) throw error;
+            if (status !== 'written') throw error;
             if (!await budget.retry(undefined, error.code)) throw error;
         }
     }

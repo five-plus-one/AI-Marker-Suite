@@ -57,7 +57,7 @@ window.addEventListener('error',event=>failures.push(event.message));
   const recovery=document.getElementById('unattended-answer-recovery');
   const photoCheck=document.getElementById('reference-image-evidence-check');
   const statusCheck=document.getElementById('answer-status-check');
-  assert(recovery.value==='recover' && !statusCheck.checked && !photoCheck.checked && getUnattendedAnswerFailure(PresetManager.getCurrentConfig())==='recover','旧方案沿用核对开关并默认复查原卷');
+  assert(recovery.value==='pause' && !statusCheck.checked && !photoCheck.checked && getUnattendedAnswerFailure(PresetManager.getCurrentConfig())==='pause','旧方案沿用核对开关并默认暂停供人工核对');
   assert([statusCheck,photoCheck].every(input=>input.labels[0]?.textContent.includes('实验性')) && recovery.options[1].textContent.includes('实验性'),'核对与自动复查明确标为实验性');
   window.safeAlert=()=>{};
   window.clearUnsavedChanges=()=>{};window.markUnsavedChanges=()=>{};
