@@ -17,11 +17,39 @@
 <pre id="result"></pre>
 <script>
 window.unsafeWindow = window;
-const settings = new Map();
+const fixtureEndpoint = 'https://ai.fixture.invalid/v1/chat/completions';
+const settings = new Map(Object.entries({
+    'ai-grading-show-onboarding': false,
+    'ai-grading-presets': JSON.stringify({
+        active: 'Fixture', bindings: {}, list: { Fixture: {
+            question: '第8题', answer: '参考答案', rubric: '根据作答给分', workflowId: 'fixture',
+            gradingMode: 'trial', scoring: { maxScore: 5, roundStep: 1, roundMethod: 'round' },
+            blankDetection: { enabled: false },
+        } },
+    }),
+    'ai-grading-providers-v2': JSON.stringify({
+        providers: { '5plus1官方': { apiKey: 'fixture' }, Fixture: {
+            endpoint: fixtureEndpoint, apiKey: 'fixture', models: { fixture: {} },
+        } },
+        activeProvider: 'Fixture', activeModel: 'fixture',
+    }),
+    'ai-grading-workflows': JSON.stringify({
+        activeWorkflow: 'fixture',
+        workflows: { Fixture: { id: 'fixture', model: { provider: 'Fixture', model: 'fixture' }, dualEval: null } },
+    }),
+}));
+let gradingRequest;
 window.GM_getValue = (key, fallback) => settings.get(key) ?? fallback;
 window.GM_setValue = (key, value) => settings.set(key, value);
 window.GM_registerMenuCommand = () => {};
 window.GM_xmlhttpRequest = options => {
+    if (options.method === 'POST' && options.url === fixtureEndpoint) {
+        gradingRequest = JSON.parse(options.data);
+        queueMicrotask(() => options.onload({ status: 200, responseText: JSON.stringify({
+            choices: [{ message: { content: '【答案复述】\n示例作答\n【得分】\n2' }, finish_reason: 'stop' }],
+        }) }));
+        return { abort() {} };
+    }
     const controller = new AbortController();
     fetch(options.url, { signal: controller.signal }).then(async response => {
         options.onload({ status: response.status, response: await response.arrayBuffer() });
@@ -127,6 +155,9 @@ window.GM_xmlhttpRequest = options => {
         native.isAutoSubmit = false;
         check(adapter.prepareGrading() && !adapter.fillScores([0.5]) && choiceClicks === 0, '只选原站允许的分值');
         check(adapter.fillScores([0]) && native.topic.gfbbzList[0].score === 0 && submitClicks === 0, '原生选分接受 0 分并等待确认提交');
+        native.topic.gfbbzList[0].score = 1;
+        check(!await adapter.submitGrade() && submitClicks === 0, '分数被手动改动时等待核对');
+        check(adapter.fillScores([0]), '重新填写当前答卷分数');
         const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
         check(!await adapter.submitGrade(), '原站保存失败时暂停，即使页面开始翻卷');
         await nextLoaded;
@@ -170,6 +201,29 @@ window.GM_xmlhttpRequest = options => {
         action = 'last';
         check(adapter.fillScores([2, 0]) && await adapter.submitGrade(), '分别给分并成功保存最后一卷');
         check(adapter.isGradingTaskComplete() && !await adapter.waitForNextPaper(), '原站显示暂无答卷时结束本题');
+
+        native.$parent.topicId = 2;
+        await setPaper('a', { crop: '20|12|80|48' });
+        action = 'saved';
+        const waitFor = async predicate => {
+            for (let i = 0; i < 150 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 20));
+        };
+        await waitFor(() => document.querySelector('.ai-grade-btn'));
+        const start = document.querySelector('.ai-grade-btn');
+        check(start && !start.disabled, '进入待阅题目后显示开始批改');
+        const beforeTrial = submitClicks;
+        const gradedPaper = adapter.getPaperIdentity();
+        start.click();
+        await waitFor(() => document.querySelector('#auto-submit-dialog #confirm-submit-btn') || window.aiGradingState.isPaused);
+        const confirm = document.querySelector('#auto-submit-dialog #confirm-submit-btn');
+        const sentImages = gradingRequest?.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+            .filter(item => item.type === 'image_url');
+        check(sentImages?.length === 1 && native.topic.gfbbzList[0].score === 2 && confirm && submitClicks === beforeTrial,
+            '试改读取当前题图，填分后等待核对');
+        confirm.click();
+        await waitFor(() => submitClicks > beforeTrial && adapter.getPaperIdentity() && adapter.getPaperIdentity() !== gradedPaper);
+        check(submitClicks === beforeTrial + 1 && adapter.getPaperIdentity() && adapter.getPaperIdentity() !== gradedPaper,
+            '从试改确认到原站保存只提交一次并载入新卷');
         finish({ passed: true, checks });
     } catch (error) {
         finish({ passed: false, checks, error: error.message });
