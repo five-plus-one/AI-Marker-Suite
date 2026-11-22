@@ -865,7 +865,7 @@ function showImageChoiceModal(base64, callConfig, onCrop, onRecognize, onInsert)
     var overlay = document.createElement('div');
     overlay.className = 'ai-img-choice-overlay';
 
-    var hasAI = !!(callConfig && callConfig.apiKey);
+    var hasAI = !!(callConfig?.apiKey || callConfig?.officialAccountId);
 
     overlay.innerHTML =
         '<div class="ai-img-choice-card">' +

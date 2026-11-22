@@ -56,9 +56,13 @@ test('同题换卷及暂停继续正常，未知题号不作为切题证据', as
 
 test('识别期间原生题号改变，轮询取消请求并禁止旧结果填分', async()=>{
     const e=fixture(); load(e,'src/core/main.js');
-    let resolve; e.sb.callAIGrading=()=>new Promise(r=>{resolve=r;});
+    let resolve, started;
+    const scoringStarted = new Promise(done => { started = done; });
+    e.sb.callAIGrading = () => new Promise(done => { resolve = done; started(); });
     e.sb.runNewTaskOnboardingFlow=async()=>{};
-    const run=e.sb.startAutoGrading(); await settle();
+    const run=e.sb.startAutoGrading();
+    await Promise.race([scoringStarted, run]);
+    assert.equal(typeof resolve, 'function');
     const context=e.state.activeRun; e.task('question-30');
     await [...e.intervals.values()][0]();
     assert.equal(context.controller.signal.aborted,true);
@@ -179,4 +183,23 @@ test('智学网含括号的题号在同题换卷时保持一致，切到另一�
     total = '24(2)';
     assert.equal(e.sb.stopIfGradingTaskChanged(run), true, '评分栏先更新仍能拦住实际换题');
     assert.equal(run.controller.signal.aborted, true);
+});
+
+test('其他平台保留原有换卷参数，同时记录本轮耗时和结果', async () => {
+    const e = fixture();
+    load(e, 'src/core/ui-submit-dialog.js');
+    const events = [];
+    e.sb.DiagnosticLog = { grading: (event, run, details) => events.push({ event, run, details }) };
+    e.adapter.id = 'xkw-cloud';
+    const context = e.sb.createGradingContext();
+    e.adapter.waitForNextPaper = async (oldImage, options) => {
+        assert.equal(oldImage, 'https://x.test/A.png');
+        assert.deepEqual(Object.keys(options), ['paperId', 'taskId', 'signal']);
+        e.setPaper('B');
+        return true;
+    };
+    assert.equal(await e.sb.waitForNextPaperWithRetry(e.adapter, 'https://x.test/A.png', 3, context), true);
+    assert.deepEqual(events.map(row => row.event), ['next-paper-wait-started', 'next-paper-wait-finished']);
+    assert.equal(events[1].details.hasNext, true);
+    assert.equal(e.state.isRunning, true);
 });

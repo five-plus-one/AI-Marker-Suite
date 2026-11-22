@@ -85,7 +85,7 @@ test('轮询捕获大题、小题标识或满分变化，取消旧倒计时和�
 test('加载过渡期未读到题号不宣称换题，写入前等待核对', () => {
     const e = scene(); const context = e.sb.createGradingContext(); e.change(null);
     e.sb.monitorGradingQuestionChange(); assert.equal(e.state.isRunning, true);
-    assert.throws(() => e.sb.requireGradingContextTarget(context), /暂未识别到完整题号/);
+    assert.throws(() => e.sb.requireGradingContextTarget(context), /暂未读取到完整题号/);
     e.change({ question: '17', units: context.questionBaseline.units });
     assert.doesNotThrow(() => e.sb.requireGradingContextTarget(context));
 });
@@ -93,7 +93,7 @@ test('加载过渡期未读到题号不宣称换题，写入前等待核对', ()
 test('未支持的题号来源在开启选项后明确提示，关闭则按原流程运行', () => {
     const e = scene(); delete e.adapter.getQuestionContext;
     const context = e.sb.createGradingContext();
-    assert.throws(() => e.sb.requireGradingContextTarget(context), /联系作者适配/);
+    assert.throws(() => e.sb.requireGradingContextTarget(context), /请核对阅卷页面/);
     e.cfg.questionGuard.enabled = false;
     assert.doesNotThrow(() => e.sb.requireGradingContextTarget(e.sb.createGradingContext()));
 });
