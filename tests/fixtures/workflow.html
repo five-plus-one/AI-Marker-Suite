@@ -5,6 +5,7 @@ window.GM_getValue=(k,d)=>storage[k]??d;window.GM_setValue=(k,v)=>storage[k]=v;
 window.getUIRoot=()=>document.body;window.showToast=(...x)=>notices.push(x);
 window.addEventListener('error',event=>failures.push(event.message));
 </script>
+<script src="../../node_modules/@fiveplusone/embedded-ui/index.cjs"></script>
 <script src="../../src/core/config.js"></script>
 <script src="../../src/core/state.js"></script>
 <script src="../../src/core/runtime.js"></script>

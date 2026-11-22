@@ -5,6 +5,7 @@ window.GM_getValue=(key,fallback)=>storage[key]??fallback;window.GM_setValue=(ke
 window.GM_deleteValue=key=>delete storage[key];window.getUIRoot=()=>document.body;window.showToast=message=>notices.push(message);
 window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'dev';window.hideStreamPanel=()=>{};window.clearUnsavedChanges=window.markUnsavedChanges=()=>{};window.dockFloatingButtons=()=>{};
 </script>
+<script src="../../node_modules/@fiveplusone/embedded-ui/index.cjs"></script>
 <script src="../../src/core/config.js"></script><script src="../../src/core/state.js"></script>
 <script src="../../src/core/runtime.js"></script><script src="../../src/core/score.js"></script>
 <script src="../../src/core/marker-account.js"></script>

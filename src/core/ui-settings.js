@@ -332,6 +332,7 @@ function createSettingsPanel(options) {
             }
             .about-link:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); }
             .about-link-icon { font-size: 16px; width: 20px; text-align: center; }
+            .about-link-icon-svg { display: grid; place-items: center; flex: none; }
             .about-link-text { flex: 1; }
             .about-link-desc { font-size: 11px; color: #86868b; margin-top: 2px; }
             .about-support {
@@ -388,6 +389,8 @@ function createSettingsPanel(options) {
             }
             #ai-grading-settings,
             #ai-grading-settings * { color: #172033 !important; }
+            #ai-grading-settings .about-link-icon-svg,
+            #ai-grading-settings .about-link-icon-svg * { color: inherit !important; }
             #ai-grading-settings .sidebar-header,
             #ai-grading-settings .save-btn-container,
             #ai-grading-settings .sidebar-footer {
@@ -1182,34 +1185,35 @@ function createSettingsPanel(options) {
                         <div class="about-section-title">帮助与支持</div>
                         <div class="about-links">
                             <button type="button" id="btn-export-diagnostics" class="about-link" style="text-align:left;">
-                                <span class="about-link-icon" aria-hidden="true">📦</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('download')}</span>
                                 <span class="about-link-text">
                                     <span>导出诊断包</span>
                                     <span class="about-link-desc" style="display:block;">汇集运行日志、阅卷记录和配置摘要</span>
                                 </span>
                             </button>
                             <button type="button" id="btn-upload-diagnostics" class="about-link" style="text-align:left;">
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('upload')}</span>
                                 <span class="about-link-text">
                                     <span>上传诊断包</span>
                                     <span class="about-link-desc" style="display:block;">登录五加一账号后提交给支持人员</span>
                                 </span>
                             </button>
                             <a href="https://aimarking.five-plus-one.com/" target="_blank" class="about-link">
-                                <span class="about-link-icon">📖</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('book-open')}</span>
                                 <div class="about-link-text">
                                     <div>帮助文档</div>
                                     <div class="about-link-desc">查看使用教程和常见问题</div>
                                 </div>
                             </a>
                             <a href="https://github.com/five-plus-one/AI-Marker-Suite" target="_blank" class="about-link">
-                                <span class="about-link-icon">💻</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('git-branch')}</span>
                                 <div class="about-link-text">
                                     <div>GitHub 仓库</div>
                                     <div class="about-link-desc">查看源代码、提交反馈</div>
                                 </div>
                             </a>
                             <a href="https://r-l.ink/contact" target="_blank" class="about-link">
-                                <span class="about-link-icon">📧</span>
+                                <span class="about-link-icon about-link-icon-svg">${FivePlusOneEmbeddedUI.renderDecorativeIcon('mail')}</span>
                                 <div class="about-link-text">
                                     <div>联系作者</div>
                                     <div class="about-link-desc">反馈问题、请求适配更多平台</div>

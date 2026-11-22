@@ -55,6 +55,45 @@ window.getChannelName=()=> 'dev';window.getBuildChannel=()=> 'dev';window.getBui
   const textarea=editor.querySelector('textarea');textarea.value='Answer';textarea.setSelectionRange(0,6);let bold=editor.querySelector('[data-cmd=bold]');if(!bold){toolbar.querySelector('.fp-embedded-more').click();bold=document.querySelector('.fp-embedded-toolbar-menu [data-cmd=bold]')}bold.click();assert(textarea.value==='**Answer**','真实工具栏保留文本编辑');
   editor.querySelector('.md-btn-confirm').click();assert(confirmed==='**Answer**'&&!document.getElementById('ai-md-editor-overlay'),'确认保留结果并关闭窗口');assert(!document.querySelector('.fp-embedded-toolbar-menu'),'关闭释放菜单');
   createSettingsPanel();const panel=document.getElementById('ai-grading-settings');panel.style.setProperty('transition','none','important');openSettingsPanel();await tick();for(const b of panel.querySelectorAll('.settings-nav-btn,#save-config-btn'))if(rect(b).width)assert(rect(b).right<=innerWidth+1,'设置操作保持在视口内');
+  panel.querySelector('.settings-nav-item[data-page="about"]').click();
+  const supportRows=[...panel.querySelector('.about-section .about-links').children];
+  const expectedSupport=[
+    ['导出诊断包','#btn-export-diagnostics'],
+    ['上传诊断包','#btn-upload-diagnostics'],
+    ['帮助文档','https://aimarking.five-plus-one.com/'],
+    ['GitHub 仓库','https://github.com/five-plus-one/AI-Marker-Suite'],
+    ['联系作者','https://r-l.ink/contact'],
+  ];
+  assert(supportRows.length===expectedSupport.length,'帮助与支持保留五个操作');
+  const drawings=new Set();
+  for(const [index,row] of supportRows.entries()){
+    const [label,target]=expectedSupport[index];
+    const text=row.querySelector('.about-link-text');
+    const icon=row.querySelector('.about-link-icon > svg');
+    const path=icon?.querySelector('path');
+    assert(text?.firstElementChild.textContent===label,'操作保留可见名称 '+label);
+    assert(target.startsWith('#') ? row.matches('button'+target) && row.type==='button' :
+      row.matches('a[target="_blank"]') && row.href===target,'操作保留目标 '+label);
+    assert(icon?.getAttribute('aria-hidden')==='true'&&icon.getAttribute('focusable')==='false'&&path?.getTotalLength()>0,
+      '图标仅作装饰且有有效路径 '+label);
+    assert(rect(icon).width===16&&rect(icon).height===16&&rect(icon.parentElement).width===20&&inside(icon,row),
+      '图标使用对齐的尺寸 '+label);
+    assert(rect(text).left===rect(supportRows[0].querySelector('.about-link-text')).left,'各行文字起点对齐 '+label);
+    if(matchMedia('(pointer:coarse)').matches)assert(rect(row).height>=44,'触屏操作目标至少44像素 '+label);
+    assert(getComputedStyle(path).stroke===getComputedStyle(row).color,'图标继承行文字颜色 '+label);
+    row.style.setProperty('color',theme==='dark'?'#edf0f5':'#13795b','important');
+    assert(getComputedStyle(path).stroke===getComputedStyle(row).color,'图标随文字颜色变化 '+label);
+    row.style.removeProperty('color');
+    row.focus();
+    assert(document.activeElement===row,'键盘聚焦到操作 '+label);
+    drawings.add(path.getAttribute('d'));
+  }
+  assert(drawings.size===5,'五个操作各有对应图形');
+  const diagnosticActions=[];
+  window.showDiagnosticExport=(upload=false)=>diagnosticActions.push(upload);
+  supportRows[0].querySelector('svg').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+  supportRows[1].click();
+  assert(diagnosticActions.length===1&&diagnosticActions[0]===false,'点击图标仍可导出，合成点击不触发上传');
   const modal=showConfirmModal('请核对本次设置');await tick();const dialog=document.querySelector('.ai-modal-card');assert(dialog&&rect(dialog).right<=innerWidth+1,'通用弹窗保持在视口内');for(const b of dialog.querySelectorAll('button'))assert(inside(b,dialog),'通用弹窗操作完整可达');dialog.querySelector('.ai-modal-btn-confirm').click();assert(await modal,'通用弹窗确认正常');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks,theme}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack,checks}))));}
