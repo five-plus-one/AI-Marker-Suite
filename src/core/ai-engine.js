@@ -157,8 +157,7 @@ function checkOfficialApiConnection(endpoint, apiKey, signal) {
                     try { data = JSON.parse(response.responseText); } catch (_) { /* 上游可能返回网页。 */ }
                     const errorCode = String(data?.error?.code || data?.error?.type || '');
                     if (status >= 200 && status < 300) finish(data?.choices?.[0]?.message && !data.error ? 'connected' : 'network');
-                    else if (['insufficient_user_quota', 'insufficient_token_quota', 'insufficient_quota',
-                        'billing_hard_limit_reached'].includes(errorCode)) finish('balance');
+                    else if (isBillingLimitError(status, errorCode)) finish('balance');
                     else if (status === 401 || (status === 403 && data?.error)) finish('invalid');
                     else if (!status || status === 403 || status === 408 || status >= 500) finish('network');
                     else finish('service');
@@ -861,6 +860,19 @@ function filterUsableImagesForAI(list) {
 }
 
 // ========== 通用 AI 请求函数 ==========
+function isBillingLimitError(status, code) {
+    return status === 402 || ['insufficient_user_quota', 'insufficient_token_quota',
+        'insufficient_quota', 'billing_hard_limit_reached'].includes(code);
+}
+
+function aiHttpErrorMessage(status, billingLimit) {
+    if (billingLimit) return '当前批改账户额度不足';
+    if (status === 429) return 'AI 服务繁忙，请稍后继续批改';
+    if (status >= 500) return 'AI 服务暂时不可用，请稍后继续批改';
+    if (status === 401) return 'AI 服务连接已失效，请检查账号连接或 API 密钥';
+    return 'AI 服务暂时无法完成批改，请检查线路和模型设置';
+}
+
 function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
     let apiKey = config.apiKey;
     if (config.officialAccountId) {
@@ -1038,9 +1050,11 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                 console.log(`✅ [诊断] onload 触发 — HTTP状态: ${res.status}, onprogress累计触发次数: ${progressCallCount}, 响应长度: ${responseText.length} 字节`);
                 if (res.status < 200 || res.status >= 300) {
                     let errorMsg = responseText || res.statusText;
+                    let errorCode;
                     try {
                         const errObj = JSON.parse(responseText);
                         if (errObj.error?.message) errorMsg = errObj.error.message;
+                        errorCode = errObj.error?.code || errObj.error?.type;
                     } catch (e) {}
                     // 清理 HTML 错误页（如 openresty 504），只保留有意义的文案
                     if (/<html|<!doctype/i.test(errorMsg)) {
@@ -1049,20 +1063,12 @@ function callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages
                     }
                     console.error(`❌ [诊断] API返回错误: ${res.status} — ${errorMsg}`);
 
-                    // 检测余额不足
-                    const isInsufficient = /insufficient|balance|quota|余额|额度|欠费/i.test(errorMsg);
-                    if (isInsufficient) {
-                        const isOfficial = isOfficialModelProvider(config);
-                        if (isOfficial) {
-                            showInsufficientBalanceDialog(true);
-                        } else {
-                            showInsufficientBalanceDialog(false);
-                        }
-                    }
-
-                    const error = new Error(`API报错 (${res.status}): ${errorMsg}`);
+                    const billingLimit = isBillingLimitError(res.status, errorCode);
+                    if (billingLimit) showInsufficientBalanceDialog(isOfficialModelProvider(config));
+                    const error = new Error(aiHttpErrorMessage(res.status, billingLimit));
                     error.status = res.status;
-                    error.routeUnavailable = !sawSSE && ([502, 503].includes(res.status)
+                    if (billingLimit) error.code = 'BILLING_LIMIT';
+                    error.routeUnavailable = !billingLimit && !sawSSE && ([502, 503].includes(res.status)
                         || ([403, 451].includes(res.status) && /<html|<!doctype/i.test(responseText)));
                     return reject(error);
                 }
@@ -1178,12 +1184,7 @@ function recordOutputLimitOutcome(config) {
 
 // ========== 瞬态错误退避重试（#211） ==========
 // 超时 / 模型返回空内容 / 流式未完整结束，此前是零重试直接抛错 -> 主流程暂停，
-// 无人值守形同虚设。这里做退避重试（默认 5s/10s/15s），次数与开关可配置。
-//
-// 设计约束（保证不影响既有流程与适配器）：
-//   - 只覆盖原先「零重试」的瞬态错误；截断升级、5xx/429 重试仍走 callAI 原有逻辑
-//   - 不消耗 requestBudget（那是主逻辑的请求预算，瞬态重试由 retryPolicy 单独限额）
-//   - 答卷一致性由填分前的 verifyPaperUnchanged 兜底（#212），重试本身不校验
+// 请求重试设置（默认退避 5s/10s/15s）。
 function getRetryPolicy(config) {
     const p = (config && config.retryPolicy) || {};
     const mr = Number(p.maxRetries);
@@ -1210,28 +1211,6 @@ function classifyTransientError(error, policy) {
     return null;
 }
 
-async function callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens) {
-    config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
-    const policy = getRetryPolicy(config);
-    const maxRetries = config.unattendedRetryBudget ? 0 : policy.maxRetries;
-    for (let i = 0; i <= maxRetries; i++) {
-        try {
-            if (config.signal?.aborted) throw new Error('用户主动暂停');
-            return await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
-        } catch (error) {
-            const kind = classifyTransientError(error, policy);
-            if (!kind || i >= maxRetries) throw error;
-            const delay = policy.backoffBaseMs * (i + 1);
-            console.warn(`⚠️ [callAI] ${kind}，${delay}ms 后重试（第${i + 1}/${policy.maxRetries}次）`);
-            if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
-                callId: config.diagnosticCallId, reason: kind, delayMs: delay,
-            });
-            if (onStreamUpdate) onStreamUpdate(`⏳ ${kind}，${Math.round(delay / 1000)}s 后自动重试（第${i + 1}/${policy.maxRetries}次）…`);
-            await abortableGradingDelay(delay, config.signal);
-        }
-    }
-}
-
 // 每次先遵循用户设置；截断时仅升级一次，由接口决定重试请求的输出额度。
 async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImages) {
     config = { ...config, signal: config.signal || window.aiGradingState.abortController?.signal };
@@ -1249,25 +1228,29 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
         config.endpoint = line.endpoint;
     }
     const unattendedBudget = config.unattendedRetryBudget;
-    const budget = unattendedBudget ? null : (config.requestBudget || { remaining: 3 });
+    const retryPolicy = getRetryPolicy(config);
+    const budget = unattendedBudget ? null : config.requestBudget;
+    if (budget) budget.remaining = Math.min(budget.remaining, retryPolicy.maxRetries + 1);
     const policy = getOutputLimitPolicy(config.outputLimitKey);
     const configuredLimit = Number(config.maxOutputTokens);
     let maxTokens = config.outputLimitEnabled === false || policy?.useProviderDefault
         ? null : (Number.isSafeInteger(configuredLimit) && configuredLimit > 0 ? configuredLimit : 2048);
     let upgraded = false;
     let serverRetried = 0;
+    let transientRetried = 0;
     for (let attempt = 0; ; attempt++) {
         if (config.signal?.aborted) throw new Error('用户主动暂停');
         if (budget && budget.remaining-- <= 0) throw new Error('AI请求次数已达到上限');
         try {
-            const result = await callAIOnceWithTransientRetry(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
+            const result = await callAIOnce(prompt, base64DataArray, config, onStreamUpdate, extraImages, maxTokens);
             if (switched && !config.signal?.aborted && routes.revision === officialApiRoutes.revision) {
                 officialApiFallback = line === preferred ? null : { preferred: preferred.id, line: line.id, expires: Date.now() + 300000 };
             }
             if (upgraded && config.outputObservation) config.outputObservation.upgraded = true;
             return result;
         } catch (error) {
-            const canRetry = unattendedBudget ? unattendedBudget.remaining > 0 : attempt < 2 && budget.remaining > 0;
+            const canRetry = unattendedBudget ? unattendedBudget.remaining > 0
+                : attempt < retryPolicy.maxRetries && (!budget || budget.remaining > 0);
             if (!canRetry || config.signal?.aborted) throw error;
             const fallback = line && getOfficialApiFallback(line, routes);
             if (fallback && error.routeUnavailable && !switched) {
@@ -1292,20 +1275,30 @@ async function callAI(prompt, base64DataArray, config, onStreamUpdate, extraImag
                 continue;
             }
             // 5xx/429 可重试：最多2次，递增延迟（504等瞬态错误常需更长恢复窗口）
-            const isServerError = error.status === 429 || (error.status >= 500 && error.status < 600);
+            const isServerError = error.code !== 'BILLING_LIMIT' &&
+                (error.status === 429 || (error.status >= 500 && error.status < 600));
+            const reason = classifyTransientError(error, retryPolicy);
             if (unattendedBudget) {
-                const reason = classifyTransientError(error, getRetryPolicy(config));
                 if ((isServerError || reason || (error.routeUnavailable && !error.status))
                     && await unattendedBudget.retry(undefined, error.status || reason || 'network')) continue;
                 throw error;
             }
-            if (isServerError && serverRetried < 2 && attempt < 2) {
+            if (isServerError && serverRetried < 2) {
                 serverRetried++;
                 const delay = error.status === 429 ? 5000 : (serverRetried === 1 ? 2000 : 5000);
                 console.warn(`⚠️ [callAI] 服务端错误 ${error.status}，${delay}ms 后重试（第${serverRetried}次）`);
                 if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
                     callId: config.diagnosticCallId, reason: 'HTTP 响应错误', httpStatus: error.status, delayMs: delay,
                 });
+                await abortableGradingDelay(delay, config.signal);
+                continue;
+            }
+            if (reason) {
+                const delay = retryPolicy.backoffBaseMs * ++transientRetried;
+                if (typeof DiagnosticLog !== 'undefined') DiagnosticLog.record('core/ai-engine.js', '重试模型请求', {
+                    callId: config.diagnosticCallId, reason, delayMs: delay,
+                });
+                onStreamUpdate?.(`${reason}，${Math.round(delay / 1000)} 秒后自动重试（${attempt + 1}/${retryPolicy.maxRetries}）…`);
                 await abortableGradingDelay(delay, config.signal);
                 continue;
             }

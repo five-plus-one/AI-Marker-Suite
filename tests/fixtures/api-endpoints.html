@@ -213,7 +213,36 @@ window.GM_xmlhttpRequest = request => {
             '备用线路通过后启用并聚焦配置批改方案');
         get('ob-next').click();
         check(get('ob-preset-name'), '成功页主操作进入方案配置');
-        hideOnboardingDialog();
+        get('ob-preset-name').value = '线路验证后的方案';
+        let choice = document.querySelector('input[name="ob-grading-mode"][value="normal"]');
+        choice.focus();
+        check(document.activeElement === choice, '引导中的批改模式可用键盘聚焦');
+        choice.click();
+        check(document.activeElement === document.querySelector('input[name="ob-grading-mode"]:checked'), '选择批改模式后保留焦点');
+        get('ob-next').click();
+        choice = document.querySelector('input[name="ob-workflow"][value="normal"]');
+        choice.focus();
+        check(document.activeElement === choice, '引导中的工作流可用键盘聚焦');
+        choice.click();
+        check(document.activeElement === document.querySelector('input[name="ob-workflow"]:checked'), '选择工作流后保留焦点');
+        get('ob-next').click();
+        check(get('ob-total-score')?.type === 'number', '整题批改可以在引导填写满分');
+        get('ob-skip-ctx').click();
+        check(get('ob-title').textContent === '方案已保存' && get('ob-start').textContent === '补充批改资料'
+            && PresetManager.data.list['线路验证后的方案'].gradingMode === 'normal', '稍后填写时保存方案并明确引导补齐必填资料');
+        const openPanel = openSettingsPanel;
+        const switchPage = switchSettingsPage;
+        let destination;
+        try {
+            openSettingsPanel = () => {};
+            switchSettingsPage = page => { destination = page; };
+            get('ob-start').click();
+            await until(() => destination);
+            check(destination === 'grading', '补充批改资料直接打开批改设置');
+        } finally {
+            openSettingsPanel = openPanel;
+            switchSettingsPage = switchPage;
+        }
         reset('network', 'network');
         showOnboardingDialog(true, 'first-launch');
         await until(() => get('ob-next')?.textContent === '重试线路测试');

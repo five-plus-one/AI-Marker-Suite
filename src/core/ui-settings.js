@@ -3218,7 +3218,8 @@ function saveAISettings(event) {
     const outputMode = document.querySelector('input[name="output-mode"]:checked')?.value || 'detailed';
 
     // 保存自动重试配置
-    const retryMaxRetries = Math.min(Math.max(parseInt(document.getElementById('retry-max-retries')?.value) || 3, 0), 5);
+    const retryLimit = Number.parseInt(document.getElementById('retry-max-retries')?.value, 10);
+    const retryMaxRetries = Number.isInteger(retryLimit) ? Math.min(Math.max(retryLimit, 0), 5) : 3;
     const retryOnTimeout = document.getElementById('retry-on-timeout')?.checked !== false;
     const unattendedAnswerFailure = getUnattendedAnswerFailure({
         retryPolicy: { unattendedAnswerFailure: document.getElementById('unattended-answer-recovery')?.value }
@@ -3451,6 +3452,7 @@ function showOnboardingDialog(forceShow, mode) {
     let manualKeyDraft;
     let accountCheck;
     let celebrate = false;
+    let needsGradingDetails = true;
     let detectedUnits = [];  // 检测到的小题列表
 
     function getStepInfo() {
@@ -3469,7 +3471,7 @@ function showOnboardingDialog(forceShow, mode) {
         const s = getStepInfo();
         const account = s.apiStep && markerManagedAccount();
         const title = s.apiStep ? account ? '五加一账号已连接' : manualKeyEntry ? '输入 API 密钥' : '连接批改服务'
-            : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '批改上下文（可选）' : '配置完成！';
+            : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '填写批改资料' : '方案已保存';
 
         overlay.innerHTML = `
             <div class="ai-modal-card ${s.apiStep ? 'ai-onboarding-account' : ''}" role="dialog" aria-modal="true" aria-labelledby="ob-title"
@@ -3490,10 +3492,10 @@ function showOnboardingDialog(forceShow, mode) {
                         <button class="ai-modal-btn-cancel" id="ob-back">上一步</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">继续</button>
                     ` : s.ctxStep ? `
-                        <button class="ai-modal-btn-cancel" id="ob-skip-ctx">跳过</button>
+                        <button class="ai-modal-btn-cancel" id="ob-skip-ctx">稍后填写</button>
                         <button class="ai-modal-btn-confirm" id="ob-next">保存并继续</button>
                     ` : `
-                        <button class="ai-modal-btn-confirm" id="ob-start" style="flex:1;">查看配置</button>
+                        <button class="ai-modal-btn-confirm" id="ob-start" style="flex:1;">${needsGradingDetails ? '补充批改资料' : '查看方案'}</button>
                     `}
                 </div>
             </div>
@@ -3595,20 +3597,20 @@ function showOnboardingDialog(forceShow, mode) {
                 <label style="display:block;margin-bottom:8px;color:#666;font-size:12px;font-weight:500;">批改模式</label>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                     <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='normal'?'#0052FF':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='normal'?'rgba(0,82,255,0.04)':'white'};text-align:center;">
-                        <input type="radio" name="ob-grading-mode" value="normal" ${gradingMode==='normal'?'checked':''} style="display:none;">
+                        <input type="radio" name="ob-grading-mode" value="normal" ${gradingMode==='normal'?'checked':''}>
                         <div style="font-size:20px;">📝</div>
                         <div style="font-size:13px;font-weight:600;color:#1d1d1f;">普通</div>
                         <div style="font-size:11px;color:#86868b;line-height:1.4;">等待确认<br>后提交</div>
                     </label>
                     <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='trial'?'#7c3aed':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='trial'?'rgba(124,58,237,0.04)':'white'};text-align:center;position:relative;">
-                        <input type="radio" name="ob-grading-mode" value="trial" ${gradingMode==='trial'?'checked':''} style="display:none;">
+                        <input type="radio" name="ob-grading-mode" value="trial" ${gradingMode==='trial'?'checked':''}>
                         <span style="position:absolute;top:-8px;right:-8px;font-size:9px;background:#7c3aed;color:white;padding:2px 6px;border-radius:4px;font-weight:600;">推荐</span>
                         <div style="font-size:20px;">🔍</div>
                         <div style="font-size:13px;font-weight:600;color:#1d1d1f;">试改</div>
                         <div style="font-size:11px;color:#86868b;line-height:1.4;">支持纠错<br>和优化</div>
                     </label>
                     <label style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:2px solid ${gradingMode==='unattended'?'#D93025':'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${gradingMode==='unattended'?'rgba(217,48,37,0.04)':'white'};text-align:center;">
-                        <input type="radio" name="ob-grading-mode" value="unattended" ${gradingMode==='unattended'?'checked':''} style="display:none;">
+                        <input type="radio" name="ob-grading-mode" value="unattended" ${gradingMode==='unattended'?'checked':''}>
                         <div style="font-size:20px;">⚡</div>
                         <div style="font-size:13px;font-weight:600;color:#1d1d1f;">无人</div>
                         <div style="font-size:11px;color:#86868b;line-height:1.4;">全自动<br>自动重试</div>
@@ -3636,16 +3638,13 @@ function showOnboardingDialog(forceShow, mode) {
             <div style="display:flex;flex-direction:column;gap:10px;">
                 ${workflows.map(w => `
                     <label style="display:flex;align-items:center;gap:14px;padding:16px;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.08)'};border-radius:12px;cursor:pointer;transition:all 0.2s;background:${selectedWorkflow===w.id?w.color+'08':'white'};">
-                        <input type="radio" name="ob-workflow" value="${w.id}" ${selectedWorkflow===w.id?'checked':''} style="display:none;">
-                        <div style="width:40px;height:40px;border-radius:10px;background:${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;transition:all 0.2s;">
+                        <input type="radio" name="ob-workflow" value="${w.id}" ${selectedWorkflow===w.id?'checked':''}>
+                        <div aria-hidden="true" style="width:40px;height:40px;border-radius:10px;background:${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;transition:all 0.2s;">
                             ${w.icon}
                         </div>
                         <div style="flex:1 1 auto;min-width:0;">
-                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</div>
-                            <div style="font-size:12px;color:#86868b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.desc}</div>
-                        </div>
-                        <div style="width:20px;height:20px;border-radius:50%;border:2px solid ${selectedWorkflow===w.id?w.color:'rgba(0,0,0,0.15)'};display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s;">
-                            ${selectedWorkflow===w.id?`<div style="width:10px;height:10px;border-radius:50%;background:${w.id==='fast'?'#0052FF':w.id==='normal'?'#1d1d1f':'#7c3aed'};"></div>`:''}
+                            <div style="font-size:14px;font-weight:600;color:#1d1d1f;">${w.name}</div>
+                            <div style="font-size:12px;color:#68686d;margin-top:2px;">${w.desc}</div>
                         </div>
                     </label>
                 `).join('')}
@@ -3669,7 +3668,8 @@ function showOnboardingDialog(forceShow, mode) {
             }
         } catch (e) { /* ignore */ }
 
-        var unitsHtml = '';
+        var unitsHtml = '<div class="form-group"><label for="ob-total-score">满分</label>' +
+            '<input type="number" id="ob-total-score" min="0" step="any" inputmode="decimal"></div>';
         if (detectedUnits.length > 0) {
             unitsHtml = '<div class="form-group" style="margin-top:12px;">' +
                 '<label style="font-weight:600;">检测到 ' + detectedUnits.length + ' 个小题</label>' +
@@ -3687,7 +3687,7 @@ function showOnboardingDialog(forceShow, mode) {
         }
 
         return '<p style="font-size:13px;color:#666;line-height:1.6;margin-bottom:16px;">' +
-            '配置批改上下文可以提高评分准确性。点击下方区域可打开 Markdown 编辑器（支持公式和图片）。' +
+            '开始批改前，请填写参考答案、评分标准和满分。题目内容可按需补充。' +
             '</p>' +
             '<div class="form-group">' +
             '<label>题目内容</label>' +
@@ -3705,19 +3705,15 @@ function showOnboardingDialog(forceShow, mode) {
     }
 
     function renderDoneStep() {
-        const wfName = { fast: '快速批改', normal: '普通批改', dual: '双评模式' }[selectedWorkflow] || '快速批改';
+        const wfName = { fast: '快速批改', normal: '高精模式', dual: '双评模式' }[selectedWorkflow] || '快速批改';
         const modeName = { normal: '普通模式', trial: '试改模式', unattended: '无人模式' }[gradingMode] || '试改模式';
         return `
             <div style="text-align:center;padding:20px 0;">
-                <div style="font-size:48px;margin-bottom:16px;">✅</div>
-                <div style="font-size:16px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">配置完成！</div>
                 <div style="font-size:13px;color:#666;line-height:1.8;">
-                    方案「${escapeSettingsHtml(presetName)}」已创建并绑定到当前试题。<br>
+                    当前试题已使用「${escapeSettingsHtml(presetName)}」方案。<br>
                     <span style="color:#1d1d1f;font-weight:500;">${wfName}</span> · <span style="color:#1d1d1f;font-weight:500;">${modeName}</span>
                 </div>
-                <div style="margin-top:16px;padding:12px;background:rgba(0,82,255,0.06);border-radius:10px;font-size:12px;color:#0052FF;">
-                    点击下方按钮查看配置详情
-                </div>
+                ${needsGradingDetails ? '<p style="margin:16px 0 0;color:#666;font-size:13px;">请补齐批改资料，再开始批改。</p>' : ''}
             </div>
         `;
     }
@@ -3840,6 +3836,7 @@ function showOnboardingDialog(forceShow, mode) {
                     presetName = overlay.querySelector('#ob-preset-name').value;
                     gradingMode = r.value;
                     render();
+                    overlay.querySelector('input[name="ob-grading-mode"]:checked')?.focus();
                 };
             });
             overlay.querySelector('#ob-next').onclick = () => {
@@ -3852,7 +3849,11 @@ function showOnboardingDialog(forceShow, mode) {
         } else if (s.workflowStep) {
             overlay.querySelector('#ob-back').onclick = () => { currentStep--; render(); };
             overlay.querySelectorAll('input[name="ob-workflow"]').forEach(r => {
-                r.onchange = () => { selectedWorkflow = r.value; render(); };
+                r.onchange = () => {
+                    selectedWorkflow = r.value;
+                    render();
+                    overlay.querySelector('input[name="ob-workflow"]:checked')?.focus();
+                };
             });
             overlay.querySelector('#ob-next').onclick = () => { currentStep++; render(); };
         } else if (s.ctxStep) {
@@ -3910,7 +3911,10 @@ function showOnboardingDialog(forceShow, mode) {
             overlay.querySelector('#ob-start').onclick = () => {
                 hideOnboardingDialog();
                 GM_setValue('ai-grading-show-onboarding', false);
-                setTimeout(() => openSettingsPanel(), 300);
+                setTimeout(() => {
+                    openSettingsPanel();
+                    if (needsGradingDetails) switchSettingsPage('grading');
+                }, 300);
             };
         }
     }
@@ -3948,6 +3952,9 @@ function showOnboardingDialog(forceShow, mode) {
                 newPreset.scoring.units = units;
                 newPreset.scoring.roundStep = Math.min(...units.map(unit => unit.roundStep));
                 newPreset.scoring.maxScore = units.reduce(function (sum, u) { return sum + (u.maxScore || 0); }, 0);
+            } else {
+                const maxScore = overlay.querySelector('#ob-total-score')?.valueAsNumber;
+                if (Number.isFinite(maxScore) && maxScore > 0) newPreset.scoring.maxScore = maxScore;
             }
         }
         PresetManager.data.list[presetName] = newPreset;
@@ -3962,6 +3969,7 @@ function showOnboardingDialog(forceShow, mode) {
         }
         renderPresetDropdown();
         fillFormFromActivePreset();
+        needsGradingDetails = !validateRequiredFields({ showErrors: false }).valid;
         currentStep = mode === 'first-launch' ? 5 : 4;
         render();
     }
