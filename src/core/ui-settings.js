@@ -142,8 +142,10 @@ function createSettingsPanel(options) {
                 justify-content: space-between !important; align-items: center !important;
                 transition: background 0.15s !important; user-select: none !important;
             }
+            #ai-grading-settings button.section-header { width: 100%; border: 0; background: transparent; }
+            #ai-grading-settings button.section-header:focus-visible { outline: 2px solid var(--fp-primary, #2166ad); outline-offset: -2px; }
             #ai-grading-settings .section-header:hover { background: rgba(0,0,0,0.02) !important; }
-            #ai-grading-settings .section-header h4 {
+            #ai-grading-settings .section-header :is(h4, .section-title) {
                 margin: 0 !important; font-size: 12px !important; font-weight: 600 !important; color: #86868b !important;
                 text-transform: uppercase !important; letter-spacing: 0.8px !important;
                 display: flex !important; align-items: center !important; gap: 6px !important;
@@ -658,7 +660,7 @@ function createSettingsPanel(options) {
                 border-bottom: 1px solid #e1e6ef !important;
             }
             #ai-grading-settings .section-header:hover { background: #f3f6fa !important; }
-            #ai-grading-settings .section-header h4 {
+            #ai-grading-settings .section-header :is(h4, .section-title) {
                 color: #344054 !important;
                 letter-spacing: 0.4px !important;
             }
@@ -855,13 +857,6 @@ function createSettingsPanel(options) {
                             <input type="number" id="unattended-retries" min="0" max="5" step="1" value="5">
                         </div>
                         <div class="mode-desc">复查确认空白后按 0 分继续，发现作答时重评。直接重试会重新评分。无法确认原卷或重试用尽时，请人工核对。</div>
-                        <div id="zhixue-quota-setting" hidden>
-                            <div class="checkbox-group" style="margin-top:12px;">
-                                <input type="checkbox" id="zhixue-continue-quota" aria-describedby="zhixue-continue-quota-desc">
-                                <label for="zhixue-continue-quota" style="display:flex;align-items:center;min-height:44px;flex:1;">本题分配量完成后继续多阅（实验性）</label>
-                            </div>
-                            <div id="zhixue-continue-quota-desc" class="mode-desc">适用于本浏览器的智学网无人批改。平台允许多阅时继续领取本题答卷，达到批阅目标或需要换题时停下。</div>
-                        </div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="reference-image-evidence-check"><label for="reference-image-evidence-check">配图作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
                         <div class="mode-desc">有参考配图时先单独识别学生作答，再核对评分引用。此选项会增加一次识别请求。</div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="scoped-question-evidence"><label for="scoped-question-evidence">分小问作答核对 <span style="color:#E67E22;font-size:11px;">实验性</span></label></div>
@@ -876,6 +871,20 @@ function createSettingsPanel(options) {
                             <input type="number" id="unattended-review-limit" min="1" max="50" step="1" value="5" disabled></div>
                         <div class="mode-desc">达到允许数量后，仍可批改可评分的答卷。遇到需要新增待复核记录的答卷时，请先完成已有复核。原图保留到完成复核，缓存空间不足时会提示处理。</div>
                         <div class="mode-desc" style="font-size:11px;color:#86868b;margin-top:6px;">注意：超时后服务端可能仍在生成，重试会产生重复计费。若不希望重复扣费可取消勾选。</div>
+                    </div>
+                </div>
+
+                <div id="zhixue-quota-setting" class="form-section" hidden>
+                    <button type="button" class="section-header" aria-expanded="true" aria-controls="zhixue-quota-options">
+                        <span class="section-title">智学网</span>
+                        <svg class="section-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div class="section-body" id="zhixue-quota-options">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="zhixue-continue-quota" aria-describedby="zhixue-continue-quota-desc">
+                            <label for="zhixue-continue-quota" style="display:flex;align-items:center;min-height:44px;flex:1;">本题分配量完成后继续多阅（实验性）</label>
+                        </div>
+                        <div id="zhixue-continue-quota-desc" class="mode-desc">适用于智学网考试阅卷的无人批改，默认关闭。开启后，平台允许多阅时会继续领取本题答卷，达到批阅目标或需要换题时停止。</div>
                     </div>
                 </div>
 
@@ -1309,7 +1318,10 @@ function createSettingsPanel(options) {
 
     // 手风琴折叠
     panel.querySelectorAll('.section-header').forEach(header => {
-        header.onclick = () => header.parentElement.classList.toggle('collapsed');
+        header.onclick = () => {
+            const collapsed = header.parentElement.classList.toggle('collapsed');
+            if (header.hasAttribute('aria-expanded')) header.setAttribute('aria-expanded', String(!collapsed));
+        };
     });
 
     panel.querySelector('#btn-new-preset').onclick = handleNewPreset;
@@ -1687,7 +1699,7 @@ function setupSettingsMenuLayout(panel) {
 
     function findSection(title) {
         return Array.from(configTab.querySelectorAll('.form-section')).find(section => {
-            const heading = section.querySelector('.section-header h4');
+            const heading = section.querySelector('.section-header :is(h4, .section-title)');
             return heading && heading.textContent.trim().startsWith(title);
         });
     }
@@ -1723,6 +1735,7 @@ function setupSettingsMenuLayout(panel) {
     const apiWarning = configTab.querySelector('#api-key-warning');
     if (apiWarning) pages.ai.appendChild(apiWarning);
     moveSection('automation', '配置引导');
+    moveSection('automation', '智学网');
     moveSection('automation', '批阅份数');
     moveSection('automation', '自动重试');
     moveSection('automation', '批改节奏');

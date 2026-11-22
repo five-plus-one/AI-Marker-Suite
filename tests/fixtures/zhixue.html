@@ -121,6 +121,31 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   const quotaSetting = document.getElementById('zhixue-quota-setting');
   const quotaInput = document.getElementById('zhixue-continue-quota');
   assert(quotaSetting?.hidden === false && quotaInput?.checked === false, '考试阅卷设置显示默认关闭的续批选项');
+  const settingsButton = document.querySelector('.ai-settings-btn');
+  const settingsPanel = document.getElementById('ai-grading-settings');
+  const automationButton = document.querySelector('.settings-nav-item[data-page="automation"]');
+  const openAutomation = async () => {
+    if (!settingsPanel.classList.contains('open')) settingsButton.click();
+    automationButton.click();
+    await until(() => settingsPanel.classList.contains('open') && quotaSetting.getBoundingClientRect().width > 0);
+  };
+  await openAutomation();
+  const quotaHeader = quotaSetting.querySelector('button.section-header');
+  const quotaOptions = document.getElementById(quotaHeader.getAttribute('aria-controls'));
+  assert(quotaSetting.parentElement.matches('.settings-page[data-page="automation"]')
+      && quotaHeader.textContent.trim() === '智学网'
+      && quotaInput.closest('.form-section') === quotaSetting
+      && document.getElementById('retry-max-retries').closest('.form-section') !== quotaSetting,
+      '自动化中的智学网折叠区独立于自动重试');
+  assert(document.getElementById(quotaInput.getAttribute('aria-describedby')).textContent.includes('考试阅卷的无人批改'),
+      '续批选项说明考试阅卷与无人模式的适用范围');
+  quotaHeader.focus();
+  assert(document.activeElement === quotaHeader && quotaHeader.getAttribute('aria-expanded') === 'true', '智学网标题可聚焦');
+  quotaHeader.click();
+  assert(quotaHeader.getAttribute('aria-expanded') === 'false' && quotaOptions.getClientRects().length === 0, '收起后隐藏续批选项');
+  quotaHeader.click();
+  assert(quotaHeader.getAttribute('aria-expanded') === 'true' && quotaOptions.getClientRects().length === 1, '展开后显示续批选项');
+  settingsButton.click();
   document.querySelector('.ai-grade-btn').click();await until(()=>effects.requests===1);
   const run=window.aiGradingState.activeRun;
   document.getElementById('currentTopicIndex').textContent='第30题';
@@ -159,6 +184,14 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   await wait(350);
   assert(quotaClicks === 1 && effects.requests === 3 && otherClicks === 0 && popup.isConnected, '达到批阅目标后留在原站提示，等待用户决定');
   popup.remove();
+  await openAutomation();
+  if (quotaInput.checked) quotaInput.click();
+  document.getElementById('save-config-btn').click();
+  assert(!a.isQuotaContinuationEnabled(), '从智学网设置区关闭续批并保存');
+  await openAutomation();
+  quotaInput.click();
+  document.getElementById('save-config-btn').click();
+  assert(a.isQuotaContinuationEnabled(), '从智学网设置区开启续批并保存');
   a.saveQuotaContinuation(false);
   Object.assign(window.aiGradingState.batchProgress, {enabled:false, reached:false});
   image.src=dataA;

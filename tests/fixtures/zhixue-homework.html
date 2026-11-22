@@ -68,6 +68,14 @@ for (const button of root.querySelectorAll('.score-btn')) button.onclick = () =>
       && document.querySelector('.su-max-score').value === '10'
       && document.querySelector('.su-round-step').value === '0.5', '真实评分控件的满分和步长进入设置表格');
     check(adapter?.id === 'zhixue' && adapter.isMarkingPage() && !adapter.isQuotaContinuationEnabled, '作业路由由专用适配接管');
+    const settingsButton = document.querySelector('.ai-settings-btn');
+    const settingsPanel = get('ai-grading-settings');
+    if (!settingsPanel.classList.contains('open')) settingsButton.click();
+    await until(() => settingsPanel.classList.contains('open'), '作业设置页已打开');
+    document.querySelector('.settings-nav-item[data-page="automation"]').click();
+    const quotaSetting = get('zhixue-quota-setting');
+    check(quotaSetting.hidden && getComputedStyle(quotaSetting).display === 'none', '作业阅卷隐藏智学网续批折叠区');
+    settingsButton.click();
     const taskId = adapter.getTaskIdentifier(), first = adapter.getPaperIdentity();
     check(!!first && (await adapter.gatherAnswerImages()).length === 1 && adapter.getScoreInputs()[0].maxScore === 10, '读取当前题的答卷和满分');
     const hiddenImage = image.cloneNode();
