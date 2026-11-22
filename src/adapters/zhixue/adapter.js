@@ -26,6 +26,22 @@ function visibleZhixueDialogs() {
         ? Array.from(doc.querySelectorAll(ZHIXUE_DIALOG_SELECTOR)).filter(isZhixueDialogElementVisible) : []);
 }
 
+function zhixueDialogText(node) {
+    return node?.textContent.trim().normalize('NFKC');
+}
+
+function findZhixueQuotaDialog() {
+    try {
+        const dialogs = visibleZhixueDialogs();
+        if (dialogs.length !== 1) return null;
+        const [dialog] = dialogs;
+        if (dialog.matches('.msgbox-fade-leave-active, .msgbox-fade-leave-to')
+            || zhixueDialogText(dialog.querySelector('.el-message-box__title')) !== '温馨提示'
+            || zhixueDialogText(dialog.querySelector('.el-message-box__message')) !== ZHIXUE_QUOTA_MESSAGE.normalize('NFKC')) return null;
+        return dialog;
+    } catch (_) { return null; }
+}
+
 function readZhixueDialogTree(root) {
     let remaining = 96;
     let cropped = false;
@@ -650,18 +666,13 @@ const ZhixueAdapter = {
         return currentTask => {
             if (attempted || currentTask !== taskId) return false;
             try {
-                const dialogs = visibleZhixueDialogs();
-                if (dialogs.length !== 1) return false;
-                const [dialog] = dialogs;
-                const text = node => node?.textContent.trim().normalize('NFKC');
-                if (text(dialog.querySelector('.el-message-box__title')) !== '温馨提示'
-                    || dialog.matches('.msgbox-fade-leave-active, .msgbox-fade-leave-to')
-                    || text(dialog.querySelector('.el-message-box__message')) !== ZHIXUE_QUOTA_MESSAGE.normalize('NFKC')) return false;
+                const dialog = findZhixueQuotaDialog();
+                if (!dialog) return false;
                 const buttons = Array.from(dialog.querySelectorAll('.el-message-box__btns button.el-button'))
                     .filter(isZhixueDialogElementVisible);
                 const primary = buttons.find(button => button.classList.contains('el-button--primary'));
                 const secondary = buttons.find(button => button !== primary);
-                if (buttons.length !== 2 || text(primary) !== '继续多阅' || text(secondary) !== '切换下一题'
+                if (buttons.length !== 2 || zhixueDialogText(primary) !== '继续多阅' || zhixueDialogText(secondary) !== '切换下一题'
                     || primary.matches(':disabled, [aria-disabled="true"], .is-loading, .is-disabled')
                     || secondary.classList.contains('el-button--primary')) return false;
                 const rect = primary.getBoundingClientRect();
@@ -723,6 +734,9 @@ const ZhixueAdapter = {
                     if (context.continueQuota?.(taskId)) {
                         deadline = Date.now() + waitMs;
                         context.onQuotaContinued?.();
+                    } else if (context.taskId && taskId === context.taskId && !this.isQuotaContinuationEnabled()
+                        && findZhixueQuotaDialog()) {
+                        return finish(false, 'zhixue-quota-prompt');
                     }
                 }
                 if (Date.now() >= deadline) finish(false, 'deadline');

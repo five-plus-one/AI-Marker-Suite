@@ -55,8 +55,8 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         try {
             hasNext = await adapter.waitForNextPaper(oldImgUrl, runContext ? {
                 paperId: runContext.paperId, taskId: runContext.taskId, signal: runContext.controller.signal,
-                ...(diagnostic && adapter.id === 'zhixue' ? {
-                    onDialog: snapshot => diagnostic.grading('platform-dialog', runContext, { round, ...snapshot }, { persist: true }),
+                ...(adapter.id === 'zhixue' ? {
+                    onDialog: diagnostic && (snapshot => diagnostic.grading('platform-dialog', runContext, { round, ...snapshot }, { persist: true })),
                     onWaitObserved: summary => { observation = summary; },
                 } : {}),
                 ...(runContext.continueZhixueQuota ? {
@@ -85,6 +85,7 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         if (runContext && !isGradingContextCurrent(runContext)) return true;
         // 长等待期间状态可能已变，再次检查
         if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return true;
+        if (observation?.reason === 'zhixue-quota-prompt') return observation.reason;
         if (round < maxRounds) {
             console.warn(`⚠️ 第${round}次等待下一份试卷超时，自动重试中（${round}/${maxRounds - 1}）...`);
             showToast(`⚠️ 平台加载下一份试卷缓慢，自动重试中（${round}/${maxRounds - 1}）…`);
@@ -1036,12 +1037,12 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
 
                 if (adapter && adapter.waitForNextPaper) {
                     const rounds = isUnattendedRun(runContext) ? getUnattendedRetryLimit(runContext.configuration) + 1 : 3;
-                    const hasNext = await waitForNextPaperWithRetry(adapter, oldImgUrl, rounds, runContext);
+                    const waitResult = await waitForNextPaperWithRetry(adapter, oldImgUrl, rounds, runContext);
                     if (!isGradingContextCurrent(runContext)) return;
                     if (adapter.isGradingTaskComplete?.()) {
                         stopAutoGrading();
                         showToast('当前题块阅卷已完成');
-                    } else if (hasNext) {
+                    } else if (waitResult === true) {
                         window.aiGradingState.pendingGradingPaper = null;
                         // 批改节奏：随机休息（实验性）——休息放在下一份已出现之后，
                         // 平台侧会把休息时间计入下一份的「批改用时」，拟真度更高
@@ -1052,8 +1053,11 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         setTimeout(() => { if (isGradingContextCurrent(runContext)) startAutoGrading(); }, 500);
                     } else {
                         // 不停止，改为暂停让用户决定
-                        diagnostic?.grading('grading-paused', runContext, { reason: 'next-paper-timeout' }, { persist: true });
-                        console.warn('⚠️ 加载下一份试卷超时，暂停批改');
+                        const quotaPrompt = waitResult === 'zhixue-quota-prompt';
+                        diagnostic?.grading('grading-paused', runContext, {
+                            reason: quotaPrompt ? waitResult : 'next-paper-timeout',
+                        }, { persist: true });
+                        if (!quotaPrompt) console.warn('⚠️ 加载下一份试卷超时，暂停批改');
                         window.aiGradingState.isRunning = false;
                         window.aiGradingState.isPaused = true;
                         const btn = document.querySelector('.ai-grade-btn');
@@ -1062,7 +1066,9 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                             btn.classList.remove('running', 'unattended', 'trial');
                             btn.classList.add('paused');
                         }
-                        showToast('⚠️ 下一份试卷加载超时，已暂停。点击"继续批改"可重试');
+                        showToast(quotaPrompt
+                            ? '本题分配量已完成，批改已暂停。请先处理智学网弹窗，再继续批改。'
+                            : '⚠️ 下一份试卷加载超时，已暂停。点击"继续批改"可重试');
                     }
                 } else {
                     setTimeout(() => { if (isGradingContextCurrent(runContext)) startAutoGrading(); }, 500);

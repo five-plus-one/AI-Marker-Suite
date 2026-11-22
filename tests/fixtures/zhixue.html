@@ -160,6 +160,19 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   assert(quotaClicks === 1 && effects.requests === 3 && otherClicks === 0 && popup.isConnected, '达到批阅目标后留在原站提示，等待用户决定');
   popup.remove();
   a.saveQuotaContinuation(false);
+  Object.assign(window.aiGradingState.batchProgress, {enabled:false, reached:false});
+  image.src=dataA;
+  await loaded();
+  document.querySelector('.ai-grade-btn').click();
+  await until(() => effects.requests === 4);
+  effects.complete();
+  await until(() => effects.submits === 3);
+  await until(() => window.aiGradingState.isPaused);
+  assert(Array.from(document.querySelectorAll('.toast-notification')).some(toast =>
+      toast.textContent.includes('本题分配量已完成，批改已暂停。请先处理智学网弹窗，再继续批改。')),
+      '续批关闭时在首轮等待内提示用户处理原站配额弹窗');
+  assert(quotaClicks === 1 && otherClicks === 0 && effects.requests === 4 && popup.isConnected,
+      '配额暂停保留原站选择且不继续评分');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:error.message}))));}
 })();
