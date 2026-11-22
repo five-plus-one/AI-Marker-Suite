@@ -109,16 +109,25 @@ async function exportDiagnosticPackage(start, end) {
         presets: PresetManager.data, providers: ProviderManager.data, workflows: WorkflowManager.data,
         runtime: window.aiGradingState,
     }, { secrets, omitImageData: true });
+    const files = {
+        '导出说明.json': null,
+        '运行日志.json': logs.entries,
+        ...(logs.gradingEvents.length ? { '批改过程.json': logs.gradingEvents } : {}),
+        '阅卷记录.json': null,
+        '配置摘要.json': null,
+        '配置详情.json': configurationDetails,
+    };
+    const imageEntryLimit = ZipWriter.maxEntries - Object.keys(files).length;
     const entries = [], recordImages = [];
     const imageBudget = 64 * 1024 * 1024;
     let imageBytes = 0, imageCount = 0, imagesLimited = false;
     for (const [index, record] of records.entries()) {
-        const files = [];
+        const imageFiles = [];
         try {
             const base64s = record.imageBase64s?.length ? record.imageBase64s : record.id ? await ImageStore.get(record.id) : null;
             for (const [imageIndex, base64] of (Array.isArray(base64s) ? base64s : []).entries()) {
                 if (typeof base64 !== 'string' || !base64) continue;
-                if (base64.length * 0.75 > imageBudget - imageBytes || entries.length >= 65530) {
+                if (base64.length * 0.75 > imageBudget - imageBytes || entries.length >= imageEntryLimit) {
                     imagesLimited = true;
                     continue;
                 }
@@ -126,13 +135,13 @@ async function exportDiagnosticPackage(start, end) {
                     const data = HistoryManager._base64ToBytes(base64);
                     const name = `答卷图片/${index + 1}/${imageIndex + 1}.png`;
                     entries.push({ name, data });
-                    files.push(name);
+                    imageFiles.push(name);
                     imageBytes += data.length;
                     imageCount++;
                 } catch (_) { /* 其他图片仍可导出。 */ }
             }
         } catch (_) { /* 图片可能存放在另一平台域名。 */ }
-        recordImages.push(files);
+        recordImages.push(imageFiles);
     }
     const recordDetails = records.map(({ imageBase64s, ...record }, index) => {
         return diagnosticSnapshot({ ...record, imageFiles: recordImages[index] }, { secrets, omitImageData: true });
@@ -164,14 +173,9 @@ async function exportDiagnosticPackage(start, end) {
         logStorageLimited: logs.storageLimited,
         historyFromStorage,
     };
-    const files = {
-        '导出说明.json': metadata,
-        '运行日志.json': logs.entries,
-        ...(logs.gradingEvents.length ? { '批改过程.json': logs.gradingEvents } : {}),
-        '阅卷记录.json': recordDetails,
-        '配置摘要.json': configuration,
-        '配置详情.json': configurationDetails,
-    };
+    files['导出说明.json'] = metadata;
+    files['阅卷记录.json'] = recordDetails;
+    files['配置摘要.json'] = configuration;
     for (const [name, value] of Object.entries(files)) {
         entries.push({ name, data: ZipWriter._utf8(JSON.stringify(value, null, 2)) });
     }
