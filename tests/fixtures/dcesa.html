@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>教学质量监测管理系统区级正评示例</title>
+<div>
+    <div id="markMain">
+        <div class="normal-marking-left-content">
+            <div class="normal-marking-left-content-img"><div><img class="el-image__inner" alt="示例答卷"></div></div>
+            <div class="normal-marking-left-content-notask" hidden>提示：当前暂无阅卷任务</div>
+        </div>
+        <div id="scorePanel">
+            <div class="rows"></div>
+            <button type="button" class="el-button-submit">提交分数</button>
+        </div>
+    </div>
+</div>
+<pre id="result"></pre>
+<script>
+window.unsafeWindow = window;
+const fixtureEndpoint = 'https://ai.fixture.invalid/v1/chat/completions';
+const settings = new Map(Object.entries({
+    'ai-grading-show-onboarding': false,
+    'ai-grading-presets': JSON.stringify({
+        active: 'Fixture', bindings: {}, list: { Fixture: {
+            question: '第8题', answer: '参考答案', rubric: '根据作答给分', workflowId: 'fixture',
+            gradingMode: 'trial', scoring: { maxScore: 5, roundStep: 1, roundMethod: 'round' },
+            blankDetection: { enabled: false },
+        } },
+    }),
+    'ai-grading-providers-v2': JSON.stringify({
+        providers: { '5plus1官方': { apiKey: 'fixture' }, Fixture: {
+            endpoint: fixtureEndpoint, apiKey: 'fixture', models: { fixture: {} },
+        } },
+        activeProvider: 'Fixture', activeModel: 'fixture',
+    }),
+    'ai-grading-workflows': JSON.stringify({
+        activeWorkflow: 'fixture',
+        workflows: { Fixture: { id: 'fixture', model: { provider: 'Fixture', model: 'fixture' }, dualEval: null } },
+    }),
+}));
+let gradingRequest;
+window.GM_getValue = (key, fallback) => settings.get(key) ?? fallback;
+window.GM_setValue = (key, value) => settings.set(key, value);
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => {
+    if (options.method === 'POST' && options.url === fixtureEndpoint) {
+        gradingRequest = JSON.parse(options.data);
+        queueMicrotask(() => options.onload({ status: 200, responseText: JSON.stringify({
+            choices: [{ message: { content: '【答案复述】\n示例作答\n【得分】\n2' }, finish_reason: 'stop' }],
+        }) }));
+        return { abort() {} };
+    }
+    const controller = new AbortController();
+    fetch(options.url, { signal: controller.signal }).then(async response => {
+        options.onload({ status: response.status, response: await response.arrayBuffer() });
+    }).catch(() => options.onerror?.());
+    return { abort: () => controller.abort() };
+};
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const checks = [];
+    const check = (passed, label) => {
+        if (!passed) throw new Error(label);
+        checks.push(label);
+    };
+    const root = document.getElementById('markMain');
+    const rows = root.querySelector('.rows');
+    const image = root.querySelector('img');
+    const noTask = root.querySelector('.normal-marking-left-content-notask');
+    const native = root.__vue__ = {
+        $el: root, $parent: { topicId: 2 }, $refs: {},
+        markType: 'normal', isBackMark: false, isAutoSubmit: false, isQuickScore: false,
+    };
+    const makeRule = (id, name, max, step) => ({
+        gfbbzId: id, gfbbzName: name, fullscore: max, gfbbzbc: step, fdList: [],
+        points: Array.from({ length: max / step + 1 }, (_, index) => index * step),
+    });
+    const defaultRules = () => [makeRule('rule-a', '8', 5, 1)];
+    const setPaper = async (name, { mark = 'first', crop = '', rules = defaultRules() } = {}) => {
+        native.imageSuccess = false;
+        native.noTask = false;
+        noTask.hidden = true;
+        const item = {
+            imageSrc: 'https://esabj.ks3-cn-beijing.ksyuncs.com/__fixture/paper-' + name + '.jpg?Signature=' + mark,
+            cordinate: crop,
+        };
+        native.topic = {
+            topicId: native.$parent.topicId, topicName: '8', ksid: 'paper-' + name, secretNo: 'blind-' + name,
+            examPaperType: 1, scorePointMode: 1, images: [item], gfbbzList: rules,
+        };
+        native.$refs.markImageItem = [{ item, isCut: !!crop, $el: image.parentElement }];
+        rows.textContent = '';
+        for (const rule of rules) {
+            const row = document.createElement('div');
+            row.className = 'scorepanel-socre-row';
+            row.innerHTML = '<div class="scorepanel-score-row-title"></div><div class="normal-marking-socrepanel-row-point"></div>';
+            row.firstElementChild.textContent = rule.gfbbzName;
+            for (const point of rule.points) {
+                const button = document.createElement('a');
+                button.textContent = point;
+                button.addEventListener('click', () => {
+                    rule.score = point;
+                    choiceClicks++;
+                });
+                row.lastElementChild.append(button, ' ');
+            }
+            rows.append(row);
+        }
+        image.src = item.imageSrc;
+        await image.decode();
+        native.imageSuccess = true;
+    };
+    let action = 'rejected', choiceClicks = 0, submitClicks = 0, nextLoaded;
+    const submit = root.querySelector('.el-button-submit');
+    submit.addEventListener('click', () => {
+        submitClicks++;
+        const { topic } = native;
+        const request = new XMLHttpRequest();
+        request.open('POST', '/exam/area/marking/normal/saveMarkingGfbbz?outcome=' + action);
+        request.setRequestHeader('Content-Type', 'application/json');
+        if (action === 'last') request.responseType = 'json';
+        request.send(JSON.stringify({
+            ksdyNo: 'sample-exam', subjectId: 1, pjdId: 'sample-site',
+            ksid: topic.ksid, topicId: topic.topicId, secretNo: action === 'another-paper' ? 'other' : topic.secretNo,
+            gfbbzList: topic.gfbbzList,
+        }));
+        if (action === 'last') {
+            native.noTask = true;
+            native.imageSuccess = false;
+            noTask.hidden = false;
+        } else {
+            nextLoaded = setPaper('b');
+        }
+    });
+    try {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        check(adapter?.id === 'dcesa' && !await adapter.detectMarkingPage(), '从考试列表识别域名并等待进入正评');
+        history.replaceState(null, '', location.pathname + location.search
+            + '#/exam/area/sample-exam/areaMarking/subject/1/topicStructure/sample-structure/markingNormal/2/sample-site');
+        await setPaper('a');
+        check(await adapter.detectMarkingPage(), '读取区级正评待阅卷');
+        const { question, units } = adapter.getQuestionContext();
+        check(question === '8' && units.length === 1 && units[0].maxScore === 5 && units[0].roundStep === 1, '读取当前题目、满分和步长');
+        const original = adapter.getPaperIdentity();
+        const task = adapter.getTaskIdentifier();
+        await setPaper('a', { mark: 'renewed' });
+        check(adapter.getPaperIdentity() === original, '刷新签名保留同卷身份');
+        let [url] = await adapter.gatherAnswerImages();
+        check((await adapter.fetchImageAsBase64(url)).startsWith('/9j'), '读取答卷图像');
+        native.isAutoSubmit = true;
+        check(!adapter.prepareGrading() && !adapter.fillScores([0]) && choiceClicks === 0 && submitClicks === 0, '开启原站自动提交时暂停');
+        native.isAutoSubmit = false;
+        check(adapter.prepareGrading() && !adapter.fillScores([0.5]) && choiceClicks === 0, '只选原站允许的分值');
+        check(adapter.fillScores([0]) && native.topic.gfbbzList[0].score === 0 && submitClicks === 0, '原生选分接受 0 分并等待确认提交');
+        native.topic.gfbbzList[0].score = 1;
+        check(!await adapter.submitGrade() && submitClicks === 0, '分数被手动改动时等待核对');
+        check(adapter.fillScores([0]), '重新填写当前答卷分数');
+        const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
+        check(!await adapter.submitGrade(), '原站保存失败时暂停，即使页面开始翻卷');
+        await nextLoaded;
+        check(adapter.getPaperIdentity() !== original && !await adapter.waitForNextPaper(url), '没有保存回执时不续批');
+        check(XMLHttpRequest.prototype.open === open && XMLHttpRequest.prototype.send === send, '保存观察结束后恢复原站请求方法');
+        let staleImageRejected = false;
+        try { await adapter.fetchImageAsBase64(url); } catch (_) { staleImageRejected = true; }
+        check(staleImageRejected, '阻止读取已切换的旧答卷');
+
+        await setPaper('a', { crop: '20|12|80|48' });
+        [url] = await adapter.gatherAnswerImages();
+        const cropped = await adapter.fetchImageAsBase64(url);
+        const bitmap = await createImageBitmap(await (await fetch('data:image/png;base64,' + cropped)).blob());
+        check(bitmap.width === 80 && bitmap.height === 48, '按原站题目范围裁切整张图');
+        bitmap.close();
+        const source = adapter.getPaperIdentity();
+        action = 'saved';
+        check(adapter.fillScores([2]) && await adapter.submitGrade(), '核对同题同卷同分的原站保存回执');
+        check(await adapter.waitForNextPaper(url, { taskId: task, paperId: source }) && adapter.getTaskIdentifier() === task, '答卷加载完成后继续同题批改');
+        check(!await adapter.waitForNextPaper(url, { taskId: task, paperId: original }), '校验等待换卷的提交来源');
+
+        action = 'another-paper';
+        await adapter.gatherAnswerImages();
+        check(adapter.fillScores([2]), '准备下一份答卷的评分');
+        const controller = new AbortController();
+        const unrelated = adapter.submitGrade({ signal: controller.signal });
+        setTimeout(() => controller.abort(), 250);
+        check(!await unrelated && XMLHttpRequest.prototype.send === send, '其他答卷的回执不能确认当前评分，可随时停止等待');
+        await nextLoaded;
+
+        native.$parent.topicId = 3;
+        await setPaper('b', { rules: [makeRule('rule-b', '8(1)', 2, 0.5), makeRule('rule-c', '8(2)', 3, 1)] });
+        check(adapter.getTaskIdentifier() !== task && !adapter.fillScores([2, 3]), '站内切题时使上一题的评分失效');
+        native.isBackMark = true;
+        check(adapter.isRegradeMode() && !adapter.isMarkingPage() && !await adapter.detectMarkingPage(), '回评入口与普通正评分开识别');
+        native.isBackMark = false;
+
+        await adapter.gatherAnswerImages();
+        const before = choiceClicks;
+        check(!adapter.fillScores([2, 2.5]) && choiceClicks === before, '提前核对每个给分项的分值');
+        action = 'last';
+        check(adapter.fillScores([2, 0]) && await adapter.submitGrade(), '分别给分并成功保存最后一卷');
+        check(adapter.isGradingTaskComplete() && !await adapter.waitForNextPaper(), '原站显示暂无答卷时结束本题');
+
+        native.$parent.topicId = 2;
+        await setPaper('a', { crop: '20|12|80|48' });
+        action = 'saved';
+        const waitFor = async predicate => {
+            for (let i = 0; i < 150 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 20));
+        };
+        await waitFor(() => document.querySelector('.ai-grade-btn'));
+        const start = document.querySelector('.ai-grade-btn');
+        check(start && !start.disabled, '进入待阅题目后显示开始批改');
+        const beforeTrial = submitClicks;
+        const gradedPaper = adapter.getPaperIdentity();
+        start.click();
+        await waitFor(() => document.querySelector('#auto-submit-dialog #confirm-submit-btn') || window.aiGradingState.isPaused);
+        const confirm = document.querySelector('#auto-submit-dialog #confirm-submit-btn');
+        const sentImages = gradingRequest?.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+            .filter(item => item.type === 'image_url');
+        check(sentImages?.length === 1 && native.topic.gfbbzList[0].score === 2 && confirm && submitClicks === beforeTrial,
+            '试改读取当前题图，填分后等待核对');
+        confirm.click();
+        await waitFor(() => submitClicks > beforeTrial && adapter.getPaperIdentity() && adapter.getPaperIdentity() !== gradedPaper);
+        check(submitClicks === beforeTrial + 1 && adapter.getPaperIdentity() && adapter.getPaperIdentity() !== gradedPaper,
+            '从试改确认到原站保存只提交一次并载入新卷');
+        finish({ passed: true, checks });
+    } catch (error) {
+        finish({ passed: false, checks, error: error.message });
+    }
+    function finish(result) {
+        const bytes = new TextEncoder().encode(JSON.stringify({ runId, width: innerWidth, ...result }));
+        document.getElementById('result').textContent = btoa(String.fromCharCode(...bytes));
+    }
+})();
+</script>
