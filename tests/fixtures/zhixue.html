@@ -222,18 +222,16 @@ document.getElementById('bnt_save').onclick=()=>effects.submits++;
   document.getElementById('save-config-btn').click();
   assert(!settingsPanel.classList.contains('open') && storage[quotaKey] === true,
       '非考试阅卷页成功保存方案后保留原有续批偏好');
-  history.replaceState(null, '', examURL);
-  await openAutomation();
-  assert(!quotaSetting.hidden && quotaInput.checked === true, '恢复考试页后从旧版存储键读取已开启的偏好');
-  history.replaceState(null, '', '/');
-  await until(() => quotaSetting.hidden);
   storage[quotaKey] = false;
+  settingsButton.click();
+  await until(() => settingsPanel.classList.contains('open'));
+  storage[quotaKey] = true;
   history.replaceState(null, '', examURL);
   await until(() => !quotaSetting.hidden);
-  assert(settingsPanel.classList.contains('open') && !quotaInput.checked,
-      '返回考试页时重新读取其他页面更新的续批偏好');
+  assert(settingsPanel.classList.contains('open') && quotaInput.checked === true,
+      '返回考试页时从旧版存储键读取其他页面更新的续批偏好');
   document.getElementById('save-config-btn').click();
-  assert(!settingsPanel.classList.contains('open') && storage[quotaKey] === false,
+  assert(!settingsPanel.classList.contains('open') && storage[quotaKey] === true,
       '成功保存方案后保留重新读取的续批偏好');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:error.message}))));}

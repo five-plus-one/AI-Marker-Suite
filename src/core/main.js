@@ -1166,7 +1166,7 @@ setInterval(async () => {
             return;
         }
 
-        syncZhixueQuotaSetting();
+        if (adapter.id === 'zhixue') syncZhixueQuotaSetting();
 
         // 适配器声明的「不支持的批改模式」（如九科星按学生批阅多题页）：
         // 弹提示横幅、停止批改、跳过方案切换与 OOBE——typeof 门控，未实现该钩子的适配器零影响
