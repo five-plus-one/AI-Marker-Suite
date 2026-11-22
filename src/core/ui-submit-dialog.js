@@ -972,7 +972,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
         }
         diagnostic?.grading('platform-submit-returned', runContext, { adapterAccepted: !!submitted });
         if (submitted) {
-            rememberPendingGradingPaper(runContext);
+            rememberPendingGradingPaper(runContext, true);
             // 更新批阅份数进度（在历史记录之前，避免存储异常导致计数丢失）
             if (typeof updateBatchProgress === 'function' && (!runContext.taskId || runContext.taskId === (PresetManager.getTaskIdentifier?.() || ''))) {
                 console.log('📊 [诊断] 调用 updateBatchProgress');
@@ -1043,7 +1043,9 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         stopAutoGrading();
                         showToast('当前题块阅卷已完成');
                     } else if (waitResult === true) {
-                        window.aiGradingState.pendingGradingPaper = null;
+                        if (!window.aiGradingState.pendingGradingPaper?.protectSubmittedPaper) {
+                            window.aiGradingState.pendingGradingPaper = null;
+                        }
                         // 批改节奏：随机休息（实验性）——休息放在下一份已出现之后，
                         // 平台侧会把休息时间计入下一份的「批改用时」，拟真度更高
                         await pacingRestIfNeeded();

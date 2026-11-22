@@ -278,19 +278,22 @@ async function fillGradingScoreValues(context, total, units, label) {
 }
 
 
-function rememberPendingGradingPaper(context) {
-    if (!isUnattendedRun(context)) return;
+function rememberPendingGradingPaper(context, submitted = false) {
+    const protectSubmittedPaper = submitted && !context.manual && context.adapter?.id === 'zhixue';
+    if (!protectSubmittedPaper && !isUnattendedRun(context)) return;
     window.aiGradingState.pendingGradingPaper = {
         adapter: context.adapter, taskId: context.taskId, presetName: context.presetName,
-        paperId: context.paperId, imageUrls: context.imageUrls
+        paperId: context.paperId, imageUrls: context.imageUrls, protectSubmittedPaper
     };
 }
 
 async function verifyNextGradingPaper(context) {
-    const previous = window.aiGradingState.pendingGradingPaper;
+    const state = window.aiGradingState;
+    const previous = state.pendingGradingPaper;
     if (!previous) return;
-    if (previous.adapter !== context.adapter || previous.taskId !== context.taskId || previous.presetName !== context.presetName) {
-        window.aiGradingState.pendingGradingPaper = null;
+    if (previous.adapter !== context.adapter || (!previous.protectSubmittedPaper
+        && (previous.taskId !== context.taskId || previous.presetName !== context.presetName))) {
+        state.pendingGradingPaper = null;
         return;
     }
     await retryUnattendedStep(context, 'next-paper', async () => {
@@ -298,7 +301,21 @@ async function verifyNextGradingPaper(context) {
         if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后继续');
         requireGradingQuestionContext(context);
         const current = readGradingPaperIdentity(context.adapter);
-        if (previous.paperId && current) {
+        if (previous.protectSubmittedPaper) {
+            // 题号或答卷尚未就绪时保留已提交的基线。换卷仍由适配器确认。
+            const taskId = readGradingTaskIdentifier();
+            const stillWaiting = () => gradingStepRetry('仍在等待下一份答卷，请核对阅卷记录');
+            if (!taskId || !current || current === previous.paperId) throw stillWaiting();
+            captureInitialZhixueTask(context, taskId);
+            const ready = await context.adapter.waitForNextPaper(previous.imageUrls[0], {
+                paperId: previous.paperId, taskId, signal: context.controller.signal
+            });
+            requireCurrentGradingContext(context);
+            if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后继续');
+            if (!ready || readGradingTaskIdentifier() !== taskId || readGradingPaperIdentity(context.adapter) !== current) {
+                throw stillWaiting();
+            }
+        } else if (previous.paperId && current) {
             if (current === previous.paperId) throw gradingStepRetry('仍在等待下一份答卷，请核对阅卷记录');
         } else {
             const check = await verifyPaperUnchanged(context.adapter, previous.imageUrls, [], previous.paperId);
@@ -306,7 +323,7 @@ async function verifyNextGradingPaper(context) {
             if (check.unchanged !== false) throw gradingStepRetry('仍在等待下一份答卷，请核对阅卷记录');
         }
         context.paperId = current;
-        window.aiGradingState.pendingGradingPaper = null;
+        state.pendingGradingPaper = null;
     }, requireCurrentGradingContext);
 }
 
@@ -510,6 +527,12 @@ function readGradingTaskIdentifier() {
         console.warn('[题目校验] 暂时无法读取当前题目:', error);
         return '';
     }
+}
+
+function captureInitialZhixueTask(context, taskId = readGradingTaskIdentifier()) {
+    if (context.taskId || !taskId) return;
+    context.taskId = taskId;
+    window.aiGradingState.gradingTaskId ||= taskId;
 }
 
 function stopIfGradingTaskChanged(context) {

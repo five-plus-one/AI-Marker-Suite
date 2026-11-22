@@ -375,6 +375,7 @@ async function startAutoGrading() {
             }
             verifyPreparation();
             if (selectedPaper) runContext.paperId ||= selectedPaper;
+            if (adapter?.id === 'zhixue') captureInitialZhixueTask(runContext);
             captureInitialGradingQuestion(runContext);
             requireGradingQuestionContext(runContext);
         }, verifyPreparation);

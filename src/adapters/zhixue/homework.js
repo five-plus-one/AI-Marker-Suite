@@ -130,7 +130,7 @@ const ZhixueHomeworkAdapter = {
                 if (view?.curBlankId || (panel?.querySelector('.score-box') && !panel.querySelector('button.green-btn'))) return false;
             } else {
                 const selection = this._selection(view);
-                if (!selection && !view.loading && !view.correctLoading) {
+                if (!selection && !view.loading && !view.correctLoading && this.getTaskIdentifier()) {
                     this.lastFillError = '请先选择一份作业答卷';
                     return false;
                 }
