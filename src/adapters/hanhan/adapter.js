@@ -30,7 +30,7 @@ const HanhanAdapter = {
         try {
             const result = await Promise.race([
                 waitForElement(HANHAN_SELECTORS.PAGE_DETECT_IMAGE).then(() => 'answer-image'),
-                waitForElement(HANHAN_SELECTORS.PAGE_DETECT_INPUT).then(() => 'score-input'),
+                waitForElement(HANHAN_SELECTORS.SCORE_INPUT).then(() => 'score-input'),
                 waitForElement(HANHAN_SELECTORS.PAGE_DETECT_SUBMIT).then(() => 'submit-btn'),
             ]).catch(() => null);
 
@@ -53,12 +53,12 @@ const HanhanAdapter = {
         }
     },
 
+    _questionId() {
+        return new URLSearchParams(window.location.hash.split('?')[1] || '').get('questionId') || '';
+    },
+
     getTaskIdentifier() {
-        // 华翰云是 SPA，使用 hash 路径 + questionId
-        const url = new URL(window.location.href);
-        const hash = url.hash;
-        const questionId = new URLSearchParams(hash.split('?')[1] || '').get('questionId') || '';
-        return `hanhan_${questionId}_${hash.split('?')[0]}`;
+        return `hanhan_${this._questionId()}_${window.location.hash.split('?')[0]}`;
     },
 
     async gatherAnswerImages() {
@@ -89,24 +89,7 @@ const HanhanAdapter = {
     },
 
     fillScore(request) {
-        const { total, subScores } = request;
-
-        // 华翰云主要是单题模式，使用主输入框
-        const scoreInput = document.querySelector(HANHAN_SELECTORS.SCORE_INPUT);
-        console.log(`🔎 [诊断] 华翰云 fillScore — 分数: ${total}, 输入框: ${!!scoreInput}`);
-
-        if (scoreInput) {
-            // Vue3 兼容：使用 nativeInputValueSetter
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(scoreInput, total);
-            scoreInput.dispatchEvent(new Event('input', { bubbles: true }));
-            scoreInput.dispatchEvent(new Event('change', { bubbles: true }));
-            scoreInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log(`✅ [诊断] 分数已填入`);
-            return true;
-        }
-        console.warn('⚠️ [诊断] 未找到分数输入框');
-        return false;
+        return this.fillScores([request.total]);
     },
 
     submitGrade() {
@@ -147,52 +130,52 @@ const HanhanAdapter = {
         return !!window.aiGradingState?.isRegrading;
     },
 
+    _readQuestion() {
+        const id = this._questionId();
+        if (!this.isMarkingPage() || !id) return null;
+        const titles = Array.from(document.querySelectorAll(HANHAN_SELECTORS.QUESTION_TITLE))
+            .filter(title => MarkingPaper.visible(title));
+        if (titles.length !== 1) return null;
+        const match = titles[0].textContent.normalize('NFKC').trim().match(
+            /^(?:[一二三四五六七八九十]+、\s*)?(?:主观题\s*)?(?:第\s*)?(\d+)(?:\s*题)?\s*\(\s*(\d+(?:\.\d+)?)\s*分\s*\)$/);
+        const maxScore = Number(match?.[2]);
+        return Number.isFinite(maxScore) && maxScore > 0 ? { question: `${id}:${match[1]}`, maxScore } : null;
+    },
+
+    getQuestionContext() {
+        const info = this._readQuestion();
+        return info ? { question: info.question, units: [{ label: '总分', maxScore: info.maxScore }] } : null;
+    },
+
     getScoreInputs() {
-        const inputs = [];
-
-        // 主分数输入框
-        const mainInput = document.querySelector(HANHAN_SELECTORS.SCORE_INPUT);
-        if (mainInput) {
-            inputs.push({ element: mainInput, label: '总分', index: 0 });
-        }
-
-        // 如果有 number 类型的输入框（可能是小题分数）
-        const numberInputs = document.querySelectorAll(HANHAN_SELECTORS.SCORE_INPUT_NUMBER);
-        numberInputs.forEach((input, i) => {
-            if (input !== mainInput) {
-                inputs.push({ element: input, label: `第${i + 1}题`, index: i + 1 });
-            }
-        });
-
-        return inputs;
+        if (!this.isMarkingPage()) return [];
+        const inputs = Array.from(document.querySelectorAll(HANHAN_SELECTORS.SCORE_INPUT))
+            .filter(input => !input.readOnly && !input.matches(':disabled') && MarkingPaper.visible(input));
+        if (inputs.length !== 1) return [];
+        return [{ element: inputs[0], label: '总分', index: 0, maxScore: this._readQuestion()?.maxScore }];
     },
 
     fillScores(scores) {
-        const inputs = this.getScoreInputs();
-        if (inputs.length === 0) return false;
-
-        // 数据安全：两遍式全或无（#296，模板=guangda #275）——先全量校验，
-        // 任一缺失/错位即整体拒绝，全部命中才写入，不留半填状态
-        if (scores.length > inputs.length) {
-            console.warn(`⚠️ [华翰云] 分数个数(${scores.length})多于输入框数(${inputs.length})（配置错位）→ 拒绝`);
+        this.lastFillError = null;
+        const field = this.getScoreInputs()[0];
+        if (!field) {
+            this.lastFillError = '无法确认当前答卷的给分框，请核对阅卷页面后继续';
             return false;
         }
-        for (let i = 0; i < inputs.length; i++) {
-            if (scores[i] === null || scores[i] === undefined) {
-                console.warn(`⚠️ [华翰云] ${inputs[i].label} 无 AI 分数（第 ${i + 1} 题缺失）→ 拒绝`);
-                return false;
-            }
+        const score = scores?.[0];
+        if (scores?.length !== 1 || !Number.isFinite(score) || score < 0 ||
+            (field.maxScore !== undefined && score > field.maxScore)) {
+            this.lastFillError = '请在分数设置中重新检测评分项，核对总分后保存方案';
+            return false;
         }
 
+        const { element } = field;
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        for (let i = 0; i < inputs.length; i++) {
-            setter.call(inputs[i].element, scores[i]);
-            inputs[i].element.dispatchEvent(new Event('input', { bubbles: true }));
-            inputs[i].element.dispatchEvent(new Event('change', { bubbles: true }));
-            inputs[i].element.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log(`✅ [诊断] ${inputs[i].label} 分数 ${scores[i]} 已填入`);
-        }
-        return true;
+        setter.call(element, score);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('blur', { bubbles: true }));
+        return element.value.trim() !== '' && Number(element.value) === score;
     },
 
     detectSubQuestions() {
