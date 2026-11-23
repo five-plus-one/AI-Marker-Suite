@@ -24,9 +24,9 @@ const XINJIAOYU_SELECTORS = {
     SUBMIT_BUTTON_TEXT: '提交分数',
     SUBMIT_BUTTON: '.ant-btn-primary:has(span:contains("提交分数"))',
 
-    // 作业系统 - 学生列表
-    HOMEWORK_STUDENT_LIST: '.studentSelectClass',
-    HOMEWORK_STUDENT_ACTIVE: '.studentSelectClass.newStudent',
+    // 作业系统 - 当前打分对象
+    HOMEWORK_SCORE_ROW: '.row-center-center',
+    HOMEWORK_SCORE_STUDENT: ':scope > span.fw-600',
 
     // 页面检测
     PAGE_DETECT_URL: '/teacher/grading_center/',

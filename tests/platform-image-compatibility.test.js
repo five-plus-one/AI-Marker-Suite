@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { fixture, waitingFixture } = require('./_platform-image-fixture');
+const vm = require('node:vm');
+const { readSrc } = require('./_adapter-matrix');
+const { fixture, waitingFixture, URL_A, URL_B } = require('./_platform-image-fixture');
 
 const platforms = ['c30', 'haiyun', 'hanhan', 'haofenshuyize', 'haoyuejuan', 'huixuexing',
     'huiyuejuan', 'keewing', 'kuyuu', 'ruiya', 'wuyuetong', 'xinkao', 'xinkao-2',
@@ -31,21 +33,129 @@ test('C30: 同卷列表重新获取不作为换卷证据', async () => {
     assert.equal(await e.run(e.adapter.waitForNextPaper(e.oldUrl)), false);
 });
 
-test('新教育作业: 同一学生的分数框清空时继续等待', async () => {
+function xinjiaoyuHomeworkFixture() {
     const e = waitingFixture('xinjiaoyu');
-    e.sb.window.location.pathname = '/teacher/grading_center/homework/grading_by_question/1';
+    const { pathname } = e.sb.location;
+    e.sb.location.pathname = pathname + 'teacher/grading_center/homework/2/class/3/grading_by_question/1';
+    const imageA = 'data:image/png;base64,' + 'A'.repeat(6000);
+    const imageB = 'data:image/png;base64,' + 'B'.repeat(6000);
+    const canvas = {
+        width: 2, height: 1, image: imageA, cleared: false,
+        getClientRects: () => [{}],
+        toDataURL() { return this.image; },
+        getContext: () => ({
+            getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, canvas.cleared ? 255 : 0]) }),
+        }),
+    };
+    const label = { textContent: '1.学生甲' };
+    const sidebar = { textContent: '学生甲' };
+    e.input.closest = selector => selector === e.selectors.HOMEWORK_SCORE_ROW ? {
+        querySelector: inner => inner === e.selectors.HOMEWORK_SCORE_STUDENT ? label : null,
+    } : null;
     const query = e.sb.document.querySelector;
-    e.sb.document.querySelector = selector => selector === '.studentSelectClass.newStudent' ? { textContent: '学生甲' } : query(selector);
-    assert.equal(await e.run(e.adapter.waitForNextPaper(e.oldUrl)), false);
+    e.sb.document.querySelector = selector => {
+        if (selector === e.selectors.ANSWER_CANVAS) return canvas;
+        if (selector === '.studentSelectClass.newStudent') return sidebar;
+        return query(selector);
+    };
+    const submit = () => e.adapter.getPaperWaitKeys([canvas.image]);
+    const wait = (paperWaitKeys, extra) => e.adapter.waitForNextPaper(imageA, { paperWaitKeys, ...extra });
+    return { ...e, canvas, label, sidebar, imageA, imageB, submit, wait };
+}
+
+test('新教育作业: 侧栏分数变化、旧学生画布重绘及分数框清空均不触发换卷', async () => {
+    const e = xinjiaoyuHomeworkFixture();
+    const oldKeys = e.submit();
+    e.sb.setTimeout(() => {
+        e.sidebar.textContent = '学生甲 0分';
+        e.input.value = '';
+        e.canvas.image = e.imageB;
+    }, 600);
+    assert.equal(await e.run(e.wait(oldKeys)), false);
 });
 
-test('新教育作业: 平台学生切换后继续', async () => {
-    const e = waitingFixture('xinjiaoyu'), student = { textContent: '学生甲' };
-    e.sb.window.location.pathname = '/teacher/grading_center/homework/grading_by_question/1';
-    const query = e.sb.document.querySelector;
-    e.sb.document.querySelector = selector => selector === '.studentSelectClass.newStudent' ? student : query(selector);
-    e.sb.setTimeout(() => { student.textContent = '学生乙'; }, 1500);
-    assert.equal(await e.run(e.adapter.waitForNextPaper(e.oldUrl)), true);
+test('新教育作业: 换卷早于等待且侧栏未更新时，等待新学生的画布实际绘制完成', async () => {
+    const e = xinjiaoyuHomeworkFixture();
+    const oldKeys = e.submit();
+    e.label.textContent = '1.学生乙';
+    e.sb.setTimeout(() => {
+        e.canvas.image = e.imageB.replaceAll('B', 'C');
+        e.canvas.cleared = true;
+    }, 1200);
+    e.sb.setTimeout(() => {
+        e.canvas.image = e.imageB;
+        e.canvas.cleared = false;
+    }, 2400);
+    const start = e.sb.Date.now();
+    assert.equal(await e.run(e.wait(oldKeys)), true);
+    assert.ok(e.sb.Date.now() - start >= 2700);
+    assert.deepEqual(Array.from(await e.adapter.gatherAnswerImages()), [e.imageB]);
+});
+
+test('新教育作业: 已经换卷时沿用提交前基线，重复等待不把新学生当旧学生', async () => {
+    const e = xinjiaoyuHomeworkFixture();
+    const oldKeys = e.submit();
+    e.label.textContent = '1.学生乙';
+    e.canvas.image = e.imageB;
+    assert.equal(await e.run(e.wait(oldKeys)), true);
+    assert.equal(await e.run(e.wait(oldKeys)), true);
+});
+
+test('新教育作业: 等待支持中止并且不跨题确认下一卷', async () => {
+    const e = xinjiaoyuHomeworkFixture();
+    const oldKeys = e.submit();
+    const controller = new AbortController();
+    e.sb.setTimeout(() => controller.abort(), 500);
+    const start = e.sb.Date.now();
+    assert.equal(await e.run(e.wait(oldKeys, { signal: controller.signal })), false);
+    assert.ok(e.sb.Date.now() - start <= 700);
+
+    const taskId = e.adapter.getTaskIdentifier();
+    e.sb.location.pathname = e.sb.location.pathname.replace(/1$/, '4');
+    e.label.textContent = '1.学生乙';
+    e.canvas.image = e.imageB;
+    assert.equal(await e.run(e.wait(oldKeys, { taskId })), false);
+});
+
+test('新教育作业: 按打分栏匹配 API 图片和题号，并隔离不同页面与同名学生', async () => {
+    const e = xinjiaoyuHomeworkFixture();
+    vm.runInContext(readSrc('src/core/runtime.js'), e.sb);
+    e.input.getClientRects = () => [{}];
+    e.input.getAttribute = () => null;
+    e.canvas.cleared = true;
+    const questionContext = () => e.sb.readGradingQuestionContext(e.adapter);
+    const response = new e.sb.XMLHttpRequest();
+    response.addEventListener = (_, callback) => { response.loaded = callback; };
+    response.open('GET', '/server_homework/homework/answer/sheet/review/progress');
+    response.send();
+    const sheet = (studentName, questionId, rawScan) => ({
+        student: { studentName }, questionAnswers: [{ questionId, rawScan, questionNumber: 9, maxScore: 6 }],
+    });
+    response.responseText = JSON.stringify({ code: 200, data: {
+        answerSheets: [sheet('学生甲', '1', URL_A), sheet('学生乙', 1, URL_B),
+            sheet('同名', 1, URL_A), sheet('同名', 1, URL_B)],
+    } });
+    response.loaded();
+    assert.deepEqual(Array.from(await e.adapter.gatherAnswerImages()), [URL_A]);
+    const context = questionContext();
+    assert.equal(context.question, '9');
+    assert.equal(context.units[0].maxScore, 6);
+    const oldKeys = e.adapter.getPaperWaitKeys([URL_A]);
+    e.label.textContent = '1.学生乙';
+    assert.equal(await e.run(e.adapter.waitForNextPaper(URL_A, { paperWaitKeys: oldKeys })), true);
+    assert.deepEqual(Array.from(await e.adapter.gatherAnswerImages()), [URL_B]);
+    assert.equal(questionContext().key, context.key);
+    e.label.textContent = '1.同名';
+    assert.deepEqual(Array.from(await e.adapter.gatherAnswerImages()), []);
+    assert.equal(questionContext(), null);
+    e.label.textContent = '1.学生乙';
+    e.sb.location.search = '?isReviewed=true';
+    assert.deepEqual(Array.from(await e.adapter.gatherAnswerImages()), []);
+    assert.equal(questionContext(), null);
+    e.sb.location.search = '';
+    e.sb.location.pathname = e.sb.location.pathname.replace(/1$/, '4');
+    assert.deepEqual(Array.from(await e.adapter.gatherAnswerImages()), []);
+    assert.equal(questionContext(), null);
 });
 
 test('慧阅卷: iframe 离开后按时结束等待', async () => {
