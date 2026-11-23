@@ -55,6 +55,16 @@ window.getChannelName=()=> 'dev';window.getBuildChannel=()=> 'dev';window.getBui
   const textarea=editor.querySelector('textarea');textarea.value='Answer';textarea.setSelectionRange(0,6);let bold=editor.querySelector('[data-cmd=bold]');if(!bold){toolbar.querySelector('.fp-embedded-more').click();bold=document.querySelector('.fp-embedded-toolbar-menu [data-cmd=bold]')}bold.click();assert(textarea.value==='**Answer**','真实工具栏保留文本编辑');
   editor.querySelector('.md-btn-confirm').click();assert(confirmed==='**Answer**'&&!document.getElementById('ai-md-editor-overlay'),'确认保留结果并关闭窗口');assert(!document.querySelector('.fp-embedded-toolbar-menu'),'关闭释放菜单');
   createSettingsPanel();const panel=document.getElementById('ai-grading-settings');panel.style.setProperty('transition','none','important');openSettingsPanel();await tick();for(const b of panel.querySelectorAll('.settings-nav-btn,#save-config-btn'))if(rect(b).width)assert(rect(b).right<=innerWidth+1,'设置操作保持在视口内');
+  const activeConfig=PresetManager.getCurrentConfig(), originalAdapter=window.__AI_MARKER_ADAPTER__;
+  const originalGuard=activeConfig.questionGuard;
+  activeConfig.questionGuard={enabled:true};window.__AI_MARKER_ADAPTER__={id:'fixture'};
+  fillFormFromActivePreset();
+  const questionGuard=document.getElementById('question-guard-enabled');
+  assert(questionGuard.disabled&&questionGuard.checked&&document.getElementById('question-guard-help').textContent.includes('暂不支持'),'当前平台不支持时禁用选项并保留已有选择');
+  window.__AI_MARKER_ADAPTER__={id:'fixture',getQuestionContext(){return null}};
+  fillFormFromActivePreset();
+  assert(questionGuard.checked&&!questionGuard.disabled,'回到支持平台时可继续使用原方案选择');
+  window.__AI_MARKER_ADAPTER__=originalAdapter;activeConfig.questionGuard=originalGuard;fillFormFromActivePreset();
   panel.querySelector('.settings-nav-item[data-page="about"]').click();
   const supportRows=[...panel.querySelector('.about-section .about-links').children];
   const expectedSupport=[
