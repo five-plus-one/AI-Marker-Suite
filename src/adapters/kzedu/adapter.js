@@ -51,6 +51,17 @@ const KzeduAdapter = {
     },
 
     // 题目维度稳定（hash 含 questionId，学生切换不变），方案绑定按题复用
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const title = document.querySelector(KZEDU_SELECTORS.QUESTION_TITLE)?.textContent?.trim();
+        const units = this.getScoreInputs(true);
+        if (!title || units.length !== 1) return null;
+        const maxScore = units[0].element.getAttribute('max')
+            || title.match(/[（(]\s*(\d+(?:\.\d+)?)\s*分\s*[）)]/)?.[1] || units[0].maxScore;
+        return nativeQuestionContext([{ label: title, maxScore }]);
+    },
+
     getTaskIdentifier() {
         return window.location.hash || window.location.href;
     },
@@ -85,7 +96,7 @@ const KzeduAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputs = [];
         const scoreEls = Array.from(document.querySelectorAll(KZEDU_SELECTORS.SCORE_INPUT));
 
@@ -120,7 +131,7 @@ const KzeduAdapter = {
             });
         });
 
-        console.log(`📝 [诊断] 云阅卷(开州) — 评分单元 ${inputs.length} 个`, inputs.map(x => `${x.label}(满${x.maxScore})`).join(' | '));
+        if (!quiet) console.log(`📝 [诊断] 云阅卷(开州) — 评分单元 ${inputs.length} 个`, inputs.map(x => `${x.label}(满${x.maxScore})`).join(' | '));
         return inputs;
     },
 

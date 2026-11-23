@@ -289,6 +289,16 @@ const Guangda2Adapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const title = document.querySelector(GUANGDA2_SELECTORS.QUESTION_NUM)?.textContent?.trim();
+        const units = this.getScoreInputs().map(({ element, maxScore }, index, fields) => ({
+            label: element.querySelector('.xtList label')?.textContent || (fields.length === 1 ? title : ''), maxScore
+        }));
+        return nativeQuestionContext(units, title || undefined);
+    },
+
     getTaskIdentifier() {
         const hash = window.location.hash;
         const questionEl = document.querySelector(GUANGDA2_SELECTORS.QUESTION_NUM);

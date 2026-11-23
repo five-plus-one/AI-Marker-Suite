@@ -112,6 +112,18 @@ const GuangdaAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const title = document.querySelector(GUANGDA_SELECTORS.QUESTION_INFO)?.textContent?.match(/第\s*[\d０-９]+(?:[.．、-][\d０-９]+)*\s*题/)?.[0];
+        const units = this.getScoreInputs().map(({ element, maxScore }, index, fields) => ({
+            label: element.querySelector(GUANGDA_SELECTORS.SUB_QUESTION_LABEL)?.textContent
+                || (fields.length === 1 ? title : ''),
+            maxScore
+        }));
+        return nativeQuestionContext(units, title || undefined);
+    },
+
     getTaskIdentifier() {
         // 光大阅卷是 SPA，使用 hash 路径
         // URL 格式: https://pj.yixx.cn/njs_2006/#/painter

@@ -51,6 +51,17 @@ const HaiyunAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const question = document.querySelector(HAIYUN_SELECTORS.QUESTION_GROUP)?.textContent?.trim();
+        const units = this.getScoreInputs().map(({ element, maxScore }) => ({
+            label: element.closest(HAIYUN_SELECTORS.SCORE_ITEM)?.querySelector(HAIYUN_SELECTORS.SCORE_ITEM_LABEL)?.textContent,
+            maxScore
+        }));
+        return question ? nativeQuestionContext(units, question) : nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         // hash 固定 #/grade/teacher/index 不随换卷变化，必须拼 DOM 内容区分
         // 题组号（页脚）换题时变化，小题标签换小题时变化；换学生时两者不变 → 不重复弹引导

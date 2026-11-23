@@ -247,6 +247,18 @@ const C30Adapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const input = document.querySelector(C30_SELECTORS.QUESTION_SELECT);
+        const question = input?.value?.trim() && input.value.trim() !== '请选择题目'
+            ? input.value.trim() : this._getSelectedQuestion();
+        if (!question || question === '请选择题目') return null;
+        const [unit] = this.getScoreInputs(true);
+        const maxScore = unit?.element.placeholder?.match(/满分\s*(\d+(?:\.\d+)?)/)?.[1];
+        return nativeQuestionContext([{ label: question, maxScore }], this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         const urlData = this._getUrlParams();
         const workId = urlData.workId || '';
@@ -311,14 +323,14 @@ const C30Adapter = {
     },
 
     // ===== 分数 =====
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const scoreInput = document.querySelector(C30_SELECTORS.SCORE_INPUT);
         if (!scoreInput) return [];
 
         const ph = scoreInput.placeholder || '';
         const m = ph.match(/满分(\d+)/);
         const max = m ? parseInt(m[1]) : 0;
-        console.log(`📝 [C30] getScoreInputs: max=${max}, ph="${ph}"`);
+        if (!quiet) console.log(`📝 [C30] getScoreInputs: max=${max}, ph="${ph}"`);
         return [{ element: scoreInput, label: `满分${max}分`, index: 0, maxScore: max }];
     },
 

@@ -41,6 +41,28 @@ const AjiaAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const params = new URLSearchParams(window.location.search);
+        const question = params.get('questionNo');
+        if (!question) return null;
+        const units = this.getScoreInputs().filter(({ element }) => MarkingPaper.visible(element)).map(({ element }, index, fields) => {
+            const row = element.closest('tr');
+            const item = element.closest('li');
+            const label = row?.querySelector(AJIA_SELECTORS.QUESTION_LABEL)?.textContent
+                || item?.querySelector(AJIA_SELECTORS.QUESTION_NO)?.value
+                || (item?.firstChild?.nodeType === 3 ? item.firstChild.textContent?.trim() : '')
+                || (fields.length === 1 ? question : '');
+            const max = row?.querySelector(AJIA_SELECTORS.FULLSCORE)
+                || item?.querySelector('.fullscore') || item?.querySelector('.score')?.nextElementSibling;
+            const maxScore = max?.getAttribute('data-score');
+            return { label, maxScore };
+        });
+        const task = [params.get('projectId'), params.get('subjectCode'), question];
+        return nativeQuestionContext(units, JSON.stringify(task));
+    },
+
     getTaskIdentifier() {
         // 题目级标识（含 projectId/subjectCode/questionNo）。
         // 换学生时 URL 不变，方案按题绑定、批量沿用；hash 仅是项目/科目展示名，不含任务维度。

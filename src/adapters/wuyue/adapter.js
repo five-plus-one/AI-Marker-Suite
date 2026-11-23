@@ -121,6 +121,18 @@ const WuyueAdapter = {
         }
         return false;
     },
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const task = WUYUE_HELPERS.task(), question = WUYUE_HELPERS.taskKey(task);
+        if (!question) return null;
+        const units = this.getScoreInputs().map(({ element, maxScore }, index, fields) => ({
+            label: element.closest('.computeItem')?.querySelector('.num')?.textContent
+                || (fields.length === 1 ? task.queName || task.queNo : ''), maxScore
+        }));
+        return nativeQuestionContext(units, question);
+    },
+
     getTaskIdentifier() {
         return WUYUE_HELPERS.taskKey(WUYUE_HELPERS.task());
     },

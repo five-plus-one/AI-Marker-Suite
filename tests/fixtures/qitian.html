@@ -3,6 +3,7 @@
 <main><h1>七天网络评分</h1><p>第15题，共14分，每空2分</p><div id="paperImage"><div class="reviewimg"><img width="300" height="80" src="/__fixture/answer.svg?paper=A" alt="合成答卷"></div></div><div id="dutailBot"></div><input type="button" id="subfen" value="提交分数"><p id="status">正在核对评分流程</p></main><pre id="result" hidden></pre>
 <script src="../../src/adapters/qitian/selectors.js"></script>
 <script src="../../src/adapters/qitian/adapter.js"></script>
+<script src="../../src/core/runtime.js"></script>
 <script src="../../src/core/score.js"></script>
 <script src="../../src/core/prompt.js"></script>
 <script>
@@ -41,6 +42,11 @@
         const adapter = QitianAdapter;
         check(adapter.getScoreInputs().length === 1, '只识别可见评分框');
         check(adapter.getScoreInputs()[0].label === '第15题' && adapter.getScoreInputs()[0].maxScore === 14, '读取本题题号与14分满分');
+        const question = adapter.getQuestionContext();
+        check(question?.units[0].label === '15' && question.units[0].maxScore === 14, '题号校验读取当前可见评分栏');
+        window.initConfig.regionGuid = 'paper-B';
+        check(JSON.stringify(adapter.getQuestionContext()) === JSON.stringify(question), '换卷标识不进入题号基准');
+        window.initConfig.regionGuid = 'paper-A';
         check(adapter.detectSubQuestions()[0].maxScore === 14, '评分检测使用同一满分');
         check(window.__AI_MARKER_ADAPTER__ === adapter, '七天域名注册正确适配器');
         scoring = { maxScore: 4 };
