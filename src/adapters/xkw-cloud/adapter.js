@@ -186,6 +186,7 @@ const XkwCloudAdapter = {
     },
     _confirmSave(button, filled, guard) {
         const w = this._window(), adapter = this, signal = guard.signal;
+        const currentTask = guard.isCurrentTask || guard.isCurrent;
         const path = filled.state.SchoolMark ? '/v2/exam/mark/submit' : '/v2/union/mark/submit';
         const proto = w.XMLHttpRequest.prototype, originalOpen = proto.open, originalSend = proto.send;
         const candidates = new WeakSet();
@@ -245,8 +246,15 @@ const XkwCloudAdapter = {
                 if (request || settled) return;
                 let data;
                 try { data = JSON.parse(body); } catch (_) {}
-                if (signal?.aborted || guard.isCurrent?.() === false
-                    || adapter.getPaperIdentity() !== filled.identity || data?.haveJoin !== false
+                const store = adapter._store(), state = store?.state?.mark, paper = state?.readOverInfo;
+                const identity = adapter.getPaperIdentity();
+                if (signal?.aborted || currentTask?.() === false || (identity && identity !== filled.identity)
+                    || adapter.getTaskIdentifier() !== filled.task || store !== filled.store || !paper
+                    || state.isTask || state.batchGrading || state.haveJoin || state.areaMark || state.isTimeout || adapter.isRegradeMode()
+                    || String(paper.questionId) !== String(expected.questionId) || String(state.choiceIndex) !== String(expected.choiceIndex)
+                    || String(paper.studentId) !== String(expected.studentId) || String(paper.sheetId) !== String(expected.sheetId)
+                    || String(paper.teacherMarkType) !== String(expected.markCount) || state.questionScore !== filled.score
+                    || data?.haveJoin !== false
                     || !Array.isArray(data.questionSubmitList) || data.questionSubmitList.length
                     || !Object.entries(expected).every(([key, value]) => String(data?.[key]) === String(value))) {
                     cancelled();

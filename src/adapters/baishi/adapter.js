@@ -189,8 +189,10 @@ const BaishiAdapter = {
         // 核对由原生按钮发出的保存回执，其他平台请求照常运行。
         const w = this._window(), adapter = this;
         const { signal } = guard;
+        const currentTask = guard.isCurrentTask || guard.isCurrent;
         const proto = w.XMLHttpRequest.prototype, originalOpen = proto.open, originalSend = proto.send;
         const candidates = new WeakSet();
+        const { teacherId, questionNumber, assignmentConfigId } = filled.card;
         return new Promise(resolve => {
             let request;
             const restore = () => {
@@ -223,13 +225,18 @@ const BaishiAdapter = {
                     let payload;
                     try { payload = JSON.parse(body); } catch (_) {}
                     const units = payload?.taskTeacherAssignmentStepScoreVOS;
-                    if (!signal?.aborted && guard.isCurrent?.() !== false
-                        && adapter.getPaperIdentity() === filled.identity
-                        && filled.page.autoSubmit === false && filled.input.value === String(filled.value)
-                        && String(payload?.id) === filled.paper && payload.teacherId === filled.card.teacherId
+                    const page = adapter._page(), card = page?.taskcardObject;
+                    const identity = adapter.getPaperIdentity();
+                    if (!signal?.aborted && currentTask?.() !== false && (!identity || identity === filled.identity)
+                        && page === filled.page && adapter.getTaskIdentifier() === filled.task
+                        && String(card?.id) === filled.paper && card.id === page.taskCardcontent?.[0]?.id
+                        && card.teacherId === teacherId && card.questionNumber === questionNumber
+                        && card.assignmentConfigId === assignmentConfigId
+                        && page.autoSubmit === false && filled.input.value === String(filled.value)
+                        && String(payload?.id) === filled.paper && payload.teacherId === teacherId
                         && payload.score === filled.value && Array.isArray(units) && units.length === 1
-                        && units[0]?.questionNumber === filled.card.questionNumber
-                        && units[0].assignmentConfigId === filled.card.assignmentConfigId
+                        && units[0]?.questionNumber === questionNumber
+                        && units[0].assignmentConfigId === assignmentConfigId
                         && String(units[0].score) === String(filled.value)) {
                         request = this;
                         request.addEventListener('loadend', loaded, { once: true });

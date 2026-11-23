@@ -471,28 +471,14 @@ const C30Adapter = {
         }, 200);
     },
 
-    async waitForNextPaper() {
-        console.log('⏳ [C30] waitForNextPaper...');
-        const state = this._state;
-        const startUrl = state.latestImageUrl;
-        const start = Date.now();
+    getPaperWaitKeys() {
+        const key = MarkingPaper.imageKey(this._state.latestImageUrl);
+        return key ? [key] : [];
+    },
 
-        return new Promise(resolve => {
-            const iv = setInterval(() => {
-                const sec = ((Date.now() - start) / 1000).toFixed(0);
-
-                if (startUrl && state.latestImageUrl && state.latestImageUrl !== startUrl) {
-                    clearInterval(iv);
-                    console.log(`✅ [C30] 新卷 (URL) ${sec}s`);
-                    return resolve(true);
-                }
-                if (Date.now() - start > 30000) {
-                    clearInterval(iv);
-                    console.warn('⚠️ [C30] 超时 30s');
-                    resolve(false);
-                }
-            }, 500);
-        });
+    waitForNextPaper(_oldImageUrl, context = {}) {
+        const oldKeys = context.paperWaitKeys ?? this.getPaperWaitKeys();
+        return MarkingPaper.waitForChange(this, () => this.getPaperWaitKeys(), oldKeys, context);
     },
 
     isRegradeMode() {

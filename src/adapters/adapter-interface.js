@@ -78,8 +78,10 @@
  * === 提交 ===
  * @property {() => boolean} submitGrade
  *   点击平台的"提交分数"按钮。返回 true 表示成功找到并点击。
+ * @property {(imageUrls?: string[]) => string[]} [getPaperWaitKeys]
+ *   在提交前读取本轮等待换卷的基准。图片平台可使用已评分的原图地址。
  *
- * @property {(oldImageUrl?: string, options?: {paperId?: string, taskId?: string, signal?: AbortSignal}) => Promise<boolean>} waitForNextPaper
+ * @property {(oldImageUrl?: string, options?: {paperId?: string, taskId?: string, paperWaitKeys?: string[], signal?: AbortSignal}) => Promise<boolean>} waitForNextPaper
  *   提交后轮询等待下一份答卷加载完成。options.paperId 是本轮提交前记录的答卷标识，
  *   应优先于当前 DOM；taskId 限定原试题，oldImageUrl 兼容图片地址比较。signal 用于及时结束已取消的等待。
  *   返回 true 表示下一份答卷已就绪，返回 false 表示超时。

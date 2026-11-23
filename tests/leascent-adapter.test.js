@@ -174,6 +174,21 @@ test('保存响应先于/晚于换卷都按对应请求确认；换卷后旧卷�
     assert.equal(await s.a.submitGrade(), false);
 });
 
+test('丽升在原生按钮处理时隐藏答卷图，匹配请求仍能保存并换卷', async () => {
+    const s = setup();
+    assert.equal((await s.a.gatherAnswerImages()).length, 1);
+    assert.equal(s.a.fillScores([10]), true);
+    const oldId = s.a.getPaperIdentity(), getRects = s.image.getClientRects;
+    s.change(body => { s.image.getClientRects = () => []; return body; });
+    assert.equal(await s.a.submitGrade({
+        isCurrent: () => s.a.getPaperIdentity() === oldId,
+        isCurrentTask: () => s.sb.CurrPaper.QuesID === 11,
+    }), true);
+    assert.equal(s.sent.length, 1);
+    s.image.getClientRects = getRects;
+    assert.equal(await s.a.waitForNextPaper(null, { paperId: oldId }), true);
+});
+
 test('平台拒绝、非 JSON、网络错误或暂停都不能用换图冒充保存成功', async () => {
     for (const data of [{ Code: 1 }, { Code: '0' }, 'invalid']) {
         const s = setup(); await s.a.gatherAnswerImages(); s.a.fillScores([10]); s.response(data);
