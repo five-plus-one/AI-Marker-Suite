@@ -46,6 +46,11 @@ const ImageStore = {
         }
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+            let blocked = false;
+            req.onblocked = () => {
+                blocked = true;
+                reject(new Error('其它标签页正在使用答题卡存储'));
+            };
             req.onupgradeneeded = (e) => {
                 const db = e.target.result;
                 if (!db.objectStoreNames.contains(this.STORE_NAME)) {
@@ -56,6 +61,7 @@ const ImageStore = {
                 }
             };
             req.onsuccess = (e) => {
+                if (blocked) { e.target.result.close(); return; }
                 this._db = e.target.result;
                 this._db.onclose = () => { this._db = null; };
                 this._db.onversionchange = () => { this._db.close(); this._db = null; };
@@ -391,7 +397,7 @@ const HistoryManager = {
             const entry = { record, size };
             await ImageStore.saveLocalHistory(entry, images);
             if (!this.localRecords.size && typeof showToast === 'function') {
-                showToast('评阅历史空间不足，本卷已保存在当前阅卷平台。请在这里打开评阅历史导出。');
+                showToast('评阅历史空间不足，本卷已保存在本机。请在当前阅卷平台打开评阅历史导出。');
             }
             this.localRecords.set(record.id, entry);
             return true;
