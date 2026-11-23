@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>华翰云单题给分验收</title>
+<main>
+    <h1 class="questiontitle">二、主观题 72(1分)</h1>
+    <div class="el-image photo_bg"><img class="el-image__inner" src="/__fixture/answer.svg?paper=A" alt="合成答卷"></div>
+    <label>步长 <input id="step" class="el-input__inner" type="number" value="1"></label>
+    <input id="score" class="el-input__inner" placeholder="请给分">
+    <input class="el-input__inner" placeholder="请给分" hidden>
+    <button class="el-button--primary">给分</button>
+</main>
+<pre id="result" hidden></pre>
+<script>
+const storage = { 'ai-grading-show-onboarding': false };
+window.GM_getValue = (key, fallback) => storage[key] ?? fallback;
+window.GM_setValue = (key, value) => { storage[key] = value; };
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()); return { abort() {} }; };
+</script>
+<script src="/dist/ai_marker.user.js"></script>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const report = result => {
+        document.querySelector('#result').textContent = btoa(String.fromCharCode(
+            ...new TextEncoder().encode(JSON.stringify({ runId, width: innerWidth, ...result }))));
+    };
+    try {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        const score = document.querySelector('#score');
+        const step = document.querySelector('#step');
+        const title = document.querySelector('.questiontitle');
+        const image = document.querySelector('img');
+        let checks = 0, submissions = 0;
+        const check = (value, message) => { checks++; if (!value) throw Error(message); };
+        let onSave;
+        const saved = new Promise(resolve => { onSave = resolve; });
+        document.querySelector('button').onclick = async () => {
+            submissions++;
+            const response = await fetch('/__fixture/save', {
+                method: 'POST', body: new URLSearchParams({ score: score.value })
+            });
+            if (response.ok) {
+                image.src = '/__fixture/answer.svg?paper=B';
+                score.value = '';
+            }
+            onSave(response.ok);
+        };
+
+        check(adapter?.id === 'hanhan', '华翰云旧部署适配器');
+        const fields = adapter.getScoreInputs();
+        check(fields.length === 1 && fields[0].element === score && fields[0].maxScore === 1, '只识别可编辑的总分框');
+        const question = adapter.getQuestionContext();
+        check(question?.question.endsWith(':72') && question.units[0].maxScore === 1, '核对原站题号与满分');
+        for (const scores of [[], [null], [2], [0, 1], [NaN]]) {
+            check(!adapter.fillScores(scores) && score.value === '', '分数不匹配时整体拒绝');
+        }
+        score.readOnly = true;
+        check(!adapter.fillScores([1]), '只读框不写入');
+        score.readOnly = false;
+        score.disabled = true;
+        check(!adapter.fillScores([1]), '停用框不写入');
+        score.disabled = false;
+        step.placeholder = '请给分';
+        check(!adapter.fillScores([1]) && score.value === '' && step.value === '1', '多处分数框时不猜测');
+        step.removeAttribute('placeholder');
+
+        const clear = () => { score.value = ''; };
+        score.addEventListener('input', clear, { once: true });
+        check(!adapter.fillScores([0]), '页面清空分数时不确认填分');
+        score.placeholder = '请给分！';
+        check(adapter.fillScore({ total: 0 }) && score.value === '0', '旧入口也可写入零分');
+        check(adapter.fillScores([1]) && score.value === '1' && step.value === '1' && submissions === 0, '填分不改步长或提交');
+        const oldImage = image.src, paperWaitKeys = adapter.getPaperWaitKeys([oldImage]);
+        check(adapter.submitGrade() && await saved && submissions === 1, '给分按钮发出请求并收到确认');
+        check(await adapter.waitForNextPaper(oldImage, { paperWaitKeys }), '保存后识别同题下一份');
+        check(JSON.stringify(question) === JSON.stringify(adapter.getQuestionContext()), '同题换卷保留题号基准');
+        title.textContent = '第73题（2分）';
+        check(adapter.getQuestionContext()?.question.endsWith(':73'), '题号变化可被识别');
+        title.hidden = true;
+        check(adapter.getQuestionContext() === null, '题目标题隐藏时等待');
+        report({ passed: true, checks });
+    } catch (error) {
+        report({ passed: false, error: String(error), stack: error.stack });
+    }
+})();
+</script>

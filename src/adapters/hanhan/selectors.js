@@ -7,9 +7,8 @@ const HANHAN_SELECTORS = {
     ANSWER_IMAGE: '.el-image.photo_bg img.el-image__inner',
     ANSWER_IMAGE_ALL: '.el-image img.el-image__inner',
 
-    // 分数输入框（主输入框，placeholder="请给分"）
-    SCORE_INPUT: 'input.el-input__inner[placeholder="请给分"]',
-    SCORE_INPUT_NUMBER: 'input[type="number"].el-input__inner',
+    // 单题总分只使用原站明确标为「请给分」的输入框。
+    SCORE_INPUT: 'input.el-input__inner:is([placeholder="请给分"], [placeholder="请给分!"], [placeholder="请给分！"])',
 
     // 提交按钮
     SUBMIT_BUTTON: '.el-button--primary',
@@ -25,7 +24,6 @@ const HANHAN_SELECTORS = {
 
     // 页面检测
     PAGE_DETECT_IMAGE: '.el-image.photo_bg img.el-image__inner',
-    PAGE_DETECT_INPUT: 'input.el-input__inner[placeholder="请给分"]',
     PAGE_DETECT_SUBMIT: '.el-button--primary',
 
     // 题目信息
