@@ -134,3 +134,20 @@ test('精斗云总分模式读取平台题号，拆题需原站提供每个小�
     assert.equal(scene.sb.supportsQuestionGuard(scene.adapter), false);
     assert.equal(scene.sb.readGradingQuestionContext(scene.adapter), null);
 });
+
+test('A佳校验绑定题组，同题地址里的答卷查询变化不触发换题', () => {
+    const route = '?projectId=exam&subjectCode=english&questionNo=17';
+    const scene = platform('ajia', { search: route });
+    const selector = vm.runInContext('AJIA_SELECTORS', scene.sb);
+    const full = field({ 'data-score': '4.5' }), title = { textContent: '17（1）' };
+    const row = field({}, { [selector.FULLSCORE]: full, [selector.QUESTION_LABEL]: title });
+    const score = field({}, { tr: row });
+    row.querySelector = key => key === 'input.num-source' ? score
+        : key === selector.FULLSCORE ? full : key === selector.QUESTION_LABEL ? title : null;
+    scene.dom[selector.SCORE_ROW] = row;
+    const first = examContext(scene, [4.5]);
+    scene.sb.location.search = route + '&studentId=other';
+    assert.equal(examContext(scene, [4.5]).key, first.key);
+    scene.sb.location.search = route.replace('17', '18');
+    assert.notEqual(examContext(scene, [4.5]).key, first.key);
+});
