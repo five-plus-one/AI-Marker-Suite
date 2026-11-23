@@ -70,6 +70,11 @@ if(mode==='late'||mode==='spa')panel.remove();
   assert(document.querySelectorAll('.ai-grade-btn').length===1,'唯一批改入口');
   if(review)assert(a.isRegradeMode(),'可写复查仍保留复查状态');
   assert(a.getScoreInputs().length===(bound?2:1)&&a.getScoreInputs()[0].maxScore===(bound?7:3),'读取题目满分并排除步长框');
+  const question=a.getQuestionContext();
+  assert(question?.units.map(unit=>unit.maxScore).join(',')===(bound?'7,8':'3'),'题号校验使用当前平台评分项');
+  mark.readOverInfo.questionId=83;
+  assert(a.getQuestionContext()===null,'评分状态和题块路由不同时拒绝建立基准');
+  mark.readOverInfo.questionId=42;
   const urls=await a.gatherAnswerImages(),old=a.getPaperIdentity();assert(urls.length===1&&old,'答卷图及身份就绪');
   if(bound){
    for(const scores of [[0,0],[2.5,8],[7,0]]){assert(a.fillScores(scores),'绑定题完整填入');await wait(0);
@@ -85,6 +90,7 @@ if(mode==='late'||mode==='spa')panel.remove();
   }
   const button=document.querySelector('button');button.disabled=true;assert(!a.submitGrade(),'禁用时停止');button.disabled=false;
   assert(await a.submitGrade(),'通过平台按钮提交并确认保存');assert(await a.waitForNextPaper(urls[0]),'新答卷图出现后继续');
+  assert(JSON.stringify(a.getQuestionContext())===JSON.stringify(question),'同题换卷保留题号校验基准');
   assert(submits===1&&a.getPaperIdentity()!==old,'一次提交及明确换卷');
   papers.append(paper('C'));assert((await a.gatherAnswerImages()).length===0&&a.getPaperIdentity()===null,'混卷过渡期停止');
   papers.replaceChildren(paper('B'),paper('A',true));assert((await a.gatherAnswerImages()).length===1,'隐藏旧图不参与');

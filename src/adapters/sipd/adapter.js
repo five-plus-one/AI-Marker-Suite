@@ -57,6 +57,18 @@ const SipdAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const title = document.querySelector(SIPD_SELECTORS.QUESTION_TITLE)?.textContent?.trim();
+        const units = this.getScoreInputs(true).map(({ element, maxScore }) => {
+            const panel = element.closest(SIPD_SELECTORS.SCORE_INPUT_CONTAINER);
+            const label = panel?.getAttribute('data-key')?.trim();
+            return { label, maxScore };
+        });
+        return title ? nativeQuestionContext(units, title) : nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         // 任务标识 = pathname + data-key。
         // 注意：不能混入 input[name='input-rpe-title'] (mtid)——实测它每次进入阅卷页都会变
@@ -143,7 +155,7 @@ const SipdAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputs = [];
         const panels = document.querySelectorAll(SIPD_SELECTORS.SCORE_INPUT_CONTAINER);
 
@@ -184,7 +196,7 @@ const SipdAdapter = {
             inputs.push({ element: el, label: label, index: inputs.length, maxScore: maxScore });
         });
 
-        console.log(`[上进教育] 找到 ${inputs.length} 个分数输入框`);
+        if (!quiet) console.log(`[上进教育] 找到 ${inputs.length} 个分数输入框`);
         return inputs;
     },
 

@@ -78,6 +78,20 @@ const QitianAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const params = new URLSearchParams(window.location.search);
+        const question = QITIAN_SCORE_HELPERS.label(params.get('th'));
+        if (!question) return null;
+        const units = this.getScoreInputs().map(({ element, maxScore }, index, fields) => {
+            const row = element.closest('.timuArea');
+            const title = element.closest('tr')?.querySelector('td:first-child p') || row?.querySelector('.timuScore p');
+            return { label: QITIAN_SCORE_HELPERS.label(title?.textContent) || (fields.length === 1 ? question : ''), maxScore };
+        });
+        return nativeQuestionContext(units, this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         const params = new URLSearchParams(window.location.search);
         const th = params.get('th') || '';

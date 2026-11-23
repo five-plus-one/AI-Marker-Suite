@@ -193,6 +193,19 @@ const JiukexingHomeworkAdapter = {
 
     // 题目维度标识（换学生不变、换题变）：作业 ID + 题目 ID
     // 绝不含 scanPaperId/学生姓名，否则换卷误判新题、方案绑定失效
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        if (!this.isMarkingPage() || this.isUnsupportedMarkingMode()) return null;
+        const questionId = this._getUrlParam('questionId') || this._getUrlParam('homeworkQuestionId');
+        if (!questionId) return null;
+        const [element] = document.querySelectorAll(JIUKEXING_HW_SELECTORS.SCORE_INPUT);
+        const maxScore = element?.placeholder?.match(/≤\s*(\d+(?:\.\d+)?)\s*分?\s*$/)?.[1];
+        const title = document.querySelector(JIUKEXING_HW_SELECTORS.QUESTION_SELECT)?.querySelector('.common-name-ellipsis');
+        const label = title?.textContent?.trim().match(/^第\s*[^()（）]+?\s*题/)?.[0] || questionId;
+        return nativeQuestionContext([{ label, maxScore }], this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         const m = window.location.pathname.match(/\/mark\/(\d+)/);
         const homeworkId = m ? m[1] : '';

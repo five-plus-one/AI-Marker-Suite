@@ -103,6 +103,25 @@ test('不支持题号校验的平台提示并保留方案选择，仍校验实�
     assert.throws(() => e.sb.requireGradingContextTarget(context), /答卷已切换/);
 });
 
+test('题号数据允许暂缺的平台继续校验答卷，恢复后按已核对题号比较', () => {
+    const e = scene();
+    e.adapter.questionContextOptional = true;
+    e.change(null);
+    const context = e.sb.createGradingContext();
+    assert.doesNotThrow(() => e.sb.requireGradingContextTarget(context));
+    const question = { question: '17', units: [{ label: '1', maxScore: 4 }] };
+    e.change(question);
+    e.sb.captureInitialGradingQuestion(context);
+    assert.doesNotThrow(() => e.sb.requireGradingContextTarget(context));
+    e.change(null);
+    assert.doesNotThrow(() => e.sb.requireGradingContextTarget(context));
+    e.change({ ...question, question: '18' });
+    assert.throws(() => e.sb.requireGradingContextTarget(context), /题号或小题满分已变化/);
+    e.change(null);
+    e.setPaper('B');
+    assert.throws(() => e.sb.requireGradingContextTarget(context), /答卷已切换/);
+});
+
 test('只有教师主动继续才为当前题目建立新基准', () => {
     const e = scene(); e.sb.createGradingContext(); e.change({ question: '18', units: [{ label: '1', maxScore: 10 }] });
     assert.throws(() => e.sb.requireGradingQuestionContext(e.sb.createGradingContext()), /已变化/);

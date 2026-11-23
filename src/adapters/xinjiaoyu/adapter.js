@@ -9,6 +9,7 @@ let _xinjiaoyuCurrentImageUrl = null;
 let _xinjiaoyuNextImageUrl = null;
 let _xinjiaoyuCurrentQuestionNumber = null;
 let _xinjiaoyuCurrentTotalScore = null;
+let _xinjiaoyuQuestionRoute = '';
 let _xinjiaoyuIsHomework = false; // 是否是作业系统
 
 if (window.location.hostname.includes('xinjiaoyu.com')) {
@@ -21,6 +22,7 @@ XMLHttpRequest.prototype.open = function(method, url, ...args) {
 };
 
 XMLHttpRequest.prototype.send = function(...args) {
+    const route = window.location.pathname + window.location.search;
     this.addEventListener('load', function() {
         const url = this._xinjiaoyuUrl || '';
 
@@ -35,6 +37,7 @@ XMLHttpRequest.prototype.send = function(...args) {
                         _xinjiaoyuCurrentImageUrl = current.imageURL || current.answerQuestions?.[0]?.rawScan;
                         _xinjiaoyuCurrentQuestionNumber = current.answerQuestions?.[0]?.questionNumber;
                         _xinjiaoyuCurrentTotalScore = current.answerQuestions?.[0]?.totalScore || current.score;
+                        _xinjiaoyuQuestionRoute = route;
                         console.log('🖼️ [诊断] 新教育考试 API 拦截 - 当前图片:', _xinjiaoyuCurrentImageUrl?.substring(0, 80));
                     }
                     if (records.length > 1) {
@@ -70,6 +73,7 @@ XMLHttpRequest.prototype.send = function(...args) {
                                     _xinjiaoyuCurrentImageUrl = questionAnswer.rawScan;
                                     _xinjiaoyuCurrentQuestionNumber = questionAnswer.questionNumber;
                                     _xinjiaoyuCurrentTotalScore = questionAnswer.maxScore;
+                                    _xinjiaoyuQuestionRoute = route;
                                     console.log('🖼️ [诊断] 新教育作业 API 拦截 - 当前图片:', _xinjiaoyuCurrentImageUrl?.substring(0, 80));
                                     console.log('📋 [诊断] 题号:', _xinjiaoyuCurrentQuestionNumber, '满分:', _xinjiaoyuCurrentTotalScore);
                                 }
@@ -136,6 +140,28 @@ const XinjiaoyuAdapter = {
             console.error('❌ [诊断] detectMarkingPage 抛出异常:', error);
             return false;
         }
+    },
+
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        if (!this.isMarkingPage()) return null;
+        const current = _xinjiaoyuQuestionRoute === window.location.pathname + window.location.search;
+        const question = current ? _xinjiaoyuCurrentQuestionNumber : null;
+        const units = this.getScoreInputs().filter(({ element }) => MarkingPaper.visible(element));
+        if (!question && units.length <= 1) return null;
+        if (units.length === 1) {
+            const field = units[0].element;
+            const maxScore = field.getAttribute('aria-valuemax') || field.getAttribute('max')
+                || field.placeholder?.match(/满分\s*(\d+(?:\.\d+)?)\s*分/)?.[1]
+                || (current ? _xinjiaoyuCurrentTotalScore : null);
+            return nativeQuestionContext([{ label: question, maxScore }], question);
+        }
+        return nativeQuestionContext(units.map(({ element }) => ({
+            label: element.closest(XINJIAOYU_SELECTORS.SUB_QUESTION_ITEM)?.querySelector('span')?.textContent,
+            maxScore: element.getAttribute('aria-valuemax') || element.getAttribute('max')
+                || element.placeholder?.match(/满分\s*(\d+(?:\.\d+)?)\s*分/)?.[1]
+        })), question ?? undefined);
     },
 
     getTaskIdentifier() {

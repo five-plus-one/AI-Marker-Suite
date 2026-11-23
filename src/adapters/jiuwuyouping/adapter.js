@@ -90,6 +90,20 @@ const JiuwuyoupingAdapter = {
     },
 
     // ---------- 任务标识 ----------
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const task = this.getTaskIdentifier();
+        if (task === 'jwyp_navi') return null;
+        const units = this.getScoreInputs().map(({ element }, index, fields) => {
+            const label = element.closest('.dfddiv')?.querySelector(JIUWUYOUPING_SELECTORS.SCORE_LABEL)?.textContent
+                || (fields.length === 1 ? task : '');
+            const maxScore = element.getAttribute('placeholder')?.match(/^\s*满(?:分)?\s*(\d+(?:\.\d+)?)\s*分?\s*$/)?.[1];
+            return { label, maxScore };
+        });
+        return nativeQuestionContext(units, task);
+    },
+
     getTaskIdentifier() {
         // 优先取 iframe 全局变量（诊断已确认存在：ksdm=4 kmdm=C23 stbh=3）
         let ksdm = null, kmdm = null, stbh = null;

@@ -52,6 +52,17 @@ const YunyuejuanAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = this.getScoreInputs().map(({ element }) => {
+            const title = element.closest('tr')?.querySelector('td:first-child')?.textContent?.trim();
+            const label = title?.match(/^\s*\d+(?:[.．\-、]\d+|[（(]\d+[）)])*/)?.[0];
+            return { label, maxScore: element.getAttribute('data-score') };
+        });
+        return nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         const baseUrl = window.location.pathname;
         // 尝试从页面获取题目标识
