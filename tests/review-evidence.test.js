@@ -81,7 +81,7 @@ test('同卷按原图去重，已复核记录保留；未完成记录受清理�
     const a = await e.sb.history.savePendingReview(context, { score: 7 });
     const b = await e.sb.history.savePendingReview(context, { score: 7 });
     assert.equal(a, b); assert.equal(e.sb.history.getPendingReviewCount(), 1);
-    assert.equal(e.sb.history.delete(a), false);
+    assert.equal(await e.sb.history.delete(a), false);
     await assert.rejects(() => e.sb.imageStore.clear(), /先完成/);
     e.sb.history.markReviewed(a);
     await e.sb.history.savePendingReview(context, { score: 7 });
