@@ -59,6 +59,22 @@ const JingdouyunAdapter = {
 
     // 题目维度标识：URL 含 examId+itemid，学生切换（翻卷）不变、换题变。
     // 只取 URL 不掺 DOM：题号等 DOM 渲染有延迟，值变化会被主控的 URL 轮询误判成任务切换
+    supportsQuestionContext() {
+        const fields = Array.from(document.querySelectorAll(JINGDOUYUN_SELECTORS.SCORE_INPUT))
+            .filter(field => field.type !== 'hidden');
+        return fields.length <= 1;
+    },
+
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        const question = document.querySelector(JINGDOUYUN_SELECTORS.QUESTION_LABEL)?.textContent?.trim() || params.get('itemid');
+        const units = this.getScoreInputs(true);
+        if (units.length !== 1 || !question) return null;
+        return nativeQuestionContext([{ label: question, maxScore: units[0].maxScore }], this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         const hash = window.location.hash || '';
         const examId = (hash.match(/examId=([^&]+)/) || [])[1] || '';
@@ -94,12 +110,12 @@ const JingdouyunAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const els = Array.from(document.querySelectorAll(JINGDOUYUN_SELECTORS.SCORE_INPUT))
             .filter(el => el.type !== 'hidden');
 
         if (!els.length) {
-            console.warn('⚠️ [诊断] 精斗云 — 未找到分数输入框');
+            if (!quiet) console.warn('⚠️ [诊断] 精斗云 — 未找到分数输入框');
             return [];
         }
 
@@ -125,7 +141,7 @@ const JingdouyunAdapter = {
             maxScore: els.length > 1 ? 0 : maxScore
         }));
 
-        console.log(`📝 [诊断] 精斗云 — 评分单元 ${inputs.length} 个`, inputs.map(x => `${x.label}(满${x.maxScore})`).join(' | '));
+        if (!quiet) console.log(`📝 [诊断] 精斗云 — 评分单元 ${inputs.length} 个`, inputs.map(x => `${x.label}(满${x.maxScore})`).join(' | '));
         return inputs;
     },
 

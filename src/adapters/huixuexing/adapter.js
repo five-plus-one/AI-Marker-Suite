@@ -51,6 +51,22 @@ const HuiXuexingAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const params = new URLSearchParams(window.location.search);
+        const key = ['examId', 'uniqueId', 'examPaperId'].map(name => params.get(name));
+        const steps = Array.from(document.querySelectorAll('.step-li input[id^="stepScoreInput"]'))
+            .filter(element => MarkingPaper.visible(element));
+        const total = document.querySelector(HUIXUEXING_SELECTORS.SCORE_INPUT);
+        const fields = steps.length ? steps : (total ? [total] : []);
+        const units = fields.map(element => ({
+            label: element.closest('.step-li')?.querySelector('.name')?.textContent || (!steps.length ? key[1] : ''),
+            maxScore: element.placeholder?.match(/\d+(?:\.\d+)?\s*-\s*(\d+(?:\.\d+)?)/)?.[1]
+        }));
+        return nativeQuestionContext(units, key[1] ? JSON.stringify(key) : undefined);
+    },
+
     getTaskIdentifier() {
         // 从 URL 提取唯一标识：examId + uniqueId + examPaperId
         const params = new URLSearchParams(window.location.search);

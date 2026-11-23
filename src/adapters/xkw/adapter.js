@@ -83,6 +83,19 @@ const XkwAdapter = {
     },
 
     // ========== 任务标识 ==========
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const params = new URLSearchParams(window.location.search);
+        const question = params.get('topic') || params.get('num');
+        const units = this.getScoreInputs().filter(({ element }) => MarkingPaper.visible(element)).map(({ element, maxScore }, index, fields) => ({
+            label: element.closest(XKW_SELECTORS.SCORE_ROW)?.querySelector(XKW_SELECTORS.QUESTION_LABEL)?.textContent
+                || (fields.length === 1 ? question : ''),
+            maxScore
+        }));
+        return nativeQuestionContext(units, question ? this.getTaskIdentifier() : undefined);
+    },
+
     getTaskIdentifier() {
         // 任务 = 考试(examId 路径) + 批阅题(num/topic 参数)；同一题批阅组恒定
         const path = window.location.pathname;

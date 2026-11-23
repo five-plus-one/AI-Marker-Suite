@@ -49,6 +49,20 @@ const Xueba54Adapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = Array.from(document.querySelectorAll(XUEBA54_SELECTORS.SCORE_INPUT_PREFIX))
+            .filter(element => MarkingPaper.visible(element)).map(element => {
+                const index = element.id.match(/^zdyScore_(\d+)$/)?.[1];
+                return {
+                    label: index && document.querySelector(XUEBA54_SELECTORS.QUESTION_LABEL_BY_INDEX(index))?.textContent,
+                    maxScore: index && document.querySelector(XUEBA54_SELECTORS.MAX_SCORE_BY_INDEX(index))?.value
+                };
+            });
+        return nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         // 使用页面 URL 和当前题目信息作为唯一标识
         const questionLabel = document.querySelector(XUEBA54_SELECTORS.QUESTION_LABEL_PREFIX);

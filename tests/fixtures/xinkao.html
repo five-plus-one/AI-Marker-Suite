@@ -54,6 +54,8 @@ window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()
         const adapter = window.__AI_MARKER_ADAPTER__;
         const expected = { cloud: 'yunyuejuan', campus: 'xinkao-campus', intranet: 'xinkao-2', public: 'xinkao' }[mode];
         check(adapter?.id === expected, '整包注册到对应平台');
+        const question = adapter.getQuestionContext();
+        check(question?.units.map(unit => unit.maxScore).join(',') === '4,3,3', '按原站评分栏读取三个小题满分');
         const urls = await adapter.gatherAnswerImages(), old = adapter.getPaperIdentity();
         check(urls.length === 2 && old, '仅取完整可见的两页答卷');
         if (mode !== 'public') {
@@ -65,6 +67,12 @@ window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()
         }
         check(effects.confirmations === 1 && effects.saves === 1, '原站确认与保存各一次 ' + JSON.stringify({ ...effects, focus: window.o?.id, active: document.activeElement?.id }));
         check(await adapter.waitForNextPaper(urls[0], { paperId: old }), '完整新卷加载稳定后继续');
+        check(JSON.stringify(adapter.getQuestionContext()) === JSON.stringify(question), '同题换卷保留题号基准');
+        const heading = document.querySelector('tbody tr td'), text = heading.textContent;
+        heading.textContent = '29(+4)';
+        check(adapter.getQuestionContext()?.question !== question.question
+            || adapter.getQuestionContext()?.units[0].label !== question.units[0].label, '同分值换题仍可识别');
+        heading.textContent = text;
         check(await adapter.waitForNextPaper(urls[0]), '等待重试保留原提交基线');
         const current = adapter.getPaperIdentity(), controller = new AbortController();
         document.querySelectorAll('img.teaimg:not([hidden])').forEach(image => image.src += '&timestamp=123');
