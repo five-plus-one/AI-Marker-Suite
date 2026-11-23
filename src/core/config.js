@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.40.2',
+    VERSION: '1.21.41.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.41.0': [
+            '【优化】限制诊断日志占用，达到容量时自动清理最早的日志',
+        ],
         '1.21.40.2': [
             '【修复】温州云阅卷可改分的单题复查支持填分与保存',
             '【优化】评阅历史容量不足时可继续批改，并将新记录保存在本机',
