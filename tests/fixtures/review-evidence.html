@@ -62,10 +62,10 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
   URL.revokeObjectURL = () => {};
   HTMLAnchorElement.prototype.click = function () { downloadName = this.download; };
   const pending = exportButton.onclick();
-  assert(exportButton.disabled && exportButton.textContent.includes('正在导出'), '导出开始时按钮显示进度');
+  assert(document.querySelector('dialog[open] progress'), '导出开始时弹窗显示进度');
   await pending;
   const exported = await htmlBlob.text();
-  assert(downloadName.endsWith('.html') && exported.includes('data:image/png;base64,') && !exportButton.disabled, '有图 HTML 下载后恢复按钮');
+  assert(downloadName.endsWith('.html') && exported.includes('data:image/png;base64,') && !document.querySelector('dialog[open]'), '有图 HTML 下载后关闭进度弹窗');
   noImages.click();
   await exportButton.onclick();
   assert(!(await htmlBlob.text()).includes('data:image/png;base64,'), '无图 HTML 按选项导出');
@@ -109,7 +109,7 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
       document.querySelector('.hist-export-fmt[data-fmt="' + format + '"]').click();
       htmlBlob = null;
       downloadName = '';
-      exportButton.click();
+      await exportButton.onclick();
       for (let i = 0; i < 10 && !htmlBlob; i++) await new Promise(resolve => setTimeout(resolve, 10));
       assert(downloadName.endsWith('.' + format) && !exportButton.disabled, format + ' 保留原有下载入口');
       if (format === 'json') {
@@ -139,7 +139,7 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
       '重新载入后可读取本机评阅记录和原图');
   document.querySelector('.hist-export-fmt[data-fmt="csv"]').click();
   htmlBlob = null;
-  exportButton.click();
+  await exportButton.onclick();
   assert((await htmlBlob.text()).includes('本机记录示例'), '本机记录可通过原有入口导出');
   assert(await HistoryManager.delete(local.id), '可删除已导出的本机记录');
   await HistoryManager.init();
