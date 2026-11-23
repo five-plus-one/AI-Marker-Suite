@@ -256,6 +256,17 @@ const AmeqpAdapter = {
     // 图片文件名含考号（如 7720272115_00_1_0.PNG），换一份卷就会变，
     // 导致"绑定到当前试题"的 key 对不上，每次换卷都误判新试题弹 OOBE。
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = this.getScoreInputs().map(({ element, maxScore }) => {
+            const legend = element.closest('fieldset')?.querySelector(AMEQP_SELECTORS.SCORE_LEGEND);
+            const label = (legend?.title || legend?.textContent || '').trim().match(/^\s*\d+(?:[.．\-、]\d+|[（(]\d+[）)])*/)?.[0];
+            return { label, maxScore };
+        });
+        return nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         const labels = Array.from(document.querySelectorAll(AMEQP_SELECTORS.SCORE_LEGEND))
             .map(l => (l.title || l.textContent || '').trim())

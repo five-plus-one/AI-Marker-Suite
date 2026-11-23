@@ -51,6 +51,17 @@ const HaoyuejuanAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = this.getScoreInputs().map(({ element, maxScore }, index, fields) => ({
+            label: element.closest(HAOYUEJUAN_SELECTORS.SCORE_ITEM)?.querySelector('.num')?.textContent
+                || (fields.length === 1 ? document.querySelector(HAOYUEJUAN_SELECTORS.SCORE_ITEM_NUM)?.textContent : ''),
+            maxScore
+        }));
+        return nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         // SPA 下 hash 固定为 #/reading，换卷不变；题号在 .computeItem .num
         // 换题时题号变化 → 重新绑定方案；换学生时题号不变 → 不重复弹窗

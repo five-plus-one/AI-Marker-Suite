@@ -483,7 +483,21 @@ function gradingContextError(message) {
 
 // 只消费适配器确认过的题号来源；分数、份数与 DOM 下标不构成题号证据。
 function supportsQuestionGuard(adapter = window.__AI_MARKER_ADAPTER__) {
-    return typeof adapter?.getQuestionContext === 'function';
+    return typeof adapter?.getQuestionContext === 'function' && adapter.supportsQuestionContext?.() !== false;
+}
+
+function nativeQuestionContext(units, question = undefined) {
+    if (!units.length) return null;
+    const verified = units.map(({ label, maxScore }) => {
+        const score = typeof maxScore === 'string' ? maxScore.normalize('NFKC').trim() : maxScore;
+        const numeric = typeof score === 'number' || (typeof score === 'string' && /^\d+(?:\.\d+)?$/.test(score));
+        return { label: String(label ?? '').trim(), maxScore: numeric ? Number(score) : NaN };
+    });
+    if (verified.some(unit => !unit.label || !Number.isFinite(unit.maxScore) || unit.maxScore <= 0)) return null;
+    const labels = verified.map(unit => unit.label.normalize('NFKC').replace(/\s+/g, ''));
+    if (new Set(labels).size !== labels.length) return null;
+    const identity = question === undefined ? JSON.stringify(labels) : String(question ?? '').trim();
+    return identity ? { question: identity, units: verified } : null;
 }
 
 function readGradingQuestionContext(adapter) {
@@ -515,7 +529,10 @@ function captureInitialGradingQuestion(context) {
 function requireGradingQuestionContext(context) {
     if (context?.questionGuardEnabled !== true) return;
     const current = readGradingQuestionContext(context.adapter);
-    if (!context.questionBaseline || !current) throw gradingStepRetry('暂未读取到完整题号，请核对阅卷页面后继续');
+    if (!context.questionBaseline || !current) {
+        if (context.adapter.questionContextOptional === true) return;
+        throw gradingStepRetry('暂未读取到完整题号，请核对阅卷页面后继续');
+    }
     if (context.questionBaseline.key !== current.key) {
         const error = gradingContextError('题号或小题满分已变化，请核对当前题目和评分方案后继续');
         error.code = 'GRADING_QUESTION_CHANGED';
