@@ -1012,7 +1012,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     pacingDelayMs: hpState.lastDelayMs || 0
                 };
                 if (rawExtraInfo?.regradeId) {
-                    historySaved = HistoryManager.update(rawExtraInfo.regradeId, {
+                    historySaved = await HistoryManager.update(rawExtraInfo.regradeId, {
                         finalScore: score, isCorrected: historyEntry.isCorrected,
                         correctionReason: historyEntry.correctionReason,
                         subScores: rawSubScores, status: 'submitted'

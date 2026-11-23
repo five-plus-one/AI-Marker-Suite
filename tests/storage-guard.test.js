@@ -13,7 +13,7 @@ function load(file, exports, store, opts = {}) {
     if (opts.historyBudget) src = src.replace('40 * 1024 * 1024', String(opts.historyBudget));
     const quiet = { log: () => {}, warn: () => {}, error: () => {} };
     const sandbox = {
-        console: quiet, window: opts.window || {}, document: null, TextEncoder,
+        console: quiet, window: opts.window || {}, document: null, TextEncoder, showToast: opts.showToast,
         SCRIPT_CONFIG: { DEFAULT_ENDPOINT: 'x', DEFAULT_MODEL: 'y', VERSION: '0' },
         GM_getValue: (k, d) => {
             if (opts.getThrows) throw new Error('storage read failed');
@@ -140,7 +140,7 @@ test('超预算的历史仍可通过删除已导出的记录缩减，保留现�
     const store = { 'ai-grading-history': previous, 'ai-grading-history-rescue': rescue };
     const { HistoryManager } = load('history.js', 'HistoryManager', store, { historyBudget: 120 });
     await HistoryManager.init();
-    assert.equal(HistoryManager.removeRecords(new Set(['old'])), true);
+    assert.equal(await HistoryManager.removeRecords(new Set(['old'])), true);
     assert.deepEqual(JSON.parse(store['ai-grading-history']).map(r => r.id), ['keep']);
     assert.equal(store['ai-grading-history-rescue'], rescue);
 });
@@ -174,6 +174,51 @@ test('答题卡直接写入图片存储，历史保存过程从未写入新图�
     assert.deepEqual(record.imageUrls, ['[图片已存储]']);
     assert.equal(store['ai-grading-history-rescue'], undefined);
     finishImage();
+});
+
+test('历史和备份达到 80% 提示一次，清理后再次跨线会重新提示', async () => {
+    const store = { 'ai-grading-history-rescue': 'a'.repeat(38) };
+    const messages = [];
+    const { HistoryManager } = load('history.js', 'HistoryManager', store, {
+        historyBudget: 100, showToast: message => messages.push(message),
+    });
+    await HistoryManager.init();
+    HistoryManager.records = [{ id: 'test', comment: 'a'.repeat(20) }];
+    assert.equal(HistoryManager.save(), true);
+    assert.equal(HistoryManager.save(), true);
+    assert.equal(messages.filter(message => message.includes('80%')).length, 1);
+    assert.equal(await HistoryManager.removeRecords(new Set(['test'])), true);
+    HistoryManager.records = [{ id: 'next', comment: 'a'.repeat(20) }];
+    assert.equal(HistoryManager.save(), true);
+    assert.equal(messages.filter(message => message.includes('80%')).length, 2);
+});
+
+test('无人批改在共享历史达到上限时保存本机记录和答题卡，局部写入失败会返回失败', async () => {
+    const main = JSON.stringify([{ id: 'keep' }]);
+    const store = { 'ai-grading-history': main, 'ai-grading-history-rescue': 'a'.repeat(55) };
+    const { HistoryManager, ImageStore } = load('history.js', 'HistoryManager, ImageStore', store, {
+        historyBudget: 100, window: { aiGradingState: { saveImages: true } },
+    });
+    await HistoryManager.init();
+    const archived = new Map();
+    ImageStore.saveLocalHistory = async (entry, images) => archived.set(entry.record.id, { entry, images });
+    const makeRecord = () => ({
+        gradingMode: 'unattended', pageUrl: '/', taskIdentifier: 'task',
+        imageBase64s: ['image'], aiComment: '批'.repeat(50), finalScore: 3,
+    });
+    const record = makeRecord();
+    assert.equal(await HistoryManager.add(record), true);
+    assert.equal(store['ai-grading-history'], main);
+    assert.deepEqual(archived.get(record.id).images, ['image']);
+    assert.equal(HistoryManager.getById(record.id).finalScore, 3);
+    assert.equal(await HistoryManager.update(record.id, { finalScore: 4 }), true);
+    assert.equal(HistoryManager.getById(record.id).finalScore, 4);
+    ImageStore.removeLocalHistory = async ids => ids.forEach(id => archived.delete(id));
+    assert.equal(await HistoryManager.removeRecords(new Set([record.id])), true);
+    assert.equal(archived.size, 0);
+    ImageStore.saveLocalHistory = async () => { throw Error('quota'); };
+    assert.equal(await HistoryManager.add(makeRecord()), false);
+    assert.equal(store['ai-grading-history'], main);
 });
 
 // ---------- #293 审计修正点 ----------

@@ -80,6 +80,20 @@ test('普通、试评、无人模式在历史写入失败后保留平台提交�
     }
 });
 
+test('无人批改在本机历史保存成功后继续等待下一卷', async () => {
+    const e = flow();
+    e.state.gradingMode = 'unattended';
+    let waitCalls = 0;
+    e.adapter.waitForNextPaper = async () => true;
+    e.sb.waitForNextPaperWithRetry = async () => { waitCalls++; return true; };
+    e.sb.HistoryManager.add = async () => true;
+    const dialog = e.sb.showAutoSubmitDialog(8, 'test', null);
+    await dialog.confirmSubmit();
+    assert.equal(e.calls.submit.length, 1);
+    assert.equal(waitCalls, 1);
+    assert.equal(e.state.isPaused, false);
+});
+
 test('原生提交同步载入下一份时，等待使用提交前记录的旧卷', async () => {
     const e = flow(), calls = [];
     let paper = 'A';
