@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.38.0',
+    VERSION: '1.21.38.1',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.38.1': [
+            '【修复】评阅历史接近存储上限时保留已有记录，并提示先导出',
+            '【修复】已提交的答卷如未能完整保存到历史，暂停连续批改并提示处理',
+        ],
         '1.21.38.0': [
             '【修复】部分阅卷平台在提交时暂时隐藏答卷，仍可保存本卷分数',
             '【修复】下一份答卷提前加载时可继续批改，同卷图片刷新时继续等待',
