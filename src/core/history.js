@@ -443,7 +443,7 @@ const HistoryManager = {
         }
     },
 
-    add(record) {
+    async add(record) {
         record.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         record.timestamp = Date.now();
         record.status = record.status || 'submitted';
@@ -456,26 +456,21 @@ const HistoryManager = {
         this._stripDataUrls(record);
 
         this.records.unshift(record);
-        this.save();
+        const saved = this.save();
 
-        // 根据配置决定是否保存图片
-        if (imageBase64s && imageBase64s.length > 0 && window.aiGradingState.saveImages) {
-            ImageStore.save(record.id, imageBase64s).catch(error => {
-                console.warn('[历史] 图片存入 IndexedDB 失败:', error);
-                const current = this.getById(record.id);
-                if (!current) return;
-                current.imageBase64s = imageBase64s;
-                if (!this.save()) {
-                    delete current.imageBase64s;
-                    if (typeof showToast === 'function') showToast('答题卡图片暂时无法保存');
-                }
-            });
-        } else if (imageBase64s && imageBase64s.length > 0) {
-            console.log('[历史] 已跳过图片保存（用户设置为不保存图片）');
+        if (!imageBase64s?.length || !window.aiGradingState.saveImages) return saved;
+        try {
+            await ImageStore.save(record.id, imageBase64s);
+            return saved;
+        } catch (error) {
+            console.warn('[历史] 图片存入 IndexedDB 失败:', error);
+            const current = this.getById(record.id);
+            if (!current) return saved;
+            current.imageBase64s = imageBase64s;
+            if (this.save()) return true;
+            delete current.imageBase64s;
+            return false;
         }
-
-        const totalSize = (JSON.stringify(this.records).length / 1024).toFixed(1);
-        console.log(`📝 [历史] 已记录评阅: ${record.studentAnswer?.slice(0, 20)}... → ${record.finalScore}分 | 累计 ${this.records.length} 条, 存储 ${totalSize}KB`);
     },
 
     update(id, updates) {
@@ -486,14 +481,15 @@ const HistoryManager = {
             if (this.records[idx].reviewKey) {
                 const records = this._readReviewRecords();
                 const record = records.find(r => r.id === id);
-                if (record) { Object.assign(record, updates); this._persistReviewRecords(records); }
-                return;
+                if (!record) return false;
+                Object.assign(record, updates);
+                this._persistReviewRecords(records);
+                return true;
             }
             Object.assign(this.records[idx], updates);
-            this.save();
-            const totalSize = (JSON.stringify(this.records).length / 1024).toFixed(1);
-            console.log(`📝 [历史] 已更新评阅记录 ${id} | 累计 ${this.records.length} 条, 存储 ${totalSize}KB`);
+            return this.save();
         }
+        return false;
     },
 
     getById(id) {
