@@ -106,6 +106,15 @@ const RunjianAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const question = _runjianCurrentItemId || document.querySelector(RUNJIAN_SELECTORS.QUESTION_LABEL)?.textContent?.trim();
+        const units = this.getScoreInputs();
+        if (!question || units.length !== 1) return null;
+        return nativeQuestionContext([{ label: question, maxScore: units[0].maxScore }], question);
+    },
+
     getTaskIdentifier() {
         // 优先使用 API 拦截的题目 ID
         if (_runjianCurrentItemId) {

@@ -158,6 +158,32 @@
         },
 
         // 任务标识：URL questionId（稳定）
+        questionContextOptional: true,
+
+        getQuestionContext() {
+            if (!this.isMarkingPage()) return null;
+            const target = new URLSearchParams(location.hash.split('?')[1] || '').get('questionId');
+            if (!target) return null;
+            const units = this.getScoreInputs();
+            if (!units.length) return null;
+            if (HY_HELPERS.isWenzhou()) {
+                if (!this._canGradeWenzhou()) return null;
+                const state = HY_HELPERS.wenzhouStore()?.state?.mark, paper = state?.readOverInfo;
+                if (String(paper?.questionId ?? '') !== target) return null;
+                if (state.haveJoin) {
+                    return nativeQuestionContext(units.map(({ questionId, maxScore }, index) => ({
+                        label: JSON.stringify([String(questionId), state.selectArea[index].questionName || '']), maxScore
+                    })), this.getTaskIdentifier());
+                }
+                const question = paper.question;
+                if (!question) return null;
+                return nativeQuestionContext([{ label: question.questionName || target, maxScore: question.score }],
+                    this.getTaskIdentifier());
+            }
+            const title = HY_HELPERS.parseTaskTitle();
+            return title ? nativeQuestionContext([title], target) : null;
+        },
+
         getTaskIdentifier() {
             if (HY_HELPERS.isWenzhou()) {
                 const params = new URLSearchParams(location.hash.split('?')[1] || '');

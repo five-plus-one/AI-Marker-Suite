@@ -21,6 +21,13 @@ const JzsmarteduAdapter = {
         const style = getComputedStyle(el);
         return style.display !== 'none' && style.visibility !== 'hidden';
     },
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const state = this._state(), unit = this._unit(state);
+        return unit ? nativeQuestionContext([unit], state.task) : null;
+    },
+
     getTaskIdentifier() {
         const query = new URLSearchParams(window.location.hash.split('?')[1] || '');
         return `jzsmartedu_${new URL(window.location.href).origin}_${JSON.stringify([

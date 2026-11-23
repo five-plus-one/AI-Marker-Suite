@@ -61,6 +61,19 @@ const XinkaoAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = Array.from(document.querySelectorAll(XINKAO_SELECTORS.SCORE_INPUT_CLASS))
+            .filter(element => MarkingPaper.visible(element))
+            .map(element => {
+                const title = element.closest('tr')?.querySelector('td:first-child')?.textContent?.trim();
+                const label = title?.match(/^\s*\d+(?:[.．\-、]\d+|[（(]\d+[）)])*/)?.[0];
+                return { label, maxScore: element.getAttribute('max') || element.getAttribute('data-max') };
+            });
+        return nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         // 完整 URL 作为唯一标识（query 参数即为 token）
         return window.location.href;

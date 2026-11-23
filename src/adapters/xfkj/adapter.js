@@ -55,6 +55,16 @@ const XfkjAdapter = {
     },
 
     // 题块任务维度稳定（URL 含任务 id 与 isai，换卷不变），方案绑定按题块复用
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = this.getScoreInputs(true).map(({ element, maxScore }) => {
+            const item = element.closest(XFKJ_SELECTORS.SCORE_ITEM);
+            return { label: item?.id || item?.querySelector(XFKJ_SELECTORS.SCORE_LABEL)?.textContent, maxScore };
+        });
+        return nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         return window.location.pathname + window.location.search;
     },
@@ -87,7 +97,7 @@ const XfkjAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputs = [];
         const items = Array.from(document.querySelectorAll(XFKJ_SELECTORS.SCORE_ITEM));
 
@@ -123,7 +133,7 @@ const XfkjAdapter = {
             });
         });
 
-        console.log(`📝 [诊断] 小帆智能阅卷 — 评分单元 ${inputs.length} 个`, inputs.map(x => `${x.label}(满${x.maxScore})`).join(' | '));
+        if (!quiet) console.log(`📝 [诊断] 小帆智能阅卷 — 评分单元 ${inputs.length} 个`, inputs.map(x => `${x.label}(满${x.maxScore})`).join(' | '));
         return inputs;
     },
 

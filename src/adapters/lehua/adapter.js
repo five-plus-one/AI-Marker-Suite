@@ -55,6 +55,31 @@ const LehuaAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        if (!this.isMarkingPage()) return null;
+        const app = document.querySelector('#app')?.__vue__;
+        const queue = app ? [app] : [], matched = [];
+        while (queue.length) {
+            const candidate = queue.shift();
+            const controls = candidate.$refs?.gradingControls;
+            if (candidate.$options?.name === 'ExamYj1' && controls?.$options?.name === 'GradingControlsNew'
+                && MarkingPaper.visible(controls.$el) && Number(controls.maxScore) === Number(candidate.max_score)) {
+                matched.push(candidate);
+            } else {
+                queue.push(...(candidate.$children || []));
+            }
+        }
+        if (matched.length !== 1) return null;
+        const [component] = matched;
+        const question = component?.currentToolbarQuestionGroup;
+        const maxScore = component?.max_score;
+        if (!question || question === '--' || !component.sel_sb || !component.sel_xm) return null;
+        return nativeQuestionContext([{ label: question, maxScore }],
+            JSON.stringify([component.sel_xm, component.sel_sb, question]));
+    },
+
     getTaskIdentifier() {
         return window.location.href;
     },
