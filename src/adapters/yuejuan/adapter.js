@@ -58,6 +58,14 @@ const YuejuanAdapter = {
     // URL 第一段 taskId 与答题卡图片路径段一致，疑似题目标识，绝不能把第二段学生答卷 id 算进来
     // （图片哈希、sheetId 每份答卷都变，混入会导致「绑定到当前试题」失效，每次换卷误判新题）
     // #sp_testScore 题号+满分（如「17(12分)」）作双重保险，切题时必然变化
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const title = document.querySelector(YUEJUAN_SELECTORS.QUESTION_LABEL)?.textContent?.trim();
+        const [unit] = this.getScoreInputs(true);
+        return unit && title ? nativeQuestionContext([{ label: title, maxScore: unit.maxScore }], this.getTaskIdentifier()) : null;
+    },
+
     getTaskIdentifier() {
         const labelEl = document.querySelector(YUEJUAN_SELECTORS.QUESTION_LABEL);
         const label = labelEl ? labelEl.textContent.trim() : '';
@@ -81,7 +89,7 @@ const YuejuanAdapter = {
         return urls;
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputEl = document.querySelector(YUEJUAN_SELECTORS.SCORE_INPUT);
         const items = Array.from(document.querySelectorAll(YUEJUAN_SELECTORS.SCORE_ITEM));
 
@@ -103,7 +111,7 @@ const YuejuanAdapter = {
         }
 
         if (!inputEl && items.length === 0) {
-            console.warn('⚠️ [诊断] 正确阅卷 — 未找到评分单元');
+            if (!quiet) console.warn('⚠️ [诊断] 正确阅卷 — 未找到评分单元');
             return [];
         }
 
@@ -115,7 +123,7 @@ const YuejuanAdapter = {
             type: 'click',
             scores
         };
-        console.log(`📝 [诊断] 正确阅卷 — 评分单元 1 个: ${unit.label}(满${unit.maxScore}), 打分板分值: [${scores.join(',')}]`);
+        if (!quiet) console.log(`📝 [诊断] 正确阅卷 — 评分单元 1 个: ${unit.label}(满${unit.maxScore}), 打分板分值: [${scores.join(',')}]`);
         return [unit];
     },
 

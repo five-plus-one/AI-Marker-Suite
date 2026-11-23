@@ -4,7 +4,7 @@
 <input name="operateTypeCheck" type="radio" value="0" checked><input name="autoSubmit" type="checkbox">
 <form id="form-scoring"><input name="score" data-id="q1" data-max="5" data-fullscore="0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5">
 <div class="hidden"><input name="score1" value=""></div><button id="btn-submit-score" type="submit" disabled>提交得分</button></form>
-<pre id="result"></pre><script src="../../src/adapters/qiguang/adapter.js"></script><script>
+<pre id="result"></pre><script src="../../src/adapters/qiguang/adapter.js"></script><script src="../../src/core/runtime.js"></script><script>
 (async()=>{
  const runId=new URLSearchParams(location.search).get('run');
  const assert=(ok,message)=>{if(!ok)throw Error(message)};
@@ -21,6 +21,11 @@
   });
   assert(await a.detectMarkingPage(),'识别单份阅卷');
   assert(a.getScoreInputs().length===1,'只读取可见键盘评分项');
+  const question=a.getQuestionContext();
+  assert(question?.units[0].maxScore===5,'从原站题目 ID 和满分建立校验基准');
+  input.dataset.id='q2';
+  assert(a.getQuestionContext().units[0].label!==question.units[0].label,'同分值换题仍可识别');
+  input.dataset.id='q1';
   assert((await a.gatherAnswerImages())[0].includes('fixture-a.jpg'),'读取画布作答背景');
   const identity=a.getPaperIdentity();
   document.getElementById('scoring-item').style.backgroundImage='url("https://example.com/fixture-a.jpg?t=2")';

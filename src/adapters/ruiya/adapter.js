@@ -90,6 +90,21 @@ const RuiyaAdapter = {
     },
 
     // ---------- 任务标识 ----------
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const question = document.querySelector(RUIYA_SELECTORS.QUESTION_LABEL)?.textContent?.trim();
+        const units = this.getScoreInputs(true).filter(({ element }) => MarkingPaper.visible(element)).map(({ element, maxScore }, index, fields) => {
+            const item = element.closest(RUIYA_SELECTORS.SCORE_ITEM);
+            const label = item?.querySelector(RUIYA_SELECTORS.SCORE_LABEL)?.textContent
+                || item?.querySelector(RUIYA_SELECTORS.SCORE_LABEL_FALLBACK)?.textContent
+                || item?.querySelector('span:first-child')?.textContent?.trim()
+                || (fields.length === 1 ? question : '');
+            return { label, maxScore };
+        });
+        return nativeQuestionContext(units, question || undefined);
+    },
+
     getTaskIdentifier() {
         // 只用 pathname（含 GUID），剔除全部 query/hash：
         //  - 脚本加载瞬间（main.js 顶层）DOM 还没有 #lblTSub，用 DOM 标签会产生假「换题」
@@ -169,7 +184,7 @@ const RuiyaAdapter = {
     },
 
     // ---------- 评分单元 ----------
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const panel = document.querySelector(RUIYA_SELECTORS.SCORE_PANEL);
         let els;
         if (panel) {
@@ -177,7 +192,7 @@ const RuiyaAdapter = {
         } else {
             // 兜底：仅当 #panelKey 缺失；隐藏字段是 input[type=hidden]，不会被选中
             els = document.querySelectorAll(RUIYA_SELECTORS.SCORE_INPUT);
-            if (els.length && !this._warnedNoPanel) {
+            if (!quiet && els.length && !this._warnedNoPanel) {
                 this._warnedNoPanel = true;
                 console.warn('[睿芽] 未找到 #panelKey，退化为全页 input.ipt_score');
             }
@@ -218,7 +233,7 @@ const RuiyaAdapter = {
             inputs.push({ element: el, label, index: inputs.length, maxScore });
         });
 
-        if (inputs.length !== this._lastInputCount) {
+        if (!quiet && inputs.length !== this._lastInputCount) {
             this._lastInputCount = inputs.length;
             console.log(`[睿芽] 评分单元 ${inputs.length} 个：`
                 + inputs.map(x => `${x.label}(满${x.maxScore || '?'})`).join(' | '));
@@ -592,6 +607,7 @@ const RuiyaAdapter = {
 };
 
 const OnlyEtsMarkviewAdapter = Object.assign(Object.create(RuiyaAdapter), {
+    questionContextOptional: false,
     getGradingTaskIdentifier() { return this.isMarkingPage() ? this.getTaskIdentifier() : ''; },
     getQuestionContext() {
         const question = document.querySelector(RUIYA_SELECTORS.QUESTION_LABEL)?.textContent.trim()

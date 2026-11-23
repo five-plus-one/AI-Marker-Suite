@@ -186,7 +186,7 @@ async function connect(url) {
                     body = JSON.stringify({ code: ok ? 200 : 500 }); type = 'application/json'; status = 200;
                 } else if (url.hostname === 'yj.7net.cc' && url.pathname === '/Review') {
                     body = qitianHtml; type = 'text/html; charset=utf-8'; status = 200;
-                } else if (url.hostname === 'yj.7net.cc' && /^\/src\/(?:adapters\/qitian\/(?:selectors|adapter)|core\/(?:score|prompt))\.js$/.test(url.pathname)) {
+                } else if (url.hostname === 'yj.7net.cc' && /^\/src\/(?:adapters\/qitian\/(?:selectors|adapter)|core\/(?:score|prompt|runtime))\.js$/.test(url.pathname)) {
                     body = fs.readFileSync(path.join(root, url.pathname.slice(1))); type = 'application/javascript'; status = 200;
                 } else if (url.hostname === 'yj.7net.cc' && url.pathname === '/Review/guid') {
                     body = url.searchParams.get('case') === 'failure' ? '-ERR rejected' : '+OK saved'; status = 200;

@@ -87,6 +87,29 @@ const QitianNewAdapter = {
         }
     },
 
+    supportsQuestionContext() {
+        const fields = Array.from(document.querySelectorAll(QITIAN_NEW_SELECTORS.SCORE_INPUT));
+        return fields.length <= 1 || fields.every(field => field.closest('.KeyboardInputC')
+            || field.placeholder?.startsWith('满分') || field.hasAttribute('max') || field.hasAttribute('aria-valuemax'));
+    },
+
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        const question = params.get('tz') || document.querySelector(QITIAN_NEW_SELECTORS.TOPIC_LABEL)?.firstElementChild?.textContent;
+        const units = this.getScoreInputs().map(({ element }) => {
+            const container = element.closest('.scoreContainer');
+            const label = container?.querySelector('.title-info')?.textContent?.trim();
+            const maxScore = element.placeholder?.match(/^满分\s*(\d+(?:\.\d+)?)\s*分$/)?.[1]
+                || element.getAttribute('aria-valuemax') || element.getAttribute('max')
+                || (container?.classList.contains('activeTitle')
+                    ? document.querySelector('.ScoreAndStep .scoreRect.scoreGreen > span:last-child')?.textContent : null);
+            return { label: label && element.id === 'inputScoreRef_' + label ? label : '', maxScore };
+        });
+        return nativeQuestionContext(units, question);
+    },
+
     getTaskIdentifier() {
         // Vue hash 路由: #/marking?km=物理&tz=四.15&...
         const hash = window.location.hash;

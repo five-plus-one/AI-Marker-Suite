@@ -51,6 +51,17 @@ const DongniAdapter = {
     },
 
     // ---------- 任务标识（题目维度：换学生不变、换题变） ----------
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const params = new URLSearchParams(window.location.search);
+        const question = DONGNI_SELECTORS.TASK_QID_QUERY_KEYS.map(key => params.get(key)).find(Boolean);
+        const [unit] = this.getScoreInputs();
+        if (!question || !unit) return null;
+        return nativeQuestionContext([{ label: question, maxScore: unit.element.getAttribute('max') || unit.maxScore }],
+            this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         // #298-①：只取 URL query，禁止 DOM 探测——填分点选给分 radio 会翻转
         // label.is-active/el-radio.is-checked 等 DOM 态，掺入标识会每次填分误触发任务切换

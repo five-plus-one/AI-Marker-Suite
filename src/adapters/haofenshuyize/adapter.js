@@ -27,6 +27,21 @@ const HaofenshuyizeAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const question = new URLSearchParams(window.location.hash.split('?')[1] || '').get('questionId');
+        const [unit] = this.getScoreInputs();
+        if (!question || !unit) return null;
+        const title = document.querySelector(HAOFENSHUYIZE_SELECTORS.QUESTION_TITLE)?.textContent?.trim();
+        const scores = Array.from(document.querySelectorAll(HAOFENSHUYIZE_SELECTORS.SCORE_ITEM_BUTTONS))
+            .filter(button => MarkingPaper.visible(button))
+            .map(button => button.textContent.trim().match(/^(\d+(?:\.\d+)?)\s*分?$/)?.[1])
+            .filter(Boolean).map(Number);
+        const max = title?.match(/[（(]\s*(\d+(?:\.\d+)?)\s*分\s*[）)]/)?.[1] || Math.max(0, ...scores);
+        return nativeQuestionContext([{ label: question, maxScore: max }], question);
+    },
+
     getTaskIdentifier() {
         // URL 格式: #/marking/grading?questionId=1114509&thisType=2&...
         // 只用 questionId + hash 路径，不包含图片 URL（图片含学生特定哈希，每份答卷不同）
