@@ -102,12 +102,15 @@
                 const scores = inputs.map(({ element }) => Number(element.value));
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/markview/mark/');
+                const answerImage = document.querySelector('#imageFullScreen');
+                answerImage.hidden = true;
                 xhr.send(JSON.stringify({
                     mtid: '练习卷 A', inum: 2,
                     mark: { key: 'practice', stu: wrongPaper ? 'not-the-current-paper' : 'fixture-a',
                         score: scores[0] + scores[1],
                         items: inputs.map(({ element }, index) => ({ key: element.id.slice(3), score: scores[index] })) }
                 }));
+                answerImage.hidden = false;
             };
             button.onclick = () => {
                 if (inputs.every(({ element }) => Number(element.value) === 0)) modal.hidden = false;

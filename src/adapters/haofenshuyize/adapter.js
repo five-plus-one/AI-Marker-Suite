@@ -163,29 +163,12 @@ const HaofenshuyizeAdapter = {
         return false;
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        let checkTimes = 0;
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                checkTimes++;
-                const currentImg = document.querySelector(HAOFENSHUYIZE_SELECTORS.ANSWER_IMAGE);
-                const currentUrl = currentImg ? currentImg.src : null;
+    getPaperWaitKeys(imageUrls) {
+        return MarkingPaper.imageKeys(imageUrls);
+    },
 
-                // 检测图片变化
-                if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
-                    clearInterval(timer);
-                    console.log('✅ 云阅卷(好分数) — 新试卷已加载（图片变化）');
-                    resolve(true);
-                    return;
-                }
-
-                if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
-                    clearInterval(timer);
-                    console.warn('⚠️ 云阅卷(好分数) — 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 200);
-        });
+    waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.waitForImages(this, HAOFENSHUYIZE_SELECTORS.ANSWER_IMAGE, oldImageUrl, context, 200, 25000);
     },
 
     isRegradeMode() {

@@ -225,27 +225,12 @@ const YuejiaoxiangyunAdapter = {
         return false;
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        let checkTimes = 0;
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                checkTimes++;
+    getPaperWaitKeys(imageUrls) {
+        return MarkingPaper.imageKeys(imageUrls);
+    },
 
-                // 检测图片变化
-                const currentImg = document.querySelector(YUEJIAOXIANGYUN_SELECTORS.ANSWER_IMAGE);
-                const currentUrl = currentImg ? currentImg.src : null;
-
-                if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
-                    clearInterval(timer);
-                    console.log('[粤教翔云] 新试卷已加载（图片变化）');
-                    resolve(true);
-                } else if (checkTimes > 60) {
-                    clearInterval(timer);
-                    console.warn('[粤教翔云] 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 500);
-        });
+    waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.waitForImages(this, YUEJIAOXIANGYUN_SELECTORS.ANSWER_IMAGE, oldImageUrl, context, 500, 30000);
     },
 
     isRegradeMode() {

@@ -39,6 +39,7 @@ window.GM_xmlhttpRequest = options => {
         if (!pass) throw new Error(label);
     };
     const runId = new URLSearchParams(location.search).get('run');
+    let hideAnswerDuringSave = false;
     const page = {
         $el: root, $refs: { fullscreenElement: root }, $route: { query: { projectId: 'exercise' } },
         $nextTick: async () => {},
@@ -56,7 +57,10 @@ window.GM_xmlhttpRequest = options => {
                 this.buttondisabled1 = 1;
                 if (JSON.parse(request.responseText).code === 200) setPaper('paper-b');
             };
+            const box = root.querySelector('.imgBox');
+            if (hideAnswerDuringSave) box.hidden = true;
             request.send(JSON.stringify(payload));
+            if (hideAnswerDuringSave) box.hidden = false;
         },
     };
     function setPaper(id) {
@@ -115,7 +119,8 @@ window.GM_xmlhttpRequest = options => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
         check(!await adapter.submitGrade() && requests.length === 1, '人工修改分数后停止提交');
         check(adapter.fillScores([1.5]), '重新填写经核对的分数');
-        check(await adapter.submitGrade() && requests.length === 2, '确认同一答卷同一分值的成功回执');
+        hideAnswerDuringSave = true;
+        check(await adapter.submitGrade() && requests.length === 2, '暂时隐藏答卷时确认同卷同分的成功回执');
         check(await adapter.waitForNextPaper('', { taskId, paperId }) && adapter.getPaperIdentity() !== paperId, '等待同题新卷完整加载');
         check(!adapter.fillScores([1.5]), '上一份答卷的结果不能填到下一份');
         await adapter.gatherAnswerImages();

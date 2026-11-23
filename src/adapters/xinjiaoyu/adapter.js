@@ -271,37 +271,26 @@ const XinjiaoyuAdapter = {
         return false;
     },
 
-    async waitForNextPaper(oldImageUrl) {
+    getPaperWaitKeys(imageUrls) {
+        return MarkingPaper.imageKeys(imageUrls);
+    },
+
+    async waitForNextPaper(oldImageUrl, context = {}) {
         // 作业系统：等待平台自动跳转到下一个学生
         if (window.location.pathname.includes('/homework/')) {
             return this._waitForNextHomeworkStudent(oldImageUrl);
         }
 
         // 考试系统：等待 API 返回新图片
-        return this._waitForNextExamPaper(oldImageUrl);
+        return this._waitForNextExamPaper(oldImageUrl, context);
     },
 
-    async _waitForNextExamPaper(oldImageUrl) {
-        let checkTimes = 0;
-        return new Promise((resolve) => {
-            const checkNextTimer = setInterval(() => {
-                checkTimes++;
-
-                // 检测1：API 拦截的图片 URL 变化
-                if (_xinjiaoyuCurrentImageUrl && _xinjiaoyuCurrentImageUrl !== oldImageUrl) {
-                    clearInterval(checkNextTimer);
-                    console.log('✅ 新试卷已加载完毕（API 图片变化）');
-                    resolve(true);
-                    return;
-                }
-
-                if (checkTimes > 50) {
-                    clearInterval(checkNextTimer);
-                    console.warn('⚠️ 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 200);
-        });
+    _waitForNextExamPaper(oldImageUrl, context = {}) {
+        const oldKeys = context.paperWaitKeys ?? MarkingPaper.imageKeys([oldImageUrl]);
+        return MarkingPaper.waitForChange(this, () => {
+            const key = MarkingPaper.imageKey(_xinjiaoyuCurrentImageUrl);
+            return key ? [key] : [];
+        }, oldKeys, context, 200, 10000);
     },
 
     async _waitForNextHomeworkStudent(oldImageUrl) {
