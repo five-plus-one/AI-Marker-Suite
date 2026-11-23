@@ -696,13 +696,14 @@ const HistoryManager = {
      * @param {Object} options - { includeImages = true } false 时只导出文字记录
      */
     async exportMaterialsPackage(records, options = {}) {
-        const { includeImages = true } = options;
+        const { includeImages = true, onProgress } = options;
         records = records || this.records;
         const entries = [];
         const missing = [];
         let imageCount = 0;
 
         if (includeImages) {
+            let processed = 0;
             for (const r of records) {
                 try {
                     const base64s = r.imageBase64s?.length ? r.imageBase64s : await ImageStore.get(r.id);
@@ -722,6 +723,7 @@ const HistoryManager = {
                 } catch (e) {
                     missing.push(r.id);
                 }
+                onProgress?.(++processed, records.length);
             }
         }
 
@@ -785,36 +787,36 @@ const HistoryManager = {
             const time = new Date(r.timestamp).toLocaleString('zh-CN');
             const mode = modeLabel[r.gradingMode] || r.gradingMode;
             const scoreText = r.isCorrected ? `${r.aiScore} → ${historyScoreText(r)} ✓` : historyScoreText(r);
-            const correctedRow = r.isCorrected ? `<div style="color:#0052FF;font-size:12px;margin-top:4px;">纠错理由：${r.correctionReason || '无'}</div>` : '';
+            const correctedRow = r.isCorrected ? `<div style="color:#0052FF;font-size:12px;margin-top:4px;">纠错理由：${escHistDeep(r.correctionReason || '无')}</div>` : '';
             const markedRow = r.reviewStatus === 'pending' ? '<span style="color:#D93025;margin-left:8px;">待复核</span>'
                 : r.status === 'marked' ? `<span style="color:#D93025;font-size:11px;margin-left:8px;">⚠ 待回评</span>` : '';
             const images = (r.imageUrls || []).map((url, j) => {
                 const b64 = base64s[j];
-                return b64 ? `<img src="data:image/png;base64,${b64}" style="max-width:100%;border-radius:6px;margin-top:8px;">` : '';
+                return b64 ? `<img src="data:image/png;base64,${escHistDeep(b64)}" style="max-width:100%;border-radius:6px;margin-top:8px;">` : '';
             }).join('');
             const d = r.dualEval;
             const dualHtml = d ? `
                 <div style="margin:8px 0;padding:10px 14px;background:#f8f8f8;border-radius:8px;border:1px solid #e5e5e5;">
                     <div style="font-size:12px;font-weight:600;color:#1d1d1f;margin-bottom:8px;">双评结果</div>
                     <div style="display:flex;gap:20px;font-size:12px;margin-bottom:6px;">
-                        <span>分差: <strong style="color:${(d.diff || 0) > 2 ? '#D93025' : '#1d1d1f'};">${d.diff !== null ? d.diff + '分' : '—'}</strong></span>
+                        <span>分差: <strong style="color:${(d.diff || 0) > 2 ? '#D93025' : '#1d1d1f'};">${d.diff !== null ? escHistDeep(d.diff + '分') : '—'}</strong></span>
                         <span>判定: <strong style="color:${d.result === 'consensus' ? '#34A853' : d.result === 'arbitration' ? '#7c3aed' : '#86868b'};">${
-                            d.result === 'consensus' ? '✓ 共识' : d.result === 'arbitration' ? '⚠ 仲裁' : d.result === 'average-fallback' ? '取平均' : d.result
+                            d.result === 'consensus' ? '✓ 共识' : d.result === 'arbitration' ? '⚠ 仲裁' : d.result === 'average-fallback' ? '取平均' : escHistDeep(d.result)
                         }</strong></span>
                     </div>
                     <div style="margin-top:8px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
-                        <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师A 评分：<strong>${d.scoreA !== null ? d.scoreA + '分' : '失败'}</strong></div>
+                        <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师A 评分：<strong>${d.scoreA !== null ? escHistDeep(d.scoreA + '分') : '失败'}</strong></div>
                         ${d.detailA ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(getGradingOutputText(d.detailA['评分依据'], r, '评分依据'))}</div></div>` : ''}
                         ${d.detailA && d.detailA['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailA['分数计算'])}</div></div>` : ''}
                     </div>
                     <div style="margin-top:6px;padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #eee;margin-bottom:6px;">
-                        <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师B 评分：<strong>${d.scoreB !== null ? d.scoreB + '分' : '失败'}</strong></div>
+                        <div style="font-size:12px;font-weight:600;margin-bottom:4px;">老师B 评分：<strong>${d.scoreB !== null ? escHistDeep(d.scoreB + '分') : '失败'}</strong></div>
                         ${d.detailB ? `<div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>评分依据：</strong><div class="md-content">${renderMd(getGradingOutputText(d.detailB['评分依据'], r, '评分依据'))}</div></div>` : ''}
                         ${d.detailB && d.detailB['分数计算'] ? `<div style="font-size:11px;font-weight:600;"><strong>分数计算：</strong><div class="md-content">${renderMd(d.detailB['分数计算'])}</div></div>` : ''}
                     </div>
                     ${d.result === 'arbitration' ? `
                     <div style="margin-top:6px;padding:8px 12px;background:rgba(124,58,237,0.04);border-radius:6px;border:1px solid rgba(124,58,237,0.15);">
-                        <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:4px;">仲裁结果：<strong>${d.arbScore !== undefined ? d.arbScore + '分' : '—'}</strong></div>
+                        <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:4px;">仲裁结果：<strong>${d.arbScore !== undefined ? escHistDeep(d.arbScore + '分') : '—'}</strong></div>
                         ${d.arbAnalysis ? `<div style="font-size:11px;color:#666;line-height:1.5;"><strong>仲裁分析：</strong><div class="md-content">${renderMd(d.arbAnalysis)}</div></div>` : ''}
                     </div>` : ''}
                 </div>
@@ -822,8 +824,8 @@ const HistoryManager = {
             return `
                 <div style="border:1px solid #e5e5e5;border-radius:10px;padding:16px;margin-bottom:12px;page-break-inside:avoid;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                        <span style="color:#86868b;font-size:12px;">${time} · ${r.presetName} · ${mode}模式</span>
-                        <span style="font-size:16px;font-weight:600;">${scoreText}${typeof r.finalScore === 'number' ? '分' : ''}${markedRow}</span>
+                        <span style="color:#86868b;font-size:12px;">${time} · ${escHistDeep(r.presetName)} · ${escHistDeep(mode)}模式</span>
+                        <span style="font-size:16px;font-weight:600;">${escHistDeep(scoreText)}${typeof r.finalScore === 'number' ? '分' : ''}${markedRow}</span>
                     </div>
                     ${correctedRow}
                     ${dualHtml}
@@ -1107,10 +1109,11 @@ function showHistoryPanel() {
             .hist-filter button.primary { background:#eef7f1; color:#287047 !important; border-color:#cfe8d7; }
 
             .hist-batch-bar {
-                padding:10px 22px; border-bottom:1px solid #d6e4f5; display:none; align-items:center; gap:8px;
+                padding:10px 22px; border-bottom:1px solid #d6e4f5; display:none; align-items:center; flex-wrap:wrap; gap:8px;
                 background:#f1f7ff;
             }
             .hist-batch-bar.open { display:flex; }
+            .hist-batch-bar button:disabled { opacity:0.5; cursor:default; }
             .hist-batch-bar .batch-info { font-size:12px; color:#2166ad !important; font-weight:700; margin-right:auto; }
             .hist-item-check { display:none; margin-right:10px; flex-shrink:0; }
             .hist-batch-mode .hist-item-check { display:block; }
@@ -1237,6 +1240,7 @@ function showHistoryPanel() {
                 <span class="batch-info" id="hist-batch-info">已选 0 条</span>
                 <button class="hist-ghost-btn" id="hist-batch-select-all">全选本页</button>
                 <button class="hist-ghost-btn" id="hist-batch-deselect">取消选择</button>
+                <button class="hist-ghost-btn" id="hist-batch-export" disabled>导出选中</button>
                 <button class="hist-ghost-btn danger" id="hist-batch-delete">删除选中</button>
             </div>
             <div class="hist-filter-toggle">
@@ -1392,22 +1396,11 @@ function showHistoryPanel() {
 
     imageHelpButton.addEventListener('click', () => setImageHelpOpen(imageHelp.style.display === 'none'));
 
-    const exportButton = panel.querySelector('#hist-export-btn');
-    exportButton.onclick = () => {
-        if (exportFormat === 'html') return exportHistoryHTML();
-        const records = getFilteredRecords();
-        if (exportFormat === 'json') HistoryManager.exportJSON(records);
-        else if (exportFormat === 'csv') HistoryManager.exportCSV(records);
-        else if (exportFormat === 'zip') HistoryManager.exportMaterialsPackage(records, { includeImages: imageOption === 'with' });
-    };
+    panel.querySelector('#hist-export-btn').onclick = () => exportRecords(getFilteredRecords());
 
-    async function exportHistoryHTML() {
-        if (HistoryManager.htmlExportInProgress) {
-            showToast('评阅历史正在导出，请稍候');
-            return;
-        }
-
-        const format = 'html';
+    async function exportRecords(records) {
+        if (HistoryManager.htmlExportInProgress) return;
+        const format = exportFormat;
         const includeImages = imageOption === 'with';
         const startedAt = Date.now();
         const exportRun = {};
@@ -1416,12 +1409,10 @@ function showHistoryPanel() {
         let processed = 0;
         let nextProgressReport = 500;
         HistoryManager.htmlExportInProgress = true;
-        exportButton.disabled = true;
-        exportButton.textContent = '正在导出…';
+        let dialog;
         try {
-            const records = getFilteredRecords();
             recordCount = records.length;
-            const imageBytes = includeImages ? records.reduce((total, record) => {
+            const imageBytes = format === 'html' && includeImages ? records.reduce((total, record) => {
                 const image = ImageStore.getImageStatus(record.id);
                 return total + (image.status === 'local' && Number.isFinite(image.size) ? image.size : 0);
             }, 0) : 0;
@@ -1446,8 +1437,23 @@ function showHistoryPanel() {
                     diagnostic?.grading('history-export-picker-unavailable', exportRun, { format }, { error });
                 }
             }
-            await new Promise(resolve => setTimeout(resolve, 0));
-            await HistoryManager.exportHTML(records, {
+            dialog = document.createElement('dialog');
+            dialog.style.cssText = 'box-sizing:border-box;width:min(360px,calc(100% - 32px));padding:22px;border:1px solid GrayText;border-radius:12px;color:CanvasText;background:Canvas;color-scheme:light dark;font:inherit;';
+            dialog.setAttribute('aria-labelledby', 'hist-export-progress-title');
+            dialog.innerHTML = `
+                <h2 id="hist-export-progress-title" style="margin:0 0 12px;font-size:17px;">正在导出评阅历史</h2>
+                <p role="status" style="margin:0 0 10px;font-size:14px;"></p>
+                <progress aria-label="导出进度" style="display:block;width:100%;"></progress>
+            `;
+            dialog.addEventListener('cancel', event => event.preventDefault());
+            const status = dialog.querySelector('[role="status"]');
+            const progress = dialog.querySelector('progress');
+            const yieldToPaint = () => new Promise(resolve => setTimeout(resolve, 50));
+            status.textContent = `正在生成文件 · 共 ${recordCount} 条`;
+            getUIRoot().appendChild(dialog);
+            dialog.showModal();
+            await yieldToPaint();
+            const options = {
                 includeImages,
                 fileHandle,
                 onProgress(done, total) {
@@ -1456,9 +1462,17 @@ function showHistoryPanel() {
                         nextProgressReport = done + 500;
                         diagnostic?.grading('history-export-progress', exportRun, { processed, total }, { persist: true });
                     }
-                    exportButton.textContent = `正在导出 ${done}/${total}`;
+                    if (done === total || done % 10 === 0 || format === 'html') {
+                        status.textContent = `正在整理记录 · ${done} / ${total} 条`;
+                        progress.max = total || 1;
+                        progress.value = done;
+                    }
                 },
-            });
+            };
+            if (format === 'html') await HistoryManager.exportHTML(records, options);
+            else if (format === 'zip') await HistoryManager.exportMaterialsPackage(records, options);
+            else if (format === 'csv') HistoryManager.exportCSV(records);
+            else HistoryManager.exportJSON(records);
 
             diagnostic?.grading('history-export-finished', exportRun, {
                 format, includeImages, recordCount, elapsedMs: Date.now() - startedAt,
@@ -1473,25 +1487,35 @@ function showHistoryPanel() {
             showToast('评阅历史导出失败，请减少导出的记录后重试');
         } finally {
             HistoryManager.htmlExportInProgress = false;
-            exportButton.disabled = false;
-            exportButton.textContent = '导出当前视图';
+            dialog?.close();
+            dialog?.remove();
         }
     }
 
     // 批量管理
     const selectedIds = new Set();
     const batchBar = document.getElementById('hist-batch-bar');
+    const batchExport = document.getElementById('hist-batch-export');
+    batchExport.onclick = () => {
+        const records = HistoryManager.records.filter(record => selectedIds.has(record.id));
+        if (records.length) return exportRecords(records);
+    };
     const listContainer = document.getElementById('ai-history-panel-inner');
 
     function updateBatchInfo() {
         const info = document.getElementById('hist-batch-info');
         if (info) info.textContent = `已选 ${selectedIds.size} 条`;
+        batchExport.disabled = selectedIds.size === 0;
     }
 
     document.getElementById('hist-batch-toggle').onclick = () => {
         const isOpen = batchBar.classList.toggle('open');
         listContainer.classList.toggle('hist-batch-mode', isOpen);
-        if (!isOpen) { selectedIds.clear(); updateBatchInfo(); }
+        if (!isOpen) {
+            listContainer.querySelectorAll('.hist-item-check input:checked').forEach(cb => { cb.checked = false; });
+            selectedIds.clear();
+            updateBatchInfo();
+        }
     };
 
     document.getElementById('hist-batch-select-all').onclick = () => {
