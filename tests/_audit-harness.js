@@ -51,7 +51,7 @@ function env() {
             getMaxScore: () => 10, getTaskIdentifier: () => 'task', validateScoringUnits: () => ({ valid: true }),
             getActiveCallConfig: () => ({ apiKey: 'test', endpoint: 'https://api.test', model: 'test' }) },
         WorkflowManager: { getWorkflow: () => null }, extractFieldText: x => x.text,
-        HistoryManager: { add: r => calls.history.push(r) }, updateBatchProgress: () => calls.progress++,
+        HistoryManager: { add: r => { calls.history.push(r); return true; } }, updateBatchProgress: () => calls.progress++,
         showToast: m => calls.toasts.push(m), safeAlert: m => calls.toasts.push(m),
         closeSettingsPanel() {}, openSettingsPanel() {}, hideStreamPanel() {}, showStreamPanel() {}, updateStreamPanel() {}, startAutoGrading() {},
         checkConfigReady: () => ({ ready: true }), recordOutputLimitOutcome() {},

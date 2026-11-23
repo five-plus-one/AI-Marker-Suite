@@ -985,6 +985,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                 updateBatchProgress();
             }
 
+            let historySaved = false;
             try {
                 // 批改节奏：记录本卷用时（开始处理 → 提交，含随机延迟）与延迟时长
                 const hpState = window.aiGradingState.humanPacing || {};
@@ -1011,18 +1012,34 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                     pacingDelayMs: hpState.lastDelayMs || 0
                 };
                 if (rawExtraInfo?.regradeId) {
-                    HistoryManager.update(rawExtraInfo.regradeId, {
+                    historySaved = HistoryManager.update(rawExtraInfo.regradeId, {
                         finalScore: score, isCorrected: historyEntry.isCorrected,
                         correctionReason: historyEntry.correctionReason,
                         subScores: rawSubScores, status: 'submitted'
                     });
                 } else {
-                    HistoryManager.add(historyEntry);
+                    historySaved = await HistoryManager.add(historyEntry);
                 }
             } catch (e) {
-                console.error('⚠️ [诊断] 历史记录保存失败（不影响批阅进度）:', e);
+                console.error('[历史] 提交后的记录保存失败:', e);
             }
-            if (isGradingContextCurrent(runContext)) window.aiGradingState.cycleStartTime = null;
+            if (!isGradingContextCurrent(runContext)) return;
+            window.aiGradingState.cycleStartTime = null;
+            if (!historySaved) {
+                diagnostic?.grading('grading-paused', runContext, { reason: 'history-save-failed' }, { persist: true });
+                window.aiGradingState.isRunning = false;
+                window.aiGradingState.isPaused = true;
+                sessionStorage.removeItem('ai-grading-auto-resume');
+                sessionStorage.removeItem('ai-grading-retry-count');
+                const btn = document.querySelector('.ai-grade-btn');
+                if (btn) {
+                    btn.textContent = '继续批改';
+                    btn.classList.remove('running', 'unattended', 'trial');
+                    btn.classList.add('paused');
+                }
+                showToast('本卷分数已提交，评阅历史或答题卡未保存完整。已暂停批改，请先导出历史并检查存储空间。');
+                return;
+            }
 
 
             if (extraInfo?.manualBlank) {
