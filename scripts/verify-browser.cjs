@@ -65,7 +65,7 @@ async function connect(url) {
             'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
             'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'zhixue', 'zhixue-homework',
             'zhixue-continuity-exam', 'zhixue-continuity-homework', 'haofenshu', 'yuandingbang',
-            'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'youfen-ready', 'xiaoleyouyue-ready', 'xiaoleyouyue-multi', 'xiaoleyouyue-late', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa', 'xiaoxianai-exam', 'huixue-ready', 'huixue-late', 'huixue-spa', 'huizhou-ready', 'huizhou-late', 'huizhou-spa', 'xiangshangxue-ready', 'xiangshangxue-multi', 'xiangshangxue-late']
+            'hanhan', 'wzedu-ready', 'wzedu-keyboard', 'wzedu-late', 'wzedu-spa', 'wzedu-bound', 'wzedu-review', 'youfen-ready', 'xiaoleyouyue-ready', 'xiaoleyouyue-multi', 'xiaoleyouyue-late', 'xiaoxianai-ready', 'xiaoxianai-late', 'xiaoxianai-spa', 'xiaoxianai-exam', 'huixue-ready', 'huixue-late', 'huixue-spa', 'huizhou-ready', 'huizhou-late', 'huizhou-spa', 'xiangshangxue-ready', 'xiangshangxue-multi', 'xiangshangxue-late']
             .filter(fixture => !selected || fixture === selected || fixture.startsWith(selected + '-'));
         if (!fixtures.length) throw Error('Unknown browser fixture');
         let consoleMessages = [];
@@ -94,6 +94,7 @@ async function connect(url) {
         const dcesaHtml = fs.readFileSync(path.join(root, 'tests/fixtures/dcesa.html'), 'utf8');
         const xkwCloudHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xkw-cloud.html'), 'utf8');
         const qitianHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qitian.html'), 'utf8');
+        const hanhanHtml = fs.readFileSync(path.join(root, 'tests/fixtures/hanhan.html'), 'utf8');
         const xinkaoHtml = fs.readFileSync(path.join(root, 'tests/fixtures/xinkao.html'), 'utf8');
         const yuejuantongHtml = fs.readFileSync(path.join(root, 'tests/fixtures/yuejuantong.html'), 'utf8');
         const bundle = fs.readFileSync(path.join(root, 'dist/ai_marker.user.js'));
@@ -116,7 +117,19 @@ async function connect(url) {
             (async () => {
                 const url = new URL(event.params.request.url);
                 let body = '', type = 'text/plain', status = 404;
-                if (url.hostname === '10.30.0.8' && ['/Marking/NormalReadPaper', '/Marking/DisPlay', '/biluo/display.jsp'].includes(url.pathname)) {
+                if (url.hostname === 'wz.yunyuejuan.net') {
+                    if (url.pathname === '/index') {
+                        body = hanhanHtml; type = 'text/html; charset=utf-8'; status = 200;
+                    } else if (url.pathname === '/dist/ai_marker.user.js') {
+                        body = bundle; type = 'application/javascript'; status = 200;
+                    } else if (url.pathname === '/__fixture/answer.svg') {
+                        body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><text x="10" y="30">English practice</text></svg>';
+                        type = 'image/svg+xml'; status = 200;
+                    } else if (url.pathname === '/__fixture/save') {
+                        const score = new URLSearchParams(event.params.request.postData).get('score');
+                        status = event.params.request.method === 'POST' && score === '1' ? 200 : 400;
+                    }
+                } else if (url.hostname === '10.30.0.8' && ['/Marking/NormalReadPaper', '/Marking/DisPlay', '/biluo/display.jsp'].includes(url.pathname)) {
                     body = xinkaoHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (['www.yuejuantong.com', 'www.bfzks.com'].includes(url.hostname)
                     && url.pathname === '/mark/v6/view/fixture') {
@@ -280,6 +293,7 @@ async function connect(url) {
             const haofenshu = fixture === 'haofenshu';
             const yuandingbang = fixture === 'yuandingbang';
             const qitian = fixture === 'qitian';
+            const hanhan = fixture === 'hanhan';
             const taowei = fixture === 'taowei';
             const markview = ['yuejuantong', 'bfzks'].includes(fixture);
             const baishi = fixture === 'baishi';
@@ -298,7 +312,7 @@ async function connect(url) {
             const youfen = fixture.startsWith('youfen-');
             const xiaoleyouyue = fixture.startsWith('xiaoleyouyue-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || zhixueHomework || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || qitian || taowei || xinkao || markview || baishi || xkwCloud || eiduo || dcesa) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || zhixueHomework || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || qitian || hanhan || taowei || xinkao || markview || baishi || xkwCloud || eiduo || dcesa) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -328,11 +342,13 @@ async function connect(url) {
             if (xkwCloud) url = 'https://xycp.xkw.com/static-v2/exam/index.html?run=' + runId + '#/exam/index';
             if (baishi) url = 'https://ebs.bsedu.com/tasklist?projectId=exercise&run=' + runId;
             if (qitian) url = 'https://yj.7net.cc/Review?th=15&km=chemistry&run=' + runId;
+            if (hanhan) url = 'http://wz.yunyuejuan.net/index?run=' + runId + '#/marking/grading?questionId=72';
             if (xinkao) url = 'http://10.30.0.8' + (fixture === 'xinkao-intranet' ? '/biluo/display.jsp' : fixture === 'xinkao-public' ? '/Marking/DisPlay' : '/Marking/NormalReadPaper') + '?mode=' + fixture.slice(7) + '&run=' + runId;
             if (zhixue) url = 'https://www.zhixue.com/webmarking/marking/personal/?run=' + runId + continuity;
             if (zhixueHomework) url = 'https://www.zhixue.com/tfbWowbookWeb/?run=' + runId + continuity + '#/smarthw/?hwId=homework-fixture&classId=fixture-class';
             if (wzedu) url = 'https://yuejuan.wzedu.cn/static-v2/exam/index.html?run=' + runId + '&mode=' + fixture.slice(6)
-                + (fixture === 'wzedu-spa' ? '#/marking/gradingList/list' : '#/marking/grading?questionId=42&choiceIndex=0');
+                + (fixture === 'wzedu-spa' ? '#/marking/gradingList/list' : '#/marking/grading?questionId=42&choiceIndex=0')
+                + (fixture === 'wzedu-review' ? '&review=true&thisType=2&toNext=false' : '');
             if (huixue) url = 'https://' + (huizhou ? 'hx-webscan.hzjy.edu.cn' : 'hx-webscan.tyhuixue.com')
                 + '/web-reviewer/?run=' + runId + '&mode=' + fixture.slice(huizhou ? 8 : 7) + (fixture.endsWith('-spa') ? '#/home' : '#/generalReview');
             if (xiangshangxue) url = 'https://xinluolk.fjjxhl.com/lypaper/Base/lyReadPaper.aspx?run=' + runId + '&mode=' + fixture.slice(14);

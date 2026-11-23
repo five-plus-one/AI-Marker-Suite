@@ -29,6 +29,16 @@
             return document.querySelector(window.HUAHANYUN_SELECTORS.SCORE_INPUT);
         },
 
+        wenzhouSubmitButton() {
+            return Array.from(document.querySelectorAll(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON))
+                .find(button => button.getClientRects().length > 0);
+        },
+
+        submitButtonEnabled(button) {
+            return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true'
+                && !button.classList?.contains('is-loading');
+        },
+
         // 生产 Vue 组件公开 countScoreMultiple 更新各题模型；填分前接管原站自动给分。
         // 从当前应用的组件树定位，避免依赖生产页面未暴露的 DOM 调试属性。
         wenzhouBoundPanel() {
@@ -172,6 +182,24 @@
             return !!(window.aiGradingState && window.aiGradingState.isRegrading);
         },
 
+        _canGradeWenzhou() {
+            if (!this.isMarkingPage() || window.aiGradingState?.isRegrading) return false;
+            if (!this.isRegradeMode()) return true;
+            const params = new URLSearchParams(location.hash.split('?')[1] || '');
+            const state = HY_HELPERS.wenzhouStore()?.state?.mark;
+            const review = state?.reviewProps;
+            const paper = state?.readOverInfo;
+            // 平台区分可改分的复查与只读展示。复查须由路由、阅卷状态和给分按钮共同确认。
+            return params.get('review') === 'true' && params.get('thisType') === '2' && review?.review === true
+                && params.get('readonly') !== 'true' && !review.readonly
+                && params.get('markReview') !== 'true' && !state.markReview
+                && [1, 2].includes(Number(state.markingType)) && !state.haveJoin
+                && !state.IsSubItemscoring && !state.batchGrading && !state.areaMark && !state.feedBack
+                && !!paper && !paper.judged && !paper.checked
+                && Number(paper.teacherMarkType) > 0 && Number(review.markNumber) > 0
+                && HY_HELPERS.submitButtonEnabled(HY_HELPERS.wenzhouSubmitButton());
+        },
+
         // 单题块单分框：一个任务一个分框（label/满分取自面板标题「书写 7(4分)」）
         getScoreInputs() {
             const el = HY_HELPERS.scoreInput();
@@ -212,7 +240,11 @@
 
         // 单分框全或无（#296 模板）：缺分/多分/空框写入失败 → 显式 false，不留半填状态
         fillScores(scores) {
-            if (HY_HELPERS.isWenzhou() && (!this.isMarkingPage() || this.isRegradeMode())) return false;
+            this.lastFillError = null;
+            if (HY_HELPERS.isWenzhou() && !this._canGradeWenzhou()) {
+                if (this.isRegradeMode()) this.lastFillError = '当前复查页无法自动给分，请核对页面是否允许改分';
+                return false;
+            }
             if (HY_HELPERS.isWenzhou() && HY_HELPERS.wenzhouStore()?.state?.mark?.haveJoin) {
                 return this._fillWenzhouBound(scores);
             }
@@ -245,10 +277,12 @@
                 // Vue 在下一次渲染更新控件；同步写入展示值供核心即时校验，不派发快捷提交事件。
                 const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
                 setter.call(input.element, String(num));
-                const info = store.state.mark.readOverInfo;
+                const { readOverInfo: info, reviewProps } = store.state.mark;
+                const review = reviewProps?.review === true;
                 this._wenzhouFill = { studentId: info.studentId, sheetId: info.sheetId,
                     questionId: info.questionId, score: num, task: this.getTaskIdentifier(),
-                    identity: this.getPaperIdentity() };
+                    identity: this.getPaperIdentity(), review,
+                    ...(review ? { markCount: info.teacherMarkType, markNumber: reviewProps.markNumber } : {}) };
             } else HY_HELPERS.setNativeValue(input.element, num);
             if (String(input.element.value) !== String(num)) {
                 console.warn(`⚠️ [云阅卷华翰云] ${input.label} 写入校验失败（${input.element.value}≠${score}）→ 拒绝`);
@@ -302,16 +336,15 @@
 
         // 给分提交：点击 submitscorebtn；按钮缺失/禁用 → 显式 false（#296 不静默续走）
         submitGrade(guard) {
-            if (HY_HELPERS.isWenzhou() && (!this.isMarkingPage() || this.isRegradeMode()
+            if (HY_HELPERS.isWenzhou() && (!this._canGradeWenzhou()
                 || this.getScoreInputs().length === 0)) return false;
-            const buttons = Array.from(document.querySelectorAll(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON));
-            const btn = HY_HELPERS.isWenzhou() ? buttons.find(el => el.getClientRects().length > 0)
+            const btn = HY_HELPERS.isWenzhou() ? HY_HELPERS.wenzhouSubmitButton()
                 : document.querySelector(window.HUAHANYUN_SELECTORS.SUBMIT_BUTTON);
             if (!btn) {
                 console.warn('⚠️ [云阅卷华翰云] 未找到给分按钮 → 拒绝提交');
                 return false;
             }
-            if (btn.disabled || btn.getAttribute('aria-disabled') === 'true' || btn.classList?.contains('is-loading')) {
+            if (!HY_HELPERS.submitButtonEnabled(btn)) {
                 console.warn('⚠️ [云阅卷华翰云] 给分按钮禁用 → 拒绝提交');
                 return false;
             }
@@ -331,8 +364,14 @@
                 const pending = this._wenzhouFill;
                 const state = HY_HELPERS.wenzhouStore()?.state?.mark;
                 const info = state?.readOverInfo;
-                if (!pending?.identity || !info || guard.signal?.aborted || guard.isCurrent?.() === false
+                const review = state?.reviewProps?.review === true;
+                if (!this._canGradeWenzhou() || HY_HELPERS.wenzhouSubmitButton() !== btn
+                    || !HY_HELPERS.submitButtonEnabled(btn)
+                    || !pending?.identity || !info || guard.signal?.aborted || guard.isCurrent?.() === false
                     || pending.task !== this.getTaskIdentifier() || pending.identity !== this.getPaperIdentity()
+                    || (pending.review === true) !== review
+                    || (review && (String(pending.markCount) !== String(info.teacherMarkType)
+                        || String(pending.markNumber) !== String(state.reviewProps.markNumber)))
                     || (!pending.questions && pending.score !== state.questionScore)
                     || ['studentId', 'sheetId', 'questionId'].some(key => pending[key] == null
                         || String(pending[key]) !== String(info[key]))) return false;
@@ -395,7 +434,10 @@
                                     && pending.questions.every(q => request.questionSubmitList.filter(item =>
                                         String(item.questionId) === String(q.questionId) && item.score != null
                                         && String(item.score).trim() !== '' && Number(item.score) === q.score).length === 1);
-                                if (sameQuestions && keys.every(key => request[key] != null && String(request[key]) === String(pending[key]))) {
+                                const sameReview = !pending.review || (request.markPageType === 'REMARK'
+                                    && ['markCount', 'markNumber'].every(key => request[key] != null
+                                        && String(request[key]) === String(pending[key])));
+                                if (sameQuestions && sameReview && keys.every(key => request[key] != null && String(request[key]) === String(pending[key]))) {
                                     observed = this;
                                     for (const type of ['load', 'error', 'timeout', 'abort']) {
                                         this.addEventListener(type, type === 'load' ? loaded : cancelled);
