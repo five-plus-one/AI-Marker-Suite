@@ -246,37 +246,16 @@ const QitianNewAdapter = {
         return false;
     },
 
-    async waitForNextPaper() {
-        console.log('⏳ [诊断] 七天网络新UI — 等待下一份试卷...');
+    getPaperWaitKeys() {
+        const key = this._getCurrentId();
+        return key && key !== '-' ? [key] : [];
+    },
 
-        // 记录当前试题ID
-        const oldId = this._getCurrentId();
-        console.log(`⏳ [诊断] 当前试题ID: ${oldId || '(未找到)'}`);
-
-        // 等待试题ID变化（最可靠的信号）
-        const startTime = Date.now();
-        const maxWait = 30000; // 最多等待 30 秒
-
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                const currentId = this._getCurrentId();
-
-                // 试题ID变化 = 新试卷已加载
-                if (currentId && currentId !== oldId) {
-                    clearInterval(timer);
-                    console.log(`✅ 七天网络新UI — 新试卷已加载（试题ID: ${oldId} → ${currentId}）`);
-                    resolve(true);
-                    return;
-                }
-
-                // 超时检测
-                if (Date.now() - startTime > maxWait) {
-                    clearInterval(timer);
-                    console.warn('⚠️ 七天网络新UI — 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 500);
-        });
+    waitForNextPaper(_oldImageUrl, context = {}) {
+        const oldKeys = context.paperWaitKeys ?? (context.paperId ? [context.paperId] : this.getPaperWaitKeys());
+        return MarkingPaper.waitForChange(this, () => {
+            return this.getPaperWaitKeys();
+        }, oldKeys, context);
     },
 
     isRegradeMode() {

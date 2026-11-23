@@ -192,25 +192,12 @@ const WuyuetongAdapter = {
         return false;
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        const timeout = 30000;
-        const interval = 500;
-        const startTime = Date.now();
+    getPaperWaitKeys(imageUrls) {
+        return MarkingPaper.imageKeys(imageUrls);
+    },
 
-        while (Date.now() - startTime < timeout) {
-            // 检查图片是否变化
-            const img = document.querySelector(WUYUETONG_SELECTORS.ANSWER_IMAGE);
-            const currentUrl = img ? img.src : null;
-            if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
-                console.log('[威科姆] 检测到图片变化');
-                return true;
-            }
-
-            await new Promise(r => setTimeout(r, interval));
-        }
-
-        console.warn('[威科姆] 等待下一份答卷超时');
-        return false;
+    waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.waitForImages(this, WUYUETONG_SELECTORS.ANSWER_IMAGE, oldImageUrl, context, 500, 30000);
     },
 
     isRegradeMode() {

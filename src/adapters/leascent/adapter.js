@@ -177,6 +177,9 @@ const LeascentAdapter = {
             return await new Promise(resolve => {
                 const adapter = this, proto = s.w.XMLHttpRequest.prototype;
                 const originalOpen = proto.open, originalSend = proto.send, candidates = new WeakSet();
+                const expected = { testId: p.p.TestID, questionId: p.p.QuesID, paperId: p.q.PaperId,
+                    bwId: p.q.BWRID, rowId: p.q.RowID, markType: 0, needReleaseNum: p.q.NeedReleaseNum,
+                    gfNum: 0, arb: 0, score: p.values.join(','), flag: 0 };
                 let observed = null, settled = false;
                 const restore = () => {
                     if (proto.open === open) proto.open = originalOpen;
@@ -212,11 +215,19 @@ const LeascentAdapter = {
                 function send(body) {
                     if (candidates.has(this)) {
                         const params = new URLSearchParams(typeof body === 'string' ? body : '');
-                        const expected = { testId: p.p.TestID, questionId: p.p.QuesID, paperId: p.q.PaperId,
-                            bwId: p.q.BWRID, rowId: p.q.RowID, markType: 0, needReleaseNum: p.q.NeedReleaseNum,
-                            gfNum: 0, arb: 0, score: p.values.join(','), flag: 0 };
-                        if (observed || settled || guard.signal?.aborted
-                            || !adapter._same(p, adapter._state(true))
+                        const w = adapter._page(), q = w?.CurrQuestion;
+                        const visibleImages = Array.from(p.w.document.querySelectorAll(LEASCENT_SELECTORS.IMAGE))
+                            .filter(image => adapter._visible(image));
+                        const current = w === p.w && q === p.q && w.CurrPaper === p.p
+                            && adapter.getTaskIdentifier() === p.task && !adapter.isRegradeMode()
+                            && visibleImages.every(image => image.src === p.src)
+                            && q.TestId === expected.testId && q.QuesID === expected.questionId
+                            && q.PaperId === expected.paperId && q.BWRID === expected.bwId && q.RowID === expected.rowId
+                            && q.NeedReleaseNum === expected.needReleaseNum && q.MarkType === expected.markType
+                            && Array.isArray(q.MyScore) && q.MyScore.length === p.values.length
+                            && q.MyScore.every((value, i) => value === p.values[i]);
+                        if (observed || settled || guard.signal?.aborted || guard.isCurrentTask?.() === false
+                            || !current
                             || !Object.entries(expected).every(([key, value]) => params.getAll(key).length === 1 && params.get(key) === String(value))) {
                             finish(false); return;
                         }

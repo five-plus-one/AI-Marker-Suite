@@ -10,22 +10,34 @@ async function audit() {
     const record = (platform, scenario, actual, expected) => results.push({ platform, scenario, actual, expected, finding: actual !== expected });
     for (const platform of ['c30', 'keewing']) {
         const e = waitingFixture(platform);
+        const paperWaitKeys = e.adapter.getPaperWaitKeys();
         e.next();
-        record(platform, 'next-loaded-before-wait', await e.run(e.adapter.waitForNextPaper(e.oldUrl)), true);
+        record(platform, 'next-loaded-before-wait', await e.run(e.adapter.waitForNextPaper(e.oldUrl, { paperWaitKeys })), true);
+        const same = waitingFixture(platform);
+        record(platform, 'same-paper-empty-score', await same.run(same.adapter.waitForNextPaper(same.oldUrl, {
+            paperWaitKeys: same.adapter.getPaperWaitKeys(),
+        })), false);
     }
     for (const [platform, method] of [['guangda', '_getCurrentMh'], ['guangda-2', '_getCurrentPackage'],
         ['qitian-new', '_getCurrentId'], ['lehua', '_getCanvasHash']]) {
         const e = fixture(platform);
-        e.adapter[method] = () => 'paper-B';
+        let paper = 'paper-A';
+        e.adapter[method] = () => paper;
         e.adapter._autoRecoverCommitFail = () => {};
         e.sb.document.querySelector = () => null;
-        record(platform, 'next-loaded-before-wait', await e.run(e.adapter.waitForNextPaper(URL_A, { paperId: 'paper-A' })), true);
+        const paperWaitKeys = e.adapter.getPaperWaitKeys();
+        paper = 'paper-B';
+        record(platform, 'next-loaded-before-wait', await e.run(e.adapter.waitForNextPaper(URL_A, { paperWaitKeys })), true);
+        record(platform, 'missing-old-paper', await e.run(e.adapter.waitForNextPaper(URL_A, { paperWaitKeys: [] })), false);
     }
     for (const platform of ['hanhan', 'haofenshuyize', 'huixuexing', 'yuejiaoxiangyun', 'wuyuetong', 'xinjiaoyu']) {
         const e = waitingFixture(platform);
         e.image.src += '&timestamp=123';
         if (platform === 'xinjiaoyu') vm.runInContext('_xinjiaoyuCurrentImageUrl=' + JSON.stringify(e.image.src), e.sb);
         record(platform, 'same-paper-cache-refresh', await e.run(e.adapter.waitForNextPaper(e.oldUrl)), false);
+        e.image.src = e.oldUrl.replace('p=paper-a', 'p=paper-b');
+        if (platform === 'xinjiaoyu') vm.runInContext('_xinjiaoyuCurrentImageUrl=' + JSON.stringify(e.image.src), e.sb);
+        record(platform, 'same-path-new-paper-parameter', await e.run(e.adapter.waitForNextPaper(e.oldUrl)), true);
     }
     for (const platform of ['yunyuejuan', 'xinkao', 'xinkao-2', 'xinkao-campus']) {
         const e = waitingFixture(platform), paperId = e.adapter.getPaperIdentity();
