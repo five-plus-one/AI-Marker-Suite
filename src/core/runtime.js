@@ -435,7 +435,7 @@ function createGradingContext(manual = false) {
     configuration.scoring = { ...configuration.scoring,
         maxScore: PresetManager.getMaxScore?.() ?? configuration.scoring?.maxScore,
         units: JSON.parse(JSON.stringify(PresetManager.getScoringUnits?.() || configuration.scoring?.units || [])) };
-    const questionGuardEnabled = configuration.questionGuard?.enabled === true;
+    const questionGuardEnabled = configuration.questionGuard?.enabled === true && supportsQuestionGuard(adapter);
     const observedQuestion = questionGuardEnabled ? readGradingQuestionContext(adapter) : null;
     const sessionQuestion = state.questionGuardSession;
     const questionBaseline = !manual && sessionQuestion?.adapter === adapter && sessionQuestion.presetName === PresetManager.data.active
@@ -481,6 +481,10 @@ function gradingContextError(message) {
 }
 
 // 只消费适配器确认过的题号来源；分数、份数与 DOM 下标不构成题号证据。
+function supportsQuestionGuard(adapter = window.__AI_MARKER_ADAPTER__) {
+    return typeof adapter?.getQuestionContext === 'function';
+}
+
 function readGradingQuestionContext(adapter) {
     try {
         const value = adapter?.getQuestionContext?.();
