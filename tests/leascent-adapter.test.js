@@ -238,3 +238,11 @@ test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
     assert.deepEqual(fields.map(unit => unit.element.value), before);
     assert.equal(await a.submitGrade(), false);
 });
+
+
+test('丽升学校站点只在阅卷端口注册', () => {
+    const deployment = { host: 'yc05.591yj.cn', port: '9090' };
+    assert.equal(setup(deployment).a?.id, 'leascent');
+    assert.equal(setup({ ...deployment, port: '8088' }).a, undefined);
+    assert.equal(setup({ ...deployment, path: '/account/login' }).a, undefined);
+});
