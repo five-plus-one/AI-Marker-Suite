@@ -58,6 +58,21 @@ const KuyuuAdapter = {
      * 任务标识：取 URL 中稳定的 examid + itemid（避免 schoolid 等每次都可能变化的参数干扰）
      * 同一题目返回相同值，换题（itemid 变化）返回不同值
      */
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const task = new URLSearchParams(window.location.search);
+        if (!task.get('itemid')) return null;
+        const units = this.getScoreInputs(true).map(({ element }) => {
+            const label = element.closest('tr')?.querySelector(KUYUU_SELECTORS.MAX_SCORE_CELL)?.textContent;
+            const options = (element.getAttribute('scores') || '').split(',').map(value => value.trim())
+                .filter(value => /^\d+(?:\.\d+)?$/.test(value)).map(Number);
+            const maxScore = label?.match(/(?:^|[（(\s])\s*(\d+(?:\.\d+)?)\s*分/)?.[1] || Math.max(0, ...options);
+            return { label, maxScore };
+        });
+        return nativeQuestionContext(units, this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         const params = new URLSearchParams(window.location.search);
         const examid = params.get('examid') || '';
@@ -149,7 +164,7 @@ const KuyuuAdapter = {
      * 分数输入框：#scorePanel 键模式表格的 input[type=text]
      * maxScore 从 td.first-td 文本「xxx (15分)」提取
      */
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputEls = Array.from(document.querySelectorAll(KUYUU_SELECTORS.SCORE_INPUT));
         const inputs = [];
 
@@ -183,7 +198,7 @@ const KuyuuAdapter = {
             inputs.push({ element: el, label, index: i, maxScore });
         });
 
-        console.log(`[酷鱼网] 找到 ${inputs.length} 个分数输入框`, inputs.map(x => `${x.label} 满分${x.maxScore}`));
+        if (!quiet) console.log(`[酷鱼网] 找到 ${inputs.length} 个分数输入框`, inputs.map(x => `${x.label} 满分${x.maxScore}`));
         return inputs;
     },
 

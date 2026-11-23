@@ -54,6 +54,16 @@ const KeewingAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const [unit] = this.getScoreInputs();
+        if (!unit) return null;
+        const label = unit.element.closest('.score-list')?.querySelector('.block-title')?.textContent;
+        const maxScore = unit.element.placeholder?.match(/满分\s*(\d+(?:\.\d+)?)/)?.[1];
+        return nativeQuestionContext([{ label, maxScore }]);
+    },
+
     getTaskIdentifier() {
         // 使用 URL 作为唯一标识（包含题块 ID 和索引）
         return window.location.href;

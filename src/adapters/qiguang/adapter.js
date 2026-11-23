@@ -46,6 +46,15 @@ const QiguangAdapter = {
 
     async detectMarkingPage() { return this.isMarkingPage(); },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = this.getScoreInputs().map(({ element, questionId, maxScore }) => ({
+            label: JSON.stringify([questionId, element.getAttribute('data-questionno') || '']), maxScore
+        }));
+        return nativeQuestionContext(units, this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         const params = new URLSearchParams(window.location.search);
         const origin = new URL(window.location.href).origin;

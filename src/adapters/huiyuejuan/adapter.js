@@ -196,6 +196,20 @@ const HuiyuejuanAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const frame = this._getFrameDoc();
+        if (!frame) return null;
+        const panels = Array.from(frame.querySelectorAll(HUIYUEJUAN_SELECTORS.SCORE_PANEL_CONTAINER));
+        const verified = panels.map(panel => {
+            const title = panel.querySelector('.ui-exam-teacher-correct-score-panel-title .flex-col')?.textContent?.trim();
+            const match = title?.match(/^(.+?)\s*[（(]\s*(\d+(?:\.\d+)?)\s*分\s*[）)]\s*$/);
+            return { label: match?.[1], maxScore: match?.[2] };
+        });
+        return nativeQuestionContext(verified);
+    },
+
     getTaskIdentifier() {
         const frameDoc = this._getFrameDoc();
         if (!frameDoc) return 'hui_unknown';
