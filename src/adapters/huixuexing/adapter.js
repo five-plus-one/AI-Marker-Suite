@@ -325,28 +325,12 @@ const HuiXuexingAdapter = {
         }, 200);
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        console.log('[慧学星] 等待下一份答卷...');
-        const startTime = Date.now();
-        const maxWait = 30000;
+    getPaperWaitKeys(imageUrls) {
+        return MarkingPaper.imageKeys(imageUrls);
+    },
 
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                // 检查图片是否变化
-                const currentImg = document.querySelector(HUIXUEXING_SELECTORS.ANSWER_IMAGE);
-                const currentUrl = currentImg ? currentImg.src : null;
-
-                if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
-                    clearInterval(timer);
-                    console.log('[慧学星] 新答卷已加载（图片变化）');
-                    resolve(true);
-                } else if (Date.now() - startTime > maxWait) {
-                    clearInterval(timer);
-                    console.warn('[慧学星] 等待下一份答卷超时');
-                    resolve(false);
-                }
-            }, 300);
-        });
+    waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.waitForImages(this, HUIXUEXING_SELECTORS.ANSWER_IMAGE, oldImageUrl, context, 300, 30000);
     },
 
     isRegradeMode() {

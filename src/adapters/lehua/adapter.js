@@ -276,40 +276,19 @@ const LehuaAdapter = {
         }, 200);
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        console.log('⏳ [诊断] 乐华阅卷 — 等待下一份试卷...');
-
-        // 记录当前 Canvas 内容的 hash
-        const oldHash = this._getCanvasHash();
-        console.log(`⏳ [诊断] 当前 Canvas hash: ${oldHash || '(无)'}`);
-
-        const startTime = Date.now();
-        const maxWait = 30000; // 最多等待 30 秒
-
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                const currentHash = this._getCanvasHash();
-
-                // Canvas 内容变化 = 新试卷已加载
-                if (currentHash && currentHash !== oldHash) {
-                    clearInterval(timer);
-                    console.log(`✅ 乐华阅卷 — 新试卷已加载 (Canvas hash 变化)`);
-                    resolve(true);
-                    return;
-                }
-
-                // 超时检测
-                if (Date.now() - startTime > maxWait) {
-                    clearInterval(timer);
-                    console.warn('⚠️ 乐华阅卷 — 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 500);
-        });
+    getPaperWaitKeys() {
+        const key = this._getCanvasHash();
+        return key && key !== '-' ? [key] : [];
     },
 
-    // 获取 Canvas 内容的简单 hash（用于变化检测）
-    // 注意：不能用 getImageData()，因为 Canvas 加载了跨域图片会 tainted
+    waitForNextPaper(_oldImageUrl, context = {}) {
+        const oldKeys = context.paperWaitKeys ?? (context.paperId ? [context.paperId] : this.getPaperWaitKeys());
+        return MarkingPaper.waitForChange(this, () => {
+            return this.getPaperWaitKeys();
+        }, oldKeys, context);
+    },
+
+    // 对完整答卷取样，避免相同题头掩盖不同作答。
     _getCanvasHash() {
         try {
             const canvas = document.querySelector(LEHUA_SELECTORS.ANSWER_CANVAS);
@@ -317,12 +296,12 @@ const LehuaAdapter = {
 
             // 使用 toDataURL() 导出 PNG，取前 2000 字符计算 hash
             const dataUrl = canvas.toDataURL('image/png');
+            if (dataUrl.length <= 1000) return null;
             let hash = 0;
-            const len = Math.min(dataUrl.length, 2000);
-            for (let i = 0; i < len; i++) {
+            for (let i = 0; i < dataUrl.length; i++) {
                 hash = (hash * 31 + dataUrl.charCodeAt(i)) & 0xFFFFFFFF;
             }
-            return hash.toString(16);
+            return dataUrl.length + ':' + hash.toString(16);
         } catch (e) {
             return null;
         }

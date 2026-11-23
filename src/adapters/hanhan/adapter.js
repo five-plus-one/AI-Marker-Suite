@@ -134,27 +134,12 @@ const HanhanAdapter = {
         return false;
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        let checkTimes = 0;
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                checkTimes++;
+    getPaperWaitKeys(imageUrls) {
+        return MarkingPaper.imageKeys(imageUrls);
+    },
 
-                // 获取当前图片 URL
-                const currentImg = document.querySelector(HANHAN_SELECTORS.ANSWER_IMAGE);
-                const currentUrl = currentImg ? currentImg.src : null;
-
-                if (oldImageUrl && currentUrl && currentUrl !== oldImageUrl) {
-                    clearInterval(timer);
-                    console.log('✅ 华翰云 — 新试卷已加载（图片变化）');
-                    resolve(true);
-                } else if (checkTimes > 125) {  // 25秒（125 × 200ms），对齐其他适配器
-                    clearInterval(timer);
-                    console.warn('⚠️ 华翰云 — 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 200);
-        });
+    waitForNextPaper(oldImageUrl, context = {}) {
+        return MarkingPaper.waitForImages(this, HANHAN_SELECTORS.ANSWER_IMAGE, oldImageUrl, context, 200, 25000);
     },
 
     isRegradeMode() {

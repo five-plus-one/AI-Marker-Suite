@@ -61,6 +61,30 @@ test('提交失败不累计完成，成功仅一次；迟到回调不能再次�
     }
 });
 
+test('原生提交同步载入下一份时，等待使用提交前记录的旧卷', async () => {
+    const e = flow(), calls = [];
+    let paper = 'A';
+    e.adapter.getPaperIdentity = () => paper;
+    e.adapter.getPaperWaitKeys = () => { calls.push('snapshot-' + paper); return [paper]; };
+    e.adapter.submitGrade = async guard => {
+        assert.equal(guard.isCurrent(), true);
+        calls.push('submit-' + paper);
+        paper = 'B';
+        e.setPaper('B');
+        assert.equal(guard.isCurrent(), false);
+        assert.equal(guard.isCurrentTask(), true);
+        return true;
+    };
+    e.adapter.waitForNextPaper = async (_image, options) => {
+        calls.push('wait-' + paper);
+        assert.deepEqual(Array.from(options.paperWaitKeys), ['A']);
+        return true;
+    };
+    await e.sb.showAutoSubmitDialog(8, 'test', null).confirmSubmit();
+    assert.deepEqual(calls, ['snapshot-A', 'submit-A', 'wait-B']);
+    assert.equal(e.calls.history.length, 1);
+});
+
 test('回评确认成功才更新原记录，失败与重复确认均不增写历史', async () => {
     for (const accepted of [false, true]) {
         const e = flow(), updates = [];

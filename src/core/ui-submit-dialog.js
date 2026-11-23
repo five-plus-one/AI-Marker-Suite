@@ -55,6 +55,7 @@ async function waitForNextPaperWithRetry(adapter, oldImgUrl, maxRounds = 3, runC
         try {
             hasNext = await adapter.waitForNextPaper(oldImgUrl, runContext ? {
                 paperId: runContext.paperId, taskId: runContext.taskId, signal: runContext.controller.signal,
+                ...(runContext.paperWaitKeys !== undefined ? { paperWaitKeys: runContext.paperWaitKeys } : {}),
                 ...(adapter.id === 'zhixue' ? {
                     onDialog: diagnostic && (snapshot => diagnostic.grading('platform-dialog', runContext, { round, ...snapshot }, { persist: true })),
                     onWaitObserved: summary => { observation = summary; },
@@ -947,6 +948,7 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
             submitted = await retryUnattendedStep(runContext, 'submit', async () => {
                 if (!adapter?.submitGrade) return false;
                 if (submitAttempts++) await fillGradingScoreValues(runContext, score, rawSubScores, '提交前重新填分');
+                runContext.paperWaitKeys = adapter.getPaperWaitKeys?.(runContext.imageUrls);
                 let definitelyUnsent = false;
                 let accepted;
                 try {
@@ -954,6 +956,10 @@ function showAutoSubmitDialog(score, comment, subScores, extraInfo) {
                         signal: runContext.controller.signal,
                         isCurrent: () => {
                             try { requireGradingContextTarget(runContext); return true; } catch (_) { return false; }
+                        },
+                        // 发送边界由适配器核对原生卷号与请求。页面可以正在切换显示。
+                        isCurrentTask: () => {
+                            try { requireGradingContextTarget(runContext, false, false); return true; } catch (_) { return false; }
                         },
                         verify: () => verifyGradingContext(runContext),
                         onNotDispatched: () => { definitelyUnsent = true; }
