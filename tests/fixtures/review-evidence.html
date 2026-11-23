@@ -123,6 +123,27 @@ window.getChannelName=window.getBuildChannel=window.getBuildChannelLabel=()=> 'd
       }
   }
   const panel=document.getElementById('ai-history-panel').getBoundingClientRect();assert(panel.width<=innerWidth&&panel.left>=-1,'评阅历史适配窗口宽度');
+  const sharedHistory = storage['ai-grading-history'];
+  const setValue = window.GM_setValue;
+  window.GM_setValue = (key, value) => {
+      if (key === 'ai-grading-history') throw new DOMException('Shared history full', 'QuotaExceededError');
+      setValue(key, value);
+  };
+  const local = { gradingMode: 'unattended', pageUrl: '/', taskIdentifier: 'task-A',
+      finalScore: 6, studentAnswer: '本机记录示例', imageBase64s: context.base64DataArray };
+  assert(await HistoryManager.add(local), '无人批改可在共享历史写入失败后保存本卷');
+  assert(storage['ai-grading-history'] === sharedHistory, '共享历史保留');
+  window.GM_setValue = setValue;
+  await HistoryManager.init();
+  assert(HistoryManager.getById(local.id)?.finalScore === 6 && (await ImageStore.get(local.id))?.length === 1,
+      '重新载入后可读取本机评阅记录和原图');
+  document.querySelector('.hist-export-fmt[data-fmt="csv"]').click();
+  htmlBlob = null;
+  exportButton.click();
+  assert((await htmlBlob.text()).includes('本机记录示例'), '本机记录可通过原有入口导出');
+  assert(await HistoryManager.delete(local.id), '可删除已导出的本机记录');
+  await HistoryManager.init();
+  assert(!HistoryManager.getById(local.id), '删除后本机记录不会重新出现');
   document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,checks}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,width:innerWidth,checks,error:String(error),stack:error.stack}))));}
 })();

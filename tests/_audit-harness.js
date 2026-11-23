@@ -36,7 +36,8 @@ function env() {
         fetchImageAsBase64: async () => 'PNG',
         fillScores: s => { calls.fill.push({ paper, scores: Array.from(s) }); return true; },
         submitGrade: async () => { calls.submit.push(paper); return true; } };
-    const sb = { console: quiet, AbortController, URL, URLSearchParams, Event: class {},
+    const sb = {
+        TextEncoder, console: quiet, AbortController, URL, URLSearchParams, Event: class {},
         SCRIPT_CONFIG: { VERSION: 'audit', DEFAULT_ENDPOINT: 'x', DEFAULT_MODEL: 'y' }, navigator: { userAgent: 'Chrome/123' },
         setInterval: f => { const n = ++seq; intervals.set(n, f); return n; }, clearInterval: n => intervals.delete(n),
         setTimeout: f => { const n = ++seq; timeouts.set(n, f); return n; }, clearTimeout: n => timeouts.delete(n),
@@ -50,7 +51,7 @@ function env() {
             getMaxScore: () => 10, getTaskIdentifier: () => 'task', validateScoringUnits: () => ({ valid: true }),
             getActiveCallConfig: () => ({ apiKey: 'test', endpoint: 'https://api.test', model: 'test' }) },
         WorkflowManager: { getWorkflow: () => null }, extractFieldText: x => x.text,
-        HistoryManager: { add: r => calls.history.push(r) }, updateBatchProgress: () => calls.progress++,
+        HistoryManager: { add: r => { calls.history.push(r); return true; } }, updateBatchProgress: () => calls.progress++,
         showToast: m => calls.toasts.push(m), safeAlert: m => calls.toasts.push(m),
         closeSettingsPanel() {}, openSettingsPanel() {}, hideStreamPanel() {}, showStreamPanel() {}, updateStreamPanel() {}, startAutoGrading() {},
         checkConfigReady: () => ({ ready: true }), recordOutputLimitOutcome() {},
