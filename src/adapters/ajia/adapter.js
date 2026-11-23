@@ -59,7 +59,8 @@ const AjiaAdapter = {
             const maxScore = max?.getAttribute('data-score');
             return { label, maxScore };
         });
-        return nativeQuestionContext(units, this.getTaskIdentifier());
+        const task = [params.get('projectId'), params.get('subjectCode'), question];
+        return nativeQuestionContext(units, JSON.stringify(task));
     },
 
     getTaskIdentifier() {
