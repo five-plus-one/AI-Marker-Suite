@@ -15,6 +15,7 @@ const cases = [
     { name: 'trial-two', mode: 'trial', count: 2, score: 3, delay: 300 },
     { name: 'keyboard-zero', mode: 'trial', count: 1, score: 0, keyboard: true },
     { name: 'decimal', mode: 'trial', count: 1, score: 2.5 },
+    { name: 'writable-review', mode: 'trial', count: 1, score: 1, review: true, delay: 300 },
     { name: 'unattended-two', mode: 'unattended', count: 2, score: 3 },
     { name: 'server-rejection', mode: 'trial', count: 1, score: 3, failure: 'server' },
     { name: 'business-rejection', mode: 'trial', count: 1, score: 3, failure: 'business' },
@@ -104,6 +105,12 @@ function seedUserscript({ spec, png }) {
                 info.urls = [`${origin}/r/acceptance:/union_new/10/20/30/student/${student}/hash/web/42.png`];
                 info.question.markingType = spec.keyboard ? 1 : 2;
                 info.questions[0].markingType = spec.keyboard ? 1 : 2;
+                if (spec.review) {
+                    info.teacherMarkType = 1;
+                    info.question.score = 1;
+                    info.questions[0].score = 1;
+                    info.markedList = [{ question: info.question, questionId: 42, score: 0, markNumber: 1 }];
+                }
                 return body;
             };
             await context.route('**/*', async route => {
@@ -118,7 +125,9 @@ function seedUserscript({ spec, png }) {
                         data: { exist: false, resultType: 2, msg: '评分阶段已变化，请核对' } } });
                     index++; return route.fulfill({ json: infoFor(1001 + index) });
                 }
-                if (url.pathname === '/v2/union/mark/mark-page-info') return route.fulfill({ json: infoFor(1001 + index) });
+                if (/^\/v2\/(union|exam)\/mark\/mark-page-info$/.test(url.pathname)) {
+                    return route.fulfill({ json: infoFor(1001 + index) });
+                }
                 if (fixture[url.pathname]) return route.fulfill({ json: fixture[url.pathname] });
                 if (url.pathname.startsWith('/r/acceptance:')) return route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') });
                 if (url.pathname === appPath + 'index.html') {
@@ -136,7 +145,12 @@ function seedUserscript({ spec, png }) {
             const page = await context.newPage();
             page.on('pageerror', error => errors.push(error.message));
             try {
-                await page.goto(origin + appPath + 'index.html#/marking/grading?questionId=42&thisType=2&isSchool=1&choiceIndex=0');
+                const reviewParams = spec.review
+                    ? '&review=true&studentId=1001&markCount=1&markNumber=1&toNext=false&minScore=&maxScore=&indexOrder=0&scoreOrder=0&typical=0'
+                    : '';
+                const isSchool = spec.review ? 0 : 1;
+                await page.goto(origin + appPath + 'index.html#/marking/grading?questionId=42&thisType=2&isSchool=' + isSchool
+                    + '&choiceIndex=0' + reviewParams);
                 await page.waitForSelector('.submitscorebtn', { timeout: 20000 });
                 await page.evaluate(seedUserscript, { spec, png });
                 await page.addScriptTag({ content: bundle });
@@ -190,6 +204,11 @@ function seedUserscript({ spec, png }) {
                     assert.equal(submissions[n].sheetId, 101 + n);
                     assert.equal(submissions[n].questionId, 42);
                     assert.equal(submissions[n].score, spec.score);
+                    if (spec.review) {
+                        assert.equal(submissions[n].markPageType, 'REMARK');
+                        assert.equal(submissions[n].markCount, 1);
+                        assert.equal(submissions[n].markNumber, 1);
+                    }
                 }
                 for (const record of state.history) { assert.equal(record.score, spec.score); assert.equal(record.status, 'submitted'); }
                 assert.deepEqual(unknownApi, []);
