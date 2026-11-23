@@ -604,6 +604,9 @@ function resumeGrading(btn) {
 
     const config = PresetManager.getCurrentConfig();
     window.aiGradingState.gradingMode = config.gradingMode || 'normal';
+    if (config.questionGuard?.enabled === true && !supportsQuestionGuard()) {
+        showToast('当前平台暂不支持题号校验，请核对题目和评分方案');
+    }
     if (typeof DiagnosticLog !== 'undefined') {
         DiagnosticLog.grading('grading-resumed', null, { mode: window.aiGradingState.gradingMode }, { persist: true });
     }

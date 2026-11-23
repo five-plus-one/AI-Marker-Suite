@@ -146,6 +146,18 @@ const JiukexingAdapter = {
             index: i, maxScore: Number(unit.score), questionId: String(unit.customQuestionNumber), nativeUnit: unit,
             scoreRule: this._scoreRule(page, unit) }));
     },
+    getQuestionContext() {
+        const page = this._page(), paper = page?.markingNow;
+        const block = String(page?.questionvalue ?? '').trim();
+        if (!block || !paper?.id || page.lockScreen || page.yi || String(paper.questionBlockId ?? '') !== block) return null;
+        const inputs = this.getScoreInputs();
+        if (!inputs.length || inputs.some(unit => !String(unit.nativeUnit.customQuestionNumber ?? '').trim()
+            || !Number.isFinite(unit.maxScore) || unit.maxScore <= 0)) return null;
+        return {
+            question: this.getTaskIdentifier(),
+            units: inputs.map(({ label, maxScore }) => ({ label, maxScore })),
+        };
+    },
     _matches(pending) {
         const state = this._state(), inputs = this.getScoreInputs();
         return !!pending && !!state && state.page === pending.page && state.identity === pending.identity
