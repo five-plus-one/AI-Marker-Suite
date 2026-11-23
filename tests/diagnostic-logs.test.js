@@ -7,13 +7,14 @@ const { instrumentDiagnosticLogs } = require('../scripts/instrument-diagnostic-l
 
 const logger = fs.readFileSync(path.join(__dirname, '../src/core/diagnostic-log.js'), 'utf8');
 
-function openPage(shared, at, hostname, { rejectWrites = false } = {}) {
+function openPage(shared, at, hostname, { rejectWrites = false, beforeWrite } = {}) {
     const shown = [], listeners = {}, timers = new Map();
     let nextTimer = 0;
     const context = vm.createContext({
         window: { location: { hostname }, addEventListener(type, listener) { listeners[type] = listener; } },
         document: { addEventListener() {} },
         DIAGNOSTIC_SCRIPT_VERSION: '1.21.27.9',
+        TextEncoder,
         Date: { now: () => at },
         console: { log: (...args) => shown.push(args), warn: (...args) => shown.push(args) },
         setTimeout(callback, delay) { timers.set(++nextTimer, { callback, delay }); return nextTimer; },
@@ -22,6 +23,7 @@ function openPage(shared, at, hostname, { rejectWrites = false } = {}) {
         GM_getValue: (key, fallback) => shared.get(key) ?? fallback,
         GM_setValue: (key, value) => {
             if (rejectWrites) throw Error('Storage unavailable');
+            beforeWrite?.(key, value);
             shared.set(key, structuredClone(value));
         },
         GM_deleteValue: key => shared.delete(key),
@@ -106,4 +108,69 @@ test('a storage write failure remains local to diagnostics and is reported in co
     const report = page.read(at, at);
     assert.equal(report.coverage.grading.storageLimited, true);
     assert.equal(report.gradingEvents[0].details.reason, 'user-action');
+});
+
+test('shrinks oversized legacy diagnostics oldest first and preserves other script data', () => {
+    const at = 1794997905708;
+    const oldest = 'ai-marker-diagnostic-grading-v1-' + (at - 3000) + '-old-0';
+    const middle = 'ai-marker-diagnostic-log-v1-' + (at - 2000) + '-old-0';
+    const newest = 'ai-marker-diagnostic-log-v1-' + (at - 1000) + '-old-0';
+    const shared = new Map([
+        [oldest, [{ at: at - 3000, details: '字'.repeat(90000) }]],
+        [middle, [{ at: at - 2000, args: ['字'.repeat(90000)] }]],
+        [newest, [{ at: at - 1000, message: 'recent' }]],
+        ['ai-grading-history', '[{"reviewStatus":"pending"}]'],
+        ['ai-grading-presets', 'settings'],
+    ]);
+    const page = openPage(shared, at, 'mark.example');
+    page.run('console.warn("new");');
+    page.flushTimers();
+    const report = page.read(at - 3000, at);
+    assert.equal(shared.has(oldest), false);
+    assert.equal(shared.has(middle), true);
+    assert.equal(shared.has(newest), true);
+    assert.equal(shared.get('ai-grading-history'), '[{"reviewStatus":"pending"}]');
+    assert.equal(shared.get('ai-grading-presets'), 'settings');
+    assert.equal(report.coverage.grading.prunedThrough, at - 3000);
+    assert.deepEqual(report.entries.map(entry => entry.message), [undefined, 'recent', 'new']);
+});
+
+test('bounds encoded storage across platforms before every write and evicts oldest slots', () => {
+    const at = 1794997905708;
+    const shared = new Map();
+    function checkWrite(key, value) {
+        const pending = new Map(shared).set(key, value);
+        const bytes = Buffer.byteLength(JSON.stringify(Object.fromEntries(
+            [...pending].map(([id, data]) => [id, 'o' + JSON.stringify(data)])),
+        ));
+        assert.ok(bytes <= 4 * 1024 * 1024, '上限适用于每次写入后的存储');
+    }
+    const first = openPage(shared, at, 'first.example', { beforeWrite: checkWrite });
+    first.run('DiagnosticLog.grading("old", null, {text: "中".repeat(39000)});');
+    first.flushTimers();
+    for (let i = 1; i <= 40; i++) {
+        const page = openPage(shared, at + i * 1000, 'other.example', { beforeWrite: checkWrite });
+        page.run('DiagnosticLog.grading("record", null, {text: "中".repeat(39000)});');
+        page.flushTimers();
+    }
+    first.run('DiagnosticLog.grading("stale-page", null, {});');
+    first.flushTimers();
+    const viewer = openPage(shared, at + 42000, 'tools.example');
+    const report = viewer.read(at, at + 42000);
+    assert.equal(report.gradingEvents.length, 28);
+    assert.equal(report.gradingEvents[0].at, at + 13000);
+    assert.equal(report.gradingEvents.at(-1).at, at + 40000);
+    assert.ok(report.coverage.grading.prunedThrough >= at + 12000);
+    assert.ok(report.gradingEvents.every(row => row.event === 'record'));
+});
+
+test('does not attempt to write an event whose encoded size exceeds one slot', () => {
+    const at = 1794997905708, writes = [];
+    const page = openPage(new Map(), at, 'platform.example', { beforeWrite: key => writes.push(key) });
+    page.run('DiagnosticLog.grading("oversized", null, { text: "汉".repeat(90000) });');
+    page.flushTimers();
+    const report = page.read(at, at);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(report.gradingEvents, []);
+    assert.equal(report.coverage.grading.storageLimited, true);
 });
