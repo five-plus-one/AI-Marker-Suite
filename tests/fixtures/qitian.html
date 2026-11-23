@@ -11,17 +11,30 @@
     let checks = 0, submissions = 0, nativeSaves = 0, saveCase = 'success';
     let scoring = { maxScore: 14 };
     window.PresetManager = { getCurrentConfig: () => ({ scoring }) };
+    window.initConfig = { regionGuid: 'paper-A', th: '15' };
     const check = (ok, message) => { checks++; if (!ok) throw Error(message); };
     const host = document.getElementById('dutailBot');
+    const paper = document.getElementById('paperImage');
+    const showPaper = name => {
+        window.initConfig.regionGuid = 'paper-' + name;
+        paper.innerHTML = `<div class="reviewimg"><img width="300" height="80" src="/__fixture/answer.svg?paper=${name}" alt="合成答卷"></div>`;
+    };
     const row = (index, label, max) => `<div class="timuArea"><div class="timuScore"><table><tbody><tr><td><p>${label} |</p></td><td><input type="text" id="tbs${index}" onkeydown="inputByKey(event,${index},1,${max})"></td></tr></tbody></table></div><div class="addScore"><p data-th="${index}" data-val="0">0分</p><p data-th="${index}" data-val="${max}">满分</p></div></div>`;
     window.inputByKey = event => { if (event.keyCode === 13) submissions++; };
     const submit = document.getElementById('subfen');
     submit.onclick = () => {
         submissions++;
+        const score = QitianAdapter.getScoreInputs().map(unit => unit.element.value).join(';');
+        paper.innerHTML = '<div id="showloading">正在提交评阅...</div>';
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/Review/guid?case=' + saveCase);
-        xhr.onload = () => { if (xhr.responseText.startsWith('+OK')) nativeSaves++; };
-        xhr.send(new URLSearchParams({ score: QitianAdapter.getScoreInputs().map(unit => unit.element.value).join(';') }).toString());
+        xhr.onload = () => {
+            if (xhr.responseText.startsWith('+OK')) {
+                nativeSaves++;
+                showPaper('B');
+            }
+        };
+        xhr.send(new URLSearchParams({ score, regionGuid: window.initConfig.regionGuid, tz: window.initConfig.th }).toString());
     };
     try {
         host.innerHTML = row(1, '第15题', 14) + '<div hidden>' + row(2, '第16题', 99) + '</div>';
@@ -54,15 +67,18 @@
         check(submissions === 0, '检测与填分不触发快捷提交');
         host.innerHTML = row(1, '第15题', 14); scoring = { maxScore: 14 };
         check(adapter.fillScores([2,2,2,2,2,2,2]), '准备14分保存');
+        const oldImage = paper.querySelector('img').src;
         check(await adapter.submitGrade() && nativeSaves === 1, '匹配原生请求和成功回执');
+        check(await adapter.waitForNextPaper(oldImage), '保存成功后读取下一份答卷');
         check(!await adapter.submitGrade() && submissions === 1, '同卷重复点击不重复提交');
         check(adapter.fillScores([0]), '准备零分保存');
         saveCase = 'failure';
         check(!await adapter.submitGrade() && nativeSaves === 1, '保存失败不登记成功');
+        showPaper('B');
         check(adapter.fillScores([2]), '准备取消');
         const cancelled = new AbortController(); cancelled.abort();
         check(!await adapter.submitGrade({ signal: cancelled.signal }) && submissions === 2, '取消后不发起提交');
-        document.querySelector('#paperImage img').src = '/__fixture/answer.svg?paper=B';
+        showPaper('C');
         check(!await adapter.submitGrade() && submissions === 2, '换卷后不提交旧分');
         document.getElementById('status').textContent = '已完成题号、满分和小题汇总核对';
         document.getElementById('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({ runId, passed:true, width:innerWidth, checks }))));
