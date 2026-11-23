@@ -194,6 +194,10 @@ const TaoweiAdapter = {
         return new Promise(resolve => {
             const proto = p.w.XMLHttpRequest.prototype, originalOpen = proto.open, originalSend = proto.send;
             const candidates = new WeakSet();
+            const currentTask = guard.isCurrentTask || guard.isCurrent;
+            const expected = { ksdm: p.w.ksdm, kmdm: p.w.kmdm, stbh: p.w.stbh, rwid: p.r.RWID, dqpc: p.r.DQPC,
+                pycs: p.z.PYCS, sfmp: p.z.SFMP, pycj: Math.round(p.values.reduce((sum, v) => sum + v, 0) * 10) / 10,
+                pydfd: p.values.join('|'), pybz: p.annotations };
             let settled = false, observed = null, checking = false;
             const restore = () => {
                 if (proto.open === open) proto.open = originalOpen;
@@ -212,7 +216,7 @@ const TaoweiAdapter = {
             const loaded = () => {
                 try {
                     const data = observed.responseType === 'json' ? observed.response : JSON.parse(observed.responseText);
-                    finish(!guard.signal?.aborted && guard.isCurrent?.() !== false && this.getTaskIdentifier() === p.task
+                    finish(!guard.signal?.aborted && guard.isCurrentTask?.() !== false && this.getTaskIdentifier() === p.task
                         && observed.status >= 200 && observed.status < 300 && data?.res === true);
                 } catch (_) { finish(false); }
             };
@@ -228,11 +232,12 @@ const TaoweiAdapter = {
             function send(body) {
                 if (!settled && !observed && candidates.has(this)) {
                     const q = typeof body === 'string' ? new URLSearchParams(body) : null;
-                    const expected = { ksdm: p.w.ksdm, kmdm: p.w.kmdm, stbh: p.w.stbh, rwid: p.r.RWID, dqpc: p.r.DQPC,
-                        pycs: p.z.PYCS, sfmp: p.z.SFMP, pycj: Math.round(p.values.reduce((sum, v) => sum + v, 0) * 10) / 10,
-                        pydfd: p.values.join('|'), pybz: p.annotations };
-                    const current = adapter._page() === p.w && p.w.rwxx === p.r && adapter._task(p.w) === p.task
-                        && JSON.stringify([p.task, String(p.r.RWID), String(p.r.DQPC), String(p.r.BMH)]) === p.paper && !p.w.sfhp && p.w.loadok
+                    const visibleImages = Array.from(p.w.document.querySelectorAll(TAOWEI_SELECTORS.IMAGES))
+                        .filter(image => adapter._visible(image));
+                    const current = adapter._page() === p.w && p.w.rwxx === p.r && p.w.zgtxx === p.z && adapter._task(p.w) === p.task
+                        && JSON.stringify([p.task, String(p.r.RWID), String(p.r.DQPC), String(p.r.BMH)]) === p.paper && !p.w.sfhp
+                        && p.w.document.querySelector(TAOWEI_SELECTORS.PAPER)?.value === String(p.r.BMH)
+                        && visibleImages.every(image => image.src === p.sources[p.images.indexOf(image)])
                         && !p.w.err && p.w.dfms === '1' && String(p.w.sfsp) === '0' && String(p.z.SFSP) === '0'
                         && String(p.z.SFYGMS) === '0' && String(p.z.SFFP) === '0' && String(p.w.dtkgs) === '1'
                         && !p.w.inPyfk && !p.w.inPybz && !p.w.inZdypyPreview
@@ -240,11 +245,8 @@ const TaoweiAdapter = {
                         && Array.from(p.w.document.querySelectorAll(TAOWEI_SELECTORS.ROWS)).length === p.inputs.length
                         && p.inputs.every((u, i) => u.element.isConnected && !u.element.disabled && !u.element.readOnly
                             && p.w.document.querySelectorAll(TAOWEI_SELECTORS.ROWS)[i].querySelector(TAOWEI_SELECTORS.INPUT) === u.element
-                            && adapter._number(p.w.dfdfs[i]) === u.maxScore && adapter._number(u.element.value) === p.values[i])
-                        && p.w.document.querySelectorAll(TAOWEI_SELECTORS.IMAGES).length === p.images.length
-                        && p.images.every((img, i) => img.isConnected && p.w.document.querySelectorAll(TAOWEI_SELECTORS.IMAGES)[i] === img
-                            && img.src === p.sources[i] && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0);
-                    if (!current || guard.signal?.aborted || guard.isCurrent?.() === false || !q
+                            && adapter._number(p.w.dfdfs[i]) === u.maxScore && adapter._number(u.element.value) === p.values[i]);
+                    if (!current || guard.signal?.aborted || currentTask?.() === false || !q
                         || !Object.entries(expected).every(([key, value]) => q.getAll(key).length === 1 && q.get(key) === String(value))) {
                         finish(false); this.abort(); return;
                     }

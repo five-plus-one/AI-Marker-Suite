@@ -1,4 +1,4 @@
-// 云阅卷家族的原站键盘提交与答卷图片观察。
+// 原站键盘提交、答卷图片和换卷观察。
 const MarkingPaper = {
     visible(element) {
         if (!element?.getClientRects().length) return false;
@@ -20,6 +20,47 @@ const MarkingPaper = {
             url.hash = '';
             return url.href;
         } catch (_) { return null; }
+    },
+
+    async waitForChange(adapter, readKeys, oldKeys, context = {}, interval = 500, timeout = 30000) {
+        const { signal } = context;
+        if (!oldKeys.length || signal?.aborted) return false;
+        const task = context.taskId || adapter.getTaskIdentifier();
+        const deadline = Date.now() + timeout;
+        return new Promise(resolve => {
+            let previous = null;
+            const finish = value => {
+                clearInterval(timer);
+                signal?.removeEventListener('abort', cancel);
+                resolve(value);
+            };
+            const cancel = () => finish(false);
+            const timer = setInterval(() => {
+                if (signal?.aborted || Date.now() >= deadline) return finish(false);
+                let keys;
+                try {
+                    keys = adapter.getTaskIdentifier() === task ? readKeys() : [];
+                } catch (_) { keys = []; }
+                const candidate = keys.length && !keys.some(key => oldKeys.includes(key))
+                    ? JSON.stringify([...new Set(keys)].sort()) : null;
+                if (candidate && candidate === previous) return finish(true);
+                previous = candidate;
+            }, interval);
+            signal?.addEventListener('abort', cancel, { once: true });
+            if (signal?.aborted) cancel();
+        });
+    },
+
+    imageKeys(urls) {
+        return (urls || []).map(url => this.imageKey(url)).filter(Boolean);
+    },
+
+    waitForImages(adapter, selector, oldUrl, context = {}, interval, timeout) {
+        const oldKeys = context.paperWaitKeys ?? this.imageKeys([oldUrl]);
+        return this.waitForChange(adapter, () => {
+            const snapshot = this.snapshot(selector);
+            return snapshot.ready ? snapshot.keys : [];
+        }, oldKeys, context, interval, timeout);
     },
 
     snapshot(selector) {
