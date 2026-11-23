@@ -90,12 +90,17 @@ test('加载过渡期未读到题号不宣称换题，写入前等待核对', ()
     assert.doesNotThrow(() => e.sb.requireGradingContextTarget(context));
 });
 
-test('未支持的题号来源在开启选项后明确提示，关闭则按原流程运行', () => {
+test('不支持题号校验的平台提示并保留方案选择，仍校验实际换卷', () => {
     const e = scene(); delete e.adapter.getQuestionContext;
+    e.sb.startAutoGrading = () => {};
+    e.sb.resumeGrading(e.sb.document.querySelector('.ai-grade-btn'));
+    assert.ok(e.calls.toasts.some(message => message.includes('暂不支持题号校验')));
     const context = e.sb.createGradingContext();
-    assert.throws(() => e.sb.requireGradingContextTarget(context), /请核对阅卷页面/);
-    e.cfg.questionGuard.enabled = false;
-    assert.doesNotThrow(() => e.sb.requireGradingContextTarget(e.sb.createGradingContext()));
+    assert.equal(context.questionGuardEnabled, false);
+    assert.equal(context.configuration.questionGuard.enabled, true);
+    assert.doesNotThrow(() => e.sb.requireGradingContextTarget(context));
+    e.setPaper('B');
+    assert.throws(() => e.sb.requireGradingContextTarget(context), /答卷已切换/);
 });
 
 test('只有教师主动继续才为当前题目建立新基准', () => {
