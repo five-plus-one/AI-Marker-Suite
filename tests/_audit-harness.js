@@ -36,7 +36,8 @@ function env() {
         fetchImageAsBase64: async () => 'PNG',
         fillScores: s => { calls.fill.push({ paper, scores: Array.from(s) }); return true; },
         submitGrade: async () => { calls.submit.push(paper); return true; } };
-    const sb = { console: quiet, AbortController, URL, URLSearchParams, Event: class {},
+    const sb = {
+        TextEncoder, console: quiet, AbortController, URL, URLSearchParams, Event: class {},
         SCRIPT_CONFIG: { VERSION: 'audit', DEFAULT_ENDPOINT: 'x', DEFAULT_MODEL: 'y' }, navigator: { userAgent: 'Chrome/123' },
         setInterval: f => { const n = ++seq; intervals.set(n, f); return n; }, clearInterval: n => intervals.delete(n),
         setTimeout: f => { const n = ++seq; timeouts.set(n, f); return n; }, clearTimeout: n => timeouts.delete(n),

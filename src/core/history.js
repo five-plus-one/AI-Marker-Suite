@@ -196,6 +196,26 @@ const ImageStore = {
 };
 
 // ========== 评阅历史模块 ==========
+// 油猴可能在启动时一起传输脚本和存储值，给其它数据留出空间。
+const HISTORY_STORAGE_BUDGET = 40 * 1024 * 1024;
+
+function historyMessageBytes(value) {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function saveHistoryValue(json) {
+    const rescue = GM_getValue('ai-grading-history-rescue');
+    const backupBytes = rescue === undefined ? 0 : historyMessageBytes(rescue);
+    const bytes = historyMessageBytes(json);
+    if (bytes + backupBytes > HISTORY_STORAGE_BUDGET) {
+        const previous = GM_getValue('ai-grading-history');
+        // 允许旧数据逐步减小，写入的单条消息本身仍需低于预算。
+        if (bytes > HISTORY_STORAGE_BUDGET || !previous || bytes >= historyMessageBytes(previous)) return false;
+    }
+    GM_setValue('ai-grading-history', json);
+    return true;
+}
+
 const HistoryManager = {
     records: [],
     returnUrl: null,
@@ -216,8 +236,7 @@ const HistoryManager = {
     _persistReviewRecords(records) {
         try {
             const json = JSON.stringify(records);
-            if (json.length > 50 * 1024 * 1024) throw new Error('review history capacity');
-            GM_setValue('ai-grading-history', json);
+            if (!saveHistoryValue(json)) throw new Error('review history capacity');
             if (GM_getValue('ai-grading-history') !== json) throw new Error('history readback mismatch');
             this.records = records;
         } catch (error) {
@@ -327,7 +346,12 @@ const HistoryManager = {
         } catch (e) {
             // 解析失败：救下原始字节 + 只读降级（#293），旧历史优先于新写入
             console.warn('[历史] 历史数据解析失败，进入只读降级:', e);
-            try { if (saved) GM_setValue('ai-grading-history-rescue', String(saved)); } catch (_) {}
+            try {
+                if (typeof saved === 'string' && GM_getValue('ai-grading-history-rescue') === undefined
+                    && historyMessageBytes(saved) * 2 <= HISTORY_STORAGE_BUDGET) {
+                    GM_setValue('ai-grading-history-rescue', saved);
+                }
+            } catch (_) {}
             this._writeDisabled = true;
             this.records = [];
         }
@@ -407,51 +431,14 @@ const HistoryManager = {
             const keep = new Set(records.filter(r => r.reviewStatus === 'pending').map(r => r.id));
             return records.filter((r, i) => i < count || keep.has(r.id));
         };
-        let json = ser(candidate);
-        const completeJson = json;
-        const sizeKB = (json.length / 1024).toFixed(1);
-        const sizeMB = (json.length / 1024 / 1024).toFixed(2);
-
-        // 主动防御：接近 64MiB 上限时清理最旧的记录
-        const SAFE_LIMIT = 50 * 1024 * 1024; // 50MB 安全线
-        if (json.length > SAFE_LIMIT) {
-            console.warn(`[历史] ⚠️ 存储大小 ${sizeMB}MB 接近上限，开始防御性清理...`);
-            try { GM_setValue('ai-grading-history-rescue', completeJson); }
-            catch (error) { console.error('[历史] 完整备份失败，保留全部记录:', error); return unavailable(); }
-            const before = candidate.length;
-            while (json.length > SAFE_LIMIT && candidate.length > 10) {
-                const cutCount = Math.max(Math.floor(candidate.length * 0.2), 1);
-                const next = trim(candidate, candidate.length - cutCount);
-                if (next.length === candidate.length) break;
-                candidate = next;
-                json = ser(candidate);
-            }
-            console.warn(`[历史] 完整备份后缩减: ${before} → ${candidate.length} 条，当前 ${(json.length / 1024 / 1024).toFixed(2)}MB`);
-        }
-
         try {
-            GM_setValue('ai-grading-history', json);
+            const json = ser(candidate);
+            if (!saveHistoryValue(json)) return unavailable();
             this.records = candidate;
-            console.log(`[历史] 💾 保存成功: ${candidate.length} 条, ${sizeKB}KB`);
+            console.log(`[历史] 💾 保存成功: ${candidate.length} 条`);
             return true;
-        } catch (e) {
-            console.warn(`[历史] ❌ 保存失败 (${sizeMB}MB)，尝试截断旧记录...`, e);
-            // 截断是破坏性操作：先完整留底到 rescue（#293）
-            try { GM_setValue('ai-grading-history-rescue', completeJson); }
-            catch (error) { console.error('[历史] 完整备份失败，保留全部记录:', error); return unavailable(); }
-            while (candidate.length > 10) {
-                const next = trim(candidate, Math.max(10, Math.floor(candidate.length / 2)));
-                if (next.length === candidate.length) break;
-                candidate = next;
-                json = ser(candidate);
-                try {
-                    GM_setValue('ai-grading-history', json);
-                    this.records = candidate;
-                    console.warn(`[历史] 完整备份后保存 ${candidate.length} 条 (${(json.length / 1024).toFixed(1)}KB)`);
-                    return true;
-                } catch (_) { /* 继续截断 */ }
-            }
-            console.error('[历史] 保存失败，内存与完整备份保留全部记录');
+        } catch (error) {
+            console.warn('[历史] 保存失败，保留已有记录:', error);
             return unavailable();
         }
     },
@@ -465,23 +452,24 @@ const HistoryManager = {
         record.taskIdentifier ??= PresetManager.getTaskIdentifier();
 
         const imageBase64s = record.imageBase64s;
-        if (!window.aiGradingState.saveImages || !imageBase64s?.length) {
-            delete record.imageBase64s;
-            this._stripDataUrls(record);
-        }
+        delete record.imageBase64s;
+        this._stripDataUrls(record);
 
         this.records.unshift(record);
         this.save();
 
         // 根据配置决定是否保存图片
         if (imageBase64s && imageBase64s.length > 0 && window.aiGradingState.saveImages) {
-            ImageStore.save(record.id, imageBase64s).then(() => {
-                delete record.imageBase64s;
-                this._stripDataUrls(record);
-                this.save();
-            }).catch(e =>
-                console.warn('[历史] 图片存入 IndexedDB 失败:', e)
-            );
+            ImageStore.save(record.id, imageBase64s).catch(error => {
+                console.warn('[历史] 图片存入 IndexedDB 失败:', error);
+                const current = this.getById(record.id);
+                if (!current) return;
+                current.imageBase64s = imageBase64s;
+                if (!this.save()) {
+                    delete current.imageBase64s;
+                    if (typeof showToast === 'function') showToast('答题卡图片暂时无法保存');
+                }
+            });
         } else if (imageBase64s && imageBase64s.length > 0) {
             console.log('[历史] 已跳过图片保存（用户设置为不保存图片）');
         }
@@ -516,13 +504,20 @@ const HistoryManager = {
         this.update(id, { status: 'marked' });
     },
 
+    removeRecords(ids) {
+        const previous = this.records;
+        this.records = previous.filter(record => !ids.has(record.id));
+        if (this.save([...ids])) return true;
+        this.records = previous;
+        return false;
+    },
+
     delete(id) {
         if (this._readReviewRecords().some(r => r.id === id && r.reviewStatus === 'pending')) {
             showToast('请先完成本卷复核，再删除记录');
             return false;
         }
-        this.records = this.records.filter(r => r.id !== id);
-        if (!this.save([id])) return false;
+        if (!this.removeRecords(new Set([id]))) return false;
         ImageStore.delete(id).catch(() => {});
         return true;
     },
@@ -1397,11 +1392,10 @@ function showHistoryPanel() {
         if (HistoryManager._readReviewRecords().some(r => selectedIds.has(r.id) && r.reviewStatus === 'pending')) { showToast('请先完成选中记录的复核，再删除记录'); return; }
         if (await showConfirmModal(`确定要删除选中的 ${selectedIds.size} 条记录吗？`)) {
             if (HistoryManager._readReviewRecords().some(r => selectedIds.has(r.id) && r.reviewStatus === 'pending')) { showToast('请先完成选中记录的复核，再删除记录'); return; }
+            if (!HistoryManager.removeRecords(selectedIds)) return;
             for (const id of selectedIds) {
-                await ImageStore.delete(id).catch(() => {});
+                if (!HistoryManager.getById(id)) await ImageStore.delete(id).catch(() => {});
             }
-            HistoryManager.records = HistoryManager.records.filter(r => !selectedIds.has(r.id));
-            HistoryManager.save([...selectedIds]);
             selectedIds.clear();
             updateBatchInfo();
             currentFilteredRecords = getFilteredRecords();
@@ -1417,15 +1411,14 @@ function showHistoryPanel() {
 
     // 存储信息加载
     async function loadStorageInfo() {
-        const dbSize = (JSON.stringify(GM_getValue('ai-grading-history') || '').length / 1024).toFixed(1);
+        const dbKB = historyMessageBytes(GM_getValue('ai-grading-history', '')) / 1024;
         const countEl = document.getElementById('hist-storage-count');
         const dbEl = document.getElementById('hist-storage-db');
         const imgEl = document.getElementById('hist-storage-img');
         if (countEl) countEl.textContent = `${HistoryManager.records.length} 条`;
         if (dbEl) {
-            const dbKB = parseFloat(dbSize);
-            dbEl.textContent = dbKB > 1024 ? `${(dbKB / 1024).toFixed(1)} MB` : `${dbKB} KB`;
-            dbEl.closest('.hist-storage-item')?.classList.toggle('warn', dbKB > 40 * 1024);
+            dbEl.textContent = dbKB > 1024 ? `${(dbKB / 1024).toFixed(1)} MB` : `${dbKB.toFixed(1)} KB`;
+            dbEl.closest('.hist-storage-item')?.classList.toggle('warn', dbKB * 1024 >= HISTORY_STORAGE_BUDGET * 0.8);
         }
         try {
             const imgInfo = await ImageStore.getSize();
@@ -1465,11 +1458,10 @@ function showHistoryPanel() {
             return;
         }
         if (await showConfirmModal(`确定要删除 ${oldRecords.length} 条30天前的记录吗？`)) {
-            for (const r of oldRecords) {
-                await ImageStore.delete(r.id).catch(() => {});
+            if (!HistoryManager.removeRecords(new Set(oldRecords.map(record => record.id)))) return;
+            for (const record of oldRecords) {
+                if (!HistoryManager.getById(record.id)) await ImageStore.delete(record.id).catch(() => {});
             }
-            HistoryManager.records = HistoryManager.records.filter(r => r.timestamp >= cutoff || r.reviewStatus === 'pending');
-            HistoryManager.save(oldRecords.map(r => r.id));
             currentFilteredRecords = getFilteredRecords();
             const totalPagesAfter = Math.max(1, Math.ceil(currentFilteredRecords.length / paginationState.pageSize));
             if (paginationState.page > totalPagesAfter) paginationState.page = totalPagesAfter;
@@ -1485,8 +1477,8 @@ function showHistoryPanel() {
         if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清空历史'); return; }
         if (await showConfirmModal('确定要清空所有评阅历史和图片缓存吗？此操作不可撤销。')) {
             if (HistoryManager.getPendingReviewCount() > 0) { showToast('请先完成待复核记录，再清空历史'); return; }
-            HistoryManager.records = [];
-            HistoryManager.save(HistoryManager._readReviewRecords().map(r => r.id));
+            const ids = new Set([...HistoryManager.records, ...HistoryManager._readReviewRecords()].map(record => record.id));
+            if (!HistoryManager.removeRecords(ids)) return;
             await ImageStore.clear().catch(() => {});
             currentFilteredRecords = [];
             paginationState.page = 1;

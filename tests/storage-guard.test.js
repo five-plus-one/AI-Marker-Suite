@@ -9,10 +9,11 @@ const path = require('path');
 const vm = require('vm');
 
 function load(file, exports, store, opts = {}) {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', file), 'utf8');
+    let src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', file), 'utf8');
+    if (opts.historyBudget) src = src.replace('40 * 1024 * 1024', String(opts.historyBudget));
     const quiet = { log: () => {}, warn: () => {}, error: () => {} };
     const sandbox = {
-        console: quiet, window: {}, document: null,
+        console: quiet, window: opts.window || {}, document: null, TextEncoder,
         SCRIPT_CONFIG: { DEFAULT_ENDPOINT: 'x', DEFAULT_MODEL: 'y', VERSION: '0' },
         GM_getValue: (k, d) => {
             if (opts.getThrows) throw new Error('storage read failed');
@@ -117,6 +118,62 @@ test('历史解析失败：rescue 留底 + 不覆写', async () => {
     assert.strictEqual(store['ai-grading-history'], '{bad', '损坏数据不得被覆写');
     assert.strictEqual(store['ai-grading-history-rescue'], '{bad');
     assert.strictEqual(HistoryManager._writeDisabled, true);
+});
+
+test('历史容量按消息的 UTF-8 字节计算，并将已有备份计入同一预算', async () => {
+    const previous = JSON.stringify([{ id: 'old', aiComment: '留存' }]);
+    const rescue = JSON.stringify([{ id: 'archive', aiComment: '评语'.repeat(14) }]);
+    const store = { 'ai-grading-history': previous, 'ai-grading-history-rescue': rescue };
+    const historyBudget = Buffer.byteLength(JSON.stringify(previous)) + Buffer.byteLength(JSON.stringify(rescue)) + 30;
+    const { HistoryManager } = load('history.js', 'HistoryManager', store, { historyBudget });
+    await HistoryManager.init();
+    HistoryManager.records[0].aiComment += '批'.repeat(15);
+    assert.equal(HistoryManager.save(), false);
+    assert.throws(() => HistoryManager._persistReviewRecords(HistoryManager.records), /尚未保存/);
+    assert.equal(store['ai-grading-history'], previous);
+    assert.equal(store['ai-grading-history-rescue'], rescue);
+});
+
+test('超预算的历史仍可通过删除已导出的记录缩减，保留现有备份', async () => {
+    const previous = JSON.stringify([{ id: 'old', aiComment: '评语'.repeat(30) }, { id: 'keep' }]);
+    const rescue = JSON.stringify([{ id: 'archive', aiComment: '评语'.repeat(30) }]);
+    const store = { 'ai-grading-history': previous, 'ai-grading-history-rescue': rescue };
+    const { HistoryManager } = load('history.js', 'HistoryManager', store, { historyBudget: 120 });
+    await HistoryManager.init();
+    assert.equal(HistoryManager.removeRecords(new Set(['old'])), true);
+    assert.deepEqual(JSON.parse(store['ai-grading-history']).map(r => r.id), ['keep']);
+    assert.equal(store['ai-grading-history-rescue'], rescue);
+});
+
+test('过大的损坏历史原样保留，启动时不再复制到备份', async () => {
+    const raw = '{' + '评语'.repeat(60);
+    const store = { 'ai-grading-history': raw };
+    const { HistoryManager } = load('history.js', 'HistoryManager', store, { historyBudget: 120 });
+    await HistoryManager.init();
+    assert.equal(HistoryManager._writeDisabled, true);
+    assert.deepEqual(store, { 'ai-grading-history': raw });
+});
+
+test('答题卡直接写入图片存储，历史保存过程从未写入新图片原文', async () => {
+    const store = {};
+    const { HistoryManager, ImageStore } = load('history.js', 'HistoryManager, ImageStore', store, {
+        historyBudget: 1024, window: { aiGradingState: { saveImages: true } },
+    });
+    await HistoryManager.init();
+    let finishImage;
+    ImageStore.save = (_, images) => {
+        assert.equal(images[0], 'A'.repeat(2048));
+        return new Promise(resolve => { finishImage = resolve; });
+    };
+    HistoryManager.add({
+        pageUrl: '/', taskIdentifier: 'task', imageBase64s: ['A'.repeat(2048)],
+        imageUrls: ['data:image/jpeg;base64,' + 'A'.repeat(2048)],
+    });
+    const [record] = JSON.parse(store['ai-grading-history']);
+    assert.equal(record.imageBase64s, undefined);
+    assert.deepEqual(record.imageUrls, ['[图片已存储]']);
+    assert.equal(store['ai-grading-history-rescue'], undefined);
+    finishImage();
 });
 
 // ---------- #293 审计修正点 ----------
