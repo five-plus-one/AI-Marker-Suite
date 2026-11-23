@@ -11,6 +11,9 @@ function scene(specs = [{}]) {
     const transports = [];
     let requestUrl = 'https://yj.7net.cc/Review/guid';
     let reply = '+OK saved', status = 200, networkEvent = 'load', lastRequest, requestScores;
+    let loading = false, beforeSend;
+    const target = { regionGuid: 'paper-A', th: '15' };
+    const requestTarget = { regionGuid: 'paper-A', tz: '15' };
     class XHR {
         constructor() { this.listeners = new Map(); }
         open(method, url) { this.method = method; this.url = url; }
@@ -22,8 +25,9 @@ function scene(specs = [{}]) {
     const originalOpen = XHR.prototype.open, originalSend = XHR.prototype.send;
     const button = { disabled: false, getClientRects: () => [{}], click() {
         submissions.push(fields.map(input => input.value));
+        beforeSend?.();
         const xhr = new XHR(); xhr.open('POST', requestUrl);
-        xhr.send(new URLSearchParams({ score: requestScores ?? fields.map(input => input.value).join(';') }).toString());
+        xhr.send(new URLSearchParams({ ...requestTarget, score: requestScores ?? fields.map(input => input.value).join(';') }).toString());
     } };
     const make = (spec = {}, i = 0) => {
         const attributes = { onkeydown: `inputByKey(event,${i + 1}, ${specs.length},${spec.max ?? 14})`, ...spec.attributes };
@@ -39,10 +43,14 @@ function scene(specs = [{}]) {
     fields = specs.map(make);
     const sandbox = { console: { log() {}, warn() {}, error() {} }, URL, URLSearchParams, setTimeout, clearTimeout,
         Event: class { constructor(type) { this.type = type; } },
-        window: { XMLHttpRequest: XHR, location: { hostname: 'yj.7net.cc', origin: 'https://yj.7net.cc',
+        window: { XMLHttpRequest: XHR, initConfig: target, location: { hostname: 'yj.7net.cc', origin: 'https://yj.7net.cc',
             href: 'https://yj.7net.cc/Review?th=15&km=chemistry', search: '?th=15&km=chemistry' } },
-        document: { querySelectorAll: selector => selector.includes('#paperImage') ? [image] : fields,
-            querySelector: selector => selector === 'input#subfen' ? button : fields[0] || null } };
+        document: { querySelectorAll: selector => selector.includes('#paperImage') ? (loading ? [] : [image]) : fields,
+            querySelector: selector => {
+                if (selector === 'input#subfen') return button;
+                if (selector === '#paperImage > #showloading') return loading ? {} : null;
+                return fields[0] || null;
+            } } };
     vm.createContext(sandbox);
     for (const file of ['src/adapters/qitian/selectors.js', 'src/adapters/qitian/adapter.js', 'src/core/prompt.js', 'src/core/score.js']) {
         vm.runInContext(fs.readFileSync(file, 'utf8'), sandbox, { filename: file });
@@ -50,7 +58,8 @@ function scene(specs = [{}]) {
     return { adapter: sandbox.window.__AI_MARKER_ADAPTER__, sandbox, fields, events, make, image, button, submissions,
         reply: (text, code = 200, event = 'load') => { reply = text; status = code; networkEvent = event; },
         requestScores: scores => { requestScores = scores; },
-        requestUrl: url => { requestUrl = url; }, transports,
+        requestUrl: url => { requestUrl = url; }, transports, target, requestTarget,
+        showLoadingOnSubmit: callback => { beforeSend = () => { loading = true; callback?.(); }; },
         respond: () => lastRequest?.listeners.get('load')?.({ type: 'load' }),
         restored: () => XHR.prototype.open === originalOpen && XHR.prototype.send === originalSend,
         configure: scoring => { sandbox.PresetManager = { getCurrentConfig: () => ({ scoring }) }; }, replace: next => { fields = next; } };
@@ -265,6 +274,30 @@ test('七天等待保存时取消或重复点击均不重复提交', async () =>
     current = false; stale.respond();
     assert.equal(await previous, false);
     assert.equal(stale.restored(), true);
+});
+
+test('七天原生提交先移除答卷图片，按平台卷号和题组核对保存', async () => {
+    const accepted = scene();
+    assert.equal(accepted.adapter.fillScores([2]), true);
+    accepted.showLoadingOnSubmit();
+    assert.equal(await accepted.adapter.submitGrade(), true);
+    assert.equal(accepted.transports.length, 1);
+    assert.equal(accepted.restored(), true);
+
+    for (const change of [
+        e => { e.requestTarget.regionGuid = 'paper-B'; },
+        e => { e.requestTarget.tz = '16'; },
+        e => { e.target.regionGuid = e.requestTarget.regionGuid = 'paper-B'; },
+        e => { e.requestScores('3'); },
+        e => { delete e.sandbox.window.initConfig; },
+    ]) {
+        const e = scene();
+        assert.equal(e.adapter.fillScores([2]), true);
+        e.showLoadingOnSubmit(() => change(e));
+        assert.equal(await e.adapter.submitGrade(), false);
+        assert.equal(e.transports.length, 0);
+        assert.equal(e.restored(), true);
+    }
 });
 
 test('七天真实主流程在请求AI前拒绝重复小题与错误总分', async () => {
