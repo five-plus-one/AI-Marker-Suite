@@ -24,7 +24,7 @@ function setup(responses, cfg) {
     const rechargeDialogs = [];
     const context = {
         console: { log() {}, warn() {}, error() {} },
-        URL, clearTimeout, document: {}, DIAGNOSTIC_SCRIPT_VERSION: 'test',
+        URL, TextEncoder, clearTimeout, document: {}, DIAGNOSTIC_SCRIPT_VERSION: 'test',
         isOfficialModelProvider: () => false,
         showInsufficientBalanceDialog: official => rechargeDialogs.push(official),
         window: { location: { hostname: 'grading.example' }, aiGradingState: { abortController: new AbortController() } },

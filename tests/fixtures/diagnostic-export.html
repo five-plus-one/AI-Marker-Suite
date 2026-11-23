@@ -23,6 +23,8 @@ storage.set('ai-grading-workflows', JSON.stringify({
 for (const at of [recent, earlier]) {
     storage.set('ai-marker-diagnostic-log-v1-' + at + '-fixture-0', [{ at, level: 'warn', message: '练习日志' }]);
 }
+const bulkyLegacyKey = 'ai-marker-diagnostic-log-v1-' + (earlier - 600000) + '-fixture-0';
+storage.set(bulkyLegacyKey, [{ at: earlier - 600000, level: 'log', message: '旧日志'.repeat(80000) }]);
 storage.set('ai-marker-diagnostic-grading-v1-' + recent + '-fixture-0', [{
     at: recent, event: 'grading-paused', details: { reason: 'batch-target', currentCount: 1600, targetCount: 1600 },
 }]);
@@ -96,6 +98,8 @@ window.GM_xmlhttpRequest = () => ({ abort() {} });
         await waitForDownload();
         check(captured?.type === 'application/zip' && filename.endsWith('.zip'), '下载 ZIP 文件');
         let files = await zipFiles();
+        check(!storage.has(bulkyLegacyKey) && [...storage.keys()].some(key => key.startsWith('ai-marker-diagnostic-v2-slot-')),
+            '旧日志按容量淘汰，近期诊断正常保存');
         check(files['阅卷记录.json'].length === 1 && files['阅卷记录.json'][0].finalScore === 2, '筛选两小时内阅卷记录');
         check(files['运行日志.json'].some(row => row.at === recent) && !files['运行日志.json'].some(row => row.at === earlier),
             '按同一时间筛选日志');
