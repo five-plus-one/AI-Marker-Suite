@@ -47,6 +47,8 @@ paper('A');const content=document.querySelector('.MTcontainer_content');if(mode=
   assert(a.prepareGrading()&&vm.checked===false&&!autoInput.checked,'批改前通过原生控件关闭自动提交');
   const urls=await a.gatherAnswerImages();assert(urls.length===(mode==='multi'?3:1),'整组图片全部就绪');
   assert(a.getScoreInputs()[0].maxScore===10&&a.getScoreInputs()[0].label==='13','取得原生题号满分');
+  const question=a.getQuestionContext();assert(question?.units[0]?.label==='13'&&question.units[0].maxScore===10,'题号校验读取原生评分项');
+  vm.questionvalue='other';assert(a.getQuestionContext()===null,'题组未对齐时不给出题号基准');vm.questionvalue='block';
   const old=a.getPaperIdentity(),task=a.getTaskIdentifier();
   assert(a.fillScores([0])&&Number(vm.getGradeList[0].grade)===0,'零分进入原生评分状态');
   assert(calls===0&&keyups===0,'填分不触发快捷提交');
@@ -61,6 +63,7 @@ paper('A');const content=document.querySelector('.MTcontainer_content');if(mode=
   assert(a.fillScores([2.5]),'重新填分');assert(await a.submitGrade({isCurrent:()=>true,verify:async()=>{}}),'平台保存回执成功');
   assert(activities===1,'服务端确认保存后更新原生活动');
   assert(await a.waitForNextPaper(urls[0],{paperId:old,taskId:task}),'图片URL相同时按原生ID识别新卷');
+  assert(JSON.stringify(a.getQuestionContext())===JSON.stringify(question),'同题换卷保留题号校验基准');
   assert(!await a.submitGrade()&&calls===2,'评分只提交一次');
   await a.gatherAnswerImages();assert(a.fillScores([5]),'为下一卷评分');refused='refresh';
   assert(!await a.submitGrade(),'明确拒绝不计成功');
@@ -68,7 +71,7 @@ paper('A');const content=document.querySelector('.MTcontainer_content');if(mode=
   assert(input.value===''&&calls===3&&activities===1,'恢复不复用旧分数、不重发请求、不登记成功活动');
   assert(!await a.recoverSubmission(),'同一失败只恢复一次');
   vm.oldornew='old';assert(a.isRegradeMode()&&!a.fillScores([2]),'历史回评保持平台操作');
-  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,mode,checks:24}))));
+  document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:true,width:innerWidth,mode,checks:27}))));
  }catch(error){document.getElementById('result').textContent=btoa(unescape(encodeURIComponent(JSON.stringify({runId,passed:false,error:String(error),stack:error.stack}))))}
 })();
 </script>
