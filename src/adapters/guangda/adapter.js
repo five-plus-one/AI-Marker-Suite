@@ -416,59 +416,18 @@ const GuangdaAdapter = {
         }, 200);
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        console.log('⏳ [诊断] 光大阅卷 — 等待下一份试卷...');
+    getPaperWaitKeys() {
+        const key = this._getCurrentMh();
+        return key && key !== '-' ? [key] : [];
+    },
 
-        // 记录当前密号
-        const oldMh = this._getCurrentMh();
-        console.log(`⏳ [诊断] 当前密号: ${oldMh || '(未找到)'}`);
-
-        // 先快速检查弹窗是否还在（不等待，只是检查）
-        const hasDialog = document.querySelector('.dialog-btns .sure');
-        if (hasDialog) {
-            console.log('⏳ [诊断] 检测到弹窗还在，等待弹窗消失...');
-            await new Promise(resolve => {
-                let waitCount = 0;
-                const waitInterval = setInterval(() => {
-                    const dialog = document.querySelector('.dialog-btns .sure');
-                    if (!dialog || waitCount >= 10) {
-                        clearInterval(waitInterval);
-                        resolve();
-                    }
-                    waitCount++;
-                }, 100);
-            });
-        }
-
-        console.log('⏳ [诊断] 开始检测新试卷（密号变化）...');
-
-        // 等待密号变化（最可靠的信号）
-        const startTime = Date.now();
-        const maxWait = 30000; // 最多等待 30 秒
-
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                // 提交失败弹窗（服务端异常）自动恢复（#275）
-                this._autoRecoverCommitFail();
-
-                const currentMh = this._getCurrentMh();
-
-                // 密号变化 = 新试卷已加载
-                if (currentMh && currentMh !== oldMh) {
-                    clearInterval(timer);
-                    console.log(`✅ 光大阅卷 — 新试卷已加载（密号: ${oldMh} → ${currentMh}）`);
-                    resolve(true);
-                    return;
-                }
-
-                // 超时检测
-                if (Date.now() - startTime > maxWait) {
-                    clearInterval(timer);
-                    console.warn('⚠️ 光大阅卷 — 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 500);
-        });
+    waitForNextPaper(_oldImageUrl, context = {}) {
+        const oldKeys = context.paperWaitKeys ?? (context.paperId ? [context.paperId] : this.getPaperWaitKeys());
+        return MarkingPaper.waitForChange(this, () => {
+            this._autoRecoverCommitFail();
+            if (MarkingPaper.visible(document.querySelector('.dialog-btns .sure'))) return [];
+            return this.getPaperWaitKeys();
+        }, oldKeys, context);
     },
 
     isRegradeMode() {

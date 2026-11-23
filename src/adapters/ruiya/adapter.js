@@ -694,9 +694,12 @@ const OnlyEtsMarkviewAdapter = Object.assign(Object.create(RuiyaAdapter), {
         const adapter = this, page = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
         const proto = page.XMLHttpRequest.prototype, originalOpen = proto.open, originalSend = proto.send;
         const candidates = new WeakSet(), total = filled.scores.reduce((sum, score) => sum + score, 0);
+        const currentTask = guard.isCurrentTask || guard.isCurrent;
         return new Promise(resolve => {
             let request, finished = false, confirming = false;
-            const active = () => !guard.signal?.aborted && guard.isCurrent?.() !== false && adapter._matches(filled);
+            const activeTask = () => !guard.signal?.aborted && currentTask?.() !== false
+                && adapter.getGradingTaskIdentifier() === filled.paper.task;
+            const active = () => activeTask() && guard.isCurrent?.() !== false && adapter._matches(filled);
             const restore = () => {
                 if (proto.open === open) proto.open = originalOpen;
                 if (proto.send === send) proto.send = originalSend;
@@ -734,7 +737,14 @@ const OnlyEtsMarkviewAdapter = Object.assign(Object.create(RuiyaAdapter), {
                         ? filled.scores.length === 1 && items.length === 1 && String(items[0]?.key) === '0' && items[0].score === -1
                         : items.length === filled.scores.length && filled.inputs.every(({ element }, index) => items.some(
                             item => String(item?.key) === element.id.slice(3) && item.score === filled.scores[index])));
-                    if (!active() || String(payload?.mtid) !== filled.paper.number || String(mark?.stu) !== filled.paper.student
+                    const nativeNumber = document.querySelector('input[name="input-rpe-title"]')?.value;
+                    const nativeStudent = document.querySelector(RUIYA_SELECTORS.HIDDEN_MARK_PIC)?.value;
+                    const identity = adapter.getPaperIdentity();
+                    if (!activeTask() || adapter.isRegradeMode() || !adapter._readyToWrite()
+                        || (identity && identity !== filled.paper.identity)
+                        || nativeNumber !== filled.paper.number || nativeStudent !== filled.paper.student
+                        || filled.inputs.some(({ element }, index) => element.value === '' || Number(element.value) !== filled.scores[index])
+                        || String(payload?.mtid) !== filled.paper.number || String(mark?.stu) !== filled.paper.student
                         || !mark?.key || mark.score !== total || !itemScoresMatch) {
                         this.abort();
                         cancel();
@@ -749,7 +759,7 @@ const OnlyEtsMarkviewAdapter = Object.assign(Object.create(RuiyaAdapter), {
             const timeout = setTimeout(cancel, 20000);
             const waitForZero = setInterval(async () => {
                 if (finished || request || confirming) return;
-                if (!active()) { cancel(); return; }
+                if (!activeTask()) { cancel(); return; }
                 if (!adapter._visible(RUIYA_SELECTORS.ZERO_MODAL)) return;
                 const button = adapter._visible(RUIYA_SELECTORS.ZERO_MODAL_OK);
                 if (total !== 0 || !button || button.disabled) { cancel(); return; }

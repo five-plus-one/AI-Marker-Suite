@@ -13,6 +13,18 @@ function checkDfd(){const v=document.querySelector('#dfd0').value;if(!/^\d+(\.\d
 function tjfs(){if(!loadok||!checkDfd())return;if(tjqqr&&!qropen){qropen=true;document.querySelector('#qrfs').textContent='确定为该学生打 '+sum+' 分吗？';const e=document.querySelector('#dfqr_div');e.className='layui-layer layui-layer-page';e.style.display='block'}else tjajax()}
 class FixtureXHR extends EventTarget{open(method,url){this.url=url}send(body){fixtureRequests.push(body);this.status=200;this.responseText=JSON.stringify(fixtureResponse);setTimeout(()=>{tjfsFlag=true;this.dispatchEvent(new Event('load'));if(fixtureResponse.res)setPaper('paper-B')},0)}abort(){this.dispatchEvent(new Event('abort'))}}
 window.XMLHttpRequest=FixtureXHR;
-function tjajax(){if(qropen)fixtureConfirmCount++;qropen=false;document.querySelector('#dfqr_div').style.display='none';tjfsFlag=false;const xhr=new XMLHttpRequest();xhr.open('POST',location.origin+'/sjpy_tjfs.do');xhr.send(new URLSearchParams({ksdm,kmdm,stbh,rwid:rwxx.RWID,dqpc:rwxx.DQPC,pycs:zgtxx.PYCS,pycj:sum,pydfd:dfd,pybz:'',sfmp:zgtxx.SFMP,pyhs:20}).toString())}
+function tjajax() {
+    if (qropen) fixtureConfirmCount++;
+    qropen = false;
+    document.querySelector('#dfqr_div').style.display = 'none';
+    tjfsFlag = false;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', location.origin + '/sjpy_tjfs.do');
+    const image = document.querySelector('#mainimg_0'), container = image.parentElement;
+    if (window.detachAnswerDuringSave) image.remove();
+    xhr.send(new URLSearchParams({ ksdm, kmdm, stbh, rwid: rwxx.RWID, dqpc: rwxx.DQPC,
+        pycs: zgtxx.PYCS, pycj: sum, pydfd: dfd, pybz: '', sfmp: zgtxx.SFMP, pyhs: 20 }).toString());
+    if (window.detachAnswerDuringSave) container.prepend(image);
+}
 setPaper('paper-A');
 </script></html>

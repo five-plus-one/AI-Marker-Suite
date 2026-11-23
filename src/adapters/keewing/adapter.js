@@ -297,40 +297,16 @@ const KeewingAdapter = {
         }
     },
 
-    async waitForNextPaper(oldImageUrl) {
-        console.log('⏳ [科耘] 等待下一份试卷...');
+    getPaperWaitKeys() {
+        const svgKeys = this._getCurrentImageUrls().map(url => MarkingPaper.imageKey(url)).filter(Boolean);
+        if (svgKeys.length) return svgKeys;
+        const snapshot = MarkingPaper.snapshot(KEEWING_SELECTORS.IMAGE_CONTAINER + ' img');
+        return snapshot.ready ? snapshot.keys : [];
+    },
 
-        // 记录当前图片 URL
-        const oldUrls = this._getCurrentImageUrls();
-        console.log(`⏳ [科耘] 当前图片数量: ${oldUrls.length}`);
-
-        const startTime = Date.now();
-        const maxWait = 30000; // 最多等待 30 秒
-
-        return new Promise((resolve) => {
-            const timer = setInterval(() => {
-                const currentUrls = this._getCurrentImageUrls();
-
-                // 检测图片变化
-                if (oldUrls.length > 0 && currentUrls.length > 0) {
-                    const oldSet = new Set(oldUrls);
-                    const hasNew = currentUrls.some(url => !oldSet.has(url));
-                    if (hasNew) {
-                        clearInterval(timer);
-                        console.log('✅ [科耘] 新试卷已加载（图片变化）');
-                        resolve(true);
-                        return;
-                    }
-                }
-
-                // 超时检测
-                if (Date.now() - startTime > maxWait) {
-                    clearInterval(timer);
-                    console.warn('⚠️ [科耘] 等待下一份试卷超时');
-                    resolve(false);
-                }
-            }, 500);
-        });
+    waitForNextPaper(oldImageUrl, context = {}) {
+        const oldKeys = context.paperWaitKeys ?? MarkingPaper.imageKeys([oldImageUrl]);
+        return MarkingPaper.waitForChange(this, () => this.getPaperWaitKeys(), oldKeys, context);
     },
 
     // 获取当前图片 URL 列表
@@ -338,6 +314,7 @@ const KeewingAdapter = {
         const images = document.querySelectorAll(KEEWING_SELECTORS.SVG_IMAGE);
         const urls = [];
         images.forEach(img => {
+            if (!MarkingPaper.visible(img)) return;
             const raw = img.getAttribute('xlink:href') || img.getAttribute('href') || img.getAttribute('src');
             if (!raw) return;
             try {

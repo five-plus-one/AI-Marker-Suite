@@ -32,6 +32,7 @@ window.GM_xmlhttpRequest=options=>{
         check(w.fixtureRequests.length===1&&new URLSearchParams(w.fixtureRequests[0]).get('pycs')==='3','原生 2+1 评阅请求');
         check(w.fixtureConfirmCount===1,'本卷零分确认一次');
         w.fixtureResponse={res:true};const task=a.getTaskIdentifier(),paper=a.getPaperIdentity();
+        w.detachAnswerDuringSave = true;
         check(a.fillScores([30]),'普通分数填入');check(await a.submitGrade(),'明确保存回执');
         check(await a.waitForNextPaper('',{taskId:task,paperId:paper}),'同题新卷完整就绪');
         check(w.fixtureRequests.length===2,'保存各执行一次');
