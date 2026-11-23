@@ -56,6 +56,19 @@ const NhciscAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const question = this._fieldValue(NHCISC_SELECTORS.QUESTION_ID_INPUT);
+        if (!question) return null;
+        const units = this.getScoreInputs(true).map(({ element, maxScore }, index, fields) => ({
+            label: element.closest(NHCISC_SELECTORS.SCORE_ITEM)?.querySelector(NHCISC_SELECTORS.SCORE_LABEL)?.textContent
+                || (fields.length === 1 ? question : ''),
+            maxScore
+        }));
+        return nativeQuestionContext(units, this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         // pathname + URL subid + 隐藏域 subid + 题号：四者换答卷均稳定
         //（实测 3 份答卷对比 + 刷新对比均未变），换题时任一变化即可区分（#147）
@@ -110,7 +123,7 @@ const NhciscAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputs = [];
         const items = document.querySelectorAll(NHCISC_SELECTORS.SCORE_INPUT);
 
@@ -135,7 +148,7 @@ const NhciscAdapter = {
             inputs.push({ element: el, label: label, index: inputs.length, maxScore: maxScore });
         });
 
-        console.log(`[南昊] 找到 ${inputs.length} 个分数输入框`);
+        if (!quiet) console.log(`[南昊] 找到 ${inputs.length} 个分数输入框`);
         return inputs;
     },
 

@@ -63,6 +63,18 @@ const XinkaoCampusAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        if (!window.subId || !window.teaCode) return null;
+        const units = this.getScoreInputs(true).map(({ element }, index, fields) => ({
+            label: element.closest(XINKAO_CAMPUS_SELECTORS.SCORE_ROW)?.querySelector('td')?.textContent
+                || (fields.length === 1 ? window.teaCode : ''),
+            maxScore: element.getAttribute('data-score')
+        }));
+        return nativeQuestionContext(units, this.getTaskIdentifier());
+    },
+
     getTaskIdentifier() {
         // 全局变量 subId + teaCode：换题变、换学生不变（换学生时 examcode/testPaperId 变，subId/teaCode 稳定）
         try {
@@ -91,7 +103,7 @@ const XinkaoCampusAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputs = [];
         const fenEls = document.querySelectorAll(XINKAO_CAMPUS_SELECTORS.SCORE_INPUTS);
 
@@ -114,7 +126,7 @@ const XinkaoCampusAdapter = {
             inputs.push({ element: inputEl, label, index: i, maxScore });
         });
 
-        console.log(`[鑫考校园] 找到 ${inputs.length} 个分数输入框`);
+        if (!quiet) console.log(`[鑫考校园] 找到 ${inputs.length} 个分数输入框`);
         return inputs;
     },
 

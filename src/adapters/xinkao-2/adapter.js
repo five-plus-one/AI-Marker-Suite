@@ -59,6 +59,21 @@ const Xinkao2Adapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const question = new URLSearchParams(window.location.search).get('teaname');
+        const units = this.getScoreInputs().map(({ element }, index, fields) => {
+            const id = element.id.match(/^fenshu(\d+)$/)?.[1];
+            const label = (id && document.querySelector('#btag' + id)?.textContent)
+                || element.closest('tr')?.querySelector('td:first-child, label')?.textContent
+                    ?.trim().match(/^\s*\d+(?:[.．\-、]\d+|[（(]\d+[）)])*/)?.[0]
+                || (fields.length === 1 ? question : '');
+            return { label, maxScore: element.getAttribute('fen') };
+        });
+        return nativeQuestionContext(units, question ? this.getTaskIdentifier() : undefined);
+    },
+
     getTaskIdentifier() {
         // URL query: title/examsub/examtea/teaid/teaname/scores
         // 用考试级+题目标识（examsub/examtea/teaid/teaname），不含 title/scores/图片 token

@@ -50,6 +50,19 @@ const WuyuetongAdapter = {
         }
     },
 
+    questionContextOptional: true,
+
+    getQuestionContext() {
+        const units = this.getScoreInputs(true).map(({ element }) => {
+            const container = element.closest(WUYUETONG_SELECTORS.SCORE_INPUT_CONTAINER);
+            const label = container?.querySelector(WUYUETONG_SELECTORS.SCORE_LABEL)?.textContent?.trim().replace(/[:：]$/, '');
+            const maxScore = container?.querySelector(WUYUETONG_SELECTORS.MAX_SCORE_FONT)?.textContent
+                ?.match(/(?:<=|≤)\s*(\d+(?:\.\d+)?)/)?.[1];
+            return { label, maxScore };
+        });
+        return nativeQuestionContext(units);
+    },
+
     getTaskIdentifier() {
         return window.location.href;
     },
@@ -93,7 +106,7 @@ const WuyuetongAdapter = {
         return fetchImageAsBase64(url);
     },
 
-    getScoreInputs() {
+    getScoreInputs(quiet = false) {
         const inputs = [];
         const inputEls = document.querySelectorAll(WUYUETONG_SELECTORS.SCORE_INPUT);
 
@@ -123,7 +136,7 @@ const WuyuetongAdapter = {
             });
         });
 
-        console.log(`[威科姆] 找到 ${inputs.length} 个分数输入框`);
+        if (!quiet) console.log(`[威科姆] 找到 ${inputs.length} 个分数输入框`);
         return inputs;
     },
 
