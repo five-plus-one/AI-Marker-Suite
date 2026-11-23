@@ -12,6 +12,7 @@ const QITIAN_SELECTORS = {
     // 提交按钮
     SUBMIT_BUTTON: 'input#subfen',
     SUBMIT_BUTTON_TEXT: '提交分数',
+    SUBMIT_LOADING: '#paperImage > #showloading',
 
     // 题号标识元素
     TOPIC_LABEL: '.timuScore td:first-child',

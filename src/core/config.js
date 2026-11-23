@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.36.0',
+    VERSION: '1.21.37.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.37.0': [
+            '【修复】七天网络旧版阅卷可正常提交分数，保存后自动切换到下一份答卷',
+        ],
         '1.21.36.0': [
             '【新平台】支持教学质量监测管理系统的区级正评，读取答卷，按给分板填写分数并在确认保存后续批',
         ],

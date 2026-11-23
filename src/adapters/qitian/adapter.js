@@ -148,9 +148,9 @@ const QitianAdapter = {
                     const adapter = this;
                     const send = function(body) {
                         if (!finished && candidates.has(this)) {
-                            const submitted = new URLSearchParams(typeof body === 'string' ? body : '').get('score');
-                            if (observed || submitted !== pending.values.join(';') || guard.signal?.aborted
-                                || guard.isCurrent?.() === false || !adapter._scoreReceiptCurrent(pending)) {
+                            const form = new URLSearchParams(typeof body === 'string' ? body : '');
+                            if (observed || form.get('score') !== pending.values.join(';') || guard.signal?.aborted
+                                || guard.isCurrent?.() === false || !adapter._scoreReceiptCurrent(pending, form)) {
                                 finish(false); return;
                             }
                             observed = this;
@@ -207,10 +207,27 @@ const QitianAdapter = {
             .filter(image => image.getClientRects().length).map(image => image.src));
     },
 
-    _scoreReceiptCurrent(pending) {
+    _nativeReviewTarget() {
+        const pageWindow = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
+        const { regionGuid, th } = pageWindow.initConfig || {};
+        if (typeof regionGuid !== 'string' || !regionGuid.trim() || typeof th !== 'string' || !th.trim()) return null;
+        return { regionGuid, topic: th };
+    },
+
+    _scoreReceiptCurrent(pending, form) {
+        if (pending.target) {
+            const { regionGuid, topic } = pending.target;
+            const currentTarget = this._nativeReviewTarget();
+            if (currentTarget?.regionGuid !== regionGuid || currentTarget.topic !== topic) return false;
+            if (form && (form.get('regionGuid') !== regionGuid || form.get('tz') !== topic)) return false;
+        }
+        const images = this._scoreImageKey();
+        // 七天先以加载提示替换答卷图，再发出保存请求。此时使用原生卷号和题组核对同一答卷。
+        const showingSubmitLoading = form && pending.target && pending.images !== '[]' && images === '[]'
+            && document.querySelector(QITIAN_SELECTORS.SUBMIT_LOADING);
         const inputs = this.getScoreInputs();
         return pending.task === this.getTaskIdentifier() && pending.review === this.isRegradeMode()
-            && pending.images === this._scoreImageKey() && inputs.length === pending.inputs.length
+            && (pending.images === images || showingSubmitLoading) && inputs.length === pending.inputs.length
             && inputs.every((input, i) => input.element === pending.inputs[i].element
                 && input.label === pending.inputs[i].label && input.maxScore === pending.inputs[i].maxScore
                 && !input.maxScoreConflict && !input.element.disabled && !input.element.readOnly
@@ -295,6 +312,7 @@ const QitianAdapter = {
             }
         }
         const task = this.getTaskIdentifier(), images = this._scoreImageKey(), review = this.isRegradeMode();
+        const target = this._nativeReviewTarget();
         const unchanged = () => {
             const current = this.getScoreInputs();
             return task === this.getTaskIdentifier() && images === this._scoreImageKey() && review === this.isRegradeMode()
@@ -318,7 +336,7 @@ const QitianAdapter = {
         for (let i = 0; i < inputs.length; i++) {
             if (QITIAN_SCORE_HELPERS.number(inputs[i].element.value) !== values[i]) return fail('平台未接受填写的分数，请核对后继续');
         }
-        this._filled = { task, images, review, inputs, values };
+        this._filled = { task, images, review, inputs, values, target };
         return true;
     },
 
