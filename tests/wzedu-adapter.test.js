@@ -14,7 +14,7 @@ function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboar
     const input = { _v: '', get value() { return this._v; },
         dispatchEvent() { throw Error('填分不能派发快捷提交事件'); } };
     let clicks = 0;
-    let request, response = { code: 200, data: { exist: true } }, autoRespond = true;
+    let request, response = { code: 200, data: { exist: true } }, autoRespond = true, alterRequest = value => value;
     class XHR {
         constructor() { this.listeners = new Map(); this.status = 200; }
         open() {}
@@ -30,9 +30,11 @@ function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboar
     const button = { disabled: false, getAttribute: () => null, getClientRects: () => [{}], click() {
         clicks++;
         const xhr = new sb.XMLHttpRequest(); xhr.open('POST', '/v2/union/mark/submit');
-        xhr.send(JSON.stringify({ studentId: state.readOverInfo.studentId, sheetId: state.readOverInfo.sheetId,
+        xhr.send(JSON.stringify(alterRequest({ studentId: state.readOverInfo.studentId, sheetId: state.readOverInfo.sheetId,
             questionId: state.readOverInfo.questionId, score: state.questionScore,
-            ...(bound ? { haveJoin: true, questionSubmitList: models.map((score, i) => ({ questionId: 42 + i, score })) } : {}) }));
+            ...(state.reviewProps.review ? { markPageType: 'REMARK', markCount: Number(state.readOverInfo.teacherMarkType),
+                markNumber: Number(state.reviewProps.markNumber) } : {}),
+            ...(bound ? { haveJoin: true, questionSubmitList: models.map((score, i) => ({ questionId: 42 + i, score })) } : {}) })));
     } };
     const state = { markingType: keyboard ? 1 : 2, haveJoin: false, IsSubItemscoring: false, batchGrading: false,
         questionScore: null, reviewProps: {}, markReview: false,
@@ -65,6 +67,7 @@ function setup({ hash = '#/marking/grading?questionId=42&choiceIndex=0', keyboar
     assert.deepEqual(result.errors, []);
     return { sb, input, button, state, store, mount, fields, panel, models, clicks: () => clicks,
         xhr: () => request, response: value => { response = value; }, delay: () => { autoRespond = false; },
+        alterRequest: fn => { alterRequest = fn; },
         images: value => { images = value; }, adapter: () => sb.__AI_MARKER_ADAPTER__ };
 }
 
@@ -165,6 +168,54 @@ test('温州复查、回评、只读状态保护', () => {
     f.state.reviewProps.review = true;
     assert.equal(a.fillScores([2]), false);
     assert.equal(f.clicks(), 0);
+});
+
+function reviewTask() {
+    const f = setup({ hash: '#/marking/grading?questionId=42&choiceIndex=0&thisType=2&review=true' });
+    Object.assign(f.state.reviewProps, { review: true, readonly: false, markNumber: '1' });
+    f.state.readOverInfo.teacherMarkType = '1';
+    return f;
+}
+
+test('温州可改分复查：填分与保存独立，回执对应本次复查', async () => {
+    const f = reviewTask(), a = f.adapter();
+    assert.equal(a.isRegradeMode(), true);
+    assert.equal(a.fillScores([1]), true);
+    assert.equal(f.state.questionScore, 1);
+    assert.equal(f.clicks(), 0);
+    assert.equal(await a.submitGrade(), true);
+    assert.equal(f.xhr().body.markPageType, 'REMARK');
+    assert.equal(f.xhr().body.markCount, 1);
+    assert.equal(f.xhr().body.markNumber, 1);
+});
+
+test('温州复查转为只读、已核查、阶段变化或给分按钮禁用时停止', async () => {
+    for (const change of [
+        f => { f.state.reviewProps.readonly = true; },
+        f => { f.sb.location.hash += '&readonly=true'; },
+        f => { f.state.readOverInfo.checked = true; },
+        f => { f.state.readOverInfo.judged = true; },
+        f => { f.state.markReview = true; },
+        f => { f.sb.location.hash = f.sb.location.hash.replace('thisType=2', 'thisType=3'); },
+        f => { f.button.disabled = true; },
+    ]) {
+        const f = reviewTask(), a = f.adapter();
+        assert.equal(a.fillScores([1]), true);
+        assert.equal(await a.submitGrade({ verify: () => change(f) }), false);
+        assert.equal(a.fillScores([2]), false);
+        assert.equal(f.state.questionScore, 1);
+        assert.equal(f.clicks(), 0);
+    }
+});
+
+test('温州复查卷的其它次序或常规阅卷请求不会发出', async () => {
+    for (const mismatch of [{ markNumber: 2 }, { markCount: 2 }, { markPageType: 'NORMAL_MARK' }]) {
+        const f = reviewTask(), a = f.adapter();
+        f.alterRequest(request => ({ ...request, ...mismatch }));
+        assert.equal(a.fillScores([1]), true);
+        assert.equal(await a.submitGrade(), false);
+        assert.equal(f.xhr(), undefined);
+    }
 });
 
 test('温州批量、合批、分项与批注模式保留原生操作', () => {
