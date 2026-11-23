@@ -897,7 +897,7 @@ function createSettingsPanel(options) {
                             <b>若遇到误报</b>（被「答卷已切换」拦下、但实际并未换卷），可先<b>取消勾选此项</b>继续批改，并把日志反馈给我们。
                         </div>
                         <div class="checkbox-group" style="margin-top:12px;"><input type="checkbox" id="question-guard-enabled"><label for="question-guard-enabled" style="display:flex;align-items:center;min-height:44px;flex:1;">题号变化时暂停批改（实验性）</label></div>
-                        <div class="mode-desc" style="font-size:12px;margin-top:6px;">开启后核对页面题号与小题满分，换题时暂停，请先核对评分方案再继续。目前支持智学网和好分数，默认关闭。</div>
+                        <div class="mode-desc" id="question-guard-help" style="font-size:12px;margin-top:6px;">开启后核对页面题号与小题满分，换题时暂停，请先核对评分方案再继续。默认关闭。</div>
                     </div>
                 </div>
 
@@ -2102,7 +2102,14 @@ function fillFormFromActivePreset() {
     const paperGuardInput = document.getElementById('paper-guard-enabled');
     if (paperGuardInput) paperGuardInput.checked = paperGuardCfg.enabled !== false;
     const questionGuardInput = document.getElementById('question-guard-enabled');
-    if (questionGuardInput) questionGuardInput.checked = config.questionGuard?.enabled === true;
+    if (questionGuardInput) {
+        const unavailable = !!window.__AI_MARKER_ADAPTER__ && !supportsQuestionGuard();
+        questionGuardInput.checked = config.questionGuard?.enabled === true;
+        questionGuardInput.disabled = unavailable;
+        const hint = document.getElementById('question-guard-help');
+        if (hint) hint.textContent = unavailable ? '当前阅卷平台暂不支持题号校验。'
+            : '开启后核对页面题号与小题满分，换题时暂停，请先核对评分方案再继续。默认关闭。';
+    }
 
     // 批改节奏（实验性开关）
     const humanPacingCfg = config.humanPacing || {};
