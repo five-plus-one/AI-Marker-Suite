@@ -2,6 +2,43 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fixture = require('./_jiukexing-fixture');
 
+test('九科星用原生题块和评分项建立题号基准，保持同题换卷', () => {
+    for (const units of [1, 3]) {
+        const f = fixture({ units });
+        const read = () => structuredClone(f.adapter.getQuestionContext());
+        const original = read();
+        assert.equal(original.question, f.adapter.getTaskIdentifier());
+        assert.deepEqual(original.units, Array.from({ length: units }, (_, i) => ({
+            label: String(13 + i), maxScore: 10,
+        })));
+        const oldPaper = f.adapter.getPaperIdentity();
+        f.advance('B');
+        assert.notEqual(f.adapter.getPaperIdentity(), oldPaper);
+        assert.deepEqual(read(), original);
+        f.page.getGradeList[0].score = 6;
+        assert.equal(read().units[0].maxScore, 6);
+        f.page.questionvalue = 'other';
+        assert.equal(read(), null, '新题块与当前答卷未对齐');
+        f.page.markingNow.questionBlockId = 'other';
+        assert.notEqual(read().question, original.question);
+    }
+});
+
+test('九科星等待原生评分项完整，回评和锁屏时不建立题号基准', () => {
+    for (const change of [
+        f => { f.page.questionvalue = ''; },
+        f => { f.page.getGradeList[0].customQuestionNumber = undefined; },
+        f => { f.page.getGradeList[0].score = 0; },
+        f => { f.page.getGradeList.pop(); },
+        f => { f.page.oldornew = 'old'; },
+        f => { f.page.lockScreen = true; },
+    ]) {
+        const f = fixture({ units: 2 });
+        change(f);
+        assert.equal(f.adapter.getQuestionContext(), null);
+    }
+});
+
 test('九科星一体化入口沿用考试题块取图、填分和保存校验', async () => {
     const f = fixture({ location: { host: 'jxp.jkxjxw.com', path: '/exam-marking/marking' } });
     assert.equal(f.adapter.id, 'jiukexing');

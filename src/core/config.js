@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.41.1',
+    VERSION: '1.21.42.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.42.0': [
+            '【修复】九科星考试阅卷支持题号和小题满分校验',
+            '【修复】题号校验根据当前阅卷平台的支持情况启用',
+        ],
         '1.21.41.1': [
             '【新增】支持丽升学校站点阅卷',
         ],
