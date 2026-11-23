@@ -84,58 +84,140 @@ function diagnosticSecrets() {
 const DiagnosticLog = (() => {
     const session = Math.random().toString(36).slice(2);
     const maxAge = 7 * 24 * 60 * 60 * 1000;
-    const storageSupported = typeof GM_listValues === 'function' && typeof GM_setValue === 'function';
+    const chunkSpan = 20 * 60 * 1000;
+    const legacyBudget = 512 * 1024;
+    // Fixed keys cap the sum even when several tabs pick a slot concurrently.
+    const slotBudget = 128 * 1024 - 128;
+    const slotKeys = Array.from({ length: 28 }, (_, index) => 'ai-marker-diagnostic-v2-slot-' + index);
+    const prefixes = { console: 'ai-marker-diagnostic-log-v1-', grading: 'ai-marker-diagnostic-grading-v1-' };
+    const chunkLimits = { console: 192, grading: 512 };
+    const storageSupported = typeof GM_listValues === 'function' && typeof GM_getValue === 'function'
+        && typeof GM_setValue === 'function' && typeof GM_deleteValue === 'function';
     const runIds = new WeakMap();
     let runSequence = 0;
     let traceSequence = 0;
+    let encoder;
 
-    function createJournal(prefix, maxChunks, chunkLimit, deferWrites = false) {
-        const chunkSpan = 20 * 60 * 1000;
-        const prunedKey = prefix + 'pruned-through';
-        const localChunks = new Map();
-        let active, timer, storageLimited = false, nextPrune = 0, urgent = false;
+    function encodedBytes(value) {
+        encoder ||= new TextEncoder();
+        return encoder.encode(value).byteLength;
+    }
 
-        function storedKeys() {
-            return GM_listValues().filter(key => key.startsWith(prefix) && /^\d{13}-[a-z\d]+-\d+$/.test(key.slice(prefix.length)))
-                .sort();
-        }
+    // Count the value with the extra escaping used by userscript storage exports.
+    function storedBytes(key, value) {
+        return encodedBytes(JSON.stringify({ [key]: 'o' + JSON.stringify(value) }));
+    }
 
-        function chunkTime(key) {
-            return Number(key.slice(prefix.length, prefix.length + 13));
-        }
+    function legacyKeys(journal, keys = GM_listValues()) {
+        const prefix = prefixes[journal];
+        return keys.filter(key => key.startsWith(prefix) && /^\d{13}-[a-z\d]+-\d+$/.test(key.slice(prefix.length))).sort();
+    }
 
-        function prune(now) {
-            if (now < nextPrune || typeof GM_deleteValue !== 'function') return;
-            nextPrune = now + 60 * 1000;
-            const keys = storedKeys();
-            let prunedThrough = GM_getValue(prunedKey, 0);
-            for (const [index, key] of keys.entries()) {
-                if (localChunks.has(key)) continue;
-                const expired = chunkTime(key) + chunkSpan < now - maxAge;
-                if (!expired && index >= keys.length - maxChunks) continue;
-                if (!expired) {
-                    const removed = GM_getValue(key, []);
-                    prunedThrough = Math.max(prunedThrough, removed.at(-1)?.at || chunkTime(key));
-                    GM_setValue(prunedKey, prunedThrough);
+    function lastAt(entries, fallback = 0) {
+        const value = entries.at(-1)?.at;
+        return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+    }
+
+    function notePruned(journal, at) {
+        const key = prefixes[journal] + 'pruned-through';
+        GM_setValue(key, Math.max(Number(GM_getValue(key, 0)) || 0, at));
+    }
+
+    function trimLegacy(now) {
+        const keys = GM_listValues();
+        const remaining = [];
+        const pruned = { console: 0, grading: 0 };
+        let bytes = 0;
+        for (const journal of Object.keys(prefixes)) {
+            const logs = legacyKeys(journal, keys);
+            for (const [index, key] of logs.entries()) {
+                const at = Number(key.slice(prefixes[journal].length, prefixes[journal].length + 13));
+                if (at + chunkSpan < now - maxAge) {
+                    GM_deleteValue(key);
+                    continue;
                 }
-                GM_deleteValue(key);
+                const value = GM_getValue(key, []);
+                const end = Array.isArray(value) ? lastAt(value, at) : at;
+                if (index < logs.length - chunkLimits[journal]) {
+                    GM_deleteValue(key);
+                    pruned[journal] = Math.max(pruned[journal], end);
+                    continue;
+                }
+                const size = storedBytes(key, value);
+                bytes += size;
+                remaining.push({ key, journal, end, size });
             }
         }
+        if (bytes > legacyBudget) {
+            remaining.sort((a, b) => a.end - b.end || a.key.localeCompare(b.key));
+            for (const row of remaining) {
+                if (bytes <= legacyBudget) break;
+                GM_deleteValue(row.key);
+                bytes -= row.size;
+                pruned[row.journal] = Math.max(pruned[row.journal], row.end);
+            }
+        }
+        for (const [journal, at] of Object.entries(pruned)) {
+            if (at) notePruned(journal, at);
+        }
+    }
+
+    function readSlot(key) {
+        const data = GM_getValue(key, null);
+        return data && Object.hasOwn(prefixes, data.journal) && Array.isArray(data.entries) ? data : null;
+    }
+
+    function findSlot(end, now) {
+        let oldest;
+        for (const key of slotKeys) {
+            const current = readSlot(key);
+            if (!current || lastAt(current.entries) < now - maxAge) return { key };
+            const at = lastAt(current.entries);
+            if (!oldest || at < oldest.at) oldest = { key, journal: current.journal, at };
+        }
+        return oldest && oldest.at <= end ? oldest : null;
+    }
+
+    function createJournal(journal, chunkLimit, deferWrites = false) {
+        const prefix = prefixes[journal];
+        const localChunks = new Map();
+        let active, timer, storageLimited = false, urgent = false, sequence = 0;
 
         function flush() {
             clearTimeout(timer);
             timer = undefined;
             urgent = false;
-            if (!storageSupported || !localChunks.size) return;
+            if (!storageSupported) return;
             try {
-                for (const [key, chunk] of localChunks) {
-                    if (chunk.saved !== chunk.entries.length) {
-                        GM_setValue(key, chunk.entries);
-                        chunk.saved = chunk.entries.length;
+                const now = Date.now();
+                trimLegacy(now);
+                for (const [id, chunk] of localChunks) {
+                    // A different page can evict our slot. Never write back entries already pruned.
+                    if (chunk.key && readSlot(chunk.key)?.id !== id) {
+                        chunk.key = undefined;
+                        chunk.entries = chunk.entries.slice(chunk.saved);
+                        chunk.saved = 0;
+                        if (!chunk.entries.length) {
+                            localChunks.delete(id);
+                            if (chunk === active) active = undefined;
+                            continue;
+                        }
                     }
-                    if (chunk !== active) localChunks.delete(key);
+                    if (chunk.saved !== chunk.entries.length) {
+                        const end = lastAt(chunk.entries);
+                        const slot = chunk.key ? { key: chunk.key } : findSlot(end, now);
+                        const value = { id, journal, entries: chunk.entries };
+                        if (!slot || storedBytes(slot.key, value) > slotBudget) {
+                            storageLimited = true;
+                            continue;
+                        }
+                        GM_setValue(slot.key, value);
+                        chunk.key = slot.key;
+                        chunk.saved = chunk.entries.length;
+                        if (slot.journal) notePruned(slot.journal, slot.at);
+                    }
+                    if (chunk !== active) localChunks.delete(id);
                 }
-                prune(Date.now());
             } catch (_) {
                 storageLimited = true;
             }
@@ -143,17 +225,25 @@ const DiagnosticLog = (() => {
 
         function append(entry, persist = false) {
             const at = entry.at;
-            if (!active || active.entries.length === chunkLimit || at - active.started >= chunkSpan) {
+            // The full encoded slot is checked again immediately before every write.
+            const bytes = encodedBytes(JSON.stringify(JSON.stringify(entry)).slice(1, -1)) + 1;
+            if (bytes > slotBudget - 512) {
+                storageLimited = true;
+                return;
+            }
+            if (!active || active.entries.length >= chunkLimit || at - active.started >= chunkSpan
+                || active.bytes + bytes > slotBudget - 512) {
                 const previous = active;
-                active = { started: at, sequence: (previous?.sequence ?? -1) + 1, entries: [], saved: 0 };
                 if (previous && !deferWrites) flush();
-                localChunks.set(prefix + at + '-' + session + '-' + active.sequence, active);
+                active = { started: at, entries: [], saved: 0, bytes: 0 };
+                localChunks.set(at + '-' + session + '-' + sequence++, active);
                 if (localChunks.size > 8) {
                     localChunks.delete(localChunks.keys().next().value);
                     storageLimited = true;
                 }
             }
             active.entries.push(entry);
+            active.bytes += bytes;
             if (!storageSupported) return;
             if (persist && !urgent) {
                 clearTimeout(timer);
@@ -172,12 +262,17 @@ const DiagnosticLog = (() => {
             let prunedThrough = 0;
             if (storageSupported) {
                 try {
-                    prunedThrough = GM_getValue(prunedKey, 0);
-                    for (const key of storedKeys()) {
-                        if (chunkTime(key) <= end && chunkTime(key) + chunkSpan >= from) {
+                    prunedThrough = GM_getValue(prefix + 'pruned-through', 0);
+                    for (const key of legacyKeys(journal)) {
+                        const at = Number(key.slice(prefix.length, prefix.length + 13));
+                        if (at <= end && at + chunkSpan >= from) {
                             const entries = GM_getValue(key, []);
                             if (Array.isArray(entries)) chunks.set(key, entries);
                         }
+                    }
+                    for (const key of slotKeys) {
+                        const slot = readSlot(key);
+                        if (slot?.journal === journal) chunks.set(slot.id, slot.entries);
                     }
                 } catch (_) {
                     storageLimited = true;
@@ -201,8 +296,8 @@ const DiagnosticLog = (() => {
         return { append, flush, read };
     }
 
-    const consoleJournal = createJournal('ai-marker-diagnostic-log-v1-', 192, 160);
-    const gradingJournal = createJournal('ai-marker-diagnostic-grading-v1-', 512, 240, true);
+    const consoleJournal = createJournal('console', 160);
+    const gradingJournal = createJournal('grading', 240, true);
 
     function identity() {
         const entry = { at: Date.now(), site: window.location.hostname, version: DIAGNOSTIC_SCRIPT_VERSION };
