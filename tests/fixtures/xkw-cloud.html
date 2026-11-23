@@ -88,6 +88,7 @@ window.GM_xmlhttpRequest = options => {
     }
     const scorePanel = document.querySelector('.givescorebox');
     let requests = 0, inputEvents = 0, outcome = 'saved', wrongPaper = false, deferredSave = false, minimumTime = false;
+    let hideAnswerDuringSave = false;
     input.addEventListener('input', () => { inputEvents++; });
     const sendNativeScore = () => {
         const { questionId, sheetId, studentId, teacherMarkType } = state.readOverInfo;
@@ -98,9 +99,11 @@ window.GM_xmlhttpRequest = options => {
             if (next?.exist) setTimeout(() => setPaper('b', 'first', 2, next.data.sheetId), 40);
         };
         xhr.onloadend = () => { requests++; scorePanel.classList.remove('nooperate'); };
+        if (hideAnswerDuringSave) images.hidden = true;
         xhr.send(JSON.stringify({ questionId, sheetId, studentId: wrongPaper ? 'other' : studentId,
             markCount: teacherMarkType, choiceIndex: state.choiceIndex, score: state.questionScore,
             markPageType: 'NORMAL_MARK', haveJoin: false, questionSubmitList: [] }));
+        if (hideAnswerDuringSave) images.hidden = false;
     };
     document.querySelector('.submitscorebtn').addEventListener('click', () => {
         if (minimumTime) {
@@ -164,7 +167,9 @@ window.GM_xmlhttpRequest = options => {
             '学科网拒绝失效会话时，提示重新登录并且暂停在当前答卷');
         outcome = 'saved';
         deferredSave = true;
-        check(adapter.fillScores([3]) && await adapter.submitGrade(), '等待平台异步发出保存请求，核对当前答卷的保存回执');
+        hideAnswerDuringSave = true;
+        check(adapter.fillScores([3]) && await adapter.submitGrade(), '答卷暂时隐藏时核对异步保存回执');
+        hideAnswerDuringSave = false;
         check(await adapter.waitForNextPaper(urls[0], { taskId, paperId }) && adapter.getTaskIdentifier() === taskId
             && adapter.getPaperIdentity() !== paperId, '下一份答卷与回执对应后才继续');
         check(!adapter.fillScores([3]), '翻卷后拒绝使用上份答卷的评分');

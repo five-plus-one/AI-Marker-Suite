@@ -551,15 +551,17 @@ function stopIfGradingTaskChanged(context) {
     return true;
 }
 
-function requireGradingContextTarget(context, checkQuestion = true) {
+function requireGradingContextTarget(context, checkQuestion = true, checkPaper = true) {
     requireCurrentGradingContext(context);
     if (stopIfGradingTaskChanged(context)) throw gradingContextError('当前题目已变化，请核对后重新批改');
     if (checkQuestion) requireGradingQuestionContext(context);
     if (PresetManager.data.active !== context.presetName) throw gradingContextError('配置方案已切换，请重新批改');
     const taskId = readGradingTaskIdentifier();
     if (context.taskId && taskId && context.taskId !== taskId) throw gradingContextError('当前题目已变化，请核对后重新批改');
-    const paperId = readGradingPaperIdentity(context.adapter);
-    if (context.paperGuardEnabled !== false && context.paperId && paperId && context.paperId !== paperId) throw gradingContextError('答卷已切换，请核对后重新批改');
+    if (checkPaper && context.paperGuardEnabled !== false && context.paperId) {
+        const paperId = readGradingPaperIdentity(context.adapter);
+        if (paperId && context.paperId !== paperId) throw gradingContextError('答卷已切换，请核对后重新批改');
+    }
 }
 
 async function verifyGradingContext(context, requirePaperMatch = false) {
