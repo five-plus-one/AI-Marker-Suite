@@ -11,11 +11,15 @@ window.GM_getValue=(k,v)=>storage[k]??v;window.GM_setValue=(k,v)=>storage[k]=v;
 window.GM_registerMenuCommand=()=>{};
 window.GM_xmlhttpRequest=options=>{queueMicrotask(()=>options.onerror?.());return{abort(){}}};
 const app=document.getElementById('app'),panel=document.querySelector('.panel'),input=document.querySelector('input');
-const bound=mode==='bound';
+const bound=mode==='bound', review=mode==='review';
 if(mode==='keyboard'){input.id='compuinput';input.readOnly=false;input.parentElement.className='questionInputs'}
 const mark={markingType:mode==='keyboard'?1:2,questionScore:null,reviewProps:{},markReview:false,
  haveJoin:false,batchGrading:false,IsSubItemscoring:false,
  readOverInfo:{studentId:'A',sheetId:101,questionId:42,question:{questionName:'31(1)',score:3},inputFastSumbitFlag:true}};
+if(review){
+ mark.reviewProps={review:true,readonly:false,markNumber:1};
+ mark.readOverInfo.teacherMarkType=1;
+}
 let commits=0,submits=0,nativeInputs=0;
 app.__vue_app__={config:{globalProperties:{$store:{state:{mark},commit(key,value){
  if(key!=='mark/SET_SCOREING')throw Error('Unexpected mutation');
@@ -48,6 +52,7 @@ const papers=document.querySelector('.paper');papers.append(paper('A'));
 document.querySelector('button').onclick=()=>{submits++;const xhr=new XMLHttpRequest();
  xhr.open('POST','/v2/union/mark/submit');xhr.onload=()=>setTimeout(()=>papers.replaceChildren(paper('B')),80);
  xhr.send(JSON.stringify({studentId:mark.readOverInfo.studentId,sheetId:101,questionId:42,score:mark.questionScore,
+  ...(review?{markPageType:'REMARK',markCount:1,markNumber:1}:{}),
   ...(bound?{haveJoin:true,questionSubmitList:boundModels.map((score,i)=>({questionId:42+i,score}))}:{})}))};
 if(mode==='late'||mode==='spa')panel.remove();
 </script><script src="/__fixture/ai_marker.user.js"></script><script>
@@ -63,6 +68,7 @@ if(mode==='late'||mode==='spa')panel.remove();
   const a=window.__AI_MARKER_ADAPTER__;
   assert(a?.name==='温州云阅卷'&&a.isMarkingPage(),'完整脚本识别温州页面');
   assert(document.querySelectorAll('.ai-grade-btn').length===1,'唯一批改入口');
+  if(review)assert(a.isRegradeMode(),'可写复查仍保留复查状态');
   assert(a.getScoreInputs().length===(bound?2:1)&&a.getScoreInputs()[0].maxScore===(bound?7:3),'读取题目满分并排除步长框');
   const urls=await a.gatherAnswerImages(),old=a.getPaperIdentity();assert(urls.length===1&&old,'答卷图及身份就绪');
   if(bound){
