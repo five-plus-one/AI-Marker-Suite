@@ -24,7 +24,12 @@ const XINJIAOYU_SELECTORS = {
     SUBMIT_BUTTON_TEXT: '提交分数',
     SUBMIT_BUTTON: '.ant-btn-primary:has(span:contains("提交分数"))',
 
-    // 作业系统 - 当前打分对象
+    // 作业系统 - 给分区与当前打分对象
+    HOMEWORK_SCORE_INPUT: '.scoreStyle .ant-input-number-input',
+    HOMEWORK_QUESTION_ROW: '.scoreStyle .mt-5',
+    HOMEWORK_QUESTION_LABEL: ':scope > :first-child',
+    HOMEWORK_STUDENT_LIST: '.studentSelectClass',
+    HOMEWORK_STUDENT_NAME: '.ellipsis > span',
     HOMEWORK_SCORE_ROW: '.row-center-center',
     HOMEWORK_SCORE_STUDENT: ':scope > span.fw-600',
 
