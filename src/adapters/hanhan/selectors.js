@@ -10,8 +10,10 @@ const HANHAN_SELECTORS = {
     // 单题总分只使用原站明确标为「请给分」的输入框。
     SCORE_INPUT: 'input.el-input__inner:is([placeholder="请给分"], [placeholder="请给分!"], [placeholder="请给分！"])',
 
-    // 提交按钮
-    SUBMIT_BUTTON: '.el-button--primary',
+    ONE_CLICK_SCORE_INPUT: '.redbiginput input',
+
+    // 给分按钮按可见的完整按钮文字定位。
+    SUBMIT_BUTTON: 'button',
     SUBMIT_BUTTON_TEXT: '给分',
 
     // 快捷分数按钮
