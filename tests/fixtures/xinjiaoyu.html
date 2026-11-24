@@ -1,0 +1,94 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>新教育作业评分验收</title>
+<div class="studentSelectClass newStudent"><div class="ellipsis"><span>示例甲</span></div><span>未批阅</span></div>
+<div class="studentSelectClass"><div class="ellipsis"><span>示例乙</span></div><span>未批阅</span></div>
+<canvas id="canvas" width="762" height="650" style="width:min(100%, 762px);height:auto"></canvas>
+<div class="scoreStyle">
+    <div class="pb-10">
+        <div class="flex space-between align-items-center mt-5"><span>二、17(1).(6分)</span><div><input class="ant-input-number-input" role="spinbutton" placeholder="未批阅" step="1"></div></div>
+        <div class="flex space-between align-items-center mt-5"><span>二、17(2).（6分）</span><div><input class="ant-input-number-input" role="spinbutton" placeholder="未批阅" step="0.5"></div></div>
+        <div class="flex space-between align-items-center mt-5"><span>二、17(3).(6分)</span><div><input class="ant-input-number-input" role="spinbutton" placeholder="未批阅" step="1"></div></div>
+    </div>
+    <button hidden>提交分数</button>
+    <button id="submit">提交分数</button>
+</div>
+<input class="ant-input-number-input" id="unrelated" value="41">
+<pre id="result" hidden></pre>
+<script>
+const storage = { 'ai-grading-show-onboarding': false };
+window.GM_getValue = (key, fallback) => storage[key] ?? fallback;
+window.GM_setValue = (key, value) => { storage[key] = value; };
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()); return { abort() {} }; };
+</script>
+<script src="/dist/ai_marker.user.js"></script>
+<script>
+(async () => {
+    const runId = new URLSearchParams(location.search).get('run');
+    const result = document.getElementById('result');
+    const report = data => {
+        result.textContent = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify({ runId, width: innerWidth, ...data }))));
+    };
+    let checks = 0;
+    const check = (value, label) => { checks++; if (!value) throw Error(label); };
+    const sleep = delay => new Promise(resolve => setTimeout(resolve, delay));
+    try {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        const inputs = [...document.querySelectorAll('.scoreStyle input')];
+        const students = [...document.querySelectorAll('.studentSelectClass')];
+        const canvas = document.getElementById('canvas');
+        const pixels = canvas.getContext('2d');
+        function draw(label) {
+            pixels.fillStyle = 'white';
+            pixels.fillRect(0, 0, canvas.width, canvas.height);
+            if (!label) return;
+            pixels.fillStyle = 'black';
+            pixels.font = '22px sans-serif';
+            pixels.fillText(label, 40, 60);
+        }
+        draw('Synthetic answer A');
+        check(adapter?.id === 'xinjiaoyu', '新教育作业路由');
+        const detect = () => document.getElementById('btn-detect-inputs');
+        for (let count = 0; count < 80 && !detect(); count++) await sleep(40);
+        check(!!detect(), '评分设置已加载');
+        detect().click();
+        const labels = ['二、17(1)', '二、17(2)', '二、17(3)'];
+        const units = adapter.getScoreInputs();
+        check(JSON.stringify(units.map(u => u.label)) === JSON.stringify(labels), '按评分行读取题号');
+        const settingsRows = [...document.querySelectorAll('.scoring-unit-item')];
+        check(settingsRows.length === 3 && settingsRows.every(row => row.querySelector('.su-max-score').value === '6'),
+            '评分设置列出三个六分小题');
+        check(settingsRows[1].querySelector('.su-round-step').value === '0.5', '评分设置采用原站步长');
+        const question = adapter.getQuestionContext();
+        check(question?.units.length === 3 && question.units.every(u => u.maxScore === 6), '题号核对使用全部小题');
+        check(!adapter.fillScores([5]) && !adapter.fillScores([0, 6.5, 5]) && inputs.every(input => !input.value),
+            '旧总分配置及超出满分的值整体拒绝');
+        check(adapter.fillScores([0, 2.5, 6]) && inputs.map(input => input.value).join() === '0,2.5,6'
+            && document.getElementById('unrelated').value === '41', '分数按原站顺序填入');
+        const [oldImage] = await adapter.gatherAnswerImages();
+        check(oldImage?.startsWith('data:image/png'), '读取组合题画布');
+        const oldStudent = adapter.getPaperIdentity();
+        const paperWaitKeys = adapter.getPaperWaitKeys([oldImage]);
+        let submitted;
+        document.getElementById('submit').onclick = () => {
+            submitted = inputs.map(input => input.value).join();
+            students[0].classList.remove('newStudent');
+            students[1].classList.add('newStudent');
+            setTimeout(() => draw(''), 720);
+            setTimeout(() => draw('Synthetic answer B'), 1500);
+        };
+        check(adapter.submitGrade() && submitted === '0,2.5,6' && adapter.getPaperIdentity() !== oldStudent,
+            '模拟原站在开始等待前已切换学生');
+        const wait = adapter.waitForNextPaper(oldImage, { paperWaitKeys });
+        const holdingForImage = await Promise.race([wait.then(() => false), sleep(1250).then(() => true)]);
+        check(holdingForImage && await wait, '旧图和清屏期间等待，新图绘制后续批');
+        const [newImage] = await adapter.gatherAnswerImages();
+        check(!!newImage && newImage !== oldImage && JSON.stringify(question) === JSON.stringify(adapter.getQuestionContext()),
+            '续批读取新图并沿用同题评分项');
+        report({ passed: true, checks });
+    } catch (error) {
+        report({ passed: false, error: String(error), stack: error.stack });
+    }
+})();
+</script>
