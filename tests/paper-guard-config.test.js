@@ -97,7 +97,7 @@ async function runMainFlow({ paperGuard, changePaper }) {
         grabFrom(src, 'snapshotScoreInputs'), grabFrom(src, 'scoreInputsTransitionedEmpty'),
         grabFrom(src, 'verifyPaperUnchanged'), grabFrom(src, 'confirmLeftMarkingPage'),
         grabFrom(src, 'validateScoresForFill'), grabFrom(src, 'safeFillScores'),   // N5 数值闸（startAutoGrading 填分依赖）
-        grabFrom(src, 'startAutoGrading'),
+        grabFrom(src, 'calculateGradingResult'), grabFrom(src, 'startAutoGrading'),
     ];
     const calls = { gather: 0, fill: 0, fills: null, toasts: [], dialog: 0 };
     const adapter = {

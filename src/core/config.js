@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.40.3',
+    VERSION: '1.21.41.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.41.0': [
+            '【新增】智学网批量阅卷支持同时评阅多份答卷，逐份显示建议分和依据',
+            '【新增】选择需要保存的答卷，核对分数和份数后一次确认',
+        ],
         '1.21.40.3': [
             '【新增】更多阅卷平台支持题号和小题满分校验',
             '【优化】部分阅卷页面题号暂缺时，继续按答卷和提交检查批改',

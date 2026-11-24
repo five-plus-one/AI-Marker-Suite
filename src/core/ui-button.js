@@ -26,6 +26,7 @@ const AI_UI_ROOTS = [
     '.fp-embedded-toolbar-menu',
     '.ai-grade-btn', '.ai-history-btn', '.ai-settings-btn',
     '#ai-batch-progress',
+    '#ai-multi-paper-review',
 ];
 const AI_UI_ROOT_SELECTOR = AI_UI_ROOTS.join(', ');
 // 按钮防御规则的作用域：
@@ -634,6 +635,12 @@ function toggleAutoGrading(event) {
         userEvent: event ? { type: event.type, trusted: event.isTrusted, detail: event.detail } : undefined,
     });
     const btn = document.querySelector('.ai-grade-btn');
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    if (!window.aiGradingState.isRunning && !window.aiGradingState.hasUnsavedChanges &&
+        adapter?.isMultiPaperMode?.()) {
+        closeSettingsPanel();
+        if (openMultiPaperReview(adapter)) return;
+    }
     btn.disabled = true;
     setTimeout(() => btn.disabled = false, 800);
 

@@ -54,12 +54,14 @@ const CORE_MODULES = [
     'state.js',
     'runtime.js',
     'marking-paper.js',
+    'multi-paper-review.js',
     'preset.js',
     'score.js',           // ScoreCalculator (需在 prompt.js 之前)
     'ui-toast.js',
     'ui-modal.js',
     'ui-stream.js',
     'ui-button.js',
+    'ui-multi-paper-review.js',
     'marker-account.js',
     'ai-engine.js',      // ProviderManager + callAI (需在 ui-settings 之前)
     'prompt.js',          // buildPrompt + parse 函数 (需在 ui-settings 之前)
@@ -86,6 +88,7 @@ const BUILD_CONFIGS = [
         adapterModules: [
             'adapters/zhixue/selectors.js',
             'adapters/zhixue/homework.js',
+            'adapters/zhixue/multi-paper.js',
             'adapters/zhixue/adapter.js',
             'adapters/qitian/selectors.js',
             'adapters/qitian/adapter.js',

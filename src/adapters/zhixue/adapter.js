@@ -239,12 +239,45 @@ const ZhixueAdapter = {
         return this._isMarkingUrl();
     },
 
+    _multiPaperRoot() {
+        const main = typeof unsafeWindow !== 'undefined' ? unsafeWindow.document : document;
+        const frame = main.querySelector('iframe');
+        const frameVisible = frame && (!frame.getClientRects || isZhixueDialogElementVisible(frame));
+        const frameDoc = frameVisible ? frame.contentDocument : null;
+        for (const doc of [frameDoc, main].filter(Boolean)) {
+            const roots = Array.from(doc.querySelectorAll('.mult-marking, .trace-mult-marking'))
+                .filter(isZhixueDialogElementVisible);
+            if (roots.length) return roots[0];
+        }
+        return null;
+    },
+
+    isMultiPaperMode() {
+        return this._isMarkingUrl() && !!this._multiPaperRoot();
+    },
+
+    readMultiPaperSnapshot() {
+        const current = readZhixueMultiPaper(this);
+        if (!current) return null;
+        const { taskKey, question, maxScore, step, allowedScores } = current;
+        return {
+            taskKey, question, maxScore, step, allowedScores,
+            submissionReady: zhixueBatchIdle(current),
+            papers: current.papers.map(({ key, revision, imageUrls }) => ({ key, revision, imageUrls }))
+        };
+    },
+
+    submitMultiPaperGroup(group) {
+        return submitZhixueMultiPaperGroup(this, group);
+    },
+
     async detectMarkingPage() {
         // 只在阅卷路径下才进行详细检测
         if (!this._isMarkingUrl()) {
             console.log('🔎 [诊断] 智学网 — 当前不在阅卷页面 (pathname:', window.location.pathname, ')');
             return false;
         }
+        if (this._multiPaperRoot()) return true;
 
         console.log('🔎 [诊断] 智学网 — 开始检测批改页面元素...');
         try {
@@ -453,6 +486,7 @@ const ZhixueAdapter = {
     },
 
     _answerSnapshot() {
+        if (this._multiPaperRoot()) return { urls: [], keys: [], ready: false, identity: null };
         const mainDoc = typeof unsafeWindow !== 'undefined' ? unsafeWindow.document : document;
         let iframeDoc;
         try {
@@ -534,6 +568,10 @@ const ZhixueAdapter = {
 
     prepareGrading() {
         this.lastFillError = '';
+        if (this.isMultiPaperMode()) {
+            this.lastFillError = '当前题目使用批量阅卷，请打开批量批改';
+            return false;
+        }
         const inputs = this.getScoreInputs();
         const maxima = inputs.map(({ element }) => {
             if (!element || (element.getClientRects && !element.getClientRects().length)) return 0;

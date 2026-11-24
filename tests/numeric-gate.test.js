@@ -135,7 +135,7 @@ async function runMainFlowWithScore(finalScore) {
         grabMain('normalizePaperImageUrl'), grabMain('paperUrlSetContains'),
         grabMain('snapshotScoreInputs'), grabMain('scoreInputsTransitionedEmpty'),
         grabMain('verifyPaperUnchanged'), grabMain('confirmLeftMarkingPage'),
-        grabMain('startAutoGrading'),
+        grabMain('calculateGradingResult'), grabMain('startAutoGrading'),
     ];
     const calls = { ai: 0, fill: 0, toasts: [] };
     const adapter = {
