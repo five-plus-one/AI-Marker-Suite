@@ -150,9 +150,28 @@ const HanhanAdapter = {
     getScoreInputs() {
         if (!this.isMarkingPage()) return [];
         const inputs = Array.from(document.querySelectorAll(HANHAN_SELECTORS.SCORE_INPUT))
-            .filter(input => !input.readOnly && !input.matches(':disabled') && MarkingPaper.visible(input));
+            .filter(input => !input.matches(':disabled') && MarkingPaper.visible(input)
+                && (!input.readOnly || input.matches(HANHAN_SELECTORS.ONE_CLICK_SCORE_INPUT)));
         if (inputs.length !== 1) return [];
         return [{ element: inputs[0], label: '总分', index: 0, maxScore: this._readQuestion()?.maxScore }];
+    },
+
+    _setOneClickScore(element, score) {
+        const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+        const app = pageWindow.document.getElementById('app');
+        const store = app?.__vue_app__?.config?.globalProperties?.$store;
+        const mark = store?.state?.mark;
+        const paper = mark?.readOverInfo;
+        const questionId = this._questionId();
+        if (typeof store?.commit !== 'function' || !app.contains(element) || Number(mark?.markingType) !== 2
+            || !questionId || !paper || String(paper.questionId ?? paper.question?.questionId) !== questionId
+            || mark.haveJoin || mark.IsSubItemscoring || mark.batchGrading || mark.markReview
+            || mark.reviewProps?.readonly || mark.feedBack || paper.judged || paper.checked || Number(paper.scored) === 1
+            || score > Number(paper.question?.score)) return false;
+
+        // 一键给分的输入框只显示原站状态。直接更新分数，提交仍由给分按钮执行。
+        store.commit('mark/SET_SCOREING', score);
+        return mark.questionScore === score;
     },
 
     fillScores(scores) {
@@ -170,12 +189,20 @@ const HanhanAdapter = {
         }
 
         const { element } = field;
+        const { readOnly } = element;
+        if (readOnly && !this._setOneClickScore(element, score)) {
+            this.lastFillError = '暂时无法写入当前答卷的分数，请检查阅卷页面后继续';
+            return false;
+        }
+
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(element, score);
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-        element.dispatchEvent(new Event('blur', { bubbles: true }));
-        return element.value.trim() !== '' && Number(element.value) === score;
+        if (!readOnly) {
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            element.dispatchEvent(new Event('blur', { bubbles: true }));
+        }
+        return element.isConnected && element.value.trim() !== '' && Number(element.value) === score;
     },
 
     detectSubQuestions() {
