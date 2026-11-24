@@ -551,14 +551,14 @@ const ZhixueAdapter = {
         return [];
     },
 
-    async fetchImageAsBase64(url, signal = window.aiGradingState?.abortController?.signal) {
+    async fetchImageAsBase64(url, signal = window.aiGradingState?.abortController?.signal, options) {
         if (signal?.aborted || window.aiGradingState?.isPaused) throw new Error('用户主动暂停');
         if (url.startsWith('data:')) {
             const match = url.match(/^data:image\/(?:png|jpe?g|webp|gif);base64,([A-Za-z0-9+/]+=*)$/);
             if (!match) throw new Error('答题卡图片格式无效，请重新加载后继续');
             return match[1];
         }
-        return fetchImageAsBase64(url, signal);
+        return fetchImageAsBase64(url, signal, options);
     },
 
     _scoreMaximum(element) {

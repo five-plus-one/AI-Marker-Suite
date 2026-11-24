@@ -9,7 +9,7 @@ function validMultiPaperScore(score, rules) {
 function createMultiPaperGrader(adapter, config) {
     return async (paper, signal) => {
         const fetchImage = adapter.fetchImageAsBase64?.bind(adapter) ?? fetchImageAsBase64;
-        const images = await Promise.all(paper.imageUrls.map(url => fetchImage(url, signal)));
+        const images = await Promise.all(paper.imageUrls.map(url => fetchImage(url, signal, { autoRefreshOn403: false })));
         if (signal.aborted) return;
         const { kept, removed } = filterUsableImagesForAI(images);
         if (!kept.length || removed.length) {

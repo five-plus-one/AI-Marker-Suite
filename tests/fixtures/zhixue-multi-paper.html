@@ -37,6 +37,8 @@ window.GM_deleteValue = key => { delete storage[key]; };
 const requests = [];
 const writes = [];
 const modelErrors = [];
+let answerDReadable = false;
+let answerDRequests = 0;
 const originalWarn = console.warn;
 console.warn = (...args) => {
   if (args[0] === '批量批改未完成') modelErrors.push(args[1]?.message);
@@ -55,14 +57,20 @@ for (const key of ['A', 'B', 'C', 'D']) {
   sources[key] = bitmap.toDataURL();
 }
 window.GM_xmlhttpRequest = request => {
-  if (request.method === 'POST' && new URL(request.url).hostname === 'ai.fixture.invalid') {
+  const requestUrl = new URL(request.url);
+  if (request.method === 'GET' && requestUrl.pathname === '/__fixture/answer.svg' && requestUrl.searchParams.get('paper') === 'D') {
+    answerDRequests++;
+    queueMicrotask(() => request.onload(answerDReadable ? {
+      status: 200, response: Uint8Array.from(atob(sources.D.split(',')[1]), char => char.charCodeAt(0)).buffer
+    } : { status: 403 }));
+  } else if (request.method === 'POST' && requestUrl.hostname === 'ai.fixture.invalid') {
     const key = Object.keys(sources).find(key => request.data.includes(sources[key].split(',')[1]));
     requests.push({ key, response(score) {
       const content = '【答案复述】\nSample answer ' + key + '\n【评分依据】\n符合其中的给分点\n【得分】\n' + score;
       request.onload({ status: 200, responseText: JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }) });
     } });
   } else {
-    modelErrors.push(request.method + ' ' + new URL(request.url).origin);
+    modelErrors.push(request.method + ' ' + requestUrl.origin);
     queueMicrotask(() => request.onerror?.({message: 'fixture request'}));
   }
   return { abort() {} };
@@ -80,7 +88,10 @@ const navigation = { countParams: { teacherMarked: 0 }, currentTopicNum: '15-6' 
 const grading = { $el: form, $nextTick: callback => queueMicrotask(callback), currentTopicTitle: '第15-6题',
   currentStandardScore: 2, canSave: true, autoCommitIsSelect: false, scoreNumber: '' };
 const parents = { $refs: { navtools: navigation, scorearea: grading }, $route: { query: { markingPaperId: 'fixture-exam' } } };
-const view = grid.__vue__ = { $parent: parents, topicImgTemplete: { multImgaeList: [] }, getReal: src => sources[new URL(src).searchParams.get('paper')] };
+const view = grid.__vue__ = { $parent: parents, topicImgTemplete: { multImgaeList: [] }, getReal: src => {
+  const key = new URL(src).searchParams.get('paper');
+  return key === 'D' ? src : sources[key];
+} };
 let saving = false;
 let remaining;
 const newPaper = itemId => ({ itemId, topicNumStr: '15-6', img: location.origin + '/__fixture/answer.svg?paper=' + itemId, isChecked: false, score: '' });
@@ -175,8 +186,14 @@ showPapers(['A', 'B', 'C'].map(newPaper));
     assert(grid.children.length === 1 && grid.children[0].querySelector('img').src === sources.A, '原站保留尚未确认答卷');
     action('确认所选').click();
     action('提交这些分数').click();
-    await until(() => writes.length === 3 && action('继续本题') && !action('继续本题').disabled);
+    await until(() => writes.length === 3 && action('继续本题') && !action('继续本题').disabled &&
+      grid.querySelector('img')?.complete && grid.querySelector('img')?.naturalWidth > 0);
     action('继续本题').click();
+    await until(() => action('重试评分'));
+    assert(answerDRequests === 1 && sessionStorage.getItem('ai-grading-auto-resume') === null && writes.length === 3,
+      '答卷图片权限失效时保留当前页面，单份可重试');
+    answerDReadable = true;
+    action('重试评分').click();
     await until(() => requests.some(item => item.key === 'D'));
     assert(pane().getBoundingClientRect().width <= innerWidth - 23, '评阅面板随视口宽度布局');
     assert(getComputedStyle(pane()).colorScheme.includes('dark') === matchMedia('(prefers-color-scheme:dark)').matches, '评阅面板匹配系统主题');

@@ -1,5 +1,5 @@
 // ========== 图片下载处理 ==========
-function _fetchImageAsBase64Single(url, signal) {
+function _fetchImageAsBase64Single(url, signal, autoRefreshOn403) {
     let abortRequest;
     return new Promise((resolve, reject) => {
         console.log(`📥 正在请求下载图片: ${url.substring(0, 60)}...`);
@@ -12,7 +12,7 @@ function _fetchImageAsBase64Single(url, signal) {
             timeout: 30000,
             onload: function(response) {
                 if (signal?.aborted) return reject(new Error('用户主动暂停'));
-                if (response.status === 403 && window.aiGradingState.autoRefreshOn403) {
+                if (response.status === 403 && autoRefreshOn403 && window.aiGradingState.autoRefreshOn403) {
                     console.warn('⚠️ 图片返回403，自动刷新页面...');
                     sessionStorage.setItem('ai-grading-auto-resume', 'true');
                     setTimeout(() => { if (!signal?.aborted) location.reload(); }, 1000);
@@ -51,14 +51,14 @@ function _fetchImageAsBase64Single(url, signal) {
 }
 
 // 带重试的图片下载（超时/网络错误自动重试1次）
-async function fetchImageAsBase64(url, signal = window.aiGradingState.abortController?.signal) {
+async function fetchImageAsBase64(url, signal = window.aiGradingState.abortController?.signal, { autoRefreshOn403 = true } = {}) {
     const maxRetries = 1;
     let lastError = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             if (signal?.aborted) throw new Error('用户主动暂停');
-            return await _fetchImageAsBase64Single(url, signal);
+            return await _fetchImageAsBase64Single(url, signal, autoRefreshOn403);
         } catch (error) {
             lastError = error;
             const msg = error.message || '';

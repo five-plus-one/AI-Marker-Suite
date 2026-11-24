@@ -9,6 +9,29 @@ const { createMultiPaperReview } = vm.runInNewContext(source + '\n({ createMulti
 const nextTick = () => new Promise(resolve => setImmediate(resolve));
 const paper = (key, revision = key) => ({ key, revision, label: key, imageUrls: [key] });
 
+test('批量图片 403 留在阅卷页，单卷沿用已启用的刷新策略', async () => {
+    const imageSource = readFileSync(path.join(__dirname, '../src/core/image.js'), 'utf8');
+    const schedules = [], storageWrites = [];
+    const { fetchImageAsBase64, createMultiPaperGrader } = vm.runInNewContext(
+        imageSource + '\n' + source + '\n({ fetchImageAsBase64, createMultiPaperGrader })', {
+            window: { aiGradingState: { autoRefreshOn403: true } },
+            GM_xmlhttpRequest(options) {
+                queueMicrotask(() => options.onload({ status: 403 }));
+                return { abort() {} };
+            },
+            setTimeout(callback) { schedules.push(callback); },
+            sessionStorage: { setItem: (...entry) => storageWrites.push(entry) },
+            console: { log() {}, warn() {} }
+        });
+    const signal = new AbortController().signal;
+    await assert.rejects(createMultiPaperGrader({}, {})(paper('https://example.test/answer.png'), signal), /状态码: 403/);
+    assert.equal(schedules.length, 0);
+    assert.deepEqual(storageWrites, []);
+    await assert.rejects(fetchImageAsBase64('https://example.test/answer.png', signal), /页面刷新中/);
+    assert.equal(schedules.length, 1);
+    assert.deepEqual(storageWrites, [['ai-grading-auto-resume', 'true']]);
+});
+
 function fixture(options = {}) {
     let snapshot = {
         taskKey: 'exam-1/question-1',

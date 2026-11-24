@@ -54,9 +54,10 @@
  * @property {() => Promise<string[]>} gatherAnswerImages
  *   获取当前页面上所有答题卡图片的 URL 数组
  *
- * @property {(url: string) => Promise<string>} fetchImageAsBase64
+ * @property {(url: string, signal?: AbortSignal, options?: {autoRefreshOn403?: boolean}) => Promise<string>} fetchImageAsBase64
  *   下载指定 URL 的图片并返回 base64 编码数据（不含 data: 前缀）。
  *   可包含平台特定的错误处理（如 403 自动刷新）。
+ *   批量阅卷传入 autoRefreshOn403: false，保证单份取图失败保留在当前阅卷页。
  *
  * === 分数输入（核心层据此构建评分单元配置）===
  * @property {() => ScoreInputInfo[]} getScoreInputs
