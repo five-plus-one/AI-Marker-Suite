@@ -92,29 +92,27 @@ const HanhanAdapter = {
         return this.fillScores([request.total]);
     },
 
-    submitGrade() {
-        // 查找"给分"按钮
-        const buttons = document.querySelectorAll(HANHAN_SELECTORS.SUBMIT_BUTTON);
-        for (const btn of buttons) {
-            if (btn.textContent.trim() === HANHAN_SELECTORS.SUBMIT_BUTTON_TEXT) {
-                console.log(`✅ [诊断] 华翰云 — 点击"给分"按钮`);
-                btn.click();
-                return true;
-            }
-        }
+    submitGrade(guard = {}) {
+        if (guard.signal?.aborted || guard.isCurrent?.() === false) return false;
+        const buttons = [...document.querySelectorAll(HANHAN_SELECTORS.SUBMIT_BUTTON)]
+            .filter(button => button.textContent.trim() === HANHAN_SELECTORS.SUBMIT_BUTTON_TEXT
+                && MarkingPaper.visible(button));
+        if (buttons.length !== 1) return false;
+        const [button] = buttons;
+        if (button.matches(':disabled, .is-disabled, [aria-disabled="true"]')) return false;
 
-        // 备选：查找包含"给分"文字的按钮
-        const allButtons = document.querySelectorAll('button');
-        for (const btn of allButtons) {
-            if (btn.textContent.trim().includes('给分')) {
-                console.log(`✅ [诊断] 华翰云 — 点击包含"给分"的按钮`);
-                btn.click();
-                return true;
-            }
+        const element = this.getScoreInputs()[0]?.element;
+        if (!element) return false;
+        if (element.readOnly || this._oneClickFill) {
+            const pending = this._oneClickFill;
+            const native = element.readOnly && this._getOneClickScoreContext(element);
+            if (!pending || !native || native.paper !== pending.paper || native.identity !== pending.identity
+                || element.value.trim() === '' || Number(element.value) !== pending.score
+                || native.mark.questionScore !== pending.score) return false;
+            this._oneClickFill = null;
         }
-
-        console.warn('⚠️ [诊断] 未找到"给分"按钮');
-        return false;
+        button.click();
+        return true;
     },
 
     getPaperWaitKeys(imageUrls) {
@@ -156,7 +154,7 @@ const HanhanAdapter = {
         return [{ element: inputs[0], label: '总分', index: 0, maxScore: this._readQuestion()?.maxScore }];
     },
 
-    _setOneClickScore(element, score) {
+    _getOneClickScoreContext(element) {
         const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
         const app = pageWindow.document.getElementById('app');
         const store = app?.__vue_app__?.config?.globalProperties?.$store;
@@ -166,16 +164,20 @@ const HanhanAdapter = {
         if (typeof store?.commit !== 'function' || !app.contains(element) || Number(mark?.markingType) !== 2
             || !questionId || !paper || String(paper.questionId ?? paper.question?.questionId) !== questionId
             || mark.haveJoin || mark.IsSubItemscoring || mark.batchGrading || mark.markReview
-            || mark.reviewProps?.readonly || mark.feedBack || paper.judged || paper.checked || Number(paper.scored) === 1
-            || score > Number(paper.question?.score)) return false;
+            || mark.reviewProps?.readonly || mark.feedBack || paper.judged || paper.checked || Number(paper.scored) === 1) return null;
 
-        // 一键给分的输入框只显示原站状态。直接更新分数，提交仍由给分按钮执行。
-        store.commit('mark/SET_SCOREING', score);
-        return mark.questionScore === score;
+        const maxScore = Number(paper.question?.score);
+        const nativeImages = new Set(MarkingPaper.imageKeys(Array.isArray(paper.urls) ? paper.urls : []));
+        const displayed = MarkingPaper.snapshot(HANHAN_SELECTORS.ANSWER_IMAGE);
+        if (!Number.isFinite(maxScore) || maxScore <= 0 || !displayed.ready
+            || nativeImages.size !== new Set(displayed.keys).size
+            || displayed.keys.some(key => !nativeImages.has(key))) return null;
+        return { store, mark, paper, maxScore, identity: displayed.identity };
     },
 
     fillScores(scores) {
         this.lastFillError = null;
+        this._oneClickFill = null;
         const field = this.getScoreInputs()[0];
         if (!field) {
             this.lastFillError = '无法确认当前答卷的给分框，请核对阅卷页面后继续';
@@ -189,19 +191,26 @@ const HanhanAdapter = {
         }
 
         const { element } = field;
-        const { readOnly } = element;
-        if (readOnly && !this._setOneClickScore(element, score)) {
-            this.lastFillError = '暂时无法写入当前答卷的分数，请检查阅卷页面后继续';
-            return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        if (element.readOnly) {
+            const native = this._getOneClickScoreContext(element);
+            if (!native || score > native.maxScore) {
+                this.lastFillError = '暂时无法写入当前答卷的分数，请检查阅卷页面后继续';
+                return false;
+            }
+            // 一键给分通过原站状态更新分数，并保留单独的确认提交步骤。
+            native.store.commit('mark/SET_SCOREING', score);
+            if (native.mark.questionScore !== score || !element.isConnected) return false;
+            setter.call(element, score);
+            if (element.value.trim() === '' || Number(element.value) !== score) return false;
+            this._oneClickFill = { paper: native.paper, identity: native.identity, score };
+            return true;
         }
 
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(element, score);
-        if (!readOnly) {
-            element.dispatchEvent(new Event('input', { bubbles: true }));
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-            element.dispatchEvent(new Event('blur', { bubbles: true }));
-        }
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('blur', { bubbles: true }));
         return element.isConnected && element.value.trim() !== '' && Number(element.value) === score;
     },
 

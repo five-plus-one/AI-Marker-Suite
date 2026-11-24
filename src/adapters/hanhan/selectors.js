@@ -12,8 +12,8 @@ const HANHAN_SELECTORS = {
 
     ONE_CLICK_SCORE_INPUT: '.redbiginput input',
 
-    // 提交按钮
-    SUBMIT_BUTTON: '.el-button--primary',
+    // 给分按钮按可见的完整按钮文字定位。
+    SUBMIT_BUTTON: 'button',
     SUBMIT_BUTTON_TEXT: '给分',
 
     // 快捷分数按钮
