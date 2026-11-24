@@ -31,6 +31,7 @@ window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()
         const step = document.querySelector('#step');
         const title = document.querySelector('.questiontitle');
         const image = document.querySelector('img');
+        await image.decode();
         let checks = 0, submissions = 0;
         const check = (value, message) => { checks++; if (!value) throw Error(message); };
         let onSave;
@@ -76,7 +77,7 @@ window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()
         score.readOnly = true;
         score.value = '';
         const mark = { markingType: 2, questionScore: null, autoSubmit: true,
-            readOverInfo: { questionId: 72, question: { score: 1 } } };
+            readOverInfo: { questionId: 72, question: { score: 1 }, urls: [image.src] } };
         let mutations = 0;
         const store = {
             state: { mark },
@@ -101,6 +102,12 @@ window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()
         mark.readOverInfo.judged = true;
         check(!adapter.fillScores([1]) && mutations === 0, '只读评阅状态不写分');
         mark.readOverInfo.judged = false;
+        mark.readOverInfo.urls = [image.src.replace('paper=A', 'paper=B')];
+        check(!adapter.fillScores([1]) && mutations === 0, '原站已换卷但页面仍显示旧答卷时不填分');
+        mark.readOverInfo.urls = [image.src];
+        mark.readOverInfo.question.score = null;
+        check(!adapter.fillScores([1]) && mutations === 0, '原站满分缺失时不填分');
+        mark.readOverInfo.question.score = 1;
         const commit = store.commit;
         store.commit = null;
         check(!adapter.fillScores([1]) && score.value === '', '无法更新原站状态时保留页面分数');
@@ -108,8 +115,27 @@ window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()
         check(adapter.fillScores([0]) && score.value === '0' && mark.questionScore === 0, '一键给分可填写零分');
         check(adapter.fillScores([1]) && score.value === '1' && mark.questionScore === 1 && mutations === 2
             && step.value === '1' && mark.autoSubmit && scoreEvents === 0 && submissions === 0, '分数同步到原站且等待确认');
+        const paper = mark.readOverInfo;
+        mark.readOverInfo = { ...paper };
+        check(!adapter.submitGrade() && submissions === 0, '确认前原站答卷已更换时不提交');
+        mark.readOverInfo = paper;
+        mark.questionScore = 0;
+        check(!adapter.submitGrade() && submissions === 0, '确认前原站分数改变时不提交');
+        mark.questionScore = 1;
+        const submitButton = document.querySelector('.submitscorebtn');
+        submitButton.disabled = true;
+        check(!adapter.submitGrade() && submissions === 0, '原站禁用给分时不提交');
+        submitButton.disabled = false;
+        submitButton.hidden = true;
+        const modeButton = document.createElement('button');
+        modeButton.textContent = '一键给分';
+        modeButton.onclick = () => { submissions++; };
+        submitButton.after(modeButton);
+        check(!adapter.submitGrade() && submissions === 0, '给分按钮隐藏时不点击模式选单');
+        submitButton.hidden = false;
         const oldImage = image.src, paperWaitKeys = adapter.getPaperWaitKeys([oldImage]);
         check(adapter.submitGrade() && await saved && submissions === 1, '给分按钮发出请求并收到确认');
+        check(!adapter.submitGrade() && submissions === 1, '同一份一键给分结果只交一次');
         check(await adapter.waitForNextPaper(oldImage, { paperWaitKeys }), '保存后识别同题下一份');
         check(JSON.stringify(question) === JSON.stringify(adapter.getQuestionContext()), '同题换卷保留题号基准');
         title.textContent = '第73题（2分）';
