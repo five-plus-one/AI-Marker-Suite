@@ -99,4 +99,10 @@
  * @property {() => {question: string, units: {label: string, maxScore: number}[]} | null} [getQuestionContext]
  *   从已确认的原生评分栏读取题号与小题满分；未就绪返回 null。
  *   不使用答卷编号、评分值、阅卷份数或生成的输入框下标代替题号。
+ * @property {() => boolean} [isMultiPaperMode]
+ *   识别平台的同屏多卷页面，包括尚未就绪的批量页。批量页由独立入口处理。
+ * @property {() => {taskKey: string, question: string, maxScore: number, step?: number, allowedScores?: number[], submissionReady: boolean, papers: {key: string, revision: string, label?: string, imageUrls: string[]}[]} | null} [readMultiPaperSnapshot]
+ *   读取当前题目、稳定作答来源和现有分值规则。答卷仍在加载时可返回空图组；无法校验当前上下文时返回 null。
+ * @property {(group: {taskKey: string, score: number, papers: {key: string, revision: string}[], signal: AbortSignal, isCurrent: () => boolean}) => Promise<'saved'|'blocked'|'unknown'>} [submitMultiPaperGroup]
+ *   确认精确选卷、分数和题目后，通过原生操作逐组保存。saved 需要可信回执，blocked 表示尚未派发，unknown 表示可能已派发。
  */

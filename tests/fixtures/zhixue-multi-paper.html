@@ -1,0 +1,200 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>智学网批量批改验收</title>
+<style>body{font:16px system-ui;margin:16px}button{padding:12px;width:auto}#marking_left_content{display:flex;gap:12px}.mult-marking{display:grid;gap:8px;flex:1}.mult-marking img{height:42px;width:auto}.mult-marking [aria-selected=true]{outline:2px solid green}</style>
+<main id="host">
+  <h1 id="currentTopicIndex">第15-6题</h1>
+  <div id="marking_left_content">
+    <div class="mult-marking"></div>
+    <div id="scoreareaDiv">
+      <div id="exam_type"><span class="hd_step">1</span></div>
+      <div id="mult-input"><input placeholder="满分2"></div>
+      <button id="bnt_save">提交分数</button>
+    </div>
+  </div>
+</main>
+<pre id="result" hidden></pre>
+<script>
+const byId = id => document.getElementById(id);
+const storage = {
+  'ai-grading-show-onboarding': false,
+  'ai-grading-hide-question-onboarding': true,
+  'ai-grading-presets': JSON.stringify({ active: 'Fixture', list: { Fixture: {
+    question: '请选择档位', answer: '参考答案', rubric: '按档给分', scoring: { maxScore: 2, roundStep: 1 },
+    workflowId: 'fixture', blankDetection: { enabled: false }, answerStatusCheck: false
+  } }, bindings: {} }),
+  'ai-grading-providers-v2': JSON.stringify({ providers: {
+    '5plus1官方': { apiKey: 'fixture' },
+    Fixture: { endpoint: 'https://ai.fixture.invalid/v1/chat/completions', apiKey: 'fixture', models: { fixture: {} } }
+  }, activeProvider: 'Fixture', activeModel: 'fixture' }),
+  'ai-grading-workflows': JSON.stringify({ workflows: { fixture: {
+    id: 'fixture', model: { provider: 'Fixture', model: 'fixture' }, dualEval: null
+  } }, activeWorkflow: 'fixture' })
+};
+window.GM_getValue = (key, fallback) => storage[key] ?? fallback;
+window.GM_setValue = (key, value) => { storage[key] = value; };
+window.GM_registerMenuCommand = () => {};
+window.GM_deleteValue = key => { delete storage[key]; };
+
+const requests = [];
+const writes = [];
+const modelErrors = [];
+const originalWarn = console.warn;
+console.warn = (...args) => {
+  if (args[0] === '批量批改未完成') modelErrors.push(args[1]?.message);
+  originalWarn(...args);
+};
+const sources = {};
+for (const key of ['A', 'B', 'C', 'D']) {
+  const bitmap = document.createElement('canvas');
+  bitmap.width = 160;
+  bitmap.height = 30;
+  const ctx = bitmap.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, 160, 30);
+  ctx.fillStyle = 'black';
+  ctx.fillText('Sample answer ' + key, 8, 18);
+  sources[key] = bitmap.toDataURL();
+}
+window.GM_xmlhttpRequest = request => {
+  if (request.method === 'POST' && new URL(request.url).hostname === 'ai.fixture.invalid') {
+    const key = Object.keys(sources).find(key => request.data.includes(sources[key].split(',')[1]));
+    requests.push({ key, response(score) {
+      const content = '【答案复述】\nSample answer ' + key + '\n【评分依据】\n符合其中的给分点\n【得分】\n' + score;
+      request.onload({ status: 200, responseText: JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }) });
+    } });
+  } else {
+    modelErrors.push(request.method + ' ' + new URL(request.url).origin);
+    queueMicrotask(() => request.onerror?.({message: 'fixture request'}));
+  }
+  return { abort() {} };
+};
+const grid = document.querySelector('.mult-marking'), form = byId('scoreareaDiv');
+const field = form.querySelector('input'), save = byId('bnt_save');
+if (location.pathname.startsWith('/htm-container-web/')) {
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'width:100%;height:450px;border:0';
+  document.body.prepend(frame);
+  frame.contentDocument.head.append(document.querySelector('style').cloneNode(true));
+  frame.contentDocument.body.append(byId('host'));
+}
+const navigation = { countParams: { teacherMarked: 0 }, currentTopicNum: '15-6' };
+const grading = { $el: form, $nextTick: callback => queueMicrotask(callback), currentTopicTitle: '第15-6题',
+  currentStandardScore: 2, canSave: true, autoCommitIsSelect: false, scoreNumber: '' };
+const parents = { $refs: { navtools: navigation, scorearea: grading }, $route: { query: { markingPaperId: 'fixture-exam' } } };
+const view = grid.__vue__ = { $parent: parents, topicImgTemplete: { multImgaeList: [] }, getReal: src => sources[new URL(src).searchParams.get('paper')] };
+let saving = false;
+let remaining;
+const newPaper = itemId => ({ itemId, topicNumStr: '15-6', img: location.origin + '/__fixture/answer.svg?paper=' + itemId, isChecked: false, score: '' });
+function showPapers(items) {
+  view.topicImgTemplete.multImgaeList = items;
+  grid.replaceChildren(...items.map((paper, index) => {
+    const card = document.createElement('div');
+    card.setAttribute('name', 'topicImg');
+    card.dataset.num = index;
+    const wrapper = document.createElement('div'), image = document.createElement('img');
+    image.alt = '';
+    image.src = view.getReal(paper.img);
+    wrapper.append(image);
+    card.append(wrapper);
+    card.onclick = () => {
+      paper.isChecked = !paper.isChecked;
+      paper.score = paper.isChecked ? grading.scoreNumber : '';
+      card.setAttribute('aria-selected', String(paper.isChecked));
+      updateActions();
+    };
+    return card;
+  }));
+  updateActions();
+}
+function updateActions() {
+  const selected = view.topicImgTemplete.multImgaeList.filter(paper => paper.isChecked);
+  field.disabled = !selected.length;
+  save.disabled = saving || !selected.length;
+}
+field.onchange = () => {
+  grading.scoreNumber = field.value;
+  for (const paper of view.topicImgTemplete.multImgaeList) if (paper.isChecked) paper.score = field.value;
+};
+save.onclick = () => {
+  const papers = view.topicImgTemplete.multImgaeList.filter(paper => paper.isChecked);
+  if (saving || !papers.length) return;
+  writes.push(papers.map(paper => [paper.itemId, Number(paper.score)]));
+  saving = true;
+  updateActions();
+  setTimeout(() => {
+    remaining = view.topicImgTemplete.multImgaeList.filter(paper => !paper.isChecked);
+    navigation.countParams.teacherMarked += papers.length;
+    grading.scoreNumber = field.value = '';
+    saving = false;
+    if (!remaining.length && papers.every(paper => paper.itemId !== 'D')) remaining = [newPaper('D')];
+    showPapers(remaining);
+  }, 60);
+};
+showPapers(['A', 'B', 'C'].map(newPaper));
+</script>
+<script src="/__fixture/ai_marker.user.js"></script>
+<script>
+(async () => {
+  const runId = new URLSearchParams(location.search).get('run');
+  const checks = [];
+  const assert = (ok, message) => { if (!ok) throw Error(message); checks.push(message); };
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  async function until(condition) {
+    for (let i = 0; i < 560; i++) { if (condition()) return; await delay(25); }
+    throw Error('等待批量阅卷状态超时 ' + JSON.stringify({ requests: requests.map(r => r.key), writes, modelErrors, panel: pane()?.innerText }));
+  }
+  const pane = () => byId('ai-multi-paper-review');
+  const action = name => [...pane().querySelectorAll('button')].find(button => button.textContent === name && !button.hidden);
+  try {
+    await until(() => document.querySelector('.ai-grade-btn') && [...grid.querySelectorAll('img')].every(img => img.complete));
+    const adapter = window.__AI_MARKER_ADAPTER__;
+    assert(adapter.isMultiPaperMode() && adapter.getPaperIdentity() === null, '识别批量页并隔离单卷读取');
+    assert((grid.ownerDocument === document) === !location.pathname.startsWith('/htm-container-web/'), '使用当前站点实际阅卷容器');
+    document.querySelector('.ai-grade-btn').click();
+    await until(() => requests.length === 3);
+    assert(requests.map(item => item.key).sort().join(',') === 'A,B,C', '三份答卷各自读取并发评分');
+    requests.find(item => item.key === 'B').response(0);
+    requests.find(item => item.key === 'C').response(2);
+    await until(() => !action('确认所选').disabled && pane().textContent.includes('选中 2 份'));
+    assert([...pane().querySelectorAll('li')].length === 3, '先返回的建议填入原列表');
+    assert(writes.length === 0, '教师确认前成绩未写入');
+    grading.autoCommitIsSelect = true;
+    action('确认所选').click();
+    assert(!action('提交这些分数') && writes.length === 0, '原站启用自动提交时保留教师控制');
+    grading.autoCommitIsSelect = false;
+    grid.firstElementChild.click();
+    action('确认所选').click();
+    assert(!action('提交这些分数') && view.topicImgTemplete.multImgaeList[0].isChecked, '老师在原站已有选卷时保留原选择');
+    grid.firstElementChild.click();
+    action('确认所选').click();
+    assert(pane().textContent.includes('2 分 × 1 份、0 分 × 1 份'), '确认显示分组与份数');
+    requests.find(item => item.key === 'A').response(1);
+    await until(() => pane().querySelector('li').textContent.includes('1 分'));
+    action('提交这些分数').click();
+    await until(() => pane().textContent.includes('已保存本次确认的分数'));
+    assert(JSON.stringify(writes) === '[[["C",2]],[["B",0]]]', '一次确认依次保存两组，迟到结果留给下次确认');
+    assert(grid.children.length === 1 && grid.children[0].querySelector('img').src === sources.A, '原站保留尚未确认答卷');
+    action('确认所选').click();
+    action('提交这些分数').click();
+    await until(() => writes.length === 3 && action('继续本题') && !action('继续本题').disabled);
+    action('继续本题').click();
+    await until(() => requests.some(item => item.key === 'D'));
+    assert(pane().getBoundingClientRect().width <= innerWidth - 23, '评阅面板随视口宽度布局');
+    assert(getComputedStyle(pane()).colorScheme.includes('dark') === matchMedia('(prefers-color-scheme:dark)').matches, '评阅面板匹配系统主题');
+    if (matchMedia('(pointer:coarse)').matches) {
+      assert(pane().querySelector('label').getBoundingClientRect().height >= 44 &&
+        action('结束批改').getBoundingClientRect().height >= 44, '触屏主要操作至少 44 像素');
+    }
+    action('收起').focus();
+    action('收起').click();
+    assert(pane().hidden && pane().getClientRects().length === 0 &&
+      document.activeElement === document.querySelector('.ai-grade-btn'), '收起后焦点返回批改入口');
+    byId('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({
+      runId, passed: true, width: innerWidth, checks
+    }))));
+  } catch (error) {
+    byId('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify({
+      runId, passed: false, width: innerWidth, checks, error: error.message
+    }))));
+  }
+})();
+</script></html>

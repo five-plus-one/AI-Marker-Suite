@@ -270,8 +270,35 @@ function handleLeaveMarkingPage() {
 }
 
 // ========== 主控流程 ==========
+function calculateGradingResult(result, scoringConfig, maxScore) {
+    const answerLength = result.answerLength ?? (result.studentAnswer || '').replace(/\[(?:未作答|无法辨认)\]|\s/g, '').length;
+    const diligenceLevel = answerLength <= 15 || isExplicitlyBlankGradingResult(result) ? 0 : result.diligenceLevel || 0;
+    const units = scoringConfig.units || [];
+    const aiUnitScores = result.subScores?.map((score, index) => ({
+        ...score,
+        roundStep: (result.scopedQuestionsTotalOnly ? score.roundStep : units[index]?.roundStep) || scoringConfig.roundStep
+    })) || null;
+    return {
+        diligenceLevel,
+        ...ScoreCalculator.calculate({
+            aiScore: result.rawScore ?? result.score,
+            diligenceLevel,
+            maxScore,
+            scoringConfig,
+            aiUnitScores,
+            totalOnly: result.scopedQuestionsTotalOnly
+        })
+    };
+}
+
 async function startAutoGrading() {
     if (!window.aiGradingState.isRunning || window.aiGradingState.isPaused) return;
+    const activeAdapter = window.__AI_MARKER_ADAPTER__;
+    if (activeAdapter?.isMultiPaperMode?.()) {
+        stopAutoGrading();
+        showToast('已切换到批量阅卷，请点击 AI 批改继续');
+        return;
+    }
     if (stopIfGradingTaskChanged()) return;
     const runContext = createGradingContext();
     const diagnostic = typeof DiagnosticLog === 'undefined' ? undefined : DiagnosticLog;
@@ -572,34 +599,8 @@ async function startAutoGrading() {
         if (result.score !== undefined && result.score !== null) {
             recordOutputLimitOutcome(gradingConfig);
             const scoringConfig = presetConfig.scoring || { roundStep: 1, roundMethod: 'round' };
-            const maxScore = gradingMaxScore;
-
-            // 字数 ≤ 15 或未作答时，强制无勤勉分
-            let diligenceLevel = result.diligenceLevel || 0;
-            const answerLen = result.answerLength ?? (result.studentAnswer || '').replace(/\[(?:未作答|无法辨认)\]|\s/g, '').length;
-            const explicitlyBlank = isExplicitlyBlankGradingResult(result);
-            if (answerLen <= 15 || explicitlyBlank) diligenceLevel = 0;
-
-            // 使用 ScoreCalculator 统一计算流水线
-            // 将配置中的 roundStep 合并到 AI 返回的小题分数中
-            const configUnits = scoringConfig.units || [];
-            const aiUnitScores = result.subScores
-                ? result.subScores.map((sq, i) => ({
-                    ...sq,
-                    roundStep: (result.scopedQuestionsTotalOnly ? sq.roundStep : configUnits[i]?.roundStep) || scoringConfig.roundStep
-                }))
-                : null;
-
-            const calculated = ScoreCalculator.calculate({
-                aiScore: result.rawScore ?? result.score,
-                diligenceLevel,
-                maxScore,
-                scoringConfig,
-                aiUnitScores,
-                totalOnly: result.scopedQuestionsTotalOnly
-            });
-
-            const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown } = calculated;
+            const { finalScore, finalUnitScores, bonus: roundedBonus, breakdown, diligenceLevel } =
+                calculateGradingResult(result, scoringConfig, gradingMaxScore);
             const platformUnitScores = result.scopedQuestionsTotalOnly ? null : finalUnitScores;
             if (isAnswerStatusCheckEnabled(presetConfig)) {
                 requireGradingEvidence(result, [finalScore, ...(finalUnitScores || []).map(unit => unit.score)]);
@@ -721,14 +722,14 @@ function initBatchProgress() {
     }
 }
 
-function updateBatchProgress() {
+function updateBatchProgress(count = 1) {
     const batch = window.aiGradingState.batchProgress;
     if (!batch.enabled) {
         console.log('📊 [诊断] updateBatchProgress — batch.enabled=false，跳过');
         return;
     }
 
-    batch.currentCount++;
+    batch.currentCount += count;
     sessionStorage.setItem('ai-batch-current-count', batch.currentCount.toString());
     console.log(`📊 [诊断] updateBatchProgress — 已批阅: ${batch.currentCount}/${batch.targetCount}`);
 
