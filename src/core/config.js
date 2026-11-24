@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.42.2',
+    VERSION: '1.21.42.3',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.42.3': [
+            '【修复】新教育作业提交分数后，确认下一份答题卡就绪并继续批改。',
+            '【修复】新教育作业组合题按小题读取满分与步长，并分别填分。',
+        ],
         '1.21.42.2': [
             '【新功能】评阅历史支持跨页勾选并导出所选记录。',
             '【优化】导出评阅历史时显示文件生成进度。',
