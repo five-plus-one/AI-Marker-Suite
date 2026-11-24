@@ -1613,10 +1613,13 @@ function createSettingsPanel(options) {
                 const list = panel.querySelector('#scoring-units-list');
                 list.innerHTML = '';
                 inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`,
-                    maxScore: inp.maxScore || '', roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined, source: 'detected' }));
+                    maxScore: inp.maxScore || '', roundStep: (adapter.scoreDetectionLabel || adapter.useDetectedScoreStep) ? inp.roundStep : undefined, source: 'detected' }));
                 refreshScoringTotal();
                 validateRequiredFields({ showErrors: false });
-                showToast(adapter.scoreDetectionLabel ? `已读取当前题满分 ${inputs[0].maxScore} 分` : `已检测到 ${inputs.length} 个输入框，请填写小题分`);
+                const hasEmpty = inputs.some(inp => !(inp.maxScore > 0));
+                const detected = hasEmpty ? `已检测到 ${inputs.length} 个输入框，请填写小题分`
+                    : `已读取 ${inputs.length} 个评分项`;
+                showToast(adapter.scoreDetectionLabel ? `已读取当前题满分 ${inputs[0].maxScore} 分` : detected);
                 markUnsavedChanges();
                 updateSettingsNavBadges();
             } else {
@@ -2212,7 +2215,7 @@ function fillFormFromActivePreset() {
             if (inputs.length > 0) {
                 detected = true;
                 inputs.forEach((inp, i) => addScoringUnitItem({ label: inp.label || `第${i + 1}题`,
-                    maxScore: inp.maxScore || '', roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined, source: 'detected' }));
+                    maxScore: inp.maxScore || '', roundStep: (adapter.scoreDetectionLabel || adapter.useDetectedScoreStep) ? inp.roundStep : undefined, source: 'detected' }));
                 // 自动展开"分数设置"手风琴，引导用户填写小题分
                 const unitsSection = document.getElementById('scoring-units-list')?.closest('.form-section');
                 if (unitsSection) unitsSection.classList.remove('collapsed');
@@ -3701,7 +3704,7 @@ function showOnboardingDialog(forceShow, mode) {
                 if (inputs.length > 0) {
                     detectedUnits = inputs.map(function (inp, i) {
                         return { label: inp.label || ('第' + (i + 1) + '题'), maxScore: inp.maxScore || '',
-                            roundStep: adapter.scoreDetectionLabel ? inp.roundStep : undefined };
+                            roundStep: (adapter.scoreDetectionLabel || adapter.useDetectedScoreStep) ? inp.roundStep : undefined };
                     });
                 }
             }
