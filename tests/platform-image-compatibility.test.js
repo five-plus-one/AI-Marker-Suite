@@ -47,6 +47,8 @@ function xinjiaoyuHomeworkFixture() {
             getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, canvas.cleared ? 255 : 0]) }),
         }),
     };
+    e.input.getClientRects = () => [{}];
+    e.input.getAttribute = () => null;
     const label = { textContent: '1.学生甲' };
     const sidebar = { textContent: '学生甲' };
     e.input.closest = selector => selector === e.selectors.HOMEWORK_SCORE_ROW ? {
@@ -101,6 +103,15 @@ test('新教育作业: 已经换卷时沿用提交前基线，重复等待不把
     assert.equal(await e.run(e.wait(oldKeys)), true);
 });
 
+test('新教育作业: 下一位学生缺少 API 图片时用已重绘的画布续批', async () => {
+    const e = xinjiaoyuHomeworkFixture();
+    const keys = e.adapter.getPaperWaitKeys([URL_A]);
+    e.label.textContent = '1.学生乙';
+    e.sb.setTimeout(() => { e.canvas.image = e.imageB; }, 900);
+    assert.equal(await e.run(e.adapter.waitForNextPaper(URL_A, { paperWaitKeys: keys })), true);
+    assert.deepEqual(Array.from(await e.adapter.gatherAnswerImages()), [e.imageB]);
+});
+
 test('新教育作业: 等待支持中止并且不跨题确认下一卷', async () => {
     const e = xinjiaoyuHomeworkFixture();
     const oldKeys = e.submit();
@@ -120,8 +131,6 @@ test('新教育作业: 等待支持中止并且不跨题确认下一卷', async 
 test('新教育作业: 按打分栏匹配 API 图片和题号，并隔离不同页面与同名学生', async () => {
     const e = xinjiaoyuHomeworkFixture();
     vm.runInContext(readSrc('src/core/runtime.js'), e.sb);
-    e.input.getClientRects = () => [{}];
-    e.input.getAttribute = () => null;
     e.canvas.cleared = true;
     const questionContext = () => e.sb.readGradingQuestionContext(e.adapter);
     const response = new e.sb.XMLHttpRequest();
