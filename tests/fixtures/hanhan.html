@@ -1,13 +1,13 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>华翰云单题给分验收</title>
-<main>
+<main id="app">
     <h1 class="questiontitle">二、主观题 72(1分)</h1>
     <div class="el-image photo_bg"><img class="el-image__inner" src="/__fixture/answer.svg?paper=A" alt="合成答卷"></div>
     <label>步长 <input id="step" class="el-input__inner" type="number" value="1"></label>
-    <input id="score" class="el-input__inner" placeholder="请给分">
+    <div id="score-panel"><input id="score" class="el-input__inner" placeholder="请给分"></div>
     <input class="el-input__inner" placeholder="请给分" hidden>
-    <button class="el-button--primary">给分</button>
+    <button class="el-button--primary submitscorebtn">给分</button>
 </main>
 <pre id="result" hidden></pre>
 <script>
@@ -71,6 +71,43 @@ window.GM_xmlhttpRequest = options => { queueMicrotask(() => options.onerror?.()
         score.placeholder = '请给分！';
         check(adapter.fillScore({ total: 0 }) && score.value === '0', '旧入口也可写入零分');
         check(adapter.fillScores([1]) && score.value === '1' && step.value === '1' && submissions === 0, '填分不改步长或提交');
+        const scorePanel = document.querySelector('#score-panel');
+        scorePanel.className = 'redbiginput';
+        score.readOnly = true;
+        score.value = '';
+        const mark = { markingType: 2, questionScore: null, autoSubmit: true,
+            readOverInfo: { questionId: 72, question: { score: 1 } } };
+        let mutations = 0;
+        const store = {
+            state: { mark },
+            commit(type, value) {
+                check(type === 'mark/SET_SCOREING', '一键给分通过原站更新分数');
+                mutations++;
+                mark.questionScore = value;
+            }
+        };
+        document.querySelector('#app').__vue_app__ = { config: { globalProperties: { $store: store } } };
+        const oneClickFields = adapter.getScoreInputs();
+        check(oneClickFields.length === 1 && oneClickFields[0].element === score
+            && oneClickFields[0].maxScore === 1, '一键给分的只读总分可识别，步长不参与评分');
+        let scoreEvents = 0;
+        for (const event of ['input', 'change', 'blur']) {
+            score.addEventListener(event, () => { scoreEvents++; });
+        }
+        check(!adapter.fillScores([2]) && mutations === 0, '一键给分拒绝超出满分');
+        mark.readOverInfo.questionId = 73;
+        check(!adapter.fillScores([1]) && mutations === 0, '原站题目尚未与当前路由对齐时等待');
+        mark.readOverInfo.questionId = 72;
+        mark.readOverInfo.judged = true;
+        check(!adapter.fillScores([1]) && mutations === 0, '只读评阅状态不写分');
+        mark.readOverInfo.judged = false;
+        const commit = store.commit;
+        store.commit = null;
+        check(!adapter.fillScores([1]) && score.value === '', '无法更新原站状态时保留页面分数');
+        store.commit = commit;
+        check(adapter.fillScores([0]) && score.value === '0' && mark.questionScore === 0, '一键给分可填写零分');
+        check(adapter.fillScores([1]) && score.value === '1' && mark.questionScore === 1 && mutations === 2
+            && step.value === '1' && mark.autoSubmit && scoreEvents === 0 && submissions === 0, '分数同步到原站且等待确认');
         const oldImage = image.src, paperWaitKeys = adapter.getPaperWaitKeys([oldImage]);
         check(adapter.submitGrade() && await saved && submissions === 1, '给分按钮发出请求并收到确认');
         check(await adapter.waitForNextPaper(oldImage, { paperWaitKeys }), '保存后识别同题下一份');
