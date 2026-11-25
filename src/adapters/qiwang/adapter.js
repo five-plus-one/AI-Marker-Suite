@@ -50,13 +50,13 @@ const QiwangAdapter = {
         return (typeof value === 'string' || typeof value === 'number') && !!String(value).trim() && !/^(?:0$|-)/.test(String(value));
     },
 
-    _answerKey(value) {
-        const key = MarkingPaper.imageKey(value);
-        if (!key) return null;
-        const url = new URL(key);
-        if (url.protocol !== 'https:' || url.host !== QIWANG_ANSWER_HOST || url.username || url.password
+    _secureAnswerUrl(value) {
+        const url = new URL(value);
+        if (!/^https?:$/.test(url.protocol) || url.host !== QIWANG_ANSWER_HOST || url.username || url.password
             || !/\.(?:jpe?g|png|webp)$/i.test(url.pathname)) return null;
-        return url.origin + url.pathname;
+        // 原站可能以 HTTP 写入图片地址。只升级此图源的协议，保留原签名与裁切参数。
+        url.protocol = 'https:';
+        return url;
     },
 
     _imageViewKey(value) {
@@ -72,25 +72,27 @@ const QiwangAdapter = {
         const { testPaperId, examcode, teaposdt } = this._page();
         const roots = [...document.querySelectorAll('#div-readPaper #myimg')].filter(MarkingPaper.visible);
         const images = MarkingPaper.snapshot('#div-readPaper #myimg img.teaimg');
-        const keys = images.urls.map(url => this._answerKey(url));
+        const unavailable = { ready: false, identity: null };
         if (!taskId || !this._isPaperId(testPaperId) || !examcode || roots.length !== 1 || !images.ready
-            || teaposdt?.length !== keys.length || !keys.every(Boolean)
-            || new Set(keys).size !== keys.length) {
-            return { ready: false, identity: null };
-        }
+            || teaposdt?.length !== images.urls.length) return unavailable;
+        const answers = images.urls.map(value => this._secureAnswerUrl(value));
+        if (!answers.every(Boolean)) return unavailable;
+        const keys = answers.map(url => url.origin + url.pathname);
+        if (new Set(keys).size !== keys.length) return unavailable;
         const nativeId = JSON.stringify([testPaperId, examcode]);
-        const identity = JSON.stringify([...new Set(keys)].sort());
+        const identity = JSON.stringify([...keys].sort());
         const previous = this._observedPaper;
         if (previous && (previous.taskId !== taskId || previous.identity !== identity)) {
             // 原站先切换卷号，再异步加载答题卡。全部新图就绪后才接受新卷。
             if (previous.nativeId === nativeId || keys.some(key => previous.keys.includes(key))) {
-                return { ready: false, identity: null };
+                return unavailable;
             }
         } else if (previous?.taskId === taskId && previous.nativeId !== nativeId) {
-            return { ready: false, identity: null };
+            return unavailable;
         }
-        const views = images.urls.map(url => this._imageViewKey(url));
-        const snapshot = { ready: true, taskId, nativeId, paperId: String(testPaperId), identity, keys, views, urls: images.urls };
+        const urls = answers.map(url => url.href);
+        const views = urls.map(url => this._imageViewKey(url));
+        const snapshot = { ready: true, taskId, nativeId, paperId: String(testPaperId), identity, keys, views, urls };
         this._observedPaper = snapshot;
         return snapshot;
     },
@@ -113,7 +115,7 @@ const QiwangAdapter = {
         const paper = this._gatheredPaperSnapshot;
         const current = this._paperSnapshot();
         const index = paper?.urls.indexOf(url) ?? -1;
-        if (index < 0 || !this._samePaper(paper, current) || !this._answerKey(url)) {
+        if (index < 0 || !this._samePaper(paper, current)) {
             throw new Error('答题卡已变化，请重新读取');
         }
         const currentUrl = current.urls[index];
