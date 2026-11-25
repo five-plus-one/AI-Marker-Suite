@@ -95,6 +95,21 @@ test('同一方案的独立字段编辑可以合并', () => {
     assert.equal(stored(store).list['默认配置'].answer.text, '答案');
     assert.equal(stored(store).list['默认配置'].rubric.text, '标准');
 });
+test('另一页加载新建方案后，首个页面可以保存首次填写的分数', () => {
+    const { store, a } = setup();
+    a.data.active = '第18题';
+    a.data.list['第18题'] = { workflowId: 'fast', gradingMode: 'normal', scoring: { roundStep: 1, roundMethod: 'round' } };
+    assert.equal(a.save(), true);
+    const firstSaved = store['ai-grading-presets'];
+
+    page(store);
+    assert.equal(store['ai-grading-presets'], firstSaved);
+    a.getCurrentConfig().scoring.maxScore = 13;
+    a.getCurrentConfig().scoring.units = [{ label: '18', index: 0, maxScore: 13, roundStep: 1 }];
+    assert.equal(a.save(), true);
+    assert.equal(stored(store).list['第18题'].scoring.units[0].maxScore, 13);
+    assert.equal(store['ai-grading-presets-prev'], firstSaved);
+});
 test('同一内容被两页分别修改时保护已保存内容并保留当前编辑', () => {
     const { store, a, b } = setup();
     a.data.list['默认配置'].outputMode = 'score-only'; a.save();
@@ -106,8 +121,10 @@ test('同一内容被两页分别修改时保护已保存内容并保留当前�
 test('两个页面以同名新建不同配置时拒绝拼接成第三种配置', () => {
     const { store, a, b } = setup();
     a.data.list.New = { answer: { text: 'A' } }; a.save();
+    const firstSaved = store['ai-grading-presets'];
     b.data.list.New = { rubric: { text: 'B' } }; assert.equal(b.save(), false);
-    assert.deepEqual(stored(store).list.New, { answer: { text: 'A' } });
+    assert.equal(store['ai-grading-presets'], firstSaved);
+    assert.equal(stored(store).list.New.answer.text, 'A');
 });
 test('其他页面删除的方案不会被旧页面自动保存复活', () => {
     const { store, a } = setup();
