@@ -4,14 +4,18 @@ const PresetManager = {
     // 对全部方案做字段迁移/补全。init 启动时调用，导入方案后也调用，
     // 保证旧版本数据（含导入的旧文件）都能自动升级到当前结构。
     migrateAll() {
-        // 迁移逐项隔离（#293）：单项抛异常不丢主数据、不中断其余迁移
-        ['_migrateGradingMode', '_migrateProvider', '_migrateWorkflow', '_migrateBlankDetection', '_migrateHumanPacing'].forEach(fn => {
+        if (this._migratePresets(this.data.list)) saveInitialConfiguration(this, '方案');
+    },
+    _migratePresets(list) {
+        let changed = false;
+        for (const migrate of ['_migrateGradingMode', '_migrateProvider', '_migrateWorkflow', '_migrateBlankDetection', '_migrateHumanPacing']) {
             try {
-                this[fn]();
-            } catch (e) {
-                console.error(`[preset] 迁移 ${fn} 失败（保留已加载数据继续）:`, e);
+                if (this[migrate](list)) changed = true;
+            } catch (error) {
+                console.error(`[preset] 方案迁移失败 ${migrate}:`, error);
             }
-        });
+        }
+        return changed;
     },
     init() {
         this._writeDisabled = false;
@@ -112,10 +116,9 @@ const PresetManager = {
         }
         return out;
     },
-    _migrateGradingMode() {
+    _migrateGradingMode(list) {
         let changed = false;
-        for (const name in this.data.list) {
-            const cfg = this.data.list[name];
+        for (const cfg of Object.values(list)) {
             if (cfg.unattendedMode !== undefined && cfg.gradingMode === undefined) {
                 cfg.gradingMode = cfg.unattendedMode ? 'unattended' : 'normal';
                 delete cfg.unattendedMode;
@@ -125,25 +128,24 @@ const PresetManager = {
                 changed = true;
             }
         }
-        if (changed) saveInitialConfiguration(this, '方案');
+        return changed;
     },
-    _migrateProvider() {
+    _migrateProvider(list) {
         const migration = { '5plus1': '5plus1官方', 'openai': 'OpenAI兼容' };
         let changed = false;
-        for (const name in this.data.list) {
-            const cfg = this.data.list[name];
-            if (cfg.provider && migration[cfg.provider]) {
+        for (const cfg of Object.values(list)) {
+            if (Object.hasOwn(migration, cfg.provider)) {
                 cfg.provider = migration[cfg.provider];
                 changed = true;
             }
         }
-        if (changed) saveInitialConfiguration(this, '方案');
+        return changed;
     },
-    _migrateWorkflow() {
+    _migrateWorkflow(list) {
         let changed = false;
-        for (const name in this.data.list) {
+        for (const name of Object.keys(list)) {
             try {
-                const cfg = this.data.list[name];
+                const cfg = list[name];
                 if (!cfg.workflowId) {
                     cfg.workflowId = 'fast';
                     changed = true;
@@ -208,13 +210,13 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) saveInitialConfiguration(this, '方案');
+        return changed;
     },
-    _migrateBlankDetection() {
+    _migrateBlankDetection(list) {
         let changed = false;
-        for (const name in this.data.list) {
+        for (const name of Object.keys(list)) {
             try {
-                const cfg = this.data.list[name];
+                const cfg = list[name];
                 if (!cfg.blankDetection) {
                     cfg.blankDetection = { enabled: false, threshold: 0.01 };
                     changed = true;
@@ -223,10 +225,10 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) saveInitialConfiguration(this, '方案');
+        return changed;
     },
     // 迁移：批改节奏（实验性）缺失时补默认值（关闭状态零行为变化，不覆盖用户已有配置）
-    _migrateHumanPacing() {
+    _migrateHumanPacing(list) {
         let changed = false;
         const defaults = {
             enabled: false,
@@ -235,9 +237,9 @@ const PresetManager = {
             rest: { enabled: false, everyCount: 20, restMin: 30, restMax: 180 },
             recordDuration: true
         };
-        for (const name in this.data.list) {
+        for (const name of Object.keys(list)) {
             try {
-                const cfg = this.data.list[name];
+                const cfg = list[name];
                 if (!cfg.humanPacing) {
                     cfg.humanPacing = JSON.parse(JSON.stringify(defaults));
                     changed = true;
@@ -267,7 +269,7 @@ const PresetManager = {
                 console.warn(`⚠️ Migration failed for preset "${name}":`, e);
             }
         }
-        if (changed) saveInitialConfiguration(this, '方案');
+        return changed;
     },
     /**
      * 获取当前配置的评分单元列表
@@ -352,6 +354,10 @@ const PresetManager = {
             if (typeof showToast === 'function') showToast('⚠️ 配置存储异常：本次修改未保存（原数据已保护，稍后自动重试）');
             return false;
         }
+        // 新方案首次写入时补齐默认值，其他页面加载同一方案时可直接使用。
+        const savedPresets = this._storageBaseline?.list || {};
+        const newPresets = Object.entries(this.data.list).filter(([name]) => !Object.hasOwn(savedPresets, name));
+        if (newPresets.length) this._migratePresets(Object.fromEntries(newPresets));
         return saveConfigurationEdits(this, 'ai-grading-presets', '方案',
             data => isConfigurationRecord(data?.list) && Object.values(data.list).every(isConfigurationRecord), ['active']);
     },
