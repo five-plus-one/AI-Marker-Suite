@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.42.4',
+    VERSION: '1.21.42.5',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,10 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.42.5': [
+            '【新平台】支持启望阅卷的正常阅卷，可读取答题卡、分小题填分并确认提交。',
+            '【修复】新建方案可在同时打开多个阅卷页面时正常保存。',
+        ],
         '1.21.42.4': [
             '【修复】华翰云一键给分支持识别总分并填分，试改时可先核对再提交。',
         ],
