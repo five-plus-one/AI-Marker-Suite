@@ -1,0 +1,148 @@
+<!doctype html><meta charset="utf-8"><title>启望阅卷验收</title>
+<select class="navTeaSelect"><option data-teacode="topic-18" data-teascore="13">18</option></select>
+<div class="curState">正常阅卷</div>
+<div id="moveBanner"><input type="checkbox" class="autohuiche"></div>
+<div id="div-readPaper"><div id="myimg"><img class="teaimg" id="pic0"><img class="teaimg" id="pic1"></div></div>
+<div id="moveDiv"><table><tbody class="xtlist"><tr><td>18(+13)</td><td><input class="fenshu" data-score="13" onfocus="fenshuFocus(this)"></td></tr></tbody></table>
+<button class="btn-standard-pri phr15" onclick="inputkey(']')">提交分数</button></div>
+<pre id="result" hidden></pre>
+<script>
+var guId = 'fixture-exam', subId = 'physics', teaCode = 'topic-18';
+var testPaperId = 'paper-a', examcode = 'code-a', markingOrReview = '1', huipFlag = 0, jumpNum = 1, teaScopart = '';
+var teaposdt = [{}, {}];
+const answerHost = 'qw-xinkao.oss-cn-hangzhou.aliyuncs.com';
+const urlFor = (paper, index, signature = 'example') =>
+    `https://${answerHost}/__fixture/paper-${paper}-${index}.jpg?Signature=${signature}&Expires=500&x-oss-process=image/quality,q_90`;
+const pictures = [...document.querySelectorAll('img.teaimg')];
+const fields = () => [...document.querySelectorAll('input.fenshu')];
+const setPaperId = code => { testPaperId = 'paper-' + code; examcode = 'code-' + code; };
+const setImages = (code, signature) => Promise.all(pictures.map((image, index) => {
+    image.src = urlFor(code, index, signature);
+    return image.decode();
+}));
+const firstPaper = setImages('a');
+let focused, confirmations = 0, nextPaperStarted;
+const ajaxComplete = new Set();
+window.jQuery = () => ({
+    on(event, listener) { if (event === 'ajaxComplete.aiMarkerQiwang') ajaxComplete.add(listener); },
+    off(event, listener) { if (event === 'ajaxComplete.aiMarkerQiwang') ajaxComplete.delete(listener); }
+});
+function fenshuFocus(input) { focused = input; }
+function inputkey(key) {
+    if (key !== ']' || focused !== fields().at(-1)) throw Error('原站须先聚焦最后一个给分框');
+    confirmations++;
+    const submitted = fields().map(field => field.value);
+    const data = new URLSearchParams({ guId, subId, teaCode, Id: testPaperId, huipFlag,
+        scores: submitted.reduce((sum, value) => sum + Number(value), 0), detailScore: submitted.join(',') });
+    const notify = (path, payload, next) => [...ajaxComplete].forEach(callback => callback({},
+        { status: 200, responseJSON: { success: 1, content: { Id: next } } },
+        { type: 'POST', url: path, data: payload.toString() }));
+    if (confirmations === 1) {
+        if (submitted.join(',') !== '12.75') throw Error('原站单项分数不符');
+        setPaperId('b');
+        nextPaperStarted = true;
+        notify('../MarkingOss/PutOssRating', data, testPaperId);
+    } else if (confirmations === 2) {
+        if (submitted.join(',') !== '4,2.50') throw Error('原站分值格式不符');
+        notify('../MarkingOss/GetImageOssFlue', data, 'paper-c');
+        notify('../MarkingOss/PutOssRating', new URLSearchParams({ ...Object.fromEntries(data), Id: 'other-paper' }), 'paper-c');
+        notify('../MarkingOss/PutOssRating', new URLSearchParams({ ...Object.fromEntries(data), scores: '7' }), 'paper-c');
+        notify('../MarkingOss/PutOssRating', data, '-3000');
+    } else {
+        testPaperId = '-2000';
+        notify('../MarkingOss/PutOssRating', data, testPaperId);
+    }
+    return false;
+}
+const requests = [];
+window.GM_getValue = (key, fallback) => key === 'ai-grading-show-onboarding' ? false : fallback;
+window.GM_setValue = () => {};
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => {
+    const url = new URL(options.url);
+    if (url.hostname === answerHost) requests.push(url.searchParams.get('Signature'));
+    queueMicrotask(() => options.onload?.({ status: 200, response: new Uint8Array([1, 2, 3]).buffer }));
+    return { abort() {} };
+};
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async () => {
+    const checks = [];
+    const check = (condition, name) => { if (!condition) throw Error(name); checks.push(name); };
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const finish = result => {
+        const resultText = JSON.stringify({ runId: new URLSearchParams(location.search).get('run'), width: innerWidth, checks, ...result });
+        document.getElementById('result').textContent = btoa(String.fromCharCode(...new TextEncoder().encode(resultText)));
+    };
+    try {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        await firstPaper;
+        check(adapter?.id === 'qiwang' && await adapter.detectMarkingPage(), '只启用对应平台并等待答题卡就绪');
+        const context = adapter.getQuestionContext();
+        check(context.question === '18' && context.units[0].label === '18' && context.units[0].maxScore === 13, '读取当前题号和满分');
+        const old = await adapter.gatherAnswerImages();
+        const oldIdentity = adapter.getPaperIdentity();
+        await setImages('a', 'renewed');
+        check(adapter.getPaperIdentity() === oldIdentity, '签名续签保留当前卷身份');
+        check(await adapter.fetchImageAsBase64(old[0]) === 'AQID' && requests.at(-1) === 'renewed', '读取当前已续签的原图');
+        let blocked = false;
+        try { await adapter.fetchImageAsBase64('https://example.com/paper.jpg'); } catch { blocked = true; }
+        check(blocked && requests.length === 1, '只下载当前答题卡的已验证图片');
+        fields()[0].value = '7';
+        check([[], [null], [14], [1.001], ['1e1'], [2, 3]].every(scores => !adapter.fillScores(scores))
+            && fields()[0].value === '7', '缺项、越界和无效格式保留原分数');
+        check(adapter.fillScores([0]) && fields()[0].value === '0', '填写零分');
+        check(adapter.fillScores([13]) && fields()[0].value === '13', '填写满分');
+        check(adapter.fillScores([12.75]) && fields()[0].value === '12.75', '填写两位小数');
+        const autoEnter = document.querySelector('.autohuiche');
+        autoEnter.checked = true;
+        check(!adapter.fillScores([3]) && !await adapter.submitGrade() && confirmations === 0, '原站自动回车开启时不改变分数');
+        autoEnter.checked = false;
+        const submit = document.querySelector('#moveDiv button');
+        submit.disabled = true;
+        check(!await adapter.submitGrade() && confirmations === 0, '原站禁止提交时保留页面状态');
+        submit.disabled = false;
+        check(adapter.submitGrade() && ajaxComplete.size === 0, '同题同卷的原站回执确认保存并解除监听');
+        let changed = false;
+        const wait = adapter.waitForNextPaper(old[0], { paperId: oldIdentity }).then(ready => { changed = ready; return ready; });
+        check(nextPaperStarted && confirmations === 1 && !adapter.getPaperIdentity(), '卷号先变化时等待图片');
+        check(!await adapter.submitGrade() && confirmations === 1, '同一答卷只触发一次原站提交');
+        pictures[0].src = urlFor('b', 0);
+        await pictures[0].decode();
+        await sleep(450);
+        check(!changed && !adapter.getPaperIdentity(), '一新一旧时等待全部图片');
+        pictures[1].src = urlFor('b', 1);
+        await pictures[1].decode();
+        check(await wait && adapter.getPaperIdentity() !== oldIdentity, '全部新图就绪后确认换卷');
+        check(!adapter.fillScores([1]), '上一卷的评分不能填写到新卷');
+        const second = document.createElement('tr');
+        second.innerHTML = '<td>18(2)(+5)</td><td><input class="fenshu" data-score="5" onfocus="fenshuFocus(this)"></td>';
+        document.querySelector('tbody.xtlist').append(second);
+        document.querySelector('tbody.xtlist td').textContent = '18(1)(+8)';
+        fields()[0].dataset.score = '8';
+        teaScopart = '0,2.50,4,5,8';
+        await adapter.gatherAnswerImages();
+        check(adapter.getQuestionContext().units.length === 2 && adapter.fillScores([4, 2.5]), '按原站允许分值分小题填分');
+        check(!adapter.fillScores([8, 3]) && fields().map(field => field.value).join(',') === '4,2.50', '有一项不符合给分规则时保留所有原分数');
+        const controller = new AbortController();
+        controller.abort();
+        check(!adapter.submitGrade({ signal: controller.signal }) && confirmations === 1, '停止请求后不触发原站提交');
+        check(!adapter.submitGrade() && confirmations === 2 && ajaxComplete.size === 0, '其他请求、分数不符及回收卷的回执不能确认保存');
+        await setImages('b', 'after-submit');
+        check(!await adapter.submitGrade() && confirmations === 2, '等待中断后同一卷续签也不会重提');
+        const option = document.querySelector('.navTeaSelect option');
+        teaCode = option.dataset.teacode = 'topic-19'; option.textContent = '19';
+        check(!adapter.getPaperIdentity() && !adapter.fillScores([0, 0]), '切题后等待对应答题卡并作废旧评分');
+        setPaperId('c');
+        await setImages('c');
+        check(!!adapter.getPaperIdentity(), '新题的卷号和图片都就绪后可以继续');
+        await adapter.gatherAnswerImages();
+        teaScopart = '';
+        check(adapter.fillScores([0.29, 0.58]) && !adapter.submitGrade() && confirmations === 2, '原站合计会被截断时暂停提交');
+        check(adapter.fillScores([8, 5]) && adapter.submitGrade() && confirmations === 3
+            && adapter.isGradingTaskComplete() && !await adapter.waitForNextPaper(), '最后一份成功保存后按原站回执结束');
+        huipFlag = 1;
+        check(adapter.isRegradeMode() && !adapter.isMarkingPage() && !adapter.fillScores([0, 0]), '回评状态不能填分');
+        finish({ passed: true });
+    } catch (error) { finish({ passed: false, error: error.stack || String(error) }); }
+})();
+</script>
