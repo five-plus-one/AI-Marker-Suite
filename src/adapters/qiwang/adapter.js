@@ -1,5 +1,7 @@
 const QIWANG_HOST = 'yunyuejuan.zhengrui-edu.com';
 const QIWANG_ANSWER_HOST = 'qw-xinkao.oss-cn-hangzhou.aliyuncs.com';
+const QIWANG_SAVE_PATH = '/MarkingOss/PutOssRating';
+const QIWANG_NO_PAPER = '-2000';
 const QIWANG_ROUTE = /^\/MarkingOss\/NormalReadOssPaper\/?$/;
 
 const QiwangAdapter = {
@@ -25,12 +27,12 @@ const QiwangAdapter = {
 
     _question() {
         if (!this.shouldInitialize() || this.isRegradeMode()) return null;
-        const { guId, subId, teaCode, markingOrReview, huipFlag } = this._page();
+        const { guId, subId, teaCode, markingOrReview, huipFlag, jumpNum } = this._page();
         const option = document.querySelector('.navTeaSelect option:checked');
         const label = option?.textContent.trim();
-        if (String(markingOrReview) !== '1' || String(huipFlag) !== '0' || !guId || !subId || !teaCode
+        if (String(markingOrReview) !== '1' || String(huipFlag) !== '0' || String(jumpNum) !== '1' || !guId || !subId || !teaCode
             || !label || option.dataset.teacode !== String(teaCode)) return null;
-        return { taskId: JSON.stringify([guId, subId, teaCode]), label, max: this._points(option.dataset.teascore) };
+        return { taskId: JSON.stringify([guId, subId, teaCode].map(String)), label, max: this._points(option.dataset.teascore) };
     },
 
     getTaskIdentifier() { return this._question()?.taskId || ''; },
@@ -42,6 +44,10 @@ const QiwangAdapter = {
             await new Promise(resolve => setTimeout(resolve, 200));
         }
         return false;
+    },
+
+    _isPaperId(value) {
+        return (typeof value === 'string' || typeof value === 'number') && !!String(value).trim() && !/^(?:0$|-)/.test(String(value));
     },
 
     _answerKey(value) {
@@ -63,11 +69,12 @@ const QiwangAdapter = {
 
     _paperSnapshot() {
         const taskId = this.getTaskIdentifier();
-        const { testPaperId, examcode } = this._page();
+        const { testPaperId, examcode, teaposdt } = this._page();
         const roots = [...document.querySelectorAll('#div-readPaper #myimg')].filter(MarkingPaper.visible);
         const images = MarkingPaper.snapshot('#div-readPaper #myimg img.teaimg');
         const keys = images.urls.map(url => this._answerKey(url));
-        if (!taskId || !testPaperId || !examcode || roots.length !== 1 || !images.ready || !keys.every(Boolean)
+        if (!taskId || !this._isPaperId(testPaperId) || !examcode || roots.length !== 1 || !images.ready
+            || teaposdt?.length !== keys.length || !keys.every(Boolean)
             || new Set(keys).size !== keys.length) {
             return { ready: false, identity: null };
         }
@@ -83,7 +90,7 @@ const QiwangAdapter = {
             return { ready: false, identity: null };
         }
         const views = images.urls.map(url => this._imageViewKey(url));
-        const snapshot = { ready: true, taskId, nativeId, identity, keys, views, urls: images.urls };
+        const snapshot = { ready: true, taskId, nativeId, paperId: String(testPaperId), identity, keys, views, urls: images.urls };
         this._observedPaper = snapshot;
         return snapshot;
     },
@@ -126,7 +133,8 @@ const QiwangAdapter = {
     getScoreInputs() {
         const question = this._question();
         const panel = document.querySelector('#moveDiv');
-        if (!question || !MarkingPaper.visible(panel) || document.querySelector('#moveBanner input.autohuiche')?.checked) return [];
+        if (!question || !MarkingPaper.visible(panel) || MarkingPaper.visible(document.querySelector('#demo_alert'))
+            || document.querySelector('#moveBanner input.autohuiche')?.checked) return [];
         const fields = [...document.querySelectorAll('input.fenshu')];
         const inputs = fields.map((element, index) => {
             const label = element.closest('tbody.xtlist tr')?.querySelector('td')?.textContent
@@ -144,20 +152,20 @@ const QiwangAdapter = {
         return nativeQuestionContext(this.getScoreInputs(), this._question()?.label ?? '');
     },
 
-    _validatedScores(scores, inputs) {
+    _validatedScores(scores, inputs, preserveText = false) {
         if (!Array.isArray(scores) || !inputs.length || scores.length !== inputs.length) return null;
         const { teaScopart } = this._page();
-        const points = Array.from(scores, value => this._points(value));
-        // 原站的设定分值模式以每个输入框的 inpart 为准。
-        const restricted = String(teaScopart) === '1';
-        const valid = points.every((value, index) => {
-            const { element, maximum } = inputs[index];
-            if (value === null || value > maximum) return false;
-            if (!restricted) return true;
-            const allowed = element.getAttribute('inpart')?.split(/[,，|]/).map(part => this._points(part));
-            return !!allowed?.length && allowed.every(part => part !== null) && allowed.includes(value);
+        if (typeof teaScopart !== 'string') return null;
+        const allowed = teaScopart ? teaScopart.split(',') : [];
+        const values = Array.from(scores, (value, index) => {
+            const points = this._points(value);
+            if (points === null || points > inputs[index].maximum) return null;
+            const text = preserveText ? String(value) : allowed.length
+                ? allowed.find(part => this._points(part) === points) : String(points / 100);
+            if (allowed.length && !allowed.includes(text)) return null;
+            return { text, points };
         });
-        return valid ? points : null;
+        return values.every(Boolean) ? values : null;
     },
 
     fillScores(scores) {
@@ -168,20 +176,20 @@ const QiwangAdapter = {
             return false;
         }
         const inputs = this.getScoreInputs();
-        const points = this._validatedScores(scores, inputs);
-        if (!points) {
+        const values = this._validatedScores(scores, inputs);
+        if (!values) {
             this.lastFillError = '请核对各小题的分数和原站给分规则';
             return false;
         }
         if (!inputs.every(({ element }) => element.isConnected) || !this._samePaper(paper)) return false;
         // 先写完整组分数，再通知原站，避免事件处理器看到部分填分。
-        for (const [index, { element }] of inputs.entries()) element.value = String(points[index] / 100);
+        for (const [index, { element }] of inputs.entries()) element.value = values[index].text;
         for (const { element } of inputs) {
             if (!element.isConnected || !this._samePaper(paper)) return false;
             element.dispatchEvent(new Event('input', { bubbles: true }));
             element.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        return this._samePaper(paper) && inputs.every(({ element }, index) => this._points(element.value) === points[index]);
+        return this._samePaper(paper) && inputs.every(({ element }, index) => element.value === values[index].text);
     },
 
     _submitButton() {
@@ -190,22 +198,73 @@ const QiwangAdapter = {
             && !button.disabled && button.getAttribute('aria-disabled') !== 'true' ? button : null;
     },
 
-    async submitGrade(options = {}) {
-        this.lastSubmitError = '请核对原站阅卷记录后继续';
+    _submissionResult(xhr, settings, paper, values, total) {
+        if (String(settings.type).toUpperCase() !== 'POST' || typeof settings.data !== 'string') return null;
+        const url = new URL(settings.url, window.location.href);
+        if (url.origin !== window.location.origin || url.pathname !== QIWANG_SAVE_PATH) return null;
+        const data = new URLSearchParams(settings.data);
+        const task = JSON.stringify(['guId', 'subId', 'teaCode'].map(key => data.get(key)));
+        const sent = data.get('detailScore')?.split(',').map(value => this._points(value));
+        const matches = task === paper.taskId && data.get('Id') === paper.paperId && data.get('huipFlag') === '0'
+            && this._points(data.get('scores')) === total
+            && sent?.length === values.length && sent.every((value, index) => value === values[index].points);
+        if (!matches || xhr.status < 200 || xhr.status >= 300) return null;
+        const result = xhr.responseJSON;
+        if (String(result?.success) !== '1') return null;
+        const next = result.content?.Id;
+        if (String(next) === QIWANG_NO_PAPER) return { paper, done: true };
+        if (this._isPaperId(next) && String(next) !== paper.paperId) return { paper, nextId: String(next) };
+        return null;
+    },
+
+    submitGrade(options = {}) {
+        this.lastSubmitError = '原站未确认保存，请核对阅卷记录后继续';
         const paper = this._gatheredPaperSnapshot;
         const button = this._submitButton();
+        const eventTarget = this._page().jQuery?.(document);
         const current = () => !options.signal?.aborted && (!options.isCurrent || options.isCurrent())
             && this._samePaper(paper) && !this._wasSubmitted(paper)
             && button && this._submitButton() === button;
-        if (!current()) return false;
+        if (!current() || !eventTarget?.on || !eventTarget?.off) return false;
         const inputs = this.getScoreInputs();
-        if (!this._validatedScores(inputs.map(({ element }) => element.value), inputs)) return false;
-        if (!MarkingPaper.submit(this, button, { ...options, isCurrent: current })) return false;
-        return this.waitForNextPaper(paper.urls[0], { paperId: paper.identity, taskId: paper.taskId, signal: options.signal });
+        const values = this._validatedScores(inputs.map(({ element }) => element.value), inputs, true);
+        if (!values) return false;
+        const total = values.reduce((sum, value) => sum + value.points, 0);
+        const nativeTotal = String(values.reduce((sum, value) => sum + Number(value.text), 0)).replace(/^(\d+\.\d{2}).*$/, '$1');
+        if (this._points(nativeTotal) !== total) {
+            this.lastSubmitError = '原站合计分数与小题之和不一致，请核对后提交';
+            return false;
+        }
+        let receipt = null;
+        const onComplete = (_event, xhr, settings) => {
+            receipt ||= this._submissionResult(xhr, settings, paper, values, total);
+        };
+        // 原站同步保存。仅在原站按钮处理期间观察同题同卷的保存回执。
+        eventTarget.on('ajaxComplete.aiMarkerQiwang', onComplete);
+        try {
+            if (!MarkingPaper.submit(this, button, { ...options, isCurrent: current })) return false;
+        } finally {
+            eventTarget.off('ajaxComplete.aiMarkerQiwang', onComplete);
+        }
+        if (!receipt) return false;
+        this._submissionReceipt = receipt;
+        this.lastSubmitError = '';
+        return true;
+    },
+
+    isGradingTaskComplete() {
+        const receipt = this._submissionReceipt;
+        return receipt?.paper.taskId === this.getTaskIdentifier()
+            && (receipt.done && String(this._page().testPaperId) === QIWANG_NO_PAPER
+                || MarkingPaper.visible(document.querySelector('#demo_alert')));
     },
 
     async waitForNextPaper(oldImageUrl, context = {}) {
-        return MarkingPaper.wait(this, oldImageUrl, context);
+        if (this.isGradingTaskComplete()) return false;
+        const receipt = this._submissionReceipt;
+        const changed = await MarkingPaper.wait(this, oldImageUrl, context);
+        return changed && (!receipt?.nextId || receipt.paper.identity !== context.paperId
+            || receipt.nextId === this._paperSnapshot().paperId);
     }
 };
 
