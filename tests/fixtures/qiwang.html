@@ -8,7 +8,8 @@
 <pre id="result" hidden></pre>
 <script>
 var guId = 'fixture-exam', subId = 'physics', teaCode = 'topic-18';
-var testPaperId = 'paper-a', examcode = 'code-a', markingOrReview = '1', huipFlag = 0, teaScopart = '0';
+var testPaperId = 'paper-a', examcode = 'code-a', markingOrReview = '1', huipFlag = 0, jumpNum = 1, teaScopart = '';
+var teaposdt = [{}, {}];
 const answerHost = 'qw-xinkao.oss-cn-hangzhou.aliyuncs.com';
 const urlFor = (paper, index, signature = 'example') =>
     `https://${answerHost}/__fixture/paper-${paper}-${index}.jpg?Signature=${signature}&Expires=500&x-oss-process=image/quality,q_90`;
@@ -21,15 +22,35 @@ const setImages = (code, signature) => Promise.all(pictures.map((image, index) =
 }));
 const firstPaper = setImages('a');
 let focused, confirmations = 0, nextPaperStarted;
+const ajaxComplete = new Set();
+window.jQuery = () => ({
+    on(event, listener) { if (event === 'ajaxComplete.aiMarkerQiwang') ajaxComplete.add(listener); },
+    off(event, listener) { if (event === 'ajaxComplete.aiMarkerQiwang') ajaxComplete.delete(listener); }
+});
 function fenshuFocus(input) { focused = input; }
 function inputkey(key) {
     if (key !== ']' || focused !== fields().at(-1)) throw Error('原站须先聚焦最后一个给分框');
     confirmations++;
     const submitted = fields().map(field => field.value);
+    const data = new URLSearchParams({ guId, subId, teaCode, Id: testPaperId, huipFlag,
+        scores: submitted.reduce((sum, value) => sum + Number(value), 0), detailScore: submitted.join(',') });
+    const notify = (path, payload, next) => [...ajaxComplete].forEach(callback => callback({},
+        { status: 200, responseJSON: { success: 1, content: { Id: next } } },
+        { type: 'POST', url: path, data: payload.toString() }));
     if (confirmations === 1) {
         if (submitted.join(',') !== '12.75') throw Error('原站单项分数不符');
         setPaperId('b');
         nextPaperStarted = true;
+        notify('../MarkingOss/PutOssRating', data, testPaperId);
+    } else if (confirmations === 2) {
+        if (submitted.join(',') !== '4,2.50') throw Error('原站分值格式不符');
+        notify('../MarkingOss/GetImageOssFlue', data, 'paper-c');
+        notify('../MarkingOss/PutOssRating', new URLSearchParams({ ...Object.fromEntries(data), Id: 'other-paper' }), 'paper-c');
+        notify('../MarkingOss/PutOssRating', new URLSearchParams({ ...Object.fromEntries(data), scores: '7' }), 'paper-c');
+        notify('../MarkingOss/PutOssRating', data, '-3000');
+    } else {
+        testPaperId = '-2000';
+        notify('../MarkingOss/PutOssRating', data, testPaperId);
     }
     return false;
 }
@@ -80,31 +101,32 @@ window.GM_xmlhttpRequest = options => {
         submit.disabled = true;
         check(!await adapter.submitGrade() && confirmations === 0, '原站禁止提交时保留页面状态');
         submit.disabled = false;
-        let confirmed = false;
-        const submission = adapter.submitGrade().then(saved => { confirmed = saved; return saved; });
+        check(adapter.submitGrade() && ajaxComplete.size === 0, '同题同卷的原站回执确认保存并解除监听');
+        let changed = false;
+        const wait = adapter.waitForNextPaper(old[0], { paperId: oldIdentity }).then(ready => { changed = ready; return ready; });
         check(nextPaperStarted && confirmations === 1 && !adapter.getPaperIdentity(), '卷号先变化时等待图片');
         check(!await adapter.submitGrade() && confirmations === 1, '同一答卷只触发一次原站提交');
         pictures[0].src = urlFor('b', 0);
         await pictures[0].decode();
         await sleep(450);
-        check(!confirmed && !adapter.getPaperIdentity(), '一新一旧时等待全部图片');
+        check(!changed && !adapter.getPaperIdentity(), '一新一旧时等待全部图片');
         pictures[1].src = urlFor('b', 1);
         await pictures[1].decode();
-        check(await submission && adapter.getPaperIdentity() !== oldIdentity, '全部新图就绪后确认原站提交');
+        check(await wait && adapter.getPaperIdentity() !== oldIdentity, '全部新图就绪后确认换卷');
         check(!adapter.fillScores([1]), '上一卷的评分不能填写到新卷');
         const second = document.createElement('tr');
-        second.innerHTML = '<td>18(2)(+5)</td><td><input class="fenshu" data-score="5" inpart="0,2.5,5" onfocus="fenshuFocus(this)"></td>';
+        second.innerHTML = '<td>18(2)(+5)</td><td><input class="fenshu" data-score="5" onfocus="fenshuFocus(this)"></td>';
         document.querySelector('tbody.xtlist').append(second);
         document.querySelector('tbody.xtlist td').textContent = '18(1)(+8)';
-        fields()[0].dataset.score = '8'; fields()[0].setAttribute('inpart', '0,4,8');
-        teaScopart = '1';
+        fields()[0].dataset.score = '8';
+        teaScopart = '0,2.50,4,5,8';
         await adapter.gatherAnswerImages();
         check(adapter.getQuestionContext().units.length === 2 && adapter.fillScores([4, 2.5]), '按原站允许分值分小题填分');
-        check(!adapter.fillScores([8, 3]) && fields().map(field => field.value).join(',') === '4,2.5', '有一项不符合给分规则时保留所有原分数');
+        check(!adapter.fillScores([8, 3]) && fields().map(field => field.value).join(',') === '4,2.50', '有一项不符合给分规则时保留所有原分数');
         const controller = new AbortController();
-        const waiting = adapter.submitGrade({ signal: controller.signal });
         controller.abort();
-        check(!await waiting && confirmations === 2, '停止等待后不重复提交或确认保存');
+        check(!adapter.submitGrade({ signal: controller.signal }) && confirmations === 1, '停止请求后不触发原站提交');
+        check(!adapter.submitGrade() && confirmations === 2 && ajaxComplete.size === 0, '其他请求、分数不符及回收卷的回执不能确认保存');
         await setImages('b', 'after-submit');
         check(!await adapter.submitGrade() && confirmations === 2, '等待中断后同一卷续签也不会重提');
         const option = document.querySelector('.navTeaSelect option');
@@ -113,6 +135,11 @@ window.GM_xmlhttpRequest = options => {
         setPaperId('c');
         await setImages('c');
         check(!!adapter.getPaperIdentity(), '新题的卷号和图片都就绪后可以继续');
+        await adapter.gatherAnswerImages();
+        teaScopart = '';
+        check(adapter.fillScores([0.29, 0.58]) && !adapter.submitGrade() && confirmations === 2, '原站合计会被截断时暂停提交');
+        check(adapter.fillScores([8, 5]) && adapter.submitGrade() && confirmations === 3
+            && adapter.isGradingTaskComplete() && !await adapter.waitForNextPaper(), '最后一份成功保存后按原站回执结束');
         huipFlag = 1;
         check(adapter.isRegradeMode() && !adapter.isMarkingPage() && !adapter.fillScores([0, 0]), '回评状态不能填分');
         finish({ passed: true });
