@@ -11,13 +11,13 @@ var guId = 'fixture-exam', subId = 'physics', teaCode = 'topic-18';
 var testPaperId = 'paper-a', examcode = 'code-a', markingOrReview = '1', huipFlag = 0, jumpNum = 1, teaScopart = '';
 var teaposdt = [{}, {}];
 const answerHost = 'qw-xinkao.oss-cn-hangzhou.aliyuncs.com';
-const urlFor = (paper, index, signature = 'example') =>
-    `https://${answerHost}/__fixture/paper-${paper}-${index}.jpg?Signature=${signature}&Expires=500&x-oss-process=image/quality,q_90`;
+const urlFor = (paper, index, signature = 'example', protocol = 'http:') =>
+    `${protocol}//${answerHost}/__fixture/paper-${paper}-${index}.jpg?Expires=500&Signature=${signature}&x-oss-process=image%2Fcrop%2Cx_1094%2Cy_112%2Fformat%2Cwebp`;
 const pictures = [...document.querySelectorAll('img.teaimg')];
 const fields = () => [...document.querySelectorAll('input.fenshu')];
 const setPaperId = code => { testPaperId = 'paper-' + code; examcode = 'code-' + code; };
-const setImages = (code, signature) => Promise.all(pictures.map((image, index) => {
-    image.src = urlFor(code, index, signature);
+const setImages = (code, signature, protocol) => Promise.all(pictures.map((image, index) => {
+    image.src = urlFor(code, index, signature, protocol);
     return image.decode();
 }));
 const firstPaper = setImages('a');
@@ -60,7 +60,7 @@ window.GM_setValue = () => {};
 window.GM_registerMenuCommand = () => {};
 window.GM_xmlhttpRequest = options => {
     const url = new URL(options.url);
-    if (url.hostname === answerHost) requests.push(url.searchParams.get('Signature'));
+    if (url.hostname === answerHost) requests.push(options.url);
     queueMicrotask(() => options.onload?.({ status: 200, response: new Uint8Array([1, 2, 3]).buffer }));
     return { abort() {} };
 };
@@ -79,11 +79,16 @@ window.GM_xmlhttpRequest = options => {
         check(adapter?.id === 'qiwang' && await adapter.detectMarkingPage(), '只启用对应平台并等待答题卡就绪');
         const context = adapter.getQuestionContext();
         check(context.question === '18' && context.units[0].label === '18' && context.units[0].maxScore === 13, '读取当前题号和满分');
+        for (let attempt = 0; attempt < 30 && !document.querySelector('.ai-grade-btn'); attempt++) await sleep(100);
+        check(document.querySelector('.ai-grade-btn')?.getClientRects().length && !document.getElementById('ai-history-only-style'), '原站 HTTP 答题卡加载后显示批改菜单');
         const old = await adapter.gatherAnswerImages();
+        check(pictures[0].src === urlFor('a', 0) && old[0] === urlFor('a', 0, 'example', 'https:'), '仍为 HTTP 的页面地址转为 HTTPS 供助手下载');
         const oldIdentity = adapter.getPaperIdentity();
-        await setImages('a', 'renewed');
-        check(adapter.getPaperIdentity() === oldIdentity, '签名续签保留当前卷身份');
-        check(await adapter.fetchImageAsBase64(old[0]) === 'AQID' && requests.at(-1) === 'renewed', '读取当前已续签的原图');
+        await setImages('a', 'renewed%2Bsignature%3D', 'https:');
+        check(adapter.getPaperIdentity() === oldIdentity, '切换协议和签名续签保留当前卷身份');
+        await setImages('a', 'renewed%2Bsignature%3D');
+        check(await adapter.fetchImageAsBase64(old[0]) === 'AQID'
+            && requests.at(-1) === urlFor('a', 0, 'renewed%2Bsignature%3D', 'https:'), '仅使用 HTTPS 下载并保留最新签名和裁切参数');
         let blocked = false;
         try { await adapter.fetchImageAsBase64('https://example.com/paper.jpg'); } catch { blocked = true; }
         check(blocked && requests.length === 1, '只下载当前答题卡的已验证图片');
