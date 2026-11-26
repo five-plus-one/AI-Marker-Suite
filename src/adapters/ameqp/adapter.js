@@ -107,76 +107,8 @@ const AmeqpAdapter = {
         return isFinite(num) ? num.toFixed(1) : String(v);
     },
 
-    // 点击平台给分列表对应档位（span.sco_list[value="4.0"]）——
-    // 这是人手打分的原生记分链路，会触发平台自己的登记处理（#278）
-    _clickScoreOption(n, v) {
-        if (!n) return false;
-        try {
-            const span = document.querySelector(`#Mark_scoList_${n} span.sco_list[value="${this._fmt(v)}"]`);
-            if (span) {
-                span.click();
-                return true;
-            }
-        } catch (e) {
-            console.warn('[AMEQP] 给分列表点击失败:', e);
-        }
-        return false;
-    },
-
-    // 将单个分数写入输入框并触发平台记分事件（含按键事件，#278：
-    // 平台登记处理可能绑定 keyup 等按键事件，旧实现只发 input/change/blur 不够）
-    _setInputValue(el, v, isCurrent = () => true) {
-        if (!isCurrent()) return false;
-        const fmt = this._fmt(v);
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        setter.call(el, fmt);
-        const types = ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur'];
-        for (const t of types) {
-            if (!isCurrent()) return false;
-            try {
-                const ev = (t.indexOf('key') === 0)
-                    ? new KeyboardEvent(t, { bubbles: true, cancelable: true, key: fmt })
-                    : new Event(t, { bubbles: true, cancelable: true });
-                el.dispatchEvent(ev);
-            } catch (e) { /* 旧内核兜底 */ }
-        }
-        if (window.jQuery) {
-            try {
-                if (!isCurrent()) return false;
-                const $el = window.jQuery(el);
-                $el.val(fmt);
-                for (const t of types) {
-                    if (!isCurrent()) return false;
-                    $el.trigger(t);
-                }
-            } catch (e) {
-                console.warn('[AMEQP] jQuery trigger 失败:', e);
-            }
-        }
-        return isCurrent();
-    },
-
-    // 同步平台内部状态字段与记分视觉态（OnSubmit 靠这些判断"已给分"，#278）
-    _syncPlatformState(n, v) {
-        const fmt = this._fmt(v);
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        if (n) {
-            const sub = document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${n}`);
-            if (sub) setter.call(sub, fmt);
-            // 镜像平台记分视觉态：隐藏"本题尚未给分"红字
-            const msg = document.querySelector(`#${AMEQP_SELECTORS.SCORE_MSG}${n}`);
-            if (msg) msg.style.display = 'none';
-        }
-        // 重算总分显示
-        let total = 0;
-        this._scoreInputs().forEach(el => {
-            total += parseFloat(el.value) || 0;
-        });
-        const queVal = document.querySelector(AMEQP_SELECTORS.QUE_VAL);
-        const queValOld = document.querySelector(AMEQP_SELECTORS.QUE_VAL_OLD);
-        const t = String(Math.round(total * 10) / 10);
-        if (queVal) setter.call(queVal, t);
-        if (queValOld) setter.call(queValOld, t);
+    _registeredScore(questionId) {
+        return questionId ? document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${questionId}`) : null;
     },
 
     // 把 img 在 .img_box 视口内的可视区域裁成 dataURL（题块图，而非整张答题卡）
@@ -378,31 +310,38 @@ const AmeqpAdapter = {
     fillScores(scores) {
         this._pendingScores = null;
         if (this._submitting) return false;
-        const inputs = this.getScoreInputs();
+        const inputs = this.getScoreInputs().map(unit => ({ ...unit, registered: this._registeredScore(unit.questionId) }));
         const identity = this.getPaperIdentity();
         const task = this.getTaskIdentifier();
-        if (!identity || !this._validScores(scores, inputs)
-            || new Set(inputs.map(unit => unit.questionId)).size !== inputs.length || inputs.some(unit =>
-            unit.element.disabled || unit.element.readOnly || !this._indexOf(unit.element)
-            || !document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${this._indexOf(unit.element)}`))) return false;
+        const scoresValid = this._validScores(scores, inputs);
+        const inputsReady = new Set(inputs.map(unit => unit.questionId)).size === inputs.length && inputs.every(unit =>
+            !unit.element.disabled && !unit.element.readOnly && unit.registered);
+        if (!identity || !scoresValid || !inputsReady) {
+            console.warn('[AMEQP] 给分前校验未通过', { paperReady: !!identity, scoresValid, inputsReady, unitCount: inputs.length });
+            return false;
+        }
 
-        for (let i = 0; i < inputs.length; i++) {
-            const sameTarget = () => this.getPaperIdentity() === identity && this.getTaskIdentifier() === task
-                && this._scoreInputs()[i] === inputs[i].element;
-            if (!sameTarget()) return false;
-            const v = scores[i];
-            const el = inputs[i].element;
-            const n = this._indexOf(el);
-            // 三路记分（#278）：平台给分列表原生链路 → 输入框写值+全事件 → 隐藏字段同步
-            this._clickScoreOption(n, v);
-            if (!sameTarget()) return false;
-            if (!this._setInputValue(el, v, sameTarget)) return false;
-            if (!sameTarget()) return false;
-            this._syncPlatformState(n, v);
+        // 按当前答卷的登记格式准备分数。给分列表和输入事件可能触发平台换卷，
+        // 提交和换卷由确认后的原生提交按钮处理。
+        const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        inputs.forEach(({ element, registered, questionId }, index) => {
+            const value = this._fmt(scores[index]);
+            setValue.call(element, value);
+            setValue.call(registered, value);
+            const message = document.querySelector(`#${AMEQP_SELECTORS.SCORE_MSG}${questionId}`);
+            if (message) message.style.display = 'none';
+        });
+        const total = String(Math.round(scores.reduce((sum, score) => sum + score, 0) * 10) / 10);
+        for (const selector of [AMEQP_SELECTORS.QUE_VAL, AMEQP_SELECTORS.QUE_VAL_OLD]) {
+            const field = document.querySelector(selector);
+            if (field) setValue.call(field, total);
         }
 
         const pending = { inputs, scores: scores.slice(), identity, task };
-        if (!this._matchesPending(pending)) return false;
+        if (!this._matchesPending(pending)) {
+            console.warn('[AMEQP] 给分后登记校验未通过');
+            return false;
+        }
         this._pendingScores = pending;
         console.log(`[AMEQP] 填分完成并通过登记校验: ${inputs.length}/${inputs.length}`, scores);
         return true;
@@ -420,12 +359,12 @@ const AmeqpAdapter = {
         return !!pending && this.getPaperIdentity() === pending.identity && this.getTaskIdentifier() === pending.task
             && this._validScores(pending.scores, inputs) && inputs.length === pending.inputs.length
             && inputs.every((unit, i) => {
-                const hidden = document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${this._indexOf(unit.element)}`);
+                const hidden = this._registeredScore(unit.questionId);
                 return unit.element === pending.inputs[i].element && unit.maxScore === pending.inputs[i].maxScore
                     && unit.questionId === pending.inputs[i].questionId
                     && !unit.element.disabled && !unit.element.readOnly
                     && String(unit.element.value).trim() !== '' && Math.abs(Number(unit.element.value) - pending.scores[i]) < 1e-8
-                    && hidden && String(hidden.value).trim() !== '' && Math.abs(Number(hidden.value) - pending.scores[i]) < 1e-8;
+                    && hidden && hidden === pending.inputs[i].registered && String(hidden.value).trim() !== '' && Math.abs(Number(hidden.value) - pending.scores[i]) < 1e-8;
             });
     },
 
