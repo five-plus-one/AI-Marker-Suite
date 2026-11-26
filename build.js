@@ -240,6 +240,7 @@ const BUILD_CONFIGS = [
                 'http://120.55.199.134/*',
                 'http://hb.leascent.com/home/index*',
                 'http://yc05.591yj.cn/home/index*',
+                'http://111.59.208.15/home/index*',
                 '*://hx-webscan.tyhuixue.com/web-reviewer/*',
                 'https://xinluolk.fjjxhl.com/lypaper/Base/lyReadPaper.aspx*',
                 '*://hx-webscan.hzjy.edu.cn/web-reviewer/*',
@@ -335,7 +336,7 @@ const BUILD_CONFIGS = [
                 'ry-mark.oss-cn-beijing.aliyuncs.com',
                 '*',
             ],
-            runAt: 'document-idle',
+            runAt: 'document-start',
         },
     },
 ];
@@ -588,10 +589,14 @@ async function build() {
         }
 
         // 用 IIFE 包裹所有模块代码
+        const bootstrap = readModule(path.join(SRC_DIR, 'adapters/leascent/bootstrap.js'), 'adapters/leascent/bootstrap.js');
         const iife = `
 (function() {
     'use strict';
 
+${bootstrap}
+    const leascentSchoolStartup = captureLeascentSchoolQuestions();
+    function start() {
     // Some grading pages replace the standard Map runtime with a legacy implementation.
     const Map = (() => {
         const available = globalThis.Map;
@@ -603,6 +608,12 @@ async function build() {
         finally { frame.remove(); }
     })();
 ${modulesContent}
+    }
+    if (document.readyState === 'loading' && (!document.body || !document.currentScript)) {
+        document.addEventListener('DOMContentLoaded', start, { once: true });
+    } else {
+        start();
+    }
 })();
 `;
 

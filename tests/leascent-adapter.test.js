@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { runInNewContext } = require('node:vm');
 const M = require('./_adapter-matrix.js');
 
 // 现场结构：CurrQuestion 持有 base64，主图使用 blob；提交动作先换卷，再收到 SetMark 响应。
@@ -18,6 +21,8 @@ function setup({ maxima = [15], flag = '1', options, host = '120.55.199.134', po
         set value(v) { this.writes++; this._value = String(v); }
         getAttribute(k) { return k === 'stflag' ? flag : k === 'stindex' ? this.id.slice(3) : null; }
         dispatchEvent(e) { events.push(e.type); }
+        focus() {}
+        blur() {}
     }
     sb.HTMLInputElement = Input;
     const events = [], sent = [];
@@ -79,11 +84,15 @@ function setup({ maxima = [15], flag = '1', options, host = '120.55.199.134', po
         next('B');
     } };
     let mode = '1';
+    let questionReceived;
+    sb.Zepto = () => ({ on: (_event, callback) => { questionReceived = callback; } });
+    sb.KeyboardEvent = sb.Event;
     doc.querySelector = s => s === '#lxIndex.page-current' ? visible() : s === '#st-content .btn-next' ? button
         : s === 'input[name="bzgf"]:checked' ? { value: mode } : null;
     doc.querySelectorAll = s => s === '#st-content .st-main' ? rows : s === '#st-img .my-st-img' ? [image] : blocked ? [visible()] : [];
     assert.deepEqual(M.loadOne(sb, 'leascent').errors, []);
     return { a: sb.__AI_MARKER_ADAPTER__, sb, fields, rows, image, button, next, sent, events,
+        receiveQuestions: (papers, url = '/home/GetQuestion') => questionReceived(null, { status: 200 }, { url }, papers),
         block: () => { blocked = true; }, mode: v => { mode = v; }, bytes: v => { image.pixels = Buffer.from(v).toString('base64'); },
         response: v => { response = v; }, delay: () => { delayed = true; }, last: () => last, change: fn => { change = fn; } };
 }
@@ -241,8 +250,80 @@ test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
 
 
 test('丽升学校站点只在阅卷端口注册', () => {
-    const deployment = { host: 'yc05.591yj.cn', port: '9090' };
-    assert.equal(setup(deployment).a?.id, 'leascent');
-    assert.equal(setup({ ...deployment, port: '8088' }).a, undefined);
-    assert.equal(setup({ ...deployment, path: '/account/login' }).a, undefined);
+    for (const deployment of [
+        { host: 'yc05.591yj.cn', port: '9090' },
+        { host: '111.59.208.15', port: '88' },
+    ]) {
+        assert.equal(setup(deployment).a?.id, 'leascent');
+        assert.equal(setup({ ...deployment, port: '8088' }).a, undefined);
+        assert.equal(setup({ ...deployment, path: '/account/login' }).a, undefined);
+        assert.equal(setup({ ...deployment, path: '/home/index-review' }).a, undefined);
+        assert.equal(setup({ ...deployment, protocol: 'https:' }).a, undefined);
+    }
+});
+
+test('丽升学校站点只绑定像素一致的答卷，并核对原生给分请求', async () => {
+    const s = setup({ host: '111.59.208.15', port: '88', maxima: [12] });
+    const { a, sb, fields, button, sent } = s;
+    sb.PaperList = [{ ...sb.CurrPaper, LessonID: '7', QuesID: '11', UserRight: '0' }];
+    const paper = { ...sb.CurrQuestion, LessonId: '7', QuesID: '11', ReleaseNum: 0 };
+    delete sb.CurrPaper;
+    delete sb.CurrQuestion;
+    assert.deepEqual(Array.from(await a.gatherAnswerImages()), []);
+    s.receiveQuestions([paper], 'http://other.example/home/GetQuestion');
+    assert.deepEqual(Array.from(await a.gatherAnswerImages()), []);
+    s.receiveQuestions([paper, { ...paper, PaperId: 'different', PaperPath: 'data:image/png;base64,QUJD' }]);
+    assert.equal((await a.gatherAnswerImages()).length, 1);
+    assert.ok(a.getPaperIdentity());
+    assert.equal(a.fillScores([2]), true);
+    assert.equal(fields[0].value, '2');
+    assert.equal(sent.length, 0);
+
+    const nativeMark = { lessonId: '7', questionId: '11', paperId: paper.PaperId, rowId: paper.RowID,
+        releaseNum: 0, needReleaseNum: 1, gfNum: 0, arb: 0, score: '2', flag: 0 };
+    let body = { ...nativeMark, paperId: 'wrong-paper' };
+    button.click = () => {
+        const request = new sb.XMLHttpRequest();
+        request.open('POST', '/home/SetMark');
+        request.send(new URLSearchParams(body).toString());
+    };
+    assert.equal(await a.submitGrade(), false);
+    assert.equal(sent.length, 0);
+    body = nativeMark;
+    assert.equal(a.fillScores([2]), true);
+    assert.equal(await a.submitGrade(), false);
+    assert.equal(sent.length, 1);
+    s.response({ Code: 0, Data: '1|2' });
+    assert.equal(a.fillScores([2]), true);
+    assert.equal(await a.submitGrade(), true);
+    assert.equal(sent.length, 2);
+});
+
+test('丽升首卷响应先于助手初始化时仍可读取', () => {
+    class NativeRequest extends EventTarget {
+        open(_method, url) { this.responseURL = new URL(url, nativePage.location).href; }
+        receive(payload) {
+            this.status = 200;
+            this.responseText = JSON.stringify(payload);
+            this.dispatchEvent(new Event('load'));
+        }
+    }
+    const originalOpen = NativeRequest.prototype.open;
+    const nativePage = { location: new URL('http://111.59.208.15:88/home/index'), XMLHttpRequest: NativeRequest };
+    nativePage.top = nativePage;
+    const source = readFileSync(join(__dirname, '../src/adapters/leascent/bootstrap.js'), 'utf8');
+    const subscribe = runInNewContext(source + '\n;captureLeascentSchoolQuestions()', { window: nativePage, URL });
+    const first = new NativeRequest();
+    first.open('POST', '/home/GetQuestion');
+    first.receive([{ PaperId: 'first' }]);
+    const other = new NativeRequest();
+    other.open('POST', 'http://example.com/home/GetQuestion');
+    other.receive([{ PaperId: 'other' }]);
+    const inFlight = new NativeRequest();
+    inFlight.open('POST', '/home/GetQuestion');
+    const seen = [];
+    subscribe(papers => seen.push(papers[0].PaperId));
+    assert.equal(NativeRequest.prototype.open, originalOpen);
+    inFlight.receive([{ PaperId: 'second' }]);
+    assert.deepEqual(seen, ['first', 'second']);
 });
