@@ -238,6 +238,7 @@ const BUILD_CONFIGS = [
                 'http://120.55.199.134/*',
                 'http://hb.leascent.com/home/index*',
                 'http://yc05.591yj.cn/home/index*',
+                'http://111.59.208.15/home/index*',
                 '*://hx-webscan.tyhuixue.com/web-reviewer/*',
                 'https://xinluolk.fjjxhl.com/lypaper/Base/lyReadPaper.aspx*',
                 '*://hx-webscan.hzjy.edu.cn/web-reviewer/*',

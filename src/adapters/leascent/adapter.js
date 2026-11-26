@@ -1,14 +1,13 @@
 // 丽升阅卷：题目、原生裁切图、打分板及保存响应共同绑定。
 const LeascentAdapter = {
     name: '丽升阅卷', id: 'leascent', iconUrl: '',
-    urlPatterns: ['http://120.55.199.134/*', 'http://hb.leascent.com/*', 'http://yc05.591yj.cn/*'],
+    urlPatterns: ['http://120.55.199.134/*', 'http://hb.leascent.com/*', 'http://yc05.591yj.cn/*', 'http://111.59.208.15/*'],
     shouldInitialize() {
-        const { hostname } = window.location;
-        if (hostname !== '120.55.199.134' && hostname !== 'hb.leascent.com' && hostname !== 'yc05.591yj.cn') return false;
         const url = new URL(window.location.href);
         const markingOrigin = url.origin === 'http://120.55.199.134:9090'
             || url.origin === 'http://hb.leascent.com:84'
-            || url.origin === 'http://yc05.591yj.cn:9090';
+            || url.origin === 'http://yc05.591yj.cn:9090'
+            || url.origin === 'http://111.59.208.15:88';
         return markingOrigin && /^\/home\/index\/?$/i.test(url.pathname);
     },
     _page() {
