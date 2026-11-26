@@ -13,6 +13,15 @@
 sessionStorage.clear();
 const mode=new URLSearchParams(location.search).get('mode');
 const initialImage=document.querySelector('.ansImg');
+const directMode=mode.startsWith('fill-');
+const directScores=[3,4,2];
+if(directMode){
+ document.querySelectorAll('fieldset')[1].remove();
+ document.querySelector('.mark_leg').title='11(5.0分)';
+ document.querySelector('.mark_tbx').setAttribute('maxsco','5.0');
+ document.querySelector('#Mark_scoList_1_1').innerHTML=directScores.map(score=>
+  `<span class="sco_list" value="${score.toFixed(1)}">${score}</span>`).join('');
+}
 function imageResource(id,index=0){
  if(mode==='unknown')return '/answers/scan_'+id+'_00_1_0.svg';
  if(mode==='prefixed')return '/answers/'+encodeURIComponent('生物地理_'+id)+'.svg';
@@ -31,34 +40,45 @@ if(mode==='multi'||mode==='mixed'){
 const storage={
  'ai-grading-show-onboarding':false,
  'ai-grading-presets':JSON.stringify({list:{Fixture:{question:'q',answer:'a',rubric:'r',workflowId:'fixture',gradingMode:'unattended',
-  scoring:{maxScore:8,roundStep:0.5,roundMethod:'round'},batchConfig:{enabled:true,targetCount:3},blankDetection:{enabled:false}}},
-  active:'Fixture',bindings:{'ameqp#11(4.0分),12(4.0分)':'Fixture'}}),
+  scoring:{maxScore:directMode?5:8,roundStep:0.5,roundMethod:'round'},batchConfig:{enabled:true,targetCount:3},blankDetection:{enabled:false}}},
+  active:'Fixture',bindings:{[directMode?'ameqp#11(5.0分)':'ameqp#11(4.0分),12(4.0分)']:'Fixture'}}),
  'ai-grading-providers-v2':JSON.stringify({providers:{'5plus1官方':{apiKey:'fixture'},Fixture:{endpoint:'https://ai.fixture.invalid/v1/chat/completions',apiKey:'fixture',models:{fixture:{}}}},activeProvider:'Fixture',activeModel:'fixture'}),
  'ai-grading-workflows':JSON.stringify({workflows:{Fixture:{id:'fixture',model:{provider:'Fixture',model:'fixture'},dualEval:null}},activeWorkflow:'fixture'})
 };
-const effects={requests:0,submits:[],palettes:0,alerts:[]};
+const effects={requests:0,submits:[],palettes:0,keyups:0,alerts:[]};
 window.GM_getValue=(k,d)=>storage[k]??d;window.GM_setValue=(k,v)=>storage[k]=v;window.GM_deleteValue=k=>delete storage[k];
 window.GM_registerMenuCommand=()=>{};window.alert=msg=>effects.alerts.push(String(msg));
 window.GM_xmlhttpRequest=options=>{
  if(options.method==='POST'&&options.url==='https://ai.fixture.invalid/v1/chat/completions'){
   effects.requests++;
-  queueMicrotask(()=>options.onload({status:200,responseText:JSON.stringify({choices:[{message:{content:'第11题分数：0\n第12题分数：2.5\n【得分】\n2.5'},finish_reason:'stop'}]})}));
+  const content=directMode?'【得分】\n'+directScores[effects.requests-1]:'第11题分数：0\n第12题分数：2.5\n【得分】\n2.5';
+  queueMicrotask(()=>options.onload({status:200,responseText:JSON.stringify({choices:[{message:{content},finish_reason:'stop'}]})}));
  }else queueMicrotask(()=>options.onerror?.());
  return{abort(){}};
 };
+function showPaper(id){
+ document.querySelectorAll('.ansImg').forEach((img,index)=>img.src=imageResource(id,index));
+ document.querySelectorAll('#Mark_main .mark_tbx,#Mark_main input[type=hidden],#queVal,#queVal_old').forEach(input=>input.value='');
+}
 document.querySelectorAll('span.sco_list').forEach(span=>span.onclick=()=>{
  effects.palettes++;const field=span.closest('fieldset');field.querySelector('.mark_tbx').value=span.getAttribute('value');
  field.querySelector('input[type=hidden]').value=span.getAttribute('value');
+ if(mode==='fill-palette'&&effects.submits.length===1)showPaper(9999);
+});
+document.querySelector('.mark_tbx').addEventListener('keyup',()=>{
+ effects.keyups++;
+ if(mode==='fill-keyboard'&&effects.submits.length===1)showPaper(9999);
 });
 document.getElementById('btn_submit').onclick=()=>{
  const scores=Array.from(document.querySelectorAll('.mark_tbx'),x=>x.value);
  const hidden=Array.from(document.querySelectorAll('#Mark_main input[type=hidden]'),x=>x.value);
- if(scores.join(',')!=='0.0,2.5'||scores.join(',')!==hidden.join(','))throw Error('native score registration mismatch');
+ const expected=directMode?[directScores[effects.submits.length].toFixed(1)]:['0.0','2.5'];
+ const total=String(expected.reduce((sum,score)=>sum+Number(score),0));
+ if(scores.join(',')!==expected.join(',')||scores.join(',')!==hidden.join(',')
+    ||document.getElementById('queVal').value!==total||document.getElementById('queVal_old').value!==total)
+  throw Error('native score registration mismatch');
  effects.submits.push({paper:document.querySelector('.ansImg').src.split('/').pop(),scores});
- const next=()=>{
-  document.querySelectorAll('.ansImg').forEach((img,index)=>img.src=imageResource(1001+effects.submits.length,index));
-  document.querySelectorAll('#Mark_main .mark_tbx,#Mark_main input[type=hidden],#queVal,#queVal_old').forEach(input=>input.value='');
- };
+ const next=()=>showPaper(1001+effects.submits.length);
  if(mode==='slow')setTimeout(next,1200);else next();
 };
 </script><script src="/__fixture/ai_marker.user.js"></script><script>
@@ -85,7 +105,7 @@ document.getElementById('btn_submit').onclick=()=>{
   assert(effects.submits.length===3,'three native submissions');
   assert(effects.requests===3,'one AI request per paper');
   assert(effects.submits.map(x=>x.paper).join(',')===[1001,1002,1003].map(id=>new URL(imageResource(id),location.href).href.split('/').pop()).join(','),'each paper submitted once');
-  assert(effects.palettes===6,'native score palette used');
+  assert(effects.palettes===0&&effects.keyups===0,'scores prepared before the native submit action');
   assert(window.aiGradingState.batchProgress.currentCount===3&&!window.aiGradingState.isRunning,'batch pauses at three');
   assert(effects.alerts.length===0,'continuous flow has no alert');
   document.getElementById('result').textContent=btoa(JSON.stringify({runId,passed:true,width:innerWidth,checks:8,mode,effects}));
