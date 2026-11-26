@@ -304,7 +304,7 @@ async function connect(url) {
                 interceptionError = new Error(`${error.message} (${event.params.request.url}; request ${event.params.networkId}; navigation ${requestNavigation}/${navigation})`);
             });
         });
-        for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) for (const touch of ['embedded-ui', 'diagnostic-export', 'qiwang'].includes(fixture) ? [false, true] : [false]) {
+        for (const fixture of fixtures) for (const width of [1280, 420]) for (const theme of ['light', 'dark']) for (const touch of ['embedded-ui', 'diagnostic-export', 'api-endpoints', 'qiwang'].includes(fixture) ? [false, true] : [false]) {
             consoleMessages = [];
             await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
             await client.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
