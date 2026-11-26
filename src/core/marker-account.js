@@ -76,17 +76,22 @@ function markerConnectionMessage(code) {
         login_failed: '五加一账号授权未完成，请重新连接。',
         tab_unavailable: '无法打开授权页，请检查脚本管理器后重试。',
         storage: '连接未能保存，请检查脚本管理器的存储权限后重试。',
-        account_changed: '续期时请授权当前已连接的五加一账号。',
+        account_changed: '请授权当前已连接的五加一账号。',
         pending: '请在新标签页完成五加一账号授权。',
     })[code] || '账号连接未完成，请检查网络后重试。';
 }
 
-async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
+async function connectMarkerAccount({ expectedAccountId, onWaiting, signal } = {}) {
+    if (signal?.aborted) throw Error('cancelled');
     if (markerConnection) throw Error('pending');
+    const previous = expectedAccountId ? markerManagedAccount() : null;
+    if (expectedAccountId && previous?.accountId !== expectedAccountId) throw Error('account_changed');
     const claim = markerRandomHex(32);
     const approval = markerRandomHex(32);
     const operation = { cancelled: false, controller: new AbortController() };
     markerConnection = operation;
+    const cancel = () => cancelMarkerConnection(operation);
+    signal?.addEventListener('abort', cancel, { once: true });
     let id, tab, saved = false;
     const checkCurrent = () => {
         if (operation.cancelled || GM_getValue(MARKER_ACTIVE_CONNECTION, '') !== claim) throw Error('cancelled');
@@ -143,7 +148,11 @@ async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
             if (!Number.isSafeInteger(account?.accountId) || account.accountId <= 0 || !markerServiceKey.test(account.apiKey || '') ||
                 typeof account.uploadToken !== 'string' || !account.uploadToken || !Number.isInteger(account.expiresAt) ||
                 account.expiresAt * 1000 <= Date.now()) throw Error('unexpected_response');
-            if (expectedAccountId && account.accountId !== expectedAccountId) throw Error('account_changed');
+            if (previous) {
+                const current = markerManagedAccount();
+                if (account.accountId !== previous.accountId || current?.accountId !== previous.accountId ||
+                    current.apiKey !== previous.apiKey || current.uploadToken !== previous.uploadToken) throw Error('account_changed');
+            }
             try {
                 GM_setValue(MARKER_ACCOUNT_KEY, {
                     accountId: account.accountId, apiKey: account.apiKey, uploadToken: account.uploadToken, expiresAt: account.expiresAt,
@@ -155,6 +164,7 @@ async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
         }
         throw Error('expired');
     } finally {
+        signal?.removeEventListener('abort', cancel);
         try {
             if (id) GM_deleteValue(MARKER_CONNECTION_PREFIX + id);
             if (GM_getValue(MARKER_ACTIVE_CONNECTION, '') === claim) GM_deleteValue(MARKER_ACTIVE_CONNECTION);
@@ -167,11 +177,11 @@ async function connectMarkerAccount({ expectedAccountId, onWaiting } = {}) {
     }
 }
 
-function cancelMarkerConnection() {
-    if (!markerConnection) return;
-    markerConnection.cancelled = true;
-    markerConnection.controller.abort();
-    markerConnection.wake?.();
+function cancelMarkerConnection(operation = markerConnection) {
+    if (!operation) return;
+    operation.cancelled = true;
+    operation.controller.abort();
+    operation.wake?.();
 }
 
 function disconnectMarkerAccount() {
