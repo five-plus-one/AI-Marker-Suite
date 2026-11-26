@@ -606,8 +606,11 @@ ${bootstrap}
     })();
 ${modulesContent}
     }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
-    else start();
+    if (document.readyState === 'loading' && (!document.body || !document.currentScript)) {
+        document.addEventListener('DOMContentLoaded', start, { once: true });
+    } else {
+        start();
+    }
 })();
 `;
 
