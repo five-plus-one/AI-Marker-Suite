@@ -122,6 +122,7 @@ const BUILD_CONFIGS = [
             'adapters/xinkao-campus/adapter.js',
             'adapters/qiwang/adapter.js',
             'adapters/yunhen/adapter.js',
+            'adapters/willclass/adapter.js',
             'adapters/runjian/selectors.js',
             'adapters/runjian/adapter.js',
             'adapters/xueba54/selectors.js',
@@ -193,7 +194,7 @@ const BUILD_CONFIGS = [
         header: {
             name: 'AI-Marker-Suite',
             namespace: 'https://aimarking.five-plus-one.com/',
-            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、启望阅卷、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊、酷鱼、A佳教育、云阅卷(开州)、正确阅卷、精斗云、小帆智能阅卷、睿芽、恒佳、悦卷通、云阅卷(华翰云)、懂你系统、学科网 e卷通、学科网云阅卷、启光优测、诊学网、焦作精准教学、文通云、园丁邦云阅卷、小闲 AI 网上阅卷、丽升阅卷、天喻慧学（含惠州）、优分优学、小乐优阅、享尚学、韬普教育云阅卷、百师联盟、爱多分、百分智考试服务、教学质量监测管理系统、云痕大数据等60个平台。识别手写答案、按标准评分，支持双评仲裁、分小题评分与评阅历史导出。',
+            description: 'AI自动批改助手，支持智学网、七天网络、好分数、五岳阅卷、阅小二、华翰云、光大阅卷、云阅卷、新教育、鑫考、鑫考(内网)、鑫考校园、启望阅卷、润建、54学霸、九科星、慧阅卷、乐华阅卷、慧学星、粤教翔云、云阅卷(好分数)、科耘、威科姆、C30、AMEQP、海云智评、九五优评、上进教育、南昊、酷鱼、A佳教育、云阅卷(开州)、正确阅卷、精斗云、小帆智能阅卷、睿芽、恒佳、悦卷通、云阅卷(华翰云)、懂你系统、学科网 e卷通、学科网云阅卷、启光优测、诊学网、焦作精准教学、文通云、园丁邦云阅卷、小闲 AI 网上阅卷、丽升阅卷、天喻慧学（含惠州）、优分优学、小乐优阅、享尚学、韬普教育云阅卷、百师联盟、爱多分、百分智考试服务、教学质量监测管理系统、云痕大数据、会课阅卷等61个平台。识别手写答案、按标准评分，支持双评仲裁、分小题评分与评阅历史导出。',
             author: '5plus1',
             match: [
                 'https://tools.aimarking.five-plus-one.com/',
@@ -216,6 +217,7 @@ const BUILD_CONFIGS = [
                 '*://*/Marking/*',
                 'https://yunyuejuan.zhengrui-edu.com/MarkingOss/NormalReadOssPaper*',
                 'https://ercdmark.eduyunhen.com/*',
+                'https://t.willclass.com/exams/judge/*',
                 '*://www.xinjiaoyu.com/*',
                 '*://aimarking.five-plus-one.com/*',
                 '*://five-plus-one.github.io/*',
