@@ -262,13 +262,19 @@ test('丽升学校站点只在阅卷端口注册', () => {
     }
 });
 
-test('丽升学校站点只绑定像素一致的答卷，并核对原生给分请求', async () => {
+function setupSchool() {
     const s = setup({ host: '111.59.208.15', port: '88', maxima: [12] });
-    const { a, sb, fields, button, sent } = s;
+    const { sb } = s;
     sb.PaperList = [{ ...sb.CurrPaper, LessonID: '7', QuesID: '11', UserRight: '0' }];
     const paper = { ...sb.CurrQuestion, LessonId: '7', QuesID: '11', ReleaseNum: 0 };
     delete sb.CurrPaper;
     delete sb.CurrQuestion;
+    return { ...s, paper };
+}
+
+test('丽升学校站点只绑定像素一致的答卷，并核对原生给分请求', async () => {
+    const s = setupSchool();
+    const { a, sb, fields, button, sent, paper } = s;
     assert.deepEqual(Array.from(await a.gatherAnswerImages()), []);
     s.receiveQuestions([paper], 'http://other.example/home/GetQuestion');
     assert.deepEqual(Array.from(await a.gatherAnswerImages()), []);
@@ -297,6 +303,36 @@ test('丽升学校站点只绑定像素一致的答卷，并核对原生给分�
     assert.equal(a.fillScores([2]), true);
     assert.equal(await a.submitGrade(), true);
     assert.equal(sent.length, 2);
+});
+
+test('丽升学校站点通过原站解码器读取 TIFF 并输出已核对的 PNG', async () => {
+    const { a, sb, paper, receiveQuestions } = setupSchool();
+    const png = 'data:image/png;base64,' + paper.PaperPath.split(',')[1];
+    sb.Uint8Array = Uint8Array;
+    let closed = 0;
+    sb.Tiff = class {
+        constructor({ buffer }) { assert.deepEqual(Array.from(buffer), [73, 73, 42, 0]); }
+        toDataURL() { return png; }
+        close() { closed++; }
+    };
+    receiveQuestions([{ ...paper, PaperPath: 'data:image/tiff;base64,SUkqAA==' }]);
+    assert.deepEqual(Array.from(await a.gatherAnswerImages()), [png]);
+    assert.equal(await a.fetchImageAsBase64(png), png.split(',')[1]);
+    assert.ok(a.getPaperIdentity());
+    assert.equal(closed, 1);
+});
+
+test('丽升学校站点在原站预取后仍能读取屏幕上的答卷', async () => {
+    const { a, paper, receiveQuestions } = setupSchool();
+    receiveQuestions([paper]);
+    for (let first = 1; first <= 21; first += 3) {
+        receiveQuestions(Array.from({ length: 3 }, (_, index) => {
+            const number = first + index;
+            return { ...paper, PaperId: 'prefetched-' + number, RowID: 100 + number,
+                PaperPath: 'data:image/png;base64,' + Buffer.from('answer-' + number).toString('base64') };
+        }));
+    }
+    assert.deepEqual(Array.from(await a.gatherAnswerImages()), [paper.PaperPath]);
 });
 
 test('丽升首卷响应先于助手初始化时仍可读取', () => {
