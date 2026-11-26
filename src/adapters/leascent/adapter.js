@@ -3,6 +3,9 @@ const LeascentAdapter = {
     name: '丽升阅卷', id: 'leascent', iconUrl: '',
     urlPatterns: ['http://120.55.199.134/*', 'http://hb.leascent.com/*', 'http://yc05.591yj.cn/*', 'http://111.59.208.15/*'],
     shouldInitialize() {
+        const { hostname } = window.location;
+        if (hostname !== '120.55.199.134' && hostname !== 'hb.leascent.com'
+            && hostname !== 'yc05.591yj.cn' && hostname !== '111.59.208.15') return false;
         const url = new URL(window.location.href);
         const markingOrigin = url.origin === 'http://120.55.199.134:9090'
             || url.origin === 'http://hb.leascent.com:84'
