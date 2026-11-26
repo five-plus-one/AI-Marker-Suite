@@ -103,8 +103,8 @@ const LeascentAdapter = {
             || (image.currentSrc && image.currentSrc !== image.src)) return null;
         return image;
     },
-    _snapshot(w, p, q, task, image, inputs, identity) {
-        return { w, p, q, task, identity, image, src: image.src, data: q.PaperPath, inputs,
+    _snapshot(w, p, q, task, image, inputs, identity, data = q.PaperPath) {
+        return { w, p, q, task, identity, image, src: image.src, data, inputs,
             signature: JSON.stringify(inputs.map(u => [u.label, u.maxScore, u.flag, u.options])) };
     },
     getPaperIdentity() { return this._state()?.identity || null; },
@@ -299,6 +299,8 @@ const LeascentAdapter = {
     },
 };
 
+// 给原站的 19 份答卷队列及正在预取的批次留出空间。
+const LEASCENT_SCHOOL_PAPER_LIMIT = 24;
 const LeascentSchoolAdapter = Object.assign(Object.create(LeascentAdapter), {
     _recentPapers: new Map(),
     _observeQuestions() {
@@ -316,7 +318,8 @@ const LeascentSchoolAdapter = Object.assign(Object.create(LeascentAdapter), {
         for (const paper of papers) {
             if (!paper?.PaperId || !paper.QuesID || !paper.LessonId || !(paper.RowID > 0)
                 || !(paper.NeedReleaseNum > 0) || !Number.isInteger(paper.ReleaseNum) || paper.ReleaseNum < 0 || paper.SmallQuesMark != null
-                || !/^data:image\/(?:jpg|jpeg|png);base64,[A-Za-z0-9+/]+=*$/.test(paper.PaperPath || '')) continue;
+                || typeof paper.PaperPath !== 'string'
+                || !/^data:image\/(?:jpe?g|png|tiff?);base64,[A-Za-z0-9+/]+=*$/.test(paper.PaperPath)) continue;
             const key = JSON.stringify([paper.LessonId, paper.QuesID, paper.PaperId, paper.RowID]);
             const previous = this._recentPapers.get(key);
             if (previous?.PaperPath === paper.PaperPath && previous.release === paper.ReleaseNum
@@ -329,7 +332,7 @@ const LeascentSchoolAdapter = Object.assign(Object.create(LeascentAdapter), {
             });
         }
         for (const key of this._recentPapers.keys()) {
-            if (this._recentPapers.size <= 12) break;
+            if (this._recentPapers.size <= LEASCENT_SCHOOL_PAPER_LIMIT) break;
             this._recentPapers.delete(key);
         }
     },
@@ -360,7 +363,20 @@ const LeascentSchoolAdapter = Object.assign(Object.create(LeascentAdapter), {
         const view = this._view(), match = this._matchedPaper;
         if (!view || !match || view.task !== match.task || view.image !== match.image || view.src !== match.src
             || this._recentPapers.get(match.q.key) !== match.q) return null;
-        return this._snapshot(view.w, view.p, match.q, view.task, view.image, view.inputs, match.q.key);
+        return this._snapshot(view.w, view.p, match.q, view.task, view.image, view.inputs, match.q.key, match.data);
+    },
+    _readPaperImage(w, data) {
+        if (!/^data:image\/tiff?;base64,/.test(data)) return data;
+        // 沿用打分板的 TIFF 解码器，以屏幕上实际显示的 PNG 核对像素。
+        const bytes = w.atob(data.slice(data.indexOf(',') + 1));
+        const tiff = new w.Tiff({ buffer: w.Uint8Array.from(bytes, byte => byte.charCodeAt(0)) });
+        try {
+            const png = tiff.toDataURL();
+            if (!/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(png)) throw new Error('答卷转换失败');
+            return png;
+        } finally {
+            tiff.close();
+        }
     },
     async _refreshPaper() {
         const view = this._view();
@@ -369,12 +385,14 @@ const LeascentSchoolAdapter = Object.assign(Object.create(LeascentAdapter), {
             && q.question === String(view.p.QuesID));
         if (!candidates.length) return;
         const pixels = this._pixels(view.w, view.image);
-        const results = await Promise.all(candidates.map(async q =>
-            await this._matchesAnswer(view.w, view.image, q.PaperPath, pixels) ? q : null));
-        const matches = results.filter(Boolean);
+        const results = await Promise.all(candidates.map(async q => {
+            const data = this._readPaperImage(view.w, q.PaperPath);
+            return await this._matchesAnswer(view.w, view.image, data, pixels) ? { q, data } : null;
+        }));
         const current = this._view();
+        const matches = results.filter(Boolean);
         if (matches.length === 1 && current?.image === view.image && current.src === view.src && current.task === view.task) {
-            this._matchedPaper = { ...view, q: matches[0] };
+            this._matchedPaper = { ...view, ...matches[0] };
         }
     },
     async gatherAnswerImages() {
