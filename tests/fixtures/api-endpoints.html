@@ -5,7 +5,14 @@
 <script>
 const storage = new Map(), checks = [], requests = [];
 let outcomes = [], failStorage = false, cloudPolicy;
-const cloudRequests = [];
+const cloudRequests = [], flowRequests = [], authorizationTabs = [];
+const flowId = 'a'.repeat(32);
+let claimedAccount;
+window.GM_openInTab = url => {
+    const tab = { url, closed: false, close() { this.closed = true; } };
+    authorizationTabs.push(tab);
+    return tab;
+};
 window.GM_getValue = (key, fallback) => storage.get(key) ?? fallback;
 window.GM_deleteValue = key => storage.delete(key);
 window.GM_setValue = (key, value) => {
@@ -20,8 +27,19 @@ window.GM_xmlhttpRequest = request => {
         queueMicrotask(() => cloudPolicy ? request.onload({ status: 200, finalUrl: request.url, responseText: JSON.stringify(cloudPolicy) }) : request.onerror());
         return { abort() {} };
     }
+    const path = new URL(request.url).pathname;
+    if (path.startsWith('/v1/account/script-flows')) {
+        flowRequests.push({ path, expectedAccountId: JSON.parse(request.data).expectedAccountId });
+        const expiresAt = Math.floor(Date.now() / 1000) + 600;
+        const data = path.endsWith('/script-flows') ? { id: flowId, expiresAt, pollAfter: 2 }
+            : path.endsWith('/claim') ? { ...claimedAccount, expiresAt } : null;
+        const timer = setTimeout(() => request.onload({ status: data ? 200 : 204,
+            finalUrl: request.url, responseText: JSON.stringify(data) }), 0);
+        return { abort() { clearTimeout(timer); request.onabort(); } };
+    }
     const outcome = outcomes.shift();
-    const observed = { url: request.url, data: JSON.parse(request.data), redirect: request.redirect, cancelled: false };
+    const observed = { url: request.url, data: JSON.parse(request.data), authorization: request.headers.Authorization,
+        redirect: request.redirect, cancelled: false };
     requests.push(observed);
     const timer = setTimeout(() => {
         if (outcome === 'network') request.onerror();
@@ -249,6 +267,64 @@ window.GM_xmlhttpRequest = request => {
         check(get('ob-next').textContent === '重试线路测试' && !get('ob-apikey'),
             '连接失败时保留账号状态和重试动作');
         hideOnboardingDialog();
+
+        const rejected = { status: 401, responseText: '{"error":{"message":"invalid"}}' };
+        const replacementKey = 'sk-' + 'e'.repeat(32);
+        const cancelAuthorization = () => get('ai-onboarding')?.querySelector('[data-marker-cancel]');
+        reset(rejected, 'ok');
+        showOnboardingDialog(true, 'first-launch');
+        await until(() => get('ob-next')?.textContent === '重新连接账号');
+        check(get('ob-next').textContent === '重新连接账号' && document.activeElement === get('ob-next')
+            && tried(shanghai) && requests[0].authorization === 'Bearer ' + fixtureAccountKey && !get('ob-apikey'),
+            '账号凭据被拒绝时提示重新连接，检测请求使用当前账号密钥');
+        get('ob-next').click();
+        check(flowRequests.length === 0, '脚本触发的点击不能开启账号授权');
+        const reconnect = () => get('ob-next').onclick({ isTrusted: true });
+        let authorization = reconnect();
+        await until(() => authorizationTabs.length === 1);
+        check(get('ob-status').textContent.includes('新标签页') && document.activeElement === cancelAuthorization()
+            && flowRequests[0].expectedAccountId === 17 && authorizationTabs[0].url.endsWith(flowId),
+            '重新连接在新标签页请求当前账号授权，页面可取消');
+        cancelAuthorization().click();
+        await authorization;
+        check(authorizationTabs[0].closed && markerManagedAccount().apiKey === fixtureAccountKey
+            && get('ob-status').textContent.includes('已取消') && get('ob-next').textContent === '重新连接账号'
+            && requests.length === 1, '取消授权保留原连接，仍可重新连接');
+
+        claimedAccount = { accountId: 23, apiKey: replacementKey, uploadToken: 'fixture-wrong-account' };
+        await reconnect();
+        check(markerManagedAccount().accountId === 17 && markerManagedAccount().apiKey === fixtureAccountKey
+            && get('ob-status').textContent.includes('当前已连接') && requests.length === 1,
+            '授权另一账号时保留当前连接，不重复检测');
+        claimedAccount = { accountId: 17, apiKey: replacementKey, uploadToken: 'fixture-reconnected' };
+        await reconnect();
+        check(authorizationTabs[2].closed && markerManagedAccount().apiKey === replacementKey
+            && tried(shanghai, shanghai) && requests[1].authorization === 'Bearer ' + replacementKey
+            && get('ob-next').textContent === '配置批改方案' && get('ob-status').textContent.includes('已通过测试')
+            && get('api-key').value === 'fixture-key' && !get('ai-onboarding').innerHTML.includes(replacementKey),
+            '同账号重新授权后自动用回调保存的密钥检测线路并允许继续');
+        hideOnboardingDialog();
+
+        reset(rejected, 'ok');
+        showOnboardingDialog(true, 'first-launch');
+        await until(() => get('ob-next')?.textContent === '重新连接账号');
+        claimedAccount = { ...claimedAccount, uploadToken: 'fixture-reauthorized' };
+        await reconnect();
+        check(markerManagedAccount().uploadToken === 'fixture-reauthorized' && tried(shanghai, shanghai)
+            && requests.every(request => request.authorization === 'Bearer ' + replacementKey)
+            && get('ob-next').textContent === '配置批改方案', '授权返回相同密钥时仍重新检测线路');
+        hideOnboardingDialog();
+
+        reset(rejected);
+        showOnboardingDialog(true, 'first-launch');
+        await until(() => get('ob-next')?.textContent === '重新连接账号');
+        authorization = reconnect();
+        await until(() => authorizationTabs.length === 5);
+        hideOnboardingDialog();
+        await authorization;
+        check(!get('ai-onboarding') && authorizationTabs[4].closed && requests.length === 1
+            && markerManagedAccount().uploadToken === 'fixture-reauthorized', '离开引导中止授权且保留账号');
+
         const accountCall = ProviderManager.getCallConfig('5plus1官方', 'aimarker-fast');
         check(accountCall.officialAccountId === 17 && !accountCall.apiKey &&
             !document.documentElement.innerHTML.includes(fixtureAccountKey) && get('api-key').value === 'fixture-key',
