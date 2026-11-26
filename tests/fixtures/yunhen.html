@@ -1,0 +1,143 @@
+<!doctype html><meta charset="utf-8"><title>云痕大数据验收</title>
+<div id="app"></div><pre id="result" hidden></pre>
+<script>
+const fixtureRun = new URLSearchParams(location.search).get('run');
+const route = '/exam/marking/readPaper/99001/2/1/1/1';
+const cos = 'https://bucket1-1315484122.cos.ap-shanghai.myqcloud.com';
+const crop = (id, size = '420x230x80x360') => `${cos}/19/wuhen/fixture-${id}.jpg?imageMogr2/cut/${size}`;
+const field = () => document.querySelector('input.inputtt');
+const paperImage = () => document.querySelector('.m-image-label');
+const app = document.getElementById('app');
+const view = { readType: 1, pageSize: 1, isMark: 0, markType: false, expandArea: false,
+    loading: false, loadQuestion: false, eachList: [], originData: [], $refs: {}, showSubmit,
+    selPanelList: [{ questionNums: [{ num: 16, selected: true }] }] };
+let behavior = 'ok', submitted = [], clicks = 0, annotations = [], enterKeys = 0;
+const downloads = [];
+function render(id, maximum = 4) {
+    const url = crop(id);
+    const todo = { id, resultDetailId: id + 100, num: 16, question: '17-18', score: '' };
+    const row = { num: todo.num, isReview: 0, stand: { point: maximum }, gradingTodo: { ...todo },
+        noteStyle: [{ url }], backStyle: [{ url: crop(id, '460x270x60x340') }] };
+    view.eachList = [row];
+    view.originData = [{ questionNums: [{ gradingTodo: todo, isReview: 0, isSplit: 0, questionSplitVos: [row] }] }];
+    view.$refs = { ['imageLabel' + id + '0']: [{ canvas: { getObjects: () => annotations } }] };
+    view.loading = false;
+    app.innerHTML = `<main class="marking-container"><div id="read_content"><div class="each_item" id="myDiv${id}">
+        <div class="img-container"><div class="m-image-label" style="width:180px;height:90px"><canvas></canvas></div></div></div></div>
+        <section class="manal_mark"><table class="board-table"><tbody><tr><td>二17-18</td><td>
+            <input class="inputtt" placeholder="满分${maximum}分"></td></tr></tbody></table><button type="button">提交分数</button></section></main>`;
+    paperImage().style.backgroundImage = `url('${url}')`;
+    field().addEventListener('input', () => { row.gradingTodo.score = field().value === '' ? '' : Number(field().value); });
+    field().addEventListener('keyup', event => { if (event.key === 'Enter') enterKeys++; });
+    app.querySelector('button').addEventListener('click', showSubmit);
+    app._vnode = { component: { subTree: { children: [{ el: app.firstElementChild, component: { proxy: view } }] } } };
+}
+function showSubmit() {
+    clicks++;
+    view.loading = true;
+    const groups = view.originData.map(group => {
+        group.examQuestionVos = group.questionNums.map(question => {
+            const { id, resultDetailId, num } = question.gradingTodo;
+            const score = question.questionSplitVos[0].gradingTodo.score;
+            return { todoId: behavior === 'wrong-paper' ? id + 1 : id, detailId: resultDetailId, num,
+                question: question.gradingTodo.question, isAbnormal: 0, isReview: 0, isSplit: 0, score,
+                questionSplitVos: [{ gradingScore: score }] };
+        });
+        delete group.questionNums;
+        return group;
+    });
+    queueMicrotask(() => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://apis.eduyunhen.com/marking-main/exam/grad/read_over?result=${behavior}`);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.addEventListener('load', () => {
+            submitted.push(groups[0].examQuestionVos[0]);
+            if (JSON.parse(xhr.responseText).code === 200) {
+                view.loadQuestion = true;
+                setTimeout(() => { render(102); view.loadQuestion = false; }, 100);
+            }
+        });
+        xhr.send(JSON.stringify({ examId: '99001', teacherType: 1, groupExamQuestionVos: groups }));
+    });
+}
+window.GM_getValue = (key, fallback) => key === 'ai-grading-show-onboarding' ? false : fallback;
+window.GM_setValue = () => {};
+window.GM_registerMenuCommand = () => {};
+window.GM_xmlhttpRequest = options => {
+    downloads.push(options.url);
+    queueMicrotask(() => options.onload?.({ status: 200, response: new Uint8Array([1, 2, 3]).buffer }));
+    return { abort() {} };
+};
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async () => {
+    const checks = [];
+    const check = (value, name) => { if (!value) throw Error(name); checks.push(name); };
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const finish = result => {
+        const json = JSON.stringify({ runId: fixtureRun, width: innerWidth, checks, ...result });
+        document.getElementById('result').textContent = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
+    };
+    try {
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        const originalOpen = XMLHttpRequest.prototype.open;
+        const originalSend = XMLHttpRequest.prototype.send;
+        check(adapter?.id === 'yunhen' && !await adapter.detectMarkingPage(), '首页注册后等待进入阅卷任务');
+        await sleep(200);
+        check(!document.querySelector('.ai-grade-btn'), '首页只显示工具入口');
+        history.pushState(null, '', route + '?readType=1');
+        render(101);
+        check(await adapter.detectMarkingPage(), '同页导航进入正常阅卷后读取已加载答题卡');
+        const context = adapter.getQuestionContext();
+        check(context.question === '二17-18' && context.units.length === 1 && context.units[0].maxScore === 4, '第17至18题合计4分');
+        for (let attempt = 0; attempt < 40 && !document.querySelector('.ai-grade-btn'); attempt++) await sleep(75);
+        check(document.querySelector('.ai-grade-btn')?.getClientRects().length, '进入答卷后显示批改菜单');
+        view.expandArea = true;
+        paperImage().style.backgroundImage = `url('${crop(101, '460x270x60x340')}')`;
+        const [source] = await adapter.gatherAnswerImages();
+        check(source === crop(101) && await adapter.fetchImageAsBase64(source) === 'AQID' && downloads.includes(source), '放大原图时仍读取原始答题卡裁切图');
+        view.expandArea = false;
+        paperImage().style.backgroundImage = `url('${crop(999)}')`;
+        check(!adapter.getPaperIdentity() && !adapter.fillScores([2]), '原站显示旧图时等待答题卡同步');
+        paperImage().style.backgroundImage = `url('${source}')`;
+        check(await adapter.detectMarkingPage(), '当前卷题图复原后可继续');
+        check([[], [null], [4.01], [1.001], ['1e0'], [2, 2]].every(value => !adapter.fillScores(value)) && field().value === '', '拒绝缺项、越界和无效分数');
+        check(adapter.fillScores([0]) && field().value === '0' && adapter.fillScores([4]) && view.eachList[0].gradingTodo.score === 4
+            && adapter.fillScores([2.75]) && enterKeys === 0 && clicks === 0, '使用输入事件同步零分、满分和小数');
+        annotations = [1];
+        check(!await adapter.submitGrade() && clicks === 0, '答卷有批注时由教师使用原站入口保存');
+        annotations = [];
+        check(adapter.fillScores([3]) && !await adapter.submitGrade({ verify: () => { history.replaceState(null, '', route.replace('99001', '99999')); } })
+            && clicks === 0, '提交前换任务时阻止原站按钮触发');
+        history.replaceState(null, '', route);
+        check(adapter.fillScores([2]) && !await adapter.submitGrade({ verify: () => { view.selPanelList[0].questionNums[0].num = 17; } })
+            && clicks === 0, '原站选题先于页面刷新时停下');
+        view.selPanelList[0].questionNums[0].num = 16;
+        check(adapter.fillScores([2]) && !await adapter.submitGrade({ verify: () => render(109) }) && clicks === 0, '提交前换卷时拒绝旧分数');
+        check((await adapter.gatherAnswerImages())[0] === crop(109) && adapter.fillScores([3.5]), '重新读取当前答卷后可填分');
+        behavior = 'wrong-paper';
+        check(!await adapter.submitGrade() && submitted.length === 0 && XMLHttpRequest.prototype.send === originalSend, '拒绝请求内答卷标识不一致并恢复平台请求');
+        render(101);
+        behavior = 'rejected';
+        check((await adapter.gatherAnswerImages())[0] === crop(101) && adapter.fillScores([3.5]) && !await adapter.submitGrade()
+            && submitted.length === 1 && !adapter._submitted, '原站业务拒绝不计为保存成功');
+        render(101);
+        behavior = 'ok';
+        await adapter.gatherAnswerImages();
+        const oldPaper = adapter.getPaperIdentity();
+        const oldTask = adapter.getGradingTaskIdentifier();
+        check(adapter.fillScores([4]) && await adapter.submitGrade() && submitted.at(-1)?.score === 4
+            && XMLHttpRequest.prototype.open === originalOpen, '原站业务回执确认合并总分提交');
+        check(await adapter.waitForNextPaper(source, { paperId: oldPaper, taskId: oldTask }) && adapter.getPaperIdentity() !== oldPaper
+            && !adapter.fillScores([3.5]), '等待新答题卡就绪并拒绝旧评阅分数');
+        view.pageSize = 2;
+        check(!adapter.isMarkingPage() && !adapter.getScoreInputs().length, '多份同屏不进入单份阅卷流程');
+        view.pageSize = 1;
+        view.readType = 2;
+        check(!adapter.isMarkingPage(), '其他阅卷类型采用平台各自的流程');
+        view.readType = 1;
+        history.replaceState(null, '', '/exam/marking/paperReview');
+        check(adapter.isRegradeMode() && !adapter.isMarkingPage(), '历史回评不使用正常阅卷提交');
+        finish({ passed: true });
+    } catch (error) { finish({ passed: false, error: error.stack }); }
+})();
+</script>
