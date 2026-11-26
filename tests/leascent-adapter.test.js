@@ -241,8 +241,14 @@ test('稀疏评分数组在写入任何原生值之前拒绝', async () => {
 
 
 test('丽升学校站点只在阅卷端口注册', () => {
-    const deployment = { host: 'yc05.591yj.cn', port: '9090' };
-    assert.equal(setup(deployment).a?.id, 'leascent');
-    assert.equal(setup({ ...deployment, port: '8088' }).a, undefined);
-    assert.equal(setup({ ...deployment, path: '/account/login' }).a, undefined);
+    for (const deployment of [
+        { host: 'yc05.591yj.cn', port: '9090' },
+        { host: '111.59.208.15', port: '88' },
+    ]) {
+        assert.equal(setup(deployment).a?.id, 'leascent');
+        assert.equal(setup({ ...deployment, port: '8088' }).a, undefined);
+        assert.equal(setup({ ...deployment, path: '/account/login' }).a, undefined);
+        assert.equal(setup({ ...deployment, path: '/home/index-review' }).a, undefined);
+        assert.equal(setup({ ...deployment, protocol: 'https:' }).a, undefined);
+    }
 });
