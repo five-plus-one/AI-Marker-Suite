@@ -172,14 +172,6 @@ const GuangdaAdapter = {
             await new Promise(r => setTimeout(r, 300));
         }
 
-        // 超时：尝试用 performance API 回退
-        console.warn('⚠️ [诊断] 等待图片池超时，尝试回退方案');
-        const perfUrls = this._getImageUrlsFromPerformance();
-        if (perfUrls.length > 0) {
-            console.log(`🖼️ [诊断] 从 performance 回退找到 ${perfUrls.length} 张图片`);
-            return perfUrls;
-        }
-
         console.warn('⚠️ [诊断] 未找到答题卡图片');
         return [];
     },
@@ -197,29 +189,6 @@ const GuangdaAdapter = {
             console.log(`🖼️ [诊断] 从图片池找到密号 ${mh} 的图片`);
             console.log(`  📷 图片: ${url.substring(0, 80)}...`);
             return [url];
-        }
-
-        return [];
-    },
-
-    // 从 performance API 获取图片 URL（备用方案，取最新一张）
-    _getImageUrlsFromPerformance() {
-        const entries = performance.getEntriesByType('resource');
-        const imageUrls = entries
-            .filter(e => e.initiatorType === 'img' || e.name.includes('.jpg') || e.name.includes('.png'))
-            .filter(e => e.name.includes('rescenter') || e.name.includes('markpic'))
-            .map(e => e.name);
-
-        const uniqueUrls = [...new Set(imageUrls)].filter(url =>
-            url.includes('.jpg') || url.includes('.png')
-        );
-
-        if (uniqueUrls.length > 0) {
-            // 只返回最新的 1 张图片（避免预加载图片干扰）
-            const latestUrl = uniqueUrls[uniqueUrls.length - 1];
-            console.log(`🖼️ [诊断] 从 performance 找到 ${uniqueUrls.length} 张图片，使用最新的 1 张`);
-            console.log(`  📷 图片: ${latestUrl.substring(0, 80)}...`);
-            return [latestUrl];
         }
 
         return [];
