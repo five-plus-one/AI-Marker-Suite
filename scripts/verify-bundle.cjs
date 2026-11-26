@@ -15,7 +15,7 @@ const cases = [...M.ADAPTERS, ...Q.deployments.map(form => ({ dir: 'qiguang', id
     { dir: 'unknown', own: { host: 'example.com', path: '/' } }];
 for (const item of cases) for (const storage of ['available', 'write-failure']) {
     const sb = M.makeStub(item.own), store = {};
-    sb.document.readyState = 'loading';
+    sb.document.readyState = 'interactive';
     sb.document.getElementById = () => null;
     sb.window.location = sb.location;
     sb.GM_getValue = (key, fallback) => store[key] ?? fallback;
