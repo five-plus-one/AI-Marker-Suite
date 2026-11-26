@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.43.1',
+    VERSION: '1.21.43.2',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.43.2': [
+            '【新平台】支持会课阅卷的待阅答卷，可读取原图、按小题填分并核对保存结果。',
+        ],
         '1.21.43.1': [
             '【修复】丽升学校站点在连续预取答卷时仍可读取当前答卷，并支持 TIFF 答卷。',
         ],
