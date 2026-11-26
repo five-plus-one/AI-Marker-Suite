@@ -87,6 +87,8 @@ function makeStub(form = {}) {
         console: { log() {}, warn() {}, error() {} },
         location: {
             hostname: form.host || 'example.com',
+            origin: (form.protocol || 'https:') + '//' + (form.host || 'example.com')
+                + (form.port ? ':' + form.port : ''),
             host: (form.host || 'example.com') + (form.port ? ':' + form.port : ''),
             protocol: form.protocol || 'https:',
             pathname: form.path || '/',
@@ -310,6 +312,11 @@ const ADAPTERS = [
       near: [{ label: '启望阅卷域名的回评页', form: { host: 'yunyuejuan.zhengrui-edu.com', path: '/MarkingOss/Review' } },
              { label: '外站的同名启望阅卷路径', form: { host: 'example.com', path: '/MarkingOss/NormalReadOssPaper' } },
              { label: '启望阅卷路径的相似后缀', form: { host: 'yunyuejuan.zhengrui-edu.com', path: '/MarkingOss/NormalReadOssPaper2' } }] },
+    { dir: 'yunhen', id: 'yunhen', name: '云痕大数据',
+      own: { host: 'ercdmark.eduyunhen.com', path: '/home/index' },
+      near: [{ label: '云痕阅卷 HTTP 入口', form: { host: 'ercdmark.eduyunhen.com', protocol: 'http:' } },
+             { label: '云痕阅卷近似域名', form: { host: 'ercdmark.eduyunhen.com.example.com' } },
+             { label: '云痕阅卷接口域名', form: { host: 'apis.eduyunhen.com' } }] },
     { dir: 'runjian', id: 'runjian', name: '润建学情',
       own: { host: 'aisusheng.runjian.com', path: '/read-paper/1' },
       near: [{ label: '近似域名 runjian.com', form: { host: 'runjian.com', path: '/' } },
