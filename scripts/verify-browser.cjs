@@ -57,7 +57,7 @@ async function connect(url) {
         await client.send('Runtime.enable');
         await client.send('Network.enable');
         const selected = process.argv.find(arg => arg.startsWith('--fixture='))?.slice(10);
-        const fixtures = ['embedded-ui', 'diagnostic-export', 'workflow', 'api-endpoints', 'renderer', 'bundle', 'output-mode', 'subscore', 'xinkao-cloud', 'xinkao-campus', 'xinkao-intranet', 'xinkao-public', 'qiwang', 'yunhen', 'qitian', 'taowei', 'yuejuantong', 'bfzks', 'baishi', 'xkw-cloud', 'eiduo', 'dcesa', 'review-evidence', 'question-guard', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
+        const fixtures = ['embedded-ui', 'diagnostic-export', 'workflow', 'api-endpoints', 'renderer', 'bundle', 'output-mode', 'subscore', 'xinkao-cloud', 'xinkao-campus', 'xinkao-intranet', 'xinkao-public', 'qiwang', 'yunhen', 'willclass', 'qitian', 'taowei', 'yuejuantong', 'bfzks', 'baishi', 'xkw-cloud', 'eiduo', 'dcesa', 'review-evidence', 'question-guard', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
             'ameqp-multi', 'ameqp-fill-palette', 'ameqp-fill-keyboard', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
@@ -91,6 +91,7 @@ async function connect(url) {
         const taoweiPageHtml = fs.readFileSync(path.join(root, 'tests/fixtures/taowei-page.html'), 'utf8');
         const baishiHtml = fs.readFileSync(path.join(root, 'tests/fixtures/baishi.html'), 'utf8');
         const eiduoHtml = fs.readFileSync(path.join(root, 'tests/fixtures/eiduo.html'), 'utf8');
+        const willclassHtml = fs.readFileSync(path.join(root, 'tests/fixtures/willclass.html'), 'utf8');
         const yunhenHtml = fs.readFileSync(path.join(root, 'tests/fixtures/yunhen.html'), 'utf8');
         const qiwangHtml = fs.readFileSync(path.join(root, 'tests/fixtures/qiwang.html'), 'utf8');
         const dcesaHtml = fs.readFileSync(path.join(root, 'tests/fixtures/dcesa.html'), 'utf8');
@@ -156,6 +157,20 @@ async function connect(url) {
                     body = eiduoHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (url.hostname === 'ui.eiduo.com' && /^\/__fixture\/paper-[ab]\.svg$/.test(url.pathname)) {
                     body = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><text x="10" y="30">Physics practice</text></svg>';
+                    type = 'image/svg+xml'; status = 200;
+                } else if (url.origin === 'https://t.willclass.com' && url.pathname === '/exams/judge/90001') {
+                    body = willclassHtml; type = 'text/html; charset=utf-8'; status = 200;
+                } else if (url.origin === 'https://t.willclass.com' && /^\/exams\/api\/web\/examCenter\/(dynamic|ration)\/judge\/submit\/and\/fetch$/.test(url.pathname)) {
+                    const payload = JSON.parse(event.params.request.postData || '{}');
+                    const judge = payload.judgeInfo;
+                    const scores = judge?.judgeList?.[0]?.judgeInfo;
+                    const saved = payload.actionType === 2 && String(judge?.paperId) === '90001'
+                        && String(judge?.studentId) === '101' && scores?.[0]?.score === 0 && scores?.[1]?.score === 3.5;
+                    body = JSON.stringify(saved ? { status: 0, data: { judgeStudentId: 102 } } : { status: 4, msg: '保存失败' });
+                    type = 'application/json'; status = 200;
+                } else if (url.hostname === 'htfile-answer-sheet.oss-cn-beijing.aliyuncs.com'
+                    && /^\/__fixture\/answer-[12]\.svg$/.test(url.pathname)) {
+                    body = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320"><text x="10" y="30">Physics practice</text></svg>';
                     type = 'image/svg+xml'; status = 200;
                 } else if (url.origin === 'https://ercdmark.eduyunhen.com' && url.pathname === '/home/index') {
                     body = yunhenHtml; type = 'text/html; charset=utf-8'; status = 200;
@@ -289,6 +304,8 @@ async function connect(url) {
                             { name: 'Access-Control-Allow-Methods', value: 'POST,OPTIONS' },
                             { name: 'Access-Control-Allow-Headers', value: 'content-type' },
                         ] : []),
+                        ...(url.hostname === 'htfile-answer-sheet.oss-cn-beijing.aliyuncs.com' ?
+                            [{ name: 'Access-Control-Allow-Origin', value: 'https://t.willclass.com' }] : []),
                         ...(url.origin === 'https://apis.eduyunhen.com' ? [
                             { name: 'Access-Control-Allow-Origin', value: 'https://ercdmark.eduyunhen.com' },
                             { name: 'Access-Control-Allow-Methods', value: 'POST,OPTIONS' },
@@ -327,6 +344,7 @@ async function connect(url) {
             const xkwCloud = fixture === 'xkw-cloud';
             const eiduo = fixture === 'eiduo';
             const qiwang = fixture === 'qiwang';
+            const willclass = fixture === 'willclass';
             const yunhen = fixture === 'yunhen';
             const dcesa = fixture === 'dcesa';
             const xinkao = fixture.startsWith('xinkao-');
@@ -341,7 +359,7 @@ async function connect(url) {
             const youfen = fixture.startsWith('youfen-');
             const xiaoleyouyue = fixture.startsWith('xiaoleyouyue-');
             let url = pathToFileURL(path.join(root, `tests/fixtures/${startup ? 'startup' : fixture}.html`)).href + '?run=' + runId + '&mode=' + mode;
-            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || zhixueHomework || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || qitian || hanhan || xinjiaoyu || taowei || xinkao || markview || baishi || xkwCloud || eiduo || dcesa || qiwang || yunhen) {
+            if (deployment || ameqp || jzsmartedu || jiukexing || zhixue || zhixueHomework || haofenshu || wzedu || xiaoxianai || huixue || youfen || xiaoleyouyue || xiangshangxue || yuandingbang || qitian || hanhan || xinjiaoyu || taowei || xinkao || markview || baishi || xkwCloud || eiduo || dcesa || qiwang || yunhen || willclass) {
                 if (!interceptionEnabled) { await client.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }); interceptionEnabled = true; }
                 const origin = zhixue ? 'https://www.zhixue.com' : fixture.startsWith('qiguang-zhenxue-') ? 'https://crock.51zhenxue.com'
                     : fixture === 'qiguang-original-deployment' ? 'http://120.78.5.37:8091'
@@ -367,6 +385,7 @@ async function connect(url) {
             if (markview) url = (fixture === 'bfzks' ? 'https://www.bfzks.com' : 'http://www.yuejuantong.com')
                 + '/mark/v6/view/fixture?run=' + runId;
             if (eiduo) url = 'https://ui.eiduo.com/exam-webapp/marking/index?examId=1&subjectId=2&isArbitrate=false&check=false&run=' + runId;
+            if (willclass) url = 'https://t.willclass.com/exams/judge/90001?run=' + runId + '#questionIds=401,402';
             if (yunhen) url = 'https://ercdmark.eduyunhen.com/home/index?run=' + runId;
             if (qiwang) url = 'https://yunyuejuan.zhengrui-edu.com/MarkingOss/NormalReadOssPaper?run=' + runId;
             if (dcesa) url = 'https://dcesa.cn/?run=' + runId + '#/exam/area/sample-exam';
