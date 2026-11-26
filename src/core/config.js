@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.42.9',
+    VERSION: '1.21.43.0',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.43.0': [
+            '【修复】AMEQP 网上评卷可在提交当前答卷后继续批改下一份。',
+        ],
         '1.21.42.9': [
             '【修复】首次设置可重新连接账号，授权完成后自动检测批改线路。',
         ],
