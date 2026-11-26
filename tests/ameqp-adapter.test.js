@@ -184,17 +184,16 @@ test('AMEQP 单图缓存戳刷新不换卷，语义查询和路径改变均区�
     assert.notEqual(f.adapter.getPaperIdentity(), before);
 });
 
-test('AMEQP 非数字文件公共前缀不能掩盖给分事件中的换卷', async () => {
-    for (const type of ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur']) {
-        const f = fixture({ onInput: (_input, event, state) => {
-            if (event.type === type) { state.changePaper('1002'); state.img.src = 'https://school.example/生物地理_B.PNG'; }
-        } });
-        f.state.img.src = 'https://school.example/生物地理_A.PNG';
-        assert.equal(f.adapter.fillScores([1, 2]), false);
-        assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
-        assert.ok(f.state.inputs.every(input => input.value === ''));
-        assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
-    }
+test('AMEQP 非数字文件公共前缀不能掩盖提交前的换卷', async () => {
+    const f = fixture();
+    f.state.img.src = 'https://school.example/生物地理_A.PNG';
+    assert.equal(f.adapter.fillScores([1, 2]), true);
+    f.state.changePaper('1002');
+    f.state.img.src = 'https://school.example/生物地理_B.PNG';
+    assert.equal(await f.adapter.submitGrade(), false);
+    assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
+    assert.ok(f.state.inputs.every(input => input.value === ''));
+    assert.equal(f.state.clicks, 0);
 });
 
 test('AMEQP 多张未知分组图片不提供答卷身份', async () => {
@@ -205,14 +204,14 @@ test('AMEQP 多张未知分组图片不提供答卷身份', async () => {
     assert.equal(f.adapter.fillScores([1, 2]), false);
 });
 
-test('AMEQP 首图未变而其他题块换卷时停止给分和提交', async () => {
-    const f = fixture({ onInput: (_input, _event, state) => {
-        if (state.events.length === 1) state.images[1].src = 'https://school.example/images/1002_01_2_0.PNG';
-    } });
+test('AMEQP 首图未变而其他题块已换卷时不准备分数', async () => {
+    const f = fixture();
     f.state.images.push({ ...f.state.img, src: 'https://school.example/images/1001_01_2_0.PNG' });
+    assert.equal((await f.adapter.gatherAnswerImages()).length, 2);
+    f.state.images[1].src = 'https://school.example/images/1002_01_2_0.PNG';
     assert.equal(f.adapter.fillScores([1, 2]), false);
     assert.equal(f.adapter.getPaperIdentity(), null);
-    assert.equal(f.state.inputs[1].value, '');
+    assert.ok(f.state.inputs.every(input => input.value === ''));
     assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
     assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
 });
@@ -268,32 +267,45 @@ test('AMEQP 提交确认等待中换卷及时拦截', async () => {
     assert.equal(result, false); assert.equal(f.state.clicks, 0); assert.ok(f.state.inputs.every(input => input.value === ''));
 });
 
-test('AMEQP 平台给分事件内换卷后不再写分或同步新卷', async () => {
-    for (const options of [
-        { onPalette: state => state.changePaper('1002') },
-        { onInput: (_input, _event, state) => state.changePaper('1002') }
-    ]) {
-        const f = fixture(options);
-        assert.equal(f.adapter.fillScores([1, 2]), false);
-        assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
-        assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
-    }
+test('AMEQP 准备给分只更新当前卷的可见分数和登记字段', () => {
+    const f = fixture({ jquery: true, onPalette: () => assert.fail('原生给分列表'),
+        onInput: () => assert.fail('原生输入事件'), onJQueryValue: () => assert.fail('jQuery 写值'),
+        onJQuery: () => assert.fail('jQuery 输入事件') });
+    assert.equal(f.adapter.fillScores([0, 2.5]), true);
+    assert.equal(f.state.optionClicks, 0);
+    assert.deepEqual(f.state.events, []);
+    assert.deepEqual(f.state.inputs.map(input => input.value), ['0.0', '2.5']);
+    assert.deepEqual(Object.values(f.state.hidden).map(input => input.value), ['0.0', '2.5']);
+    assert.equal(f.state.total.value, '2.5');
+    assert.equal(f.state.clicks, 0);
 });
 
-test('AMEQP 原生与 jQuery 登记链在任一事件内换卷后保留新卷空框', async () => {
-    for (const phase of ['native', 'jquery']) for (const type of ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur']) {
-        let moved = false;
-        const move = (current, state) => { if (!moved && current === type) { moved = true; state.changePaper('1002'); } };
-        const f = fixture({ jquery: true,
-            onInput: (_input, event, state) => { if (phase === 'native') move(event.type, state); },
-            onJQuery: (event, state) => { if (phase === 'jquery') move(event, state); }
+for (const trigger of ['palette', 'native', 'jquery']) {
+    test('AMEQP 给分与提交分离：' + trigger + ' 自动换卷部署连续提交三份', async () => {
+        const earlyAdvance = state => { if (state.clicks > 0) state.changePaper('9999'); };
+        const f = fixture({
+            jquery: true,
+            onPalette: trigger === 'palette' ? earlyAdvance : undefined,
+            onInput: (_input, event, state) => { if (trigger === 'native' && event.type === 'keyup') earlyAdvance(state); },
+            onJQuery: (type, state) => { if (trigger === 'jquery' && type === 'blur') earlyAdvance(state); },
+            onSubmit: state => state.changePaper(String(1001 + state.clicks)),
         });
-        assert.equal(f.adapter.fillScores([1, 2]), false, phase + '/' + type);
-        assert.ok(f.state.inputs.every(input => input.value === ''), phase + '/' + type + ' must keep new inputs empty');
-        assert.ok(Object.values(f.state.hidden).every(input => input.value === ''));
-        assert.equal(await f.adapter.submitGrade(), false); assert.equal(f.state.clicks, 0);
-    }
-});
+        f.state.inputs.splice(1);
+        for (const [i, score] of [3, 4, 2].entries()) {
+            assert.equal((await f.adapter.gatherAnswerImages()).length, 1);
+            assert.equal(f.adapter.getPaperIdentity(), String(1001 + i));
+            assert.equal(f.adapter.fillScores([score]), true, '准备第 ' + (i + 1) + ' 份答卷的分数');
+            assert.equal(f.adapter.getPaperIdentity(), String(1001 + i));
+            assert.equal(f.state.inputs[0].value, score.toFixed(1));
+            assert.equal(f.state.hidden['1_1'].value, score.toFixed(1));
+            assert.equal(f.state.total.value, String(score));
+            assert.equal(f.state.clicks, i);
+            assert.equal(await f.adapter.submitGrade(), true);
+            assert.equal(await f.adapter.waitForNextPaper(), true);
+        }
+        assert.equal(f.state.clicks, 3);
+    });
+}
 
 test('AMEQP 提交幂等且异常恢复原生提示', async () => {
     const f = fixture(); assert.ok(f.adapter.fillScores([1, 2]));
