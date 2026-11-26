@@ -94,6 +94,19 @@ test('授权服务未响应时取消立即中止请求，并可重新发起', as
     assert.equal(evaluate('markerManagedAccount().accountId'), account.accountId);
 });
 
+test('重新连接期间账号已被替换时，不覆盖现有连接', async () => {
+    const previous = { accountId: 15, apiKey, uploadToken: 'fixture-previous', expiresAt };
+    const claimed = { ...previous, uploadToken: 'fixture-claimed' };
+    const current = { ...previous, accountId: 16, uploadToken: 'fixture-current' };
+    const { env, evaluate, stored, requests } = scenario([claimed]);
+    const name = evaluate('MARKER_ACCOUNT_KEY');
+    stored.set(name, previous);
+    env.changeAccount = () => stored.set(name, current);
+    await assert.rejects(evaluate('connectMarkerAccount({ expectedAccountId: 15, onWaiting: changeAccount })'), /account_changed/);
+    assert.deepEqual(stored.get(name), current);
+    assert.equal(requests.at(-1).route, '/v1/account/script-flows/cancel');
+});
+
 test('工具站回调只在对应的本地授权存在时提交，URL 不包含证明', async () => {
     const { env, evaluate, stored } = scenario([]);
     const proof = 'c'.repeat(64);

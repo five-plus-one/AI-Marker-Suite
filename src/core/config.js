@@ -3,7 +3,7 @@
 
 const SCRIPT_CONFIG = {
     /** 当前脚本版本号，修改此处即可同步更新所有引用 */
-    VERSION: '1.21.42.8',
+    VERSION: '1.21.42.9',
 
     /** 轻量级更新检查 UL（优先使用，~1KB）—— stable 渠道默认值 */
     MANIFEST_URL: 'https://auto-update.aimarking.five-plus-one.com/ota/manifest.json',
@@ -46,6 +46,9 @@ const SCRIPT_CONFIG = {
      * 运行时从远端 manifest.json 加载，此处作为构建时的数据源
      */
     CHANGELOG: {
+        '1.21.42.9': [
+            '【修复】首次设置可重新连接账号，授权完成后自动检测批改线路。',
+        ],
         '1.21.42.8': [
             '【修复】丽升学校站点进入正评打分板后可读取答卷、填分并确认保存。',
         ],

@@ -3451,9 +3451,12 @@ function saveAISettings(event) {
 let _onboardingDialogOpen = false; // 防止重复弹出
 let _onboardingOverlayEl = null;   // 引导弹窗根元素（SPA 导航离开批改页时需主动关闭）
 let _onboardingApiCheck = null;
+let _onboardingReconnect = null;
 
 // 关闭新手引导弹窗（供「离开批改页」生命周期清理调用）
 function hideOnboardingDialog() {
+    _onboardingReconnect?.abort();
+    _onboardingReconnect = null;
     _onboardingApiCheck?.abort();
     _onboardingApiCheck = null;
     if (_onboardingOverlayEl) {
@@ -3509,9 +3512,12 @@ function showOnboardingDialog(forceShow, mode) {
         return { isFirst, hasApiStep, apiStep, nameModeStep, workflowStep, ctxStep, doneStep };
     }
 
+    const sameAccountCredential = (a, b) => a && b && a.accountId === b.accountId && a.apiKey === b.apiKey;
+
     function render() {
         const s = getStepInfo();
         const account = s.apiStep && markerManagedAccount();
+        if (s.apiStep && !sameAccountCredential(accountCheck, account)) accountCheck = null;
         const title = s.apiStep ? account ? '五加一账号已连接' : manualKeyEntry ? '输入 API 密钥' : '连接批改服务'
             : s.nameModeStep ? '配置方案' : s.workflowStep ? '选择批改工作流' : s.ctxStep ? '填写批改资料' : '方案已保存';
 
@@ -3543,7 +3549,9 @@ function showOnboardingDialog(forceShow, mode) {
             </div>
         `;
         bindEvents(account);
-        if (s.apiStep && account && accountCheck?.accountId !== account.accountId) queueMicrotask(testOnboardingAccountRoute);
+        if (account && !accountCheck && !_onboardingReconnect) queueMicrotask(() => {
+            if (!accountCheck) testOnboardingAccountRoute();
+        });
     }
 
     function renderApiStep(account) {
@@ -3553,15 +3561,16 @@ function showOnboardingDialog(forceShow, mode) {
             const pieces = celebrate && confirmed
                 ? Array.from({length: 8}, (_, index) => `<i style="--angle:${index * 45}deg;--piece:${index % 2 ? '#FCA948' : '#348B6B'}"></i>`).join('') : '';
             celebrate = false;
-            const message = confirmed ? `${escapeSettingsHtml(resolveOfficialApiLine(result.line).name)}已通过测试。`
+            const message = _onboardingReconnect ? '正在打开五加一账号授权页…'
+                : accountCheck?.reconnectError || (confirmed ? `${resolveOfficialApiLine(result.line).name}已通过测试。`
                 : result?.reason === 'balance' ? '5plus1API 批改账户余额不足。'
                     : result?.reason === 'service' ? '批改请求未通过。请核对账户余额或模型权限。'
-                    : result?.reason === 'invalid' ? '批改服务暂时无法验证，请检查五加一账号后重试。'
-                        : result ? '暂时无法连接批改线路，请检查网络后重试。' : '正在测试批改线路…';
+                    : result?.reason === 'invalid' ? '当前账号连接无法使用，请重新连接账号。'
+                        : result ? '暂时无法连接批改线路，请检查网络后重试。' : '正在测试批改线路…');
             return `<div class="ai-onboarding-result" role="status">
                 ${confirmed ? `<div class="ai-onboarding-check" aria-hidden="true">✓${pieces}</div>` : ''}
                 ${confirmed ? '<strong>批改服务已就绪</strong>' : ''}
-                <p id="ob-status">${message}</p>
+                <p id="ob-status">${escapeSettingsHtml(message)}</p>
                 ${result?.reason === 'balance' ? `<a class="ai-onboarding-later" href="${markerAccountPortalUrl()}" target="_blank" rel="noopener noreferrer">查看余额与充值</a>` : ''}
                 ${confirmed ? '<p>接下来，为当前题目配置批改方案。</p>' : ''}
             </div>`;
@@ -3589,7 +3598,11 @@ function showOnboardingDialog(forceShow, mode) {
         const later = '<a class="ai-onboarding-later" href="#" id="ob-skip">稍后设置</a>';
         if (account) {
             const result = accountCheck?.result;
-            const label = result?.success ? '配置批改方案' : result ? '重试线路测试' : '正在测试…';
+            if (_onboardingReconnect) {
+                return later + '<button type="button" class="ai-modal-btn-cancel" data-marker-cancel>取消授权</button>';
+            }
+            const label = result?.success ? '配置批改方案'
+                : result?.reason === 'invalid' ? '重新连接账号' : result ? '重试线路测试' : '正在测试…';
             return later + `<button type="button" class="ai-modal-btn-confirm" id="ob-next" ${result ? '' : 'disabled'}>${label}</button>`;
         }
         if (manualKeyEntry) return `
@@ -3599,25 +3612,63 @@ function showOnboardingDialog(forceShow, mode) {
         return later + '<button type="button" class="ai-modal-btn-cancel" data-marker-cancel style="display:none">取消授权</button>';
     }
 
+    async function reconnectOnboardingAccount(account) {
+        if (!overlay.isConnected || _onboardingReconnect || _onboardingApiCheck) return;
+        if (!sameAccountCredential(account, markerManagedAccount())) {
+            render();
+            return;
+        }
+        const controller = new AbortController();
+        _onboardingReconnect = controller;
+        render();
+        let error;
+        try {
+            await connectMarkerAccount({
+                expectedAccountId: account.accountId,
+                signal: controller.signal,
+                onWaiting: () => {
+                    if (controller === _onboardingReconnect && overlay.isConnected) {
+                        overlay.querySelector('#ob-status').textContent = markerConnectionMessage('pending');
+                    }
+                },
+            });
+        } catch (failure) { error = failure; }
+        if (controller !== _onboardingReconnect || !overlay.isConnected) return;
+        _onboardingReconnect = null;
+        if (error) {
+            if (sameAccountCredential(accountCheck, markerManagedAccount())) {
+                accountCheck.reconnectError = markerConnectionMessage(error.code || error.message);
+            }
+            render();
+            return;
+        }
+        accountCheck = null;
+        if (markerManagedAccount()) await testOnboardingAccountRoute();
+        else render();
+    }
+
     async function testOnboardingAccountRoute() {
         const account = markerManagedAccount();
-        if (!overlay.isConnected || !account || _onboardingApiCheck) return;
+        if (!overlay.isConnected || !getStepInfo().apiStep || !account || _onboardingApiCheck || _onboardingReconnect) return;
         const controller = new AbortController();
         _onboardingApiCheck = controller;
-        accountCheck = { accountId: account.accountId };
+        accountCheck = { accountId: account.accountId, apiKey: account.apiKey };
         render();
         let result;
         try {
             result = await verifyOfficialApiKey(account.apiKey, {
                 line: getOfficialApiLine(ProviderManager.getProvider('5plus1官方')),
                 signal: controller.signal,
-                onFallback: () => { overlay.querySelector('#ob-status').textContent = '正在测试备用线路…'; },
+                onFallback: () => {
+                    if (controller === _onboardingApiCheck && overlay.isConnected) {
+                        overlay.querySelector('#ob-status').textContent = '正在测试备用线路…';
+                    }
+                },
             });
         } catch (_) { result = { success: false, reason: 'network' }; }
         if (controller !== _onboardingApiCheck || !overlay.isConnected) return;
         _onboardingApiCheck = null;
-        const current = markerManagedAccount();
-        if (current?.accountId !== account.accountId || current.apiKey !== account.apiKey) {
+        if (!sameAccountCredential(account, markerManagedAccount())) {
             accountCheck = null;
             render();
             return;
@@ -3768,12 +3819,24 @@ function showOnboardingDialog(forceShow, mode) {
             const skip = overlay.querySelector('#ob-skip');
             if (skip) skip.onclick = event => {
                 event.preventDefault();
-                cancelMarkerConnection();
+                if (!account) cancelMarkerConnection();
                 hideOnboardingDialog();
             };
             if (account) {
+                if (_onboardingReconnect) {
+                    const cancel = overlay.querySelector('[data-marker-cancel]');
+                    cancel.onclick = () => _onboardingReconnect?.abort();
+                    cancel.focus();
+                    return;
+                }
                 const result = accountCheck?.result;
-                next.onclick = result?.success ? () => { currentStep++; render(); } : testOnboardingAccountRoute;
+                next.onclick = result?.success ? () => {
+                    if (!sameAccountCredential(account, markerManagedAccount())) { render(); return; }
+                    currentStep++;
+                    render();
+                } : result?.reason === 'invalid' ? event => {
+                    if (event.isTrusted) return reconnectOnboardingAccount(account);
+                } : testOnboardingAccountRoute;
                 if (result) next.focus();
                 return;
             }
