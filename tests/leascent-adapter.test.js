@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { runInNewContext } = require('node:vm');
 const M = require('./_adapter-matrix.js');
 
 // 现场结构：CurrQuestion 持有 base64，主图使用 blob；提交动作先换卷，再收到 SetMark 响应。
@@ -294,4 +297,33 @@ test('丽升学校站点只绑定像素一致的答卷，并核对原生给分�
     assert.equal(a.fillScores([2]), true);
     assert.equal(await a.submitGrade(), true);
     assert.equal(sent.length, 2);
+});
+
+test('丽升首卷响应先于助手初始化时仍可读取', () => {
+    class NativeRequest extends EventTarget {
+        open(_method, url) { this.responseURL = new URL(url, nativePage.location).href; }
+        receive(payload) {
+            this.status = 200;
+            this.responseText = JSON.stringify(payload);
+            this.dispatchEvent(new Event('load'));
+        }
+    }
+    const originalOpen = NativeRequest.prototype.open;
+    const nativePage = { location: new URL('http://111.59.208.15:88/home/index'), XMLHttpRequest: NativeRequest };
+    nativePage.top = nativePage;
+    const source = readFileSync(join(__dirname, '../src/adapters/leascent/bootstrap.js'), 'utf8');
+    const subscribe = runInNewContext(source + '\n;captureLeascentSchoolQuestions()', { window: nativePage, URL });
+    const first = new NativeRequest();
+    first.open('POST', '/home/GetQuestion');
+    first.receive([{ PaperId: 'first' }]);
+    const other = new NativeRequest();
+    other.open('POST', 'http://example.com/home/GetQuestion');
+    other.receive([{ PaperId: 'other' }]);
+    const inFlight = new NativeRequest();
+    inFlight.open('POST', '/home/GetQuestion');
+    const seen = [];
+    subscribe(papers => seen.push(papers[0].PaperId));
+    assert.equal(NativeRequest.prototype.open, originalOpen);
+    inFlight.receive([{ PaperId: 'second' }]);
+    assert.deepEqual(seen, ['first', 'second']);
 });

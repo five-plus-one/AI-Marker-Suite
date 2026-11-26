@@ -302,32 +302,36 @@ const LeascentAdapter = {
 const LeascentSchoolAdapter = Object.assign(Object.create(LeascentAdapter), {
     _recentPapers: new Map(),
     _observeQuestions() {
+        if (typeof leascentSchoolStartup === 'function') leascentSchoolStartup(papers => this._rememberQuestions(papers));
         const w = this._page();
         if (!w?.Zepto) return;
         w.Zepto(w.document).on('ajaxSuccess', (_event, xhr, settings, papers) => {
             const url = new URL(xhr.responseURL || settings.url, w.location.href);
             if (url.origin !== w.location.origin || url.pathname.toLowerCase() !== '/home/getquestion'
                 || xhr.status !== 200 || !Array.isArray(papers)) return;
-            for (const paper of papers) {
-                if (!paper?.PaperId || !paper.QuesID || !paper.LessonId || !(paper.RowID > 0)
-                    || !(paper.NeedReleaseNum > 0) || !Number.isInteger(paper.ReleaseNum) || paper.ReleaseNum < 0 || paper.SmallQuesMark != null
-                    || !/^data:image\/(?:jpg|jpeg|png);base64,[A-Za-z0-9+/]+=*$/.test(paper.PaperPath || '')) continue;
-                const key = JSON.stringify([paper.LessonId, paper.QuesID, paper.PaperId, paper.RowID]);
-                const previous = this._recentPapers.get(key);
-                if (previous?.PaperPath === paper.PaperPath && previous.release === paper.ReleaseNum
-                    && previous.NeedReleaseNum === paper.NeedReleaseNum) continue;
-                this._recentPapers.delete(key);
-                this._recentPapers.set(key, {
-                    key, lesson: String(paper.LessonId), question: String(paper.QuesID),
-                    PaperId: paper.PaperId, RowID: paper.RowID, NeedReleaseNum: paper.NeedReleaseNum,
-                    release: paper.ReleaseNum, PaperPath: paper.PaperPath,
-                });
-            }
-            for (const key of this._recentPapers.keys()) {
-                if (this._recentPapers.size <= 12) break;
-                this._recentPapers.delete(key);
-            }
+            this._rememberQuestions(papers);
         });
+    },
+    _rememberQuestions(papers) {
+        for (const paper of papers) {
+            if (!paper?.PaperId || !paper.QuesID || !paper.LessonId || !(paper.RowID > 0)
+                || !(paper.NeedReleaseNum > 0) || !Number.isInteger(paper.ReleaseNum) || paper.ReleaseNum < 0 || paper.SmallQuesMark != null
+                || !/^data:image\/(?:jpg|jpeg|png);base64,[A-Za-z0-9+/]+=*$/.test(paper.PaperPath || '')) continue;
+            const key = JSON.stringify([paper.LessonId, paper.QuesID, paper.PaperId, paper.RowID]);
+            const previous = this._recentPapers.get(key);
+            if (previous?.PaperPath === paper.PaperPath && previous.release === paper.ReleaseNum
+                && previous.NeedReleaseNum === paper.NeedReleaseNum) continue;
+            this._recentPapers.delete(key);
+            this._recentPapers.set(key, {
+                key, lesson: String(paper.LessonId), question: String(paper.QuesID),
+                PaperId: paper.PaperId, RowID: paper.RowID, NeedReleaseNum: paper.NeedReleaseNum,
+                release: paper.ReleaseNum, PaperPath: paper.PaperPath,
+            });
+        }
+        for (const key of this._recentPapers.keys()) {
+            if (this._recentPapers.size <= 12) break;
+            this._recentPapers.delete(key);
+        }
     },
     _blocked(w) {
         return Array.from(w.document.querySelectorAll(LEASCENT_SELECTORS.BLOCKERS)).some(el =>
