@@ -148,27 +148,6 @@ const QitianNewAdapter = {
         return [];
     },
 
-    // 从 performance API 获取图片 URL（备用方案，取最新一张）
-    _getImageUrlsFromPerformance() {
-        const entries = performance.getEntriesByType('resource');
-        const imageUrls = entries
-            .filter(e => e.name.includes('yjimage.oss'))
-            .map(e => e.name);
-
-        const uniqueUrls = [...new Set(imageUrls)].filter(url =>
-            url.includes('.jpg') || url.includes('.png') || url.includes('.jpeg')
-        );
-
-        if (uniqueUrls.length > 0) {
-            const latestUrl = uniqueUrls[uniqueUrls.length - 1];
-            console.log(`🖼️ [诊断] 从 performance 找到 ${uniqueUrls.length} 张图片，使用最新的 1 张`);
-            console.log(`  📷 图片: ${latestUrl.substring(0, 80)}...`);
-            return [latestUrl];
-        }
-
-        return [];
-    },
-
     async gatherAnswerImages() {
         console.log('🖼️ [诊断] 七天网络新UI — 开始获取答题卡图片...');
 
@@ -182,14 +161,6 @@ const QitianNewAdapter = {
                 return imageUrls;
             }
             await new Promise(r => setTimeout(r, 300));
-        }
-
-        // 超时：尝试用 performance API 回退
-        console.warn('⚠️ [诊断] 等待图片池超时，尝试回退方案');
-        const perfUrls = this._getImageUrlsFromPerformance();
-        if (perfUrls.length > 0) {
-            console.log(`🖼️ [诊断] 从 performance 回退找到 ${perfUrls.length} 张图片`);
-            return perfUrls;
         }
 
         console.warn('⚠️ [诊断] 未找到答题卡图片');
