@@ -1,0 +1,143 @@
+<!doctype html><meta charset="utf-8"><title>会课阅卷验收</title>
+<section class="rc_judgepaper_model">
+    <div class="rc_judgeCanvasModule"><canvas class="rc_judge_canvas" id="jCs" width="120" height="90"></canvas></div>
+    <div class="rc_judge_score">
+        <table class="rc_judge_score_table"><tbody>
+            <tr><td>13(1)</td><td><span class="rc_score_input"><input id="401" placeholder="满分2"></span></td></tr>
+            <tr><td>13(2)</td><td><span class="rc_score_input"><input id="402" placeholder="满分4"></span></td></tr>
+        </tbody></table>
+        <button class="rc_judge_score_submit_btn">提交分数(Enter)</button>
+    </div>
+</section>
+<pre id="result" hidden></pre>
+<script>
+const canvas = document.getElementById('jCs');
+const inputs = [...document.querySelectorAll('.rc_score_input input')];
+const runId = new URLSearchParams(location.search).get('run');
+const cdn = 'https://htfile-answer-sheet.oss-cn-beijing.aliyuncs.com';
+const file = index => cdn + '/__fixture/answer-' + index + '.svg';
+const task = { props: { paperId: 90001 }, state: { questionIds: [401, 402], loading: false, isHistory: false, isJudged: false },
+    fetchQuestionPage() {}, submitPost() {} };
+const panel = { props: { judgeType: 1, autoSubmit: 0 }, state: {}, allScore: [] };
+const judge = { props: {}, judgeScore: panel, onJudgeScoreRef() {} };
+const children = [];
+const drawing = { props: {}, state: {}, container: { children }, stage: { canvas, children: [] } };
+canvas.__reactFiber$fixture = { tag: 5, return: { tag: 1, stateNode: drawing,
+    return: { tag: 1, stateNode: judge, return: { tag: 1, stateNode: task } } } };
+
+const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+for (const [index, input] of inputs.entries()) {
+    let tracked = '';
+    Object.defineProperty(input, 'value', {
+        get() { return nativeSetter.get.call(this); },
+        set(value) { tracked = String(value); nativeSetter.set.call(this, value); }
+    });
+    input.addEventListener('input', () => {
+        if (tracked === input.value) return;
+        tracked = input.value;
+        panel.state.scoreList[index].judgeScore = tracked;
+        panel.allScore[index] = Number(tracked);
+    });
+}
+
+function load(student, index, paint = true) {
+    const url = file(index);
+    const scoreList = inputs.map((element, offset) => {
+        element.value = '';
+        return { key: Number(element.id), exerciseId: 13, questionIndex: '13(' + (offset + 1) + ')',
+            totalScore: (offset + 1) * 2, scoresAward: offset ? [3.5] : [] };
+    });
+    const exerciseDetails = [{ questionLogInfos: scoreList.map(row => ({ questionId: row.key, fileUrls: [url] })) }];
+    const exercise = { judgeStudentId: student, exerciseDetails };
+    task.state.exercise = judge.props.exercise = panel.props.exercise = panel.state.exercise = exercise;
+    drawing.props.exerciseDetails = drawing.state.exerciseDetails = exerciseDetails;
+    panel.state.scoreList = scoreList;
+    panel.allScore = [];
+    if (!paint) return Promise.resolve();
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    return new Promise((resolve, reject) => {
+        image.onload = () => {
+            children.splice(0, children.length, { image });
+            drawing.stage.children = [drawing.container];
+            canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+            resolve();
+        };
+        image.onerror = () => reject(Error('Cannot load synthetic answer image'));
+        image.src = url;
+    });
+}
+
+let clicks = 0;
+document.querySelector('button').addEventListener('click', () => {
+    clicks++;
+    const studentId = task.state.exercise.judgeStudentId;
+    const judgeInfo = panel.state.scoreList.map((row, index) => ({ questionId: row.key, score: panel.allScore[index] }));
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/exams/api/web/examCenter/ration/judge/submit/and/fetch');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.addEventListener('load', () => {
+        if (JSON.parse(xhr.responseText).status === 0) {
+            load(102, 2, false);
+            setTimeout(() => load(102, 2), 300);
+        }
+    });
+    xhr.send(JSON.stringify({ actionType: 2, judgeInfo: { paperId: 90001, studentId,
+        judgeList: [{ exerciseId: 13, judgeInfo }] } }));
+});
+
+window.GM_getValue = (key, fallback) => key === 'ai-grading-show-onboarding' ? false : fallback;
+window.GM_setValue = () => {};
+window.GM_registerMenuCommand = () => {};
+</script><script src="/__fixture/ai_marker.user.js"></script><script>
+(async () => {
+    const checks = [];
+    const check = (value, name) => { if (!value) throw Error(name); checks.push(name); };
+    const finish = result => {
+        const bytes = new TextEncoder().encode(JSON.stringify({ runId, width: innerWidth, checks, ...result }));
+        document.getElementById('result').textContent = btoa(String.fromCharCode(...bytes));
+    };
+    try {
+        await load(101, 1);
+        const adapter = window.__AI_MARKER_ADAPTER__;
+        const originalOpen = XMLHttpRequest.prototype.open;
+        check(adapter?.id === 'willclass' && await adapter.detectMarkingPage(), '会课待阅页识别');
+        check(JSON.stringify(adapter.getScoreInputs().map(unit => [unit.label, unit.maxScore, unit.roundStep]))
+            === JSON.stringify([['13(1)', 2, 0.5], ['13(2)', 4, 0.5]]), '保留题号、满分和半分精度');
+        task.state.isHistory = true;
+        check(adapter.isRegradeMode() && !await adapter.detectMarkingPage(), '已阅回看停用给分');
+        task.state.isHistory = false;
+        panel.props.autoSubmit = 1;
+        check(!adapter.prepareGrading() && clicks === 0, '原站自动提交打开时停在准备阶段');
+        panel.props.autoSubmit = 0;
+        const [source] = await adapter.gatherAnswerImages();
+        const oldId = adapter.getPaperIdentity(), oldTask = adapter.getTaskIdentifier();
+        const original = await adapter.fetchImageAsBase64(source);
+        const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(original), ch => ch.charCodeAt(0))]));
+        check(source === file(1) && bitmap.width === 640 && bitmap.height === 320, '画布视口较小时读取完整原图');
+        bitmap.close();
+        check(!adapter.fillScores([3, 3.5]) && !adapter.fillScores([0, 2])
+            && !adapter.fillScores([0.25, 3.5]) && inputs.every(input => input.value === ''), '校验满分、步长和限定分值');
+        check(adapter.fillScores([0, 3.5]) && panel.allScore[0] === 0 && panel.allScore[1] === 3.5 && !clicks,
+            '输入事件同步原站给分，零分和半分可核对');
+        check(!await adapter.submitGrade({ verify: () => { task.state.questionIds = [403]; } }) && !clicks,
+            '提交前切题时停止');
+        task.state.questionIds = [401, 402];
+        check(adapter.fillScores([0, 3.5]) && await adapter.submitGrade() && clicks === 1
+            && XMLHttpRequest.prototype.open === originalOpen, '经原站按钮提交并校验业务回执');
+        check(!adapter.getPaperIdentity(), '答卷切换时等待原图同步');
+        task.state.judgeProgressVisible = true;
+        task.state.endType = 2;
+        check(adapter.isGradingTaskComplete() && !await adapter.waitForNextPaper(source), '原站确认任务结束后停止等卷');
+        task.state.judgeProgressVisible = false;
+        check(await adapter.waitForNextPaper(source, { paperId: oldId, taskId: oldTask })
+            && adapter.getPaperIdentity() !== oldId && adapter.getTaskIdentifier() === oldTask,
+            '新卷图片加载后继续同一题');
+        check(!adapter.fillScores([0, 3.5]), '旧答卷分数不能填入新卷');
+        check((await adapter.gatherAnswerImages())[0] === file(2) && adapter.fillScores([0.5, 0])
+            && !await adapter.submitGrade() && clicks === 2 && !await adapter.submitGrade(),
+            '平台业务失败后不重复提交');
+        finish({ passed: true });
+    } catch (error) { finish({ passed: false, error: error.stack }); }
+})();
+</script>
