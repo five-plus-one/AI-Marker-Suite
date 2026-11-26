@@ -196,7 +196,8 @@ const LeascentAdapter = {
         const w = this._page(), q = w?.CurrQuestion;
         return w === p.w && q === p.q && w.CurrPaper === p.p && this.getTaskIdentifier() === p.task
             && !this.isRegradeMode() && q.TestId === p.p.TestID && q.QuesID === p.p.QuesID
-            && q.MarkType === 0 && this._scoresFilled(p, p.values);
+            && q.MarkType === 0 && Array.isArray(q.MyScore) && q.MyScore.length === p.values.length
+            && q.MyScore.every((v, i) => v === p.values[i]);
     },
     _savedMark(data) { return data?.Code === 0; },
     async submitGrade(guard = {}) {
