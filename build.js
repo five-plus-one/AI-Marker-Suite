@@ -246,6 +246,7 @@ const BUILD_CONFIGS = [
                 '*://wyna.onlyets.com/*',
                 '*://zy.iclass30.com/*',
                 '*://*/AMEQP/Webroot/mar/*',
+                '*://*/ameqp/Webroot/mar/*',
                 '*://*/biluo/*',
                 '*://zp.kaow.cn/*',
                 '*://*.timesphoenix.com/*',
