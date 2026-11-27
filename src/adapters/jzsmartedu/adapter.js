@@ -2,7 +2,7 @@
 const JzsmarteduAdapter = {
     name: '焦作精准教学',
     id: 'jzsmartedu',
-    urlPatterns: ['https://jzjx.jzsmartedu.cn/dnpc/*'],
+    urlPatterns: ['*://jzjx.jzsmartedu.cn/dnpc/*'],
     iconUrl: '',
 
     _application() {

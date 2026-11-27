@@ -1,7 +1,7 @@
 const EiduoAdapter = {
     name: '爱多分',
     id: 'eiduo',
-    urlPatterns: ['https://ui.eiduo.com/exam-webapp/*'],
+    urlPatterns: ['*://ui.eiduo.com/exam-webapp/*'],
 
     shouldInitialize() {
         const { hostname, protocol, pathname } = window.location;

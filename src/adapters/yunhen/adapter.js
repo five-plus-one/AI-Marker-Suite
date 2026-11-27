@@ -1,4 +1,5 @@
-const YUNHEN_ORIGIN = 'https://ercdmark.eduyunhen.com';
+const YUNHEN_HOST = 'ercdmark.eduyunhen.com';
+const YUNHEN_ORIGIN = `https://${YUNHEN_HOST}`;
 const YUNHEN_READ = /^\/exam\/marking\/readPaper\/(\d+)(?:\/\d+){4}\/?$/;
 const YUNHEN_SAVE_ORIGIN = 'https://apis.eduyunhen.com';
 const YUNHEN_SAVE_PATH = '/marking-main/exam/grad/read_over';
@@ -8,7 +9,7 @@ const YunhenAdapter = {
     name: '云痕大数据',
     id: 'yunhen',
     iconUrl: '',
-    urlPatterns: [`${YUNHEN_ORIGIN}/*`],
+    urlPatterns: [`*://${YUNHEN_HOST}/*`],
 
     shouldInitialize() { return window.location.origin === YUNHEN_ORIGIN; },
     _page() { return typeof unsafeWindow === 'undefined' ? window : unsafeWindow; },

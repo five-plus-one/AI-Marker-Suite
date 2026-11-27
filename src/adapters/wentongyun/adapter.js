@@ -1,7 +1,7 @@
 // 文通云：单题、单份、一键给分。分数按钮直接提交，因此填分阶段只暂存。
 const WentongyunAdapter = {
     name: '文通云', id: 'wentongyun', iconUrl: '',
-    urlPatterns: ['https://www.wtjy.com/*', 'https://wtjy.com/*'],
+    urlPatterns: ['*://www.wtjy.com/*', '*://wtjy.com/*'],
     _application() {
         return ['www.wtjy.com', 'wtjy.com'].includes(window.location.hostname)
             && /^https:\/\//.test(window.location.href)

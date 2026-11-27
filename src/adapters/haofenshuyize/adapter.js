@@ -5,7 +5,7 @@
 const HaofenshuyizeAdapter = {
     name: '云阅卷(好分数)',
     id: 'haofenshuyize',
-    urlPatterns: ['https://haofenshuyize.com/*'],
+    urlPatterns: ['*://haofenshuyize.com/*'],
     iconUrl: '',
 
     shouldInitialize() {

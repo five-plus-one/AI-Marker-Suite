@@ -1,7 +1,7 @@
 // 小闲 AI：原生任务与答卷绑定，独立解码题块原图，保存历史确认后继续。
 const XiaoxianaiAdapter = {
     name: '小闲 AI 网上阅卷', id: 'xiaoxianai', iconUrl: '',
-    urlPatterns: ['https://ls.xiaoxianai.cn/webPaper*'],
+    urlPatterns: ['*://ls.xiaoxianai.cn/webPaper*'],
     shouldInitialize() {
         return window.location.hostname === 'ls.xiaoxianai.cn'
             && /^\/webPaper(?:\/|$)/.test(window.location.pathname);
