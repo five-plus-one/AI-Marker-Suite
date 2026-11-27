@@ -45,7 +45,7 @@ const RuiyaAdapter = {
     id: 'ruiya',
     urlPatterns: ['*://ruiya.onlyets.com/*', '*://*.yuejuan51.com/*', '*://yuejuan51.com/*',
         '*://*.yuejuantong.com/*', '*://yuejuantong.com/*',
-        'https://www.bfzks.com/*', 'https://bfzks.com/*'],
+        '*://www.bfzks.com/*', '*://bfzks.com/*'],
     iconUrl: '',
 
     // ---------- 宿主判定 ----------

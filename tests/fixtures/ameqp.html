@@ -14,6 +14,7 @@ sessionStorage.clear();
 const mode=new URLSearchParams(location.search).get('mode');
 const initialImage=document.querySelector('.ansImg');
 const directMode=mode.startsWith('fill-');
+const soleRegistration=mode==='fill-single';
 const directScores=[3,4,2];
 if(directMode){
  document.querySelectorAll('fieldset')[1].remove();
@@ -21,6 +22,12 @@ if(directMode){
  document.querySelector('.mark_tbx').setAttribute('maxsco','5.0');
  document.querySelector('#Mark_scoList_1_1').innerHTML=directScores.map(score=>
   `<span class="sco_list" value="${score.toFixed(1)}">${score}</span>`).join('');
+}
+if(soleRegistration){
+ const field=document.querySelector('.mark_tbx');
+ field.id=field.name='scoreBox';
+ document.querySelector('#MarQueSubSco_1_1').id='MarQueSubSco_main';
+ document.querySelectorAll('#queVal,#queVal_old').forEach(field=>field.remove());
 }
 function imageResource(id,index=0){
  if(mode==='unknown')return '/answers/scan_'+id+'_00_1_0.svg';
@@ -75,7 +82,7 @@ document.getElementById('btn_submit').onclick=()=>{
  const expected=directMode?[directScores[effects.submits.length].toFixed(1)]:['0.0','2.5'];
  const total=String(expected.reduce((sum,score)=>sum+Number(score),0));
  if(scores.join(',')!==expected.join(',')||scores.join(',')!==hidden.join(',')
-    ||document.getElementById('queVal').value!==total||document.getElementById('queVal_old').value!==total)
+    ||(!soleRegistration&&(document.getElementById('queVal').value!==total||document.getElementById('queVal_old').value!==total)))
   throw Error('native score registration mismatch');
  effects.submits.push({paper:document.querySelector('.ansImg').src.split('/').pop(),scores});
  const next=()=>showPaper(1001+effects.submits.length);

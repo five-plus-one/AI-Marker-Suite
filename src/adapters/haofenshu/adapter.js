@@ -18,7 +18,7 @@
 const HaofenshuAdapter = {
     name: '好分数',
     id: 'haofenshu',
-    urlPatterns: ['https://yue.haofenshu.com/minions/*'],
+    urlPatterns: ['*://yue.haofenshu.com/minions/*'],
     iconUrl: 'https://yue.haofenshu.com/favicon.ico',
 
     shouldInitialize() {

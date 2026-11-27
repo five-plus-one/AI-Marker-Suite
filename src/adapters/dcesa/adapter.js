@@ -6,7 +6,7 @@ const DcesaAdapter = {
     name: '教学质量监测管理系统',
     id: 'dcesa',
     iconUrl: 'https://dcesa.cn/static/img/small_logo.png',
-    urlPatterns: ['https://dcesa.cn/*'],
+    urlPatterns: ['*://dcesa.cn/*'],
 
     shouldInitialize() {
         const { protocol, hostname, pathname } = window.location;

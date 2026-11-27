@@ -136,7 +136,7 @@ function observeZhixueDialogs(report) {
 const ZhixueAdapter = {
     name: '智学网',
     id: 'zhixue',
-    urlPatterns: ['https://www.zhixue.com/*', 'https://zhixue.com/*', 'https://*.zhixue.com/*'],
+    urlPatterns: ['*://www.zhixue.com/*', '*://zhixue.com/*', '*://*.zhixue.com/*'],
     iconUrl: 'https://www.zhixue.com/favicon.ico',
 
     // 辅助方法：检测当前是否为新版UI

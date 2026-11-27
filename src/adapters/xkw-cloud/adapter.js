@@ -5,7 +5,7 @@ const XkwCloudAdapter = {
     name: '学科网云阅卷',
     id: 'xkw-cloud',
     iconUrl: '',
-    urlPatterns: [`https://xycp.xkw.com${XKW_CLOUD_PATH}*`],
+    urlPatterns: [`*://xycp.xkw.com${XKW_CLOUD_PATH}*`],
 
     _window() { return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window; },
     _store() { return this._window().document.querySelector('#app')?.__vue_app__?.config.globalProperties.$store; },

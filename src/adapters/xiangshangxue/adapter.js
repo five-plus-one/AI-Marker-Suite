@@ -1,7 +1,7 @@
 // 享尚学阅卷：沿用原生取图、给分与保存流程。
 const XiangshangxueAdapter = {
     id: 'xiangshangxue', name: '享尚学阅卷', iconUrl: '',
-    urlPatterns: ['https://xinluolk.fjjxhl.com/lypaper/Base/lyReadPaper.aspx*'],
+    urlPatterns: ['*://xinluolk.fjjxhl.com/lypaper/Base/lyReadPaper.aspx*'],
     shouldInitialize() {
         return window.location.hostname === 'xinluolk.fjjxhl.com'
             && window.location.pathname === '/lypaper/Base/lyReadPaper.aspx';

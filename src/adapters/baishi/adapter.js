@@ -2,7 +2,7 @@ const BaishiAdapter = {
     name: '百师联盟',
     id: 'baishi',
     iconUrl: '',
-    urlPatterns: ['https://ebs.bsedu.com/*'],
+    urlPatterns: ['*://ebs.bsedu.com/*'],
 
     shouldInitialize() { return window.location.hostname === 'ebs.bsedu.com'; },
     _window() { return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window; },
