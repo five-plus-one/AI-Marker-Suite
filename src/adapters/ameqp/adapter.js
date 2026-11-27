@@ -107,8 +107,15 @@ const AmeqpAdapter = {
         return isFinite(num) ? num.toFixed(1) : String(v);
     },
 
-    _registeredScore(questionId) {
-        return questionId ? document.querySelector(`#${AMEQP_SELECTORS.SUB_SCORE_HIDDEN}${questionId}`) : null;
+    _registeredScore({ element, questionId }, singleScore) {
+        const prefix = AMEQP_SELECTORS.SUB_SCORE_HIDDEN;
+        if (questionId) return document.querySelector(`#${prefix}${questionId}`);
+        if (!singleScore) return null;
+
+        // 单评分项部署可使用不同的输入框名称。仅在页面上存在唯一同表单的记分字段时配对。
+        const [field, additionalField] = document.querySelectorAll(`[id*="${prefix}" i]`);
+        return !additionalField && field?.matches('input[type="hidden"]')
+            && !field.disabled && field.form === element.form ? field : null;
     },
 
     // 把 img 在 .img_box 视口内的可视区域裁成 dataURL（题块图，而非整张答题卡）
@@ -310,7 +317,8 @@ const AmeqpAdapter = {
     fillScores(scores) {
         this._pendingScores = null;
         if (this._submitting) return false;
-        const inputs = this.getScoreInputs().map(unit => ({ ...unit, registered: this._registeredScore(unit.questionId) }));
+        const units = this.getScoreInputs();
+        const inputs = units.map(unit => ({ ...unit, registered: this._registeredScore(unit, units.length === 1) }));
         const identity = this.getPaperIdentity();
         const task = this.getTaskIdentifier();
         const scoresValid = this._validScores(scores, inputs);
@@ -328,7 +336,7 @@ const AmeqpAdapter = {
             const value = this._fmt(scores[index]);
             setValue.call(element, value);
             setValue.call(registered, value);
-            const message = document.querySelector(`#${AMEQP_SELECTORS.SCORE_MSG}${questionId}`);
+            const message = questionId && document.querySelector(`#${AMEQP_SELECTORS.SCORE_MSG}${questionId}`);
             if (message) message.style.display = 'none';
         });
         const total = String(Math.round(scores.reduce((sum, score) => sum + score, 0) * 10) / 10);
@@ -359,7 +367,7 @@ const AmeqpAdapter = {
         return !!pending && this.getPaperIdentity() === pending.identity && this.getTaskIdentifier() === pending.task
             && this._validScores(pending.scores, inputs) && inputs.length === pending.inputs.length
             && inputs.every((unit, i) => {
-                const hidden = this._registeredScore(unit.questionId);
+                const hidden = this._registeredScore(unit, inputs.length === 1);
                 return unit.element === pending.inputs[i].element && unit.maxScore === pending.inputs[i].maxScore
                     && unit.questionId === pending.inputs[i].questionId
                     && !unit.element.disabled && !unit.element.readOnly

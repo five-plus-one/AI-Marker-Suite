@@ -60,7 +60,7 @@ async function connect(url) {
         const fixtures = ['embedded-ui', 'diagnostic-export', 'workflow', 'api-endpoints', 'renderer', 'bundle', 'output-mode', 'subscore', 'xinkao-cloud', 'xinkao-campus', 'xinkao-intranet', 'xinkao-public', 'qiwang', 'yunhen', 'willclass', 'qitian', 'taowei', 'yuejuantong', 'bfzks', 'baishi', 'xkw-cloud', 'eiduo', 'dcesa', 'review-evidence', 'question-guard', 'startup', 'startup-registration', 'startup-navigation', 'qiguang',
             'qiguang-original-deployment', 'qiguang-public-deployment', 'qiguang-private-deployment', 'qiguang-domain-deployment',
             'qiguang-late-deployment', 'qiguang-module-negative', 'qiguang-form-negative', 'ameqp-fast', 'ameqp-slow',
-            'ameqp-multi', 'ameqp-fill-palette', 'ameqp-fill-keyboard', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
+            'ameqp-multi', 'ameqp-fill-palette', 'ameqp-fill-keyboard', 'ameqp-fill-single', 'ameqp-unknown', 'ameqp-prefixed', 'ameqp-query', 'ameqp-unknown-multi', 'ameqp-mixed', 'qiguang-zhenxue-deployment',
             'qiguang-zhenxue-late', 'qiguang-zhenxue-module-negative',
             'jzsmartedu-ready', 'jzsmartedu-scoreboard', 'jzsmartedu-late', 'jzsmartedu-spa', 'jzsmartedu-foreign-route',
             'jiukexing-ready', 'jiukexing-multi', 'jiukexing-late', 'jiukexing-spa', 'zhixue', 'zhixue-homework',
@@ -280,7 +280,7 @@ async function connect(url) {
                         .replace('data-main="examOnlineOrc.js"', 'data-main="other.js"')
                         .replace('data-requiremodule="examOnlineOrc"', 'data-requiremodule="other"');
                     type = 'text/html; charset=utf-8'; status = 200;
-                } else if (url.pathname === '/AMEQP/Webroot/mar/mar_mark.aspx') {
+                } else if (/^\/ameqp\/Webroot\/mar\/mar_mark\.aspx$/i.test(url.pathname)) {
                     body = ameqpHtml; type = 'text/html; charset=utf-8'; status = 200;
                 } else if (/^\/answers\/(?:\d+|scan_\d+)_\d+_\d+_\d+\.svg$/.test(url.pathname)
                     || /^\/answers\/生物地理_\d+\.svg$/.test(decodeURIComponent(url.pathname)) || url.pathname === '/answers/image.ashx') {
@@ -369,7 +369,10 @@ async function connect(url) {
                     : fixture === 'qiguang-module-negative' || fixture === 'qiguang-zhenxue-module-negative' ? 'foreign-main'
                     : fixture === 'qiguang-form-negative' ? 'foreign-form' : 'ready';
                 url = origin + '/OraOnlineCheck/OraCheck/Review?run=' + runId + '&mode=' + deploymentMode + '&SubjectId=subject&questionGroupId=group';
-                if (ameqp) url = 'http://10.20.0.8/AMEQP/Webroot/mar/mar_mark.aspx?run=' + runId + '&mode=' + fixture.slice(6);
+                if (ameqp) {
+                    const directory = fixture === 'ameqp-fill-single' ? 'ameqp' : 'AMEQP';
+                    url = `http://10.20.0.8/${directory}/Webroot/mar/mar_mark.aspx?run=${runId}&mode=${fixture.slice(6)}`;
+                }
                 if (jzsmartedu) {
                     const jzMode = fixture.slice(11);
                     const route = jzMode === 'spa' ? '/home' : jzMode === 'foreign-route' ? '/v2/read-paper/question-block' : '/v2/read-paper';

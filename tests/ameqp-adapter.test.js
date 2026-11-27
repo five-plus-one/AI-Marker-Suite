@@ -27,7 +27,8 @@ function fixture(options = {}) {
     const button = { disabled: false, click() { state.clicks++; options.onSubmit?.(state); } };
     const document = {
         querySelectorAll: selector => selector === 'img.ansImg' ? state.images : selector === 'input.mark_tbx' ? state.inputs
-            : selector === 'legend.mark_leg' ? [{ get title() { return state.task; } }] : [],
+            : selector === 'legend.mark_leg' ? [{ get title() { return state.task; } }]
+            : selector === '[id*="MarQueSubSco_" i]' ? state.registrationCandidates || [] : [],
         querySelector(selector) {
             if (selector === '#btn_submit' || selector === 'input#btn_submit.mark_btn') return button;
             if (selector === 'img.ansImg') return state.images[0] || null;
@@ -248,6 +249,54 @@ test('AMEQP 缺登记字段或重复题号时全或无预检', () => {
     assert.ok(f.state.inputs.every(input => input.value === ''));
     const duplicate = fixture(); duplicate.state.inputs[1].name = duplicate.state.inputs[0].name;
     assert.equal(duplicate.adapter.fillScores([1, 2]), false);
+});
+
+function singleScoreFixture() {
+    const f = fixture();
+    f.state.inputs.length = 1;
+    f.state.inputs[0].id = f.state.inputs[0].name = 'scoreBox';
+    const hidden = f.state.hidden['1_1'];
+    hidden.matches = selector => selector === 'input[type="hidden"]';
+    f.state.registrationCandidates = [hidden];
+    return f;
+}
+
+test('AMEQP 单分数框的非标准名称配对唯一记分字段', async () => {
+    const f = singleScoreFixture();
+    assert.equal(f.adapter.fillScores([2.5]), true);
+    assert.equal(f.state.inputs[0].value, '2.5');
+    assert.equal(f.state.hidden['1_1'].value, '2.5');
+    assert.equal(f.state.clicks, 0);
+    assert.equal(await f.adapter.submitGrade(), true);
+    assert.equal(f.state.clicks, 1);
+});
+
+test('AMEQP 单分数框回退要求唯一且同表单的可用隐藏字段', async () => {
+    for (const change of [
+        f => f.state.registrationCandidates.push(f.state.hidden['1_2']),
+        f => f.state.registrationCandidates[0].form = {},
+        f => f.state.registrationCandidates[0].matches = () => false,
+        f => f.state.registrationCandidates[0].disabled = true,
+        f => f.state.inputs.push(f.state.hidden['1_2']),
+    ]) {
+        const f = singleScoreFixture();
+        change(f);
+        assert.equal(f.adapter.fillScores([2.5]), false);
+        assert.equal(f.state.inputs[0].value, '');
+        assert.equal(f.state.hidden['1_1'].value, '');
+        assert.equal(await f.adapter.submitGrade(), false);
+    }
+});
+
+test('AMEQP 单分数框确认提交前复核记分字段的唯一性', async () => {
+    const f = singleScoreFixture();
+    assert.equal(f.adapter.fillScores([2.5]), true);
+    const guard = {
+        isCurrent: () => true,
+        verify: () => f.state.registrationCandidates.push(f.state.hidden['1_2']),
+    };
+    assert.equal(await f.adapter.submitGrade(guard), false);
+    assert.equal(f.state.clicks, 0);
 });
 
 for (const change of ['paper', 'input', 'hidden', 'replacement', 'disabled']) test('AMEQP 提交前变化 ' + change + ' 不重复灌分', async () => {
