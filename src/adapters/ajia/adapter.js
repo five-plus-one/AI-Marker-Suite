@@ -11,7 +11,7 @@
 const AjiaAdapter = {
     name: 'A佳教育',
     id: 'ajia',
-    urlPatterns: ['https://y.ajia.cn/*'],
+    urlPatterns: ['*://y.ajia.cn/*'],
     iconUrl: 'https://y.ajia.cn/favicon.ico',
 
     shouldInitialize() {

@@ -10,7 +10,7 @@
 const AmeqpAdapter = {
     name: 'AMEQP网上评卷',
     id: 'ameqp',
-    urlPatterns: ['*://*/AMEQP/Webroot/mar/*'],
+    urlPatterns: ['*://*/AMEQP/Webroot/mar/*', '*://*/ameqp/Webroot/mar/*'],
     iconUrl: '',
 
     _pendingScores: null,

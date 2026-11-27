@@ -8,7 +8,7 @@ const QiwangAdapter = {
     name: '启望阅卷',
     id: 'qiwang',
     iconUrl: '',
-    urlPatterns: [`https://${QIWANG_HOST}/MarkingOss/NormalReadOssPaper*`],
+    urlPatterns: [`*://${QIWANG_HOST}/MarkingOss/NormalReadOssPaper*`],
 
     shouldInitialize() {
         const { protocol, host, pathname } = window.location;

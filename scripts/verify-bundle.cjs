@@ -5,6 +5,14 @@ const ROOT = path.resolve(__dirname, '..');
 const M = require(path.join(ROOT, 'tests/_adapter-matrix.js'));
 const Q = require(path.join(ROOT, 'tests/_qiguang-signature.js'));
 const bundle = fs.readFileSync(path.join(ROOT, 'dist/ai_marker.user.js'), 'utf8');
+const header = bundle.split('// ==/UserScript==', 1)[0];
+const matchingRules = [...header.matchAll(/^\/\/ @match\s+(\S+)$/gm)].map(([, rule]) => rule);
+if (matchingRules.length === 0 || matchingRules.some(rule => !rule.startsWith('*://'))) {
+    throw new Error('The userscript must use *:// for all @match rules');
+}
+for (const route of ['/AMEQP/Webroot/mar/', '/ameqp/Webroot/mar/']) {
+    if (!matchingRules.includes(`*://*${route}*`)) throw new Error(`Missing AMEQP entry ${route}`);
+}
 const results = [];
 const cases = [...M.ADAPTERS, ...Q.deployments.map(form => ({ dir: 'qiguang', id: 'qiguang', label: form.label, own: form })),
     ...Q.rejections().map(form => ({ dir: 'unknown', label: form.label, own: form })),

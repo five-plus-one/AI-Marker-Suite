@@ -4,7 +4,7 @@ const ZhixueHomeworkAdapter = {
     name: '智学网',
     iconUrl: 'https://www.zhixue.com/favicon.ico',
     scoreDetectionLabel: '读取当前题分值',
-    urlPatterns: ['https://www.zhixue.com/*', 'https://zhixue.com/*', 'https://*.zhixue.com/*'],
+    urlPatterns: ['*://www.zhixue.com/*', '*://zhixue.com/*', '*://*.zhixue.com/*'],
 
     shouldInitialize() {
         if (!/^\/tfbwowbookweb\/?$/i.test(location.pathname)) return false;

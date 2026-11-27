@@ -1,7 +1,7 @@
 // 小乐优阅：原生题块、评分项和答卷绑定，保存响应确认后继续。
 const XiaoleyouyueAdapter = {
     id: 'xiaoleyouyue', name: '小乐优阅', iconUrl: '',
-    urlPatterns: ['https://yy.eduer.co/pages/exam/review/review.aspx*'],
+    urlPatterns: ['*://yy.eduer.co/pages/exam/review/review.aspx*'],
     shouldInitialize() {
         return window.location.hostname === 'yy.eduer.co'
             && window.location.pathname === '/pages/exam/review/review.aspx';

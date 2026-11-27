@@ -1,4 +1,5 @@
-const WILLCLASS_ORIGIN = 'https://t.willclass.com';
+const WILLCLASS_HOST = 't.willclass.com';
+const WILLCLASS_ORIGIN = `https://${WILLCLASS_HOST}`;
 const WILLCLASS_ROUTE = /^\/exams\/judge\/(\d+)\/?$/;
 const WILLCLASS_CANVAS = '.rc_judgeCanvasModule > canvas#jCs.rc_judge_canvas';
 const WILLCLASS_SUBMIT = '/exams/api/web/examCenter/';
@@ -8,7 +9,7 @@ const WillclassAdapter = {
     name: '会课阅卷',
     id: 'willclass',
     iconUrl: '',
-    urlPatterns: [WILLCLASS_ORIGIN + '/exams/judge/*'],
+    urlPatterns: [`*://${WILLCLASS_HOST}/exams/judge/*`],
 
     shouldInitialize() {
         return window.location.origin === WILLCLASS_ORIGIN && WILLCLASS_ROUTE.test(window.location.pathname);
